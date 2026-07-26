@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { evaluateCondition } from '@/lib/domain/condition'
 import { isKiTouchCandidate, kiStatus } from '@/lib/domain/ki'
+import { asActive, isRedeemed } from '@/lib/domain/redemption'
+import type { RedemptionMark } from '@/lib/domain/redemption'
 import { underlyingRatio, worstOf } from '@/lib/domain/worstOf'
 import {
   grossExpected,
@@ -14,6 +16,7 @@ import {
   isPast,
   nextEvaluation,
 } from '@/lib/domain/schedule'
+import { active } from '../fixtures/active'
 import { expectAmount } from '../fixtures/assert'
 
 /** DOC-007 §9 — 도메인 관련 예외 및 경계 처리 */
@@ -42,7 +45,9 @@ describe('E-01: 기초자산 현재가 누락', () => {
   })
 
   it('W = null이면 조건 판정도 null이다', () => {
-    expect(evaluateCondition({ worstOf: null, barrier: '0.9' })).toBeNull()
+    expect(
+      evaluateCondition(active({ worstOf: null, barrier: '0.9' })),
+    ).toBeNull()
   })
 
   it('기준가격이 0 이하면 비율을 산출할 수 없으므로 거부한다', () => {
@@ -53,20 +58,77 @@ describe('E-01: 기초자산 현재가 누락', () => {
   })
 })
 
+describe('E-05: 상환 완료 상품 (DOC-007 §9.1)', () => {
+  const REDEEMED: RedemptionMark = { redemptionDate: '2026-07-15' }
+  const PARAMS = { worstOf: '0.92', barrier: '0.90' }
+
+  it('상환 레코드가 있으면 판정 대상이 아니다 — asActive가 null을 반환한다', () => {
+    expect(asActive(PARAMS, REDEEMED)).toBeNull()
+    expect(isRedeemed(REDEEMED)).toBe(true)
+  })
+
+  it('보유중이면 판정 대상이며 판정이 수행된다', () => {
+    expect(isRedeemed(null)).toBe(false)
+    expect(evaluateCondition(asActive(PARAMS, null))).toBe('EARLY')
+  })
+
+  it('상태를 상환 레코드 존재로만 판단한다 (절대 규칙 #4)', () => {
+    // 상품에 status 컬럼이 없으므로 판정 대상 여부도 레코드 유무로만 결정된다
+    const cases: ReadonlyArray<readonly [RedemptionMark, boolean]> = [
+      [null, true],
+      [{ redemptionDate: '2026-01-01' }, false],
+    ]
+    for (const [redemption, judgeable] of cases) {
+      expect(asActive(PARAMS, redemption) !== null).toBe(judgeable)
+    }
+  })
+
+  it('상환 완료 상품에는 판정 함수를 호출할 수 없다 — 타입 수준 거부', () => {
+    /**
+     * **실행하지 않는다.** 검증은 `npm run typecheck`가 수행한다 —
+     * `@ts-expect-error`가 붙은 줄이 오류를 내지 않으면 tsc가 "unused
+     * directive"로 실패한다.
+     *
+     * 여기에 런타임 단언을 둘 수 없다. 상환 완료 상품의 판정 인자는 보유중
+     * 상품과 값이 동일하고, 구분되는 유일한 신호인 상환 레코드는 `asActive`가
+     * 이미 소비했기 때문이다. 그래서 타입이 유일한 방어선이다.
+     */
+    const rejectedAtCompileTime = () => {
+      // @ts-expect-error — 표식 없는 입력은 조건 판정에 넘길 수 없다
+      evaluateCondition(PARAMS)
+
+      // @ts-expect-error — KI 표시 등급도 보유중 상품에만 정의된다
+      kiStatus({ kiBarrier: '0.5', kiTouchedAt: null, worstOf: '0.92' })
+
+      // @ts-expect-error — 시세 비교이므로 터치 후보 판정도 같다
+      isKiTouchCandidate({ kiBarrier: '0.5', kiTouchedAt: null, worstOf: '0.4' })
+
+      // @ts-expect-error — null 가능성이 남은 값을 그대로 넘길 수 없다
+      evaluateCondition(asActive(PARAMS, REDEEMED as RedemptionMark))
+    }
+
+    expect(rejectedAtCompileTime).toBeTypeOf('function')
+    // 런타임 계약은 asActive의 반환값이다
+    expect(asActive(PARAMS, REDEEMED)).toBeNull()
+  })
+})
+
 describe('E-06: 노낙인 상품 (ki_barrier IS NULL)', () => {
   it('KI 판정을 생략하고 NO_KI를 반환한다', () => {
     expect(
-      kiStatus({ kiBarrier: null, kiTouchedAt: null, worstOf: '0.4' }),
+      kiStatus(active({ kiBarrier: null, kiTouchedAt: null, worstOf: '0.4' })),
     ).toBe('NO_KI')
   })
 
   it('터치 후보로도 표시하지 않는다', () => {
     expect(
-      isKiTouchCandidate({
-        kiBarrier: null,
-        kiTouchedAt: null,
-        worstOf: '0.1',
-      }),
+      isKiTouchCandidate(
+        active({
+          kiBarrier: null,
+          kiTouchedAt: null,
+          worstOf: '0.1',
+        }),
+      ),
     ).toBe(false)
   })
 })
@@ -76,67 +138,83 @@ describe('KI 표시 등급 (DOC-007 §3.4)', () => {
 
   it('터치가 확정되면 시세와 무관하게 KI 터치다', () => {
     expect(
-      kiStatus({
-        kiBarrier: barrier,
-        kiTouchedAt: '2026-03-15',
-        worstOf: '0.99',
-      }),
+      kiStatus(
+        active({
+          kiBarrier: barrier,
+          kiTouchedAt: '2026-03-15',
+          worstOf: '0.99',
+        }),
+      ),
     ).toBe('TOUCHED')
   })
 
   it('W ≤ KI 배리어면 확인 필요(BELOW)다', () => {
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.5' }),
+      kiStatus(active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.5' })),
     ).toBe('BELOW')
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.49' }),
+      kiStatus(
+        active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.49' }),
+      ),
     ).toBe('BELOW')
   })
 
   it('W ≤ KI 배리어 × 1.1이면 주의다', () => {
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.55' }),
+      kiStatus(
+        active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.55' }),
+      ),
     ).toBe('WARNING')
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.51' }),
+      kiStatus(
+        active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.51' }),
+      ),
     ).toBe('WARNING')
   })
 
   it('그 외는 안전이다', () => {
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.56' }),
+      kiStatus(
+        active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.56' }),
+      ),
     ).toBe('SAFE')
   })
 
   it('시세가 없으면 등급도 null이다 (E-01)', () => {
     expect(
-      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: null }),
+      kiStatus(active({ kiBarrier: barrier, kiTouchedAt: null, worstOf: null })),
     ).toBeNull()
   })
 
   it('보조 판정은 하회(W < 배리어)에서만 후보로 본다', () => {
     // 시스템이 ki_touched_at을 확정하지 않는다 (D-04). 후보 표시가 전부다
     expect(
-      isKiTouchCandidate({
-        kiBarrier: barrier,
-        kiTouchedAt: null,
-        worstOf: '0.49',
-      }),
+      isKiTouchCandidate(
+        active({
+          kiBarrier: barrier,
+          kiTouchedAt: null,
+          worstOf: '0.49',
+        }),
+      ),
     ).toBe(true)
     expect(
-      isKiTouchCandidate({
-        kiBarrier: barrier,
-        kiTouchedAt: null,
-        worstOf: '0.5',
-      }),
+      isKiTouchCandidate(
+        active({
+          kiBarrier: barrier,
+          kiTouchedAt: null,
+          worstOf: '0.5',
+        }),
+      ),
     ).toBe(false)
     // 이미 확정된 상품은 후보가 아니다
     expect(
-      isKiTouchCandidate({
-        kiBarrier: barrier,
-        kiTouchedAt: '2026-01-02',
-        worstOf: '0.1',
-      }),
+      isKiTouchCandidate(
+        active({
+          kiBarrier: barrier,
+          kiTouchedAt: '2026-01-02',
+          worstOf: '0.1',
+        }),
+      ),
     ).toBe(false)
   })
 })

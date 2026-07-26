@@ -1,5 +1,6 @@
 import { dec, type DecimalInput } from '@/lib/decimal'
 import { isKiNotTouched } from './ki'
+import type { Active } from './redemption'
 import type { ConditionResult } from './types'
 
 /**
@@ -34,9 +35,12 @@ export type ConditionParams = {
  * 인자 범위가 Q-04(리자드 변형 수용 범위)의 확정 결과다 — 차수별
  * (리자드 배리어 · 리자드 쿠폰율 · KI 미터치 요구) 3속성. 쿠폰율은 판정에
  * 관여하지 않으므로 수령액 산출(`proceeds`)에서만 쓴다.
+ *
+ * **입력은 `asActive`를 거친 값만 받는다**(E-05, §9.1). 상환 완료 상품에서는
+ * `asActive`가 `null`을 반환하므로 이 함수에 넘길 값이 존재하지 않는다.
  */
 export function evaluateCondition(
-  params: ConditionParams,
+  params: Active<ConditionParams>,
 ): ConditionResult | null {
   // E-01 — 판정 보류. 기본값을 대입하지 않는다
   if (params.worstOf == null) return null

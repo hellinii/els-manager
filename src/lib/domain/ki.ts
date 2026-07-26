@@ -1,4 +1,5 @@
 import { dec, type DecimalInput } from '@/lib/decimal'
+import type { Active } from './redemption'
 import type { KiStatus } from './types'
 
 /**
@@ -32,9 +33,13 @@ export type KiParams = {
  *
  * 판정 순서는 노낙인 → 터치 확정 → 시세 유무 → 비율 구간이다. 노낙인을 먼저
  * 보는 이유는 §3.4가 `ki_barrier IS NULL`을 KI 미설정의 정의로 두기 때문이다.
+ *
+ * **입력은 `asActive`를 거친 값만 받는다**(E-05, §9.1). 상환이 끝난 상품의 KI
+ * 등급은 의미가 없다 — 손익은 상환 실적으로 확정되었고, 이후의 시세 변동은
+ * 그 상품과 무관하다.
  */
 export function kiStatus(
-  params: KiParams & { warningMultiplier?: DecimalInput },
+  params: Active<KiParams & { warningMultiplier?: DecimalInput }>,
 ): KiStatus | null {
   // E-06 — 노낙인 상품은 KI 판정을 생략한다
   if (params.kiBarrier == null) return 'NO_KI'
@@ -65,8 +70,10 @@ export function kiStatus(
  *
  * 터치는 배리어를 "하회"하는 사건이므로 등호를 포함하지 않는다. 표시 등급의
  * `BELOW`(`W ≤ 배리어`)보다 좁은 조건이다.
+ *
+ * 시세 비교이므로 보유중 상품에만 정의된다(E-05, §9.1).
  */
-export function isKiTouchCandidate(params: KiParams): boolean {
+export function isKiTouchCandidate(params: Active<KiParams>): boolean {
   if (params.kiBarrier == null) return false
   if (params.kiTouchedAt != null) return false
   if (params.worstOf == null) return false

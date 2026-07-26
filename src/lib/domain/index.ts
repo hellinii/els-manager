@@ -15,6 +15,13 @@ export type {
 
 export { underlyingRatio, worstOf, type UnderlyingPrice } from './worstOf'
 
+export {
+  asActive,
+  isRedeemed,
+  type Active,
+  type RedemptionMark,
+} from './redemption'
+
 export { isKiNotTouched, isKiTouchCandidate, kiStatus, type KiParams } from './ki'
 
 export { evaluateCondition, type ConditionParams } from './condition'
