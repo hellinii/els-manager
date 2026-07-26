@@ -54,6 +54,21 @@ alter table public.tax_constants          enable row level security;
 --
 -- service_role은 RLS를 우회하지만 테이블 권한은 별개다. 시세 배치(§6.2)가
 -- 사용자 세션 없이 도는 유일한 경로이므로 전 권한을 부여한다.
+--
+-- ★ 아래 revoke 블록을 후속 마이그레이션에서 다시 실행하면 안 된다.
+--
+--   revoke all 은 테이블 단위 권한만이 아니라 **열 단위 GRANT 도 함께
+--   지운다**(실측). 지금 열 단위 GRANT 는 users.display_name 하나뿐이지만,
+--   그것이 사라지면 SCR-502 의 표시명 수정이 42501 로 막히고 원인이
+--   드러나는 자리와 실패하는 자리가 멀어진다. 권한을 다시 정리해야 하면
+--   회수 대상을 명시하고 필요한 GRANT 를 그 자리에서 다시 부여한다.
+--
+-- ★ alter default privileges 는 anon 에만 적용한다 — 였다.
+--
+--   20260726193115 가 authenticated 에도 적용한다. 이 회수를 빠뜨린 결과
+--   신규 테이블에서 authenticated 가 TRUNCATE 를 자동으로 받았고, RLS 는
+--   TRUNCATE 에 적용되지 않으므로 DOC-010 §7.1 의 규약을 지켜도 막히지
+--   않았다. 새 롤을 도입하면 여기와 그 파일을 함께 갱신한다.
 -- ---------------------------------------------------------------------------
 revoke all on all tables    in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { actingAs, asOwner } from './helpers/client'
 import { RLS_TABLES, USER_A, USER_B } from './helpers/fixtures'
 import { seedTaxProfile } from './helpers/seed'
+import {
+  COLUMN_UPDATE_PRIVILEGES,
+  DML_PRIVILEGES,
+  TABLE_PRIVILEGES,
+} from './helpers/authz-matrix'
 
 /**
  * 하네스 자기검사 + 카탈로그 — DOC-010 §7
@@ -126,5 +131,120 @@ describe('카탈로그 — 정책 누락을 구조적으로 막는다', () => {
       [readOnly],
     )
     expect(grants.rows).toEqual([])
+  })
+})
+
+/**
+ * 권한 매트릭스 — DOC-010 v0.3 §7 표 ↔ 실제 GRANT
+ *
+ * **열거 대상은 매트릭스의 키가 아니라 카탈로그(`pg_class`)다.** 매트릭스를
+ * 순회하면 매트릭스에 없는 신규 테이블이 순회 대상에서 빠지고, TRUNCATE 유입을
+ * 잡으라고 만든 검사가 정확히 그 케이스를 놓친다.
+ */
+describe('권한 매트릭스 — §7 표가 실제 GRANT와 일치한다', () => {
+  /** 카탈로그의 public 실테이블 */
+  async function catalogTables(): Promise<string[]> {
+    const result = await asOwner<{ relname: string }>(
+      `select c.relname
+         from pg_class c
+        where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+        order by c.relname`,
+    )
+    return result.rows.map((r) => r.relname)
+  }
+
+  it('카탈로그의 테이블 집합과 매트릭스의 키 집합이 양방향 일치한다', async () => {
+    // 양방향이어야 신규 테이블 추가 시 여기서 먼저 빨간불이 뜬다.
+    // 한쪽 방향만 보면 매트릭스에 없는 테이블이 조용히 검사 밖에 남는다
+    expect(await catalogTables()).toEqual(Object.keys(TABLE_PRIVILEGES).sort())
+  })
+
+  it('각 테이블의 authenticated 테이블 단위 권한이 매트릭스와 정확히 일치한다', async () => {
+    const grants = await asOwner<{ table_name: string; privilege_type: string }>(
+      `select distinct table_name, privilege_type
+         from information_schema.role_table_grants
+        where grantee = 'authenticated' and table_schema = 'public'`,
+    )
+
+    const actual = new Map<string, string[]>()
+    for (const table of await catalogTables()) actual.set(table, [])
+    for (const row of grants.rows) actual.get(row.table_name)?.push(row.privilege_type)
+
+    const normalized = Object.fromEntries(
+      [...actual].map(([table, privileges]) => [table, [...privileges].sort()]),
+    )
+    const expected = Object.fromEntries(
+      Object.entries(TABLE_PRIVILEGES).map(([table, privileges]) => [
+        table,
+        [...privileges].sort(),
+      ]),
+    )
+
+    expect(normalized).toEqual(expected)
+  })
+
+  it('전 테이블에서 authenticated 권한이 DML 넷의 부분집합이다', async () => {
+    // §7.1의 사고를 직접 겨냥한다. 위 단언이 화이트리스트라면 이것은
+    // 블랙리스트다 — TRUNCATE·REFERENCES·TRIGGER·MAINTAIN 유입을 잡는다.
+    // TRUNCATE는 RLS 적용 대상이 아니므로 권한 층에서만 막힌다
+    const leaked = await asOwner<{ relname: string; privilege_type: string }>(
+      `select c.relname, a.privilege_type
+         from pg_class c
+         cross join lateral aclexplode(c.relacl) a
+        where c.relnamespace = 'public'::regnamespace and c.relkind = 'r'
+          and a.grantee = 'authenticated'::regrole
+          and a.privilege_type <> all($1)
+        order by c.relname, a.privilege_type`,
+      [DML_PRIVILEGES],
+    )
+    expect(leaked.rows).toEqual([])
+  })
+
+  it('열 단위 UPDATE가 매트릭스와 정확히 일치한다', async () => {
+    // pg_attribute.attacl 은 명시적 열 GRANT 만 담는다.
+    // information_schema.column_privileges 는 테이블 권한을 전 열로 펼쳐서
+    // 보여주므로 "열 단위로만 부여됨"을 표현하지 못한다
+    const granted = await asOwner<{
+      relname: string
+      attname: string
+      privilege_type: string
+    }>(
+      `select c.relname, at.attname, a.privilege_type
+         from pg_attribute at
+         join pg_class c on c.oid = at.attrelid
+         cross join lateral aclexplode(at.attacl) a
+        where c.relnamespace = 'public'::regnamespace
+          and at.attacl is not null
+          and a.grantee = 'authenticated'::regrole
+        order by c.relname, at.attname, a.privilege_type`,
+    )
+
+    const expected = Object.entries(COLUMN_UPDATE_PRIVILEGES).flatMap(
+      ([relname, columns]) =>
+        columns.map((attname) => ({ relname, attname, privilege_type: 'UPDATE' })),
+    )
+    expect(granted.rows).toEqual(expected)
+  })
+
+  it('신규 객체 기본 권한에 anon·authenticated가 없다', async () => {
+    // 마이그레이션의 alter default privileges 회수를 검증한다. 이 단언이
+    // 없으면 플랫폼이 기본값을 재시딩할 때 TRUNCATE 구멍이 신호 없이 돌아온다
+    const defaults = await asOwner<{
+      objtype: string
+      grantee: string
+      privilege_type: string
+    }>(
+      `select d.defaclobjtype as objtype,
+              a.grantee::regrole::text as grantee,
+              a.privilege_type
+         from pg_default_acl d
+         cross join lateral aclexplode(d.defaclacl) a
+        where d.defaclnamespace = 'public'::regnamespace
+          and d.defaclrole = 'postgres'::regrole
+          and d.defaclobjtype in ('r', 'S')
+          and a.grantee::regrole::text in ('anon', 'authenticated')
+        order by d.defaclobjtype, a.grantee, a.privilege_type`,
+    )
+    expect(defaults.rows).toEqual([])
   })
 })
