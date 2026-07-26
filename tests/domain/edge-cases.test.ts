@@ -1,0 +1,429 @@
+import { describe, expect, it } from 'vitest'
+import { evaluateCondition } from '@/lib/domain/condition'
+import { isKiTouchCandidate, kiStatus } from '@/lib/domain/ki'
+import { underlyingRatio, worstOf } from '@/lib/domain/worstOf'
+import {
+  grossExpected,
+  realizedPnl,
+  taxableIncome,
+} from '@/lib/domain/proceeds'
+import {
+  attributionYear,
+  dDay,
+  generateEvaluationDates,
+  isPast,
+  nextEvaluation,
+} from '@/lib/domain/schedule'
+import { expectAmount } from '../fixtures/assert'
+
+/** DOC-007 §9 — 도메인 관련 예외 및 경계 처리 */
+
+describe('E-01: 기초자산 현재가 누락', () => {
+  it('하나라도 없으면 W = null이다. 기본값을 대입하지 않는다', () => {
+    expect(
+      worstOf([
+        { basePrice: '100', currentPrice: '95' },
+        { basePrice: '200', currentPrice: null },
+      ]),
+    ).toBeNull()
+  })
+
+  it('전부 없으면 W = null이다', () => {
+    expect(
+      worstOf([
+        { basePrice: '100', currentPrice: null },
+        { basePrice: '200', currentPrice: null },
+      ]),
+    ).toBeNull()
+  })
+
+  it('기초자산이 없으면 W = null이다', () => {
+    expect(worstOf([])).toBeNull()
+  })
+
+  it('W = null이면 조건 판정도 null이다', () => {
+    expect(evaluateCondition({ worstOf: null, barrier: '0.9' })).toBeNull()
+  })
+
+  it('기준가격이 0 이하면 비율을 산출할 수 없으므로 거부한다', () => {
+    expect(() => underlyingRatio('0', '95')).toThrow()
+    expect(() =>
+      worstOf([{ basePrice: '0', currentPrice: '95' }]),
+    ).toThrow()
+  })
+})
+
+describe('E-06: 노낙인 상품 (ki_barrier IS NULL)', () => {
+  it('KI 판정을 생략하고 NO_KI를 반환한다', () => {
+    expect(
+      kiStatus({ kiBarrier: null, kiTouchedAt: null, worstOf: '0.4' }),
+    ).toBe('NO_KI')
+  })
+
+  it('터치 후보로도 표시하지 않는다', () => {
+    expect(
+      isKiTouchCandidate({
+        kiBarrier: null,
+        kiTouchedAt: null,
+        worstOf: '0.1',
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('KI 표시 등급 (DOC-007 §3.4)', () => {
+  const barrier = '0.5'
+
+  it('터치가 확정되면 시세와 무관하게 KI 터치다', () => {
+    expect(
+      kiStatus({
+        kiBarrier: barrier,
+        kiTouchedAt: '2026-03-15',
+        worstOf: '0.99',
+      }),
+    ).toBe('TOUCHED')
+  })
+
+  it('W ≤ KI 배리어면 확인 필요(BELOW)다', () => {
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.5' }),
+    ).toBe('BELOW')
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.49' }),
+    ).toBe('BELOW')
+  })
+
+  it('W ≤ KI 배리어 × 1.1이면 주의다', () => {
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.55' }),
+    ).toBe('WARNING')
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.51' }),
+    ).toBe('WARNING')
+  })
+
+  it('그 외는 안전이다', () => {
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: '0.56' }),
+    ).toBe('SAFE')
+  })
+
+  it('시세가 없으면 등급도 null이다 (E-01)', () => {
+    expect(
+      kiStatus({ kiBarrier: barrier, kiTouchedAt: null, worstOf: null }),
+    ).toBeNull()
+  })
+
+  it('보조 판정은 하회(W < 배리어)에서만 후보로 본다', () => {
+    // 시스템이 ki_touched_at을 확정하지 않는다 (D-04). 후보 표시가 전부다
+    expect(
+      isKiTouchCandidate({
+        kiBarrier: barrier,
+        kiTouchedAt: null,
+        worstOf: '0.49',
+      }),
+    ).toBe(true)
+    expect(
+      isKiTouchCandidate({
+        kiBarrier: barrier,
+        kiTouchedAt: null,
+        worstOf: '0.5',
+      }),
+    ).toBe(false)
+    // 이미 확정된 상품은 후보가 아니다
+    expect(
+      isKiTouchCandidate({
+        kiBarrier: barrier,
+        kiTouchedAt: '2026-01-02',
+        worstOf: '0.1',
+      }),
+    ).toBe(false)
+  })
+})
+
+describe('예상 수령액 (DOC-007 §4.1)', () => {
+  it('P × (1 + r × (m × n) / 12)', () => {
+    // 1억, 연 6%, 6개월 주기, 1차 → 1억 × (1 + 0.06 × 0.5) = 103,000,000
+    expectAmount(
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0.06',
+        evaluationPeriodMonths: 6,
+        roundNo: 1,
+      }),
+      '103000000',
+    )
+
+    // 3차 → 1억 × (1 + 0.06 × 18/12) = 109,000,000
+    expectAmount(
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0.06',
+        evaluationPeriodMonths: 6,
+        roundNo: 3,
+      }),
+      '109000000',
+    )
+  })
+
+  it('리자드 쿠폰율을 주입하면 축소된 수령액이 나온다', () => {
+    // 리자드 쿠폰 2% → 1억 × (1 + 0.02 × 0.5) = 101,000,000
+    expectAmount(
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0.02',
+        evaluationPeriodMonths: 6,
+        roundNo: 1,
+      }),
+      '101000000',
+    )
+  })
+
+  it('쿠폰율 0이면 원금만 상환된다 — Q-04의 원금상환형 리자드', () => {
+    expectAmount(
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0',
+        evaluationPeriodMonths: 6,
+        roundNo: 2,
+      }),
+      '100000000',
+    )
+  })
+
+  it('차수·개월수는 양의 정수여야 한다', () => {
+    expect(() =>
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0.06',
+        evaluationPeriodMonths: 6,
+        roundNo: 0,
+      }),
+    ).toThrow()
+    expect(() =>
+      grossExpected({
+        principal: '100000000',
+        couponRate: '0.06',
+        evaluationPeriodMonths: 6.5,
+        roundNo: 1,
+      }),
+    ).toThrow()
+  })
+})
+
+describe('과세 금융소득 (DOC-007 §4.3, E-08)', () => {
+  it('미상환은 max(0, 예상 수령액 − 원금)이다', () => {
+    expectAmount(
+      taxableIncome({
+        accountType: 'GENERAL',
+        principal: '100000000',
+        expectedGross: '103000000',
+      }),
+      '3000000',
+    )
+  })
+
+  it('E-08: 손실 상환의 과세소득은 0이며 음수가 되지 않는다', () => {
+    expectAmount(
+      taxableIncome({
+        accountType: 'GENERAL',
+        principal: '100000000',
+        expectedGross: '90000000',
+      }),
+      '0',
+    )
+
+    // 저장값이 음수로 들어와도 0으로 막는다 (절대 규칙 #8)
+    expectAmount(
+      taxableIncome({
+        accountType: 'GENERAL',
+        principal: '100000000',
+        redemption: { taxableIncome: '-5000000' },
+      }),
+      '0',
+    )
+  })
+
+  it('상환 완료는 증권사 확정값을 쓰고 추정값으로 대체하지 않는다 (A-04)', () => {
+    // 예상 수령액을 함께 넘겨도 저장값이 우선한다
+    expectAmount(
+      taxableIncome({
+        accountType: 'GENERAL',
+        principal: '100000000',
+        redemption: { taxableIncome: '2850000' },
+        expectedGross: '103000000',
+      }),
+      '2850000',
+    )
+  })
+
+  it('비과세 계좌는 저장값·추정값과 무관하게 0이다', () => {
+    expectAmount(
+      taxableIncome({
+        accountType: 'TAX_FREE',
+        principal: '100000000',
+        redemption: { taxableIncome: '30000000' },
+      }),
+      '0',
+    )
+    expectAmount(
+      taxableIncome({
+        accountType: 'TAX_FREE',
+        principal: '100000000',
+        expectedGross: '130000000',
+      }),
+      '0',
+    )
+  })
+
+  it('상환값도 추정값도 없으면 산출할 수 없다', () => {
+    expect(() =>
+      taxableIncome({ accountType: 'GENERAL', principal: '100000000' }),
+    ).toThrow()
+  })
+})
+
+describe('포트폴리오 손익 (DOC-005 §8.5)', () => {
+  it('음수가 가능하다 — 과세 금융소득과 분기하는 지점이다', () => {
+    expectAmount(
+      realizedPnl({ grossAmount: '90000000', principal: '100000000' }),
+      '-10000000',
+    )
+    expectAmount(
+      realizedPnl({ grossAmount: '120000000', principal: '100000000' }),
+      '20000000',
+    )
+  })
+})
+
+describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
+  it('발행일 + 평가주기 × 차수로 생성한다', () => {
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-01-15',
+        evaluationPeriodMonths: 6,
+        totalRounds: 6,
+      }),
+    ).toEqual([
+      '2026-07-15',
+      '2027-01-15',
+      '2027-07-15',
+      '2028-01-15',
+      '2028-07-15',
+      '2029-01-15',
+    ])
+  })
+
+  it('월말은 해당 월의 마지막 날로 클램핑한다', () => {
+    // 8월 31일 + 6개월 = 2월 28일 (2027년은 평년)
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-08-31',
+        evaluationPeriodMonths: 6,
+        totalRounds: 2,
+      }),
+    ).toEqual(['2027-02-28', '2027-08-31'])
+  })
+
+  it('윤년의 2월 29일을 처리한다', () => {
+    // 2027-08-31 + 6개월 = 2028-02-29 (2028년은 윤년)
+    expect(
+      generateEvaluationDates({
+        issueDate: '2027-08-31',
+        evaluationPeriodMonths: 6,
+        totalRounds: 1,
+      }),
+    ).toEqual(['2028-02-29'])
+  })
+
+  it('클램핑은 기준일을 잃지 않는다 — 다음 차수는 원래 일자로 돌아온다', () => {
+    // 1/31 기준으로 매월 평가하면 2/28로 클램핑되지만 3월은 31일이어야 한다.
+    // 직전 결과에 누적 가산하면 3/28이 되어 계약 조건과 어긋난다
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-01-31',
+        evaluationPeriodMonths: 1,
+        totalRounds: 3,
+      }),
+    ).toEqual(['2026-02-28', '2026-03-31', '2026-04-30'])
+  })
+
+  it('타임존에 따라 하루가 밀리지 않는다', () => {
+    // UTC 자정 파싱 문제로 흔히 발생하는 오차. 연·월·일을 직접 다루므로 없다
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-01-01',
+        evaluationPeriodMonths: 12,
+        totalRounds: 1,
+      }),
+    ).toEqual(['2027-01-01'])
+  })
+})
+
+describe('D-Day와 평가일 도래 (DOC-005 §6)', () => {
+  it('남은 일수를 반환한다', () => {
+    expect(dDay({ from: '2026-07-27', evaluationDate: '2026-08-01' })).toBe(5)
+    expect(dDay({ from: '2026-07-27', evaluationDate: '2026-07-27' })).toBe(0)
+    expect(dDay({ from: '2026-07-27', evaluationDate: '2026-07-20' })).toBe(-7)
+  })
+
+  it('윤년을 넘어도 정확하다', () => {
+    expect(dDay({ from: '2028-02-28', evaluationDate: '2028-03-01' })).toBe(2)
+    expect(dDay({ from: '2027-02-28', evaluationDate: '2027-03-01' })).toBe(1)
+  })
+
+  it('평가일 경과 여부를 판정한다', () => {
+    expect(isPast({ evaluationDate: '2026-07-26', asOf: '2026-07-27' })).toBe(
+      true,
+    )
+    expect(isPast({ evaluationDate: '2026-07-27', asOf: '2026-07-27' })).toBe(
+      false,
+    )
+  })
+})
+
+describe('적용 차수 결정 (DOC-007 §7.2, RD-02)', () => {
+  const schedules = [
+    { roundNo: 1, evaluationDate: '2026-01-15' },
+    { roundNo: 2, evaluationDate: '2026-07-15' },
+    { roundNo: 3, evaluationDate: '2027-01-15' },
+  ]
+
+  it('다음 도래 평가일의 차수를 가정한다', () => {
+    expect(nextEvaluation({ schedules, asOf: '2026-07-01' })?.roundNo).toBe(2)
+  })
+
+  it('평가일 당일은 아직 도래한 것으로 본다', () => {
+    expect(nextEvaluation({ schedules, asOf: '2026-07-15' })?.roundNo).toBe(2)
+  })
+
+  it('E-07: 모든 평가일이 과거면 null이다 — 상환 처리 확인이 필요한 상태', () => {
+    expect(nextEvaluation({ schedules, asOf: '2027-01-16' })).toBeNull()
+  })
+
+  it('차수 순서가 뒤섞여 있어도 평가일 기준으로 찾는다', () => {
+    const shuffled = [schedules[2], schedules[0], schedules[1]]
+    expect(nextEvaluation({ schedules: shuffled, asOf: '2026-07-01' })?.roundNo).toBe(
+      2,
+    )
+  })
+})
+
+describe('귀속연도 결정 (DOC-007 §7.2)', () => {
+  it('상환 완료는 상환일 기준이다', () => {
+    expect(
+      attributionYear({
+        redemptionDate: '2027-01-20',
+        evaluationDate: '2026-07-15',
+      }),
+    ).toBe(2027)
+  })
+
+  it('미상환은 적용 차수의 평가일 기준이다', () => {
+    expect(attributionYear({ evaluationDate: '2027-01-15' })).toBe(2027)
+  })
+
+  it('근거가 없으면 null이다', () => {
+    expect(attributionYear({})).toBeNull()
+  })
+})
