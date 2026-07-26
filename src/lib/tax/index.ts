@@ -35,4 +35,12 @@ export {
   type MarginalRateRow,
 } from './marginalRate'
 
-export { aggregateFinancialIncome, netProceeds } from './aggregate'
+export {
+  aggregateFinancialIncome,
+  aggregateFinancialIncomeByOwnerYear,
+  netProceeds,
+  type OtherFinancialIncomeItem,
+  type OwnerYearIncome,
+  type OwnerYearKey,
+  type TaxableIncomeItem,
+} from './aggregate'
