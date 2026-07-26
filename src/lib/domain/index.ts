@@ -38,7 +38,9 @@ export {
 
 export {
   aggregateRealizedPnl,
+  applicableCouponRate,
   grossExpected,
   realizedPnl,
   taxableIncome,
+  type RedeemingCondition,
 } from './proceeds'

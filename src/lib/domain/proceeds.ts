@@ -7,9 +7,51 @@ import {
   type DecimalInput,
   type DecimalValue,
 } from '@/lib/decimal'
-import type { AccountType } from './types'
+import type { AccountType, ConditionResult } from './types'
 
 /** 수령액 및 과세 금융소득 — DOC-007 §4 */
+
+/**
+ * 적용 쿠폰율의 대상이 되는 판정 결과 — DOC-007 §4.1
+ *
+ * `CARRY_OVER`는 해당 차수에 상환되지 않으므로 적용 쿠폰율이 정의되지 않는다.
+ * 타입에서 제외하여 호출 자체를 막는다.
+ */
+export type RedeemingCondition = Exclude<ConditionResult, 'CARRY_OVER'>
+
+/**
+ * 적용 쿠폰율 — DOC-007 §4.1
+ *
+ * ```
+ * = r                  if condition = EARLY
+ * = lizardCouponRate   if condition = LIZARD
+ * ```
+ *
+ * 아직 평가일이 도래하지 않은 차수는 판정값이 없으므로 호출부가 `EARLY`(정상
+ * 조기상환)를 가정한다. 리자드 상환을 가정하려면 `LIZARD`를 명시한다.
+ *
+ * `LIZARD`인데 해당 차수의 `lizard_coupon_rate`가 없으면 **거부한다.** 원금만
+ * 상환되는 리자드 변형은 `'0'`으로 표기하며 `null`로 표기하지 않는다(Q-04).
+ * `null`을 0이나 `r`로 임의 대체하면 수령액이 실제와 어긋난다 — 전자는 과소,
+ * 후자는 과대 추정이다. 어느 쪽이든 사용자가 잘못된 금액을 기대하게 된다.
+ */
+export function applicableCouponRate(params: {
+  condition: RedeemingCondition
+  /** 연쿠폰율 (소수 정규화) */
+  annualCouponRate: DecimalInput
+  /** 해당 차수의 리자드 쿠폰율 */
+  lizardCouponRate?: DecimalInput | null
+}): DecimalValue {
+  if (params.condition === 'EARLY') return dec(params.annualCouponRate)
+
+  if (params.lizardCouponRate == null) {
+    throw new RangeError(
+      '리자드 상환인데 해당 차수의 리자드 쿠폰율이 없다. ' +
+        '원금상환형 리자드는 0으로 입력한다(DOC-007 §4.1).',
+    )
+  }
+  return dec(params.lizardCouponRate)
+}
 
 /**
  * 예상 수령액 — DOC-007 §4.1

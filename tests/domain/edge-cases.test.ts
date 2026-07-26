@@ -5,6 +5,7 @@ import { asActive, isRedeemed } from '@/lib/domain/redemption'
 import type { RedemptionMark } from '@/lib/domain/redemption'
 import { underlyingRatio, worstOf } from '@/lib/domain/worstOf'
 import {
+  applicableCouponRate,
   grossExpected,
   realizedPnl,
   taxableIncome,
@@ -287,6 +288,91 @@ describe('예상 수령액 (DOC-007 §4.1)', () => {
         roundNo: 1,
       }),
     ).toThrow()
+  })
+})
+
+describe('적용 쿠폰율 (DOC-007 §4.1)', () => {
+  it('조기상환이면 연쿠폰율이다', () => {
+    expectAmount(
+      applicableCouponRate({
+        condition: 'EARLY',
+        annualCouponRate: '0.06',
+        lizardCouponRate: '0.02',
+      }),
+      '0.06',
+    )
+  })
+
+  it('리자드상환이면 해당 차수의 리자드 쿠폰율이다', () => {
+    expectAmount(
+      applicableCouponRate({
+        condition: 'LIZARD',
+        annualCouponRate: '0.06',
+        lizardCouponRate: '0.02',
+      }),
+      '0.02',
+    )
+  })
+
+  it('원금상환형 리자드는 0으로 표기하며 그대로 적용된다', () => {
+    expectAmount(
+      applicableCouponRate({
+        condition: 'LIZARD',
+        annualCouponRate: '0.06',
+        lizardCouponRate: '0',
+      }),
+      '0',
+    )
+  })
+
+  it('리자드인데 쿠폰율이 없으면 거부한다 — 0이나 r로 대체하지 않는다', () => {
+    // null을 0으로 보면 과소, r로 보면 과대 추정이다. 어느 쪽도 택하지 않는다
+    expect(() =>
+      applicableCouponRate({
+        condition: 'LIZARD',
+        annualCouponRate: '0.06',
+        lizardCouponRate: null,
+      }),
+    ).toThrow(RangeError)
+
+    expect(() =>
+      applicableCouponRate({ condition: 'LIZARD', annualCouponRate: '0.06' }),
+    ).toThrow(RangeError)
+  })
+
+  it('CARRY_OVER는 적용 쿠폰율이 정의되지 않는다 — 타입 수준 거부', () => {
+    // 타입이 1차 방어선이고, 우회하더라도 값을 지어내지 않고 거부한다
+    expect(() =>
+      applicableCouponRate({
+        // @ts-expect-error — 이월 차수는 상환되지 않으므로 호출 대상이 아니다
+        condition: 'CARRY_OVER',
+        annualCouponRate: '0.06',
+      }),
+    ).toThrow(RangeError)
+  })
+
+  it('판정 결과가 예상 수령액을 바꾼다 — §3 판정과 §4.1 산출의 연결', () => {
+    const base = {
+      principal: '100000000',
+      evaluationPeriodMonths: 6,
+      roundNo: 1,
+    } as const
+    const rates = { annualCouponRate: '0.06', lizardCouponRate: '0.02' } as const
+
+    expectAmount(
+      grossExpected({
+        ...base,
+        couponRate: applicableCouponRate({ condition: 'EARLY', ...rates }),
+      }),
+      '103000000',
+    )
+    expectAmount(
+      grossExpected({
+        ...base,
+        couponRate: applicableCouponRate({ condition: 'LIZARD', ...rates }),
+      }),
+      '101000000',
+    )
   })
 })
 
