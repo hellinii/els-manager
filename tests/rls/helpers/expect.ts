@@ -15,9 +15,14 @@ import type { QueryResult } from 'pg'
  * | 제약 위반 | `23505`(UNIQUE) / `23503`(FK) / `23514`(CHECK) |
  *
  * 앞의 두 42501은 SQLSTATE가 같으므로 메시지로 구분해야 한다.
+ *
+ * **트리거 기반 거부도 제약 위반 형태로 온다.** I-16(시세 좌표 불변)은
+ * `BEFORE UPDATE` 트리거가 `errcode = '23514'`로 던지므로 `CHECK`와 구별되지
+ * 않는다. 형태 분류를 넷으로 늘리지 않는 것이 의도다 — 무결성 규칙은 계층이
+ * 아니라 규칙 ID로 구분한다.
  */
 
-type PgError = { code?: string; message: string }
+type PgError = { code?: string; message: string; constraint?: string }
 
 async function capture(run: () => Promise<unknown>): Promise<PgError> {
   try {
@@ -48,13 +53,29 @@ export async function expectPermissionDenied(
   expect(error.message).toMatch(/permission denied/i)
 }
 
-/** 제약 위반. RLS 거부가 제약 위반을 가리지 않는지 확인할 때 쓴다 */
+/**
+ * 제약 위반. RLS 거부가 제약 위반을 가리지 않는지 확인할 때 쓴다.
+ *
+ * **`constraint`를 함께 넘기면 "어느 규칙이 거부했는지"까지 고정된다.**
+ * SQLSTATE만 단언하면 한 행이 두 제약을 동시에 위반할 때 어느 쪽이 보고되는지
+ * 알 수 없고, 그 순서는 제약 이름 알파벳순이라는 PostgreSQL 구현 세부사항에
+ * 의존한다. 그러면 테스트가 초록색인 채로 다른 규칙을 증명하게 된다.
+ *
+ * 기존 호출부를 깨지 않기 위해 선택 인자로 두었으나 **`constraints.test.ts`
+ * 안에서는 전부 채운다** — 선택 인자는 잊히기 때문이다.
+ */
 export async function expectConstraintViolation(
   run: () => Promise<unknown>,
   code: '23505' | '23503' | '23514',
+  constraint?: string,
 ): Promise<void> {
   const error = await capture(run)
-  expect(error.code, `SQLSTATE=${error.code} msg=${error.message}`).toBe(code)
+  const where = `SQLSTATE=${error.code} constraint=${error.constraint} msg=${error.message}`
+
+  expect(error.code, where).toBe(code)
+  if (constraint !== undefined) {
+    expect(error.constraint, where).toBe(constraint)
+  }
 }
 
 /**

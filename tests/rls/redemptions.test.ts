@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { actingAs, asOwner } from './helpers/client'
 import { USER_A, USER_B } from './helpers/fixtures'
-import { seedProduct, seedRedemption } from './helpers/seed'
+import { seedProduct, seedRedemption, seedSchedule } from './helpers/seed'
 import {
   expectConstraintViolation,
   expectNoRowsAffected,
@@ -29,7 +29,9 @@ describe('조회는 전체, 변경은 상품 소유자', () => {
   })
 
   it('A는 자기 상품에 상환을 등록한다 (DOC-011 §5.4)', async () => {
+    // 1차 일정을 먼저 만든다 — I-13의 복합 FK가 실재하는 차수를 요구한다
     const product = await seedProduct({ ownerId: USER_A })
+    await seedSchedule({ elsId: product.id, roundNo: 1 })
 
     const created = await actingAs(USER_A).query(
       `insert into public.redemptions
@@ -42,7 +44,13 @@ describe('조회는 전체, 변경은 상품 소유자', () => {
   })
 
   it('B는 A의 상품에 상환을 등록할 수 없다', async () => {
+    // **일정을 먼저 만드는 것이 이 케이스의 핵심이다.** 일정이 없으면 이 행은
+    // I-13(FK)과 RLS를 동시에 위반하고, RLS WITH CHECK가 FK AFTER 트리거보다
+    // 먼저 평가되어 42501이 나온다 — 테스트는 초록색이지만 그 초록색은
+    // 평가 순서에 의존한다. 순서가 바뀌면 23503으로 실패하며 원인 추적이
+    // 어려워진다. 거부 이유가 하나뿐인 상태에서만 그 이유를 증명한다
     const product = await seedProduct({ ownerId: USER_A })
+    await seedSchedule({ elsId: product.id, roundNo: 1 })
 
     await expectRlsViolation(() =>
       actingAs(USER_B).query(
@@ -139,12 +147,18 @@ describe('제약이 정책에 가려지지 않는다', () => {
           [product.id],
         ),
       '23505',
+      'redemptions_els_id_key',
     )
   })
 
   it('상환 완료 상품은 삭제할 수 없다 — 23503 (DOC-002 §8.1)', async () => {
     // 하드 삭제를 택하되(DQ-01) 실현된 과세 이력만은 연쇄 삭제되지 않게 한다.
     // 소유자 본인이어도 상환을 먼저 취소해야 한다 (DOC-011 §5.3)
+    //
+    // **제약 이름까지 단언한다.** els_products 삭제는 redemption_schedules로의
+    // CASCADE와 redemptions로의 RESTRICT를 동시에 촉발하고, 어느 쪽이 먼저
+    // 보고되는지는 RI 트리거 실행 순서에 달려 있다. SQLSTATE만 보면 순서가
+    // 뒤바뀌어도 초록색인 채로 다른 규칙(I-13)을 증명하게 된다
     const product = await seedProduct({ ownerId: USER_A })
     await seedRedemption({ elsId: product.id })
 
@@ -154,6 +168,7 @@ describe('제약이 정책에 가려지지 않는다', () => {
           product.id,
         ]),
       '23503',
+      'redemptions_els_id_fkey',
     )
 
     const survived = await asOwner('select id from public.redemptions where els_id = $1', [

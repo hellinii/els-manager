@@ -39,7 +39,12 @@ const CHILDREN: readonly ChildTable[] = [
     table: 'redemption_schedules',
     seed: (elsId) => seedSchedule({ elsId }),
     // 배리어를 낮추면 리자드 배리어(0.85)가 초과되어 I-04에 걸린다.
-    // 소유권과 무관한 열을 골라 정책만 시험한다
+    // 소유권과 무관한 열을 골라 정책만 시험한다.
+    //
+    // evaluation_date 는 I-13(복합 FK)도 함께 피한다 — round_no 를 바꾸면
+    // 그 차수를 가리키는 상환이 있을 때 23503 이 되어 정책이 아니라 제약을
+    // 증명하게 된다. 이 케이스들에는 상환이 없으므로 지금은 무해하지만,
+    // 열 선택이 두 제약을 동시에 피하고 있다는 사실을 남긴다
     mutate: `update public.redemption_schedules
                set evaluation_date = '2030-12-31' where id = $1`,
     insert: `insert into public.redemption_schedules
@@ -98,6 +103,9 @@ describe.each(CHILDREN)('$table — 부모 상품의 소유자만 변경한다',
   })
 
   it('B가 A 상품의 하위 행을 삭제하면 0행이고 원본이 남는다', async () => {
+    // 이 상품에는 상환이 없다. redemption_schedules 행의 삭제가 정책만으로
+    // 판정되는 것은 그 때문이다 — 상환이 가리키는 차수라면 I-13의 RESTRICT가
+    // 먼저 23503으로 막는다(constraints.test.ts)
     const product = await seedProduct({ ownerId: USER_A })
     const row = await child.seed(product.id)
 
