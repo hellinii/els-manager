@@ -121,8 +121,12 @@ create policy tax_profiles_delete_self on public.tax_profiles
 -- INSERT의 with check가 DOC-011 §5.1의 "owner_id는 인증 사용자로 서버에서
 -- 설정한다. 입력값으로 받지 않는다"를 DB 수준에서 강제한다.
 --
--- UPDATE의 with check가 없으면 소유자가 owner_id를 타인으로 바꿔 상품을
--- 떠넘길 수 있다. 소유권 이전 경로는 계약에 없다(I-09의 정신).
+-- UPDATE의 with check는 **변경 후** 행을 검사하므로 owner_id를 타인으로
+-- 바꾸는 소유권 이전을 막는다. 소유권 이전 경로는 계약에 없다(I-09의 정신).
+-- Postgres는 with check를 생략하면 using을 검사에도 재사용하므로 지금
+-- 형태에서는 생략해도 결과가 같다. 그래도 명시하는 이유는 (1) 정책을 읽는
+-- 사람이 그 암묵 규칙을 몰라도 되고, (2) 나중에 using만 넓히는 변경이
+-- 검사까지 함께 넓히지 않게 하기 위해서다.
 -- ---------------------------------------------------------------------------
 grant select, insert, update, delete on public.els_products to authenticated;
 
@@ -151,10 +155,11 @@ create policy els_products_delete_own on public.els_products
 --   (1) INSERT는 with check만 존재한다(using 불가). 삽입되는 행의 els_id가
 --       내 상품을 가리켜야 한다.
 --   (2) UPDATE의 using과 with check는 서로 다른 행을 본다. using은 기존 행,
---       with check는 변경 후 행이다. 둘 다 걸어야 els_id를 타인 상품으로
---       바꿔치기하는 재부모화를 막는다. 가장 놓치기 쉬운 지점이며, using만
---       있으면 B가 자기 행을 A의 상품 밑으로 옮겨 A의 상품 구성을 변조할 수
---       있다.
+--       with check는 변경 후 행이다. 검사가 있어야 els_id를 타인 상품으로
+--       바꿔치기하는 재부모화가 막힌다 — 통과하면 B가 자기 행을 A의 상품
+--       밑으로 옮겨 A의 상품 구성을 변조한다. Postgres가 with check 생략 시
+--       using을 재사용하므로 명시가 필수는 아니지만, 검사를 완화하는 변경
+--       (예: with check (true))이 조용히 구멍을 내지 않도록 항상 함께 적는다.
 --   (3) DELETE는 using만 존재한다.
 --
 -- exists 서브쿼리는 호출자 권한으로 실행되므로 els_products의 SELECT 정책이

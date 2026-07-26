@@ -56,13 +56,20 @@ Next.js (App Router) · TypeScript · Supabase (PostgreSQL + Auth + RLS) · Verc
 
 ```bash
 npm run dev
-npm run test          # TC-01~22 포함
-npm run test:rls      # RLS 정책 검증
+npm run test          # TC-01~22 + AQ-05. DB 없이 돈다
+npm run test:rls      # RLS 정책 검증. 로컬 스택 필요 (db:start → db:reset)
 npm run lint          # 순수 모듈 의존 규칙 포함
-npm run typecheck
-supabase migration new <name>
-supabase db reset     # 마이그레이션 + 시드 재적용
+npm run typecheck     # @ts-expect-error 기반 타입 수준 테스트도 여기서 검증된다
+
+npm run db:start      # Docker 필요
+npm run db:reset      # 마이그레이션 + seed/ 재적용
+npm run db:stop
+npx supabase migration new <name>
 ```
+
+`npm run test`는 DB에 접근하지 않는다(ADR-003). `tests/rls/`는 `vitest.config.ts`에서
+제외되어 있으며 `vitest.rls.config.ts`만 데이터베이스에 붙는다. RLS 스위트는 DB가
+없으면 건너뛰지 않고 실패한다 — 아무것도 증명하지 않은 초록색을 만들지 않는다.
 
 ## 작업 방식
 
