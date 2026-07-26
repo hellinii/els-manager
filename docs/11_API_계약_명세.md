@@ -5,10 +5,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 0.2 |
+| 버전 | 0.3 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
-| 선행 문서 | DOC-002 데이터 모델 v0.2, DOC-007 계산 로직 명세 v0.2, DOC-008 화면 목록, DOC-010 아키텍처 |
+| 선행 문서 | DOC-002 데이터 모델 v0.2, DOC-007 계산 로직 명세 v0.3, DOC-008 화면 목록, DOC-010 아키텍처 |
 | 상태 | 검토 중 |
 
 ### 변경 이력
@@ -17,6 +17,7 @@
 |---|---|---|---|
 | 0.1 | 2026-07-26 | 민서 | 최초 작성 |
 | 0.2 | 2026-07-27 | 민서 | P1 구현 착수에 따른 정정. §4.6 `TaxSummaryView.tax.method1`·`method2`를 `string | null`로 변경. `F ≤ 종합과세 기준금액` 구간은 비교과세를 적용하지 않으므로(DOC-007 v0.2 §5.2) 두 방식 값이 존재하지 않는다 |
+| 0.3 | 2026-07-27 | 민서 | DOC-007 v0.3 §9.1(E-05 반환 계약)에 맞춘 정정. §4.2 `ProductListItem.kiStatus`를 `... | null`로 변경 — 상환 완료 상품은 KI 판정을 수행하지 않으므로 등급이 존재하지 않는다. 같은 뷰의 `nextEvaluation`·`conditionResult`가 이미 `null`을 허용하는데 `kiStatus`만 값을 요구하여, 상환 완료 상품에서 계약을 만족시키려면 판정하지 않은 등급을 지어내야 했다 |
 
 ---
 
@@ -179,10 +180,19 @@ type ProductListItem = {
   } | null                              // 상환완료 시 null
   worstOf: string | null
   conditionResult: 'EARLY' | 'LIZARD' | 'CARRY_OVER' | null
-  kiStatus: 'NO_KI' | 'SAFE' | 'WARNING' | 'BELOW' | 'TOUCHED'
+  kiStatus: 'NO_KI' | 'SAFE' | 'WARNING' | 'BELOW' | 'TOUCHED' | null
   isOwner: boolean                      // 액션 버튼 노출 판단
 }
 ```
+
+**`conditionResult`·`kiStatus`의 `null`은 두 가지 원인을 갖는다.** 화면은 둘을 구분해 표시한다.
+
+| 원인 | 조건 | 표시 |
+|---|---|---|
+| E-01 시세 없음 | `status = 'ACTIVE'` 이고 `worstOf = null` | "시세 없음" — 시세가 수집되면 값이 생긴다 |
+| E-05 상환 완료 | `status = 'REDEEMED'` | 판정 생략 — 표시값은 상환 실적이다. 영구적이다 |
+
+`status`로 두 경우가 구분되므로 별도 필드를 두지 않는다(DOC-007 §9.1).
 
 ### 4.3 상품 상세 — SCR-202
 
