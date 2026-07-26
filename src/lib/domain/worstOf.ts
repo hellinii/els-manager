@@ -37,11 +37,23 @@ export function underlyingRatio(
  * **임의의 기본값을 대입해서는 안 된다.** 시세가 하나 없을 때 나머지로 계산한
  * 워스트오브는 실제보다 높게 나올 수 있고, 그 값으로 조기상환 충족을 표시하면
  * 사용자가 존재하지 않는 상환을 기대한다.
+ *
+ * **기초자산이 0건이면 `null`이 아니라 거부다**(DOC-007 v0.4 §3.1). 두 상태의
+ * 성질이 다르다 — E-01의 `null`은 시세가 수집되면 값이 생기는 일시적 상태이고,
+ * 0건은 DOC-002 I-07이 금지한 구조적 위반이라 시세를 기다려도 해소되지 않는다.
+ * 같은 `null`로 반환하면 화면이 "시세 없음"을 표시하며 영원히 오지 않을 시세를
+ * 기다린다. `findBracket`이 빈 구간 목록을 시드 오류로 보고 거부하는 것과 같은
+ * 부류다.
  */
 export function worstOf(
   underlyings: readonly UnderlyingPrice[],
 ): DecimalValue | null {
-  if (underlyings.length === 0) return null
+  if (underlyings.length === 0) {
+    throw new RangeError(
+      '기초자산이 없다. 상품은 최소 1개의 기초자산을 가진다(DOC-002 I-07). ' +
+        'null을 반환하면 시세 없음(E-01)과 구분되지 않는다.',
+    )
+  }
 
   let worst: DecimalValue | null = null
 

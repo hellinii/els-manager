@@ -42,10 +42,6 @@ describe('E-01: 기초자산 현재가 누락', () => {
     ).toBeNull()
   })
 
-  it('기초자산이 없으면 W = null이다', () => {
-    expect(worstOf([])).toBeNull()
-  })
-
   it('W = null이면 조건 판정도 null이다', () => {
     expect(
       evaluateCondition(active({ worstOf: null, barrier: '0.9' })),
@@ -57,6 +53,22 @@ describe('E-01: 기초자산 현재가 누락', () => {
     expect(() =>
       worstOf([{ basePrice: '0', currentPrice: '95' }]),
     ).toThrow()
+  })
+})
+
+describe('전제조건: 기초자산 0건 (DOC-007 §3.1, DOC-002 I-07)', () => {
+  // E-01과 별도 describe에 두는 것이 의도다. 문서가 두 상태를 분리했으므로
+  // 테스트 그룹도 분리해야 "이것은 예외 처리가 아니라 전제조건"이 드러난다.
+  //
+  // v0.3까지는 worstOf([])가 E-01과 같은 null을 반환했다. 그래서 시세가 오면
+  // 해소되는 일시적 상태와 I-07을 위반한 구조적 상태가 화면에서 구분되지
+  // 않았고, "시세 없음"을 표시한 채 영원히 오지 않을 시세를 기다렸다
+  it('기초자산이 없으면 거부한다 — E-01의 null과 구분된다', () => {
+    expect(() => worstOf([])).toThrow(RangeError)
+  })
+
+  it('거부 메시지가 I-07을 가리킨다 — E-01로 오독되지 않게', () => {
+    expect(() => worstOf([])).toThrow(/I-07/)
   })
 })
 
