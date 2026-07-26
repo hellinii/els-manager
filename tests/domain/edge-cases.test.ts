@@ -15,6 +15,7 @@ import {
   generateEvaluationDates,
   isPast,
   nextEvaluation,
+  overdueEvaluations,
 } from '@/lib/domain/schedule'
 import { active } from '../fixtures/active'
 import { expectAmount } from '../fixtures/assert'
@@ -475,7 +476,7 @@ describe('적용 차수 결정 (DOC-007 §7.2, RD-02)', () => {
     expect(nextEvaluation({ schedules, asOf: '2026-07-15' })?.roundNo).toBe(2)
   })
 
-  it('E-07: 모든 평가일이 과거면 null이다 — 상환 처리 확인이 필요한 상태', () => {
+  it('모든 평가일이 과거면 null이다 — E-07 확인이 필요한 상태', () => {
     expect(nextEvaluation({ schedules, asOf: '2027-01-16' })).toBeNull()
   })
 
@@ -484,6 +485,75 @@ describe('적용 차수 결정 (DOC-007 §7.2, RD-02)', () => {
     expect(nextEvaluation({ schedules: shuffled, asOf: '2026-07-01' })?.roundNo).toBe(
       2,
     )
+  })
+})
+
+describe('E-07: 경과했으나 미상환 (DOC-007 §9.2)', () => {
+  const schedules = [
+    { roundNo: 1, evaluationDate: '2026-01-15' },
+    { roundNo: 2, evaluationDate: '2026-07-15' },
+    { roundNo: 3, evaluationDate: '2027-01-15' },
+  ]
+
+  it('경과한 차수를 전부 평가일 오름차순으로 반환한다', () => {
+    // 종전 구현은 nextEvaluation만 있어 1차 경과를 조용히 건너뛰었다.
+    // 2차만 보고 1차 확인이 누락되는 것이 E-07이 막으려는 상황이다
+    const overdue = overdueEvaluations({
+      schedules,
+      asOf: '2026-08-01',
+      redemption: null,
+    })
+
+    expect(overdue.map((entry) => entry.schedule.roundNo)).toEqual([1, 2])
+    expect(overdue[0].daysOverdue).toBe(198) // 2026-01-15 → 2026-08-01
+    expect(overdue[1].daysOverdue).toBe(17) // 2026-07-15 → 2026-08-01
+  })
+
+  it('상환 완료 상품은 빈 배열이다 — E-05가 우선한다', () => {
+    expect(
+      overdueEvaluations({
+        schedules,
+        asOf: '2027-06-01',
+        redemption: { redemptionDate: '2026-07-15' },
+      }),
+    ).toEqual([])
+  })
+
+  it('평가일 당일은 경과가 아니다 — nextEvaluation과 경계를 공유한다', () => {
+    const overdue = overdueEvaluations({
+      schedules,
+      asOf: '2026-07-15',
+      redemption: null,
+    })
+    expect(overdue.map((entry) => entry.schedule.roundNo)).toEqual([1])
+    expect(nextEvaluation({ schedules, asOf: '2026-07-15' })?.roundNo).toBe(2)
+  })
+
+  it('경과한 차수가 없으면 빈 배열이다', () => {
+    expect(
+      overdueEvaluations({ schedules, asOf: '2026-01-01', redemption: null }),
+    ).toEqual([])
+  })
+
+  it('두 함수가 전 차수를 배타적으로 나눈다', () => {
+    for (const asOf of ['2026-01-01', '2026-07-15', '2026-08-01', '2027-06-01']) {
+      const overdue = overdueEvaluations({ schedules, asOf, redemption: null })
+      const next = nextEvaluation({ schedules, asOf })
+      const overdueRounds = overdue.map((entry) => entry.schedule.roundNo)
+
+      // 경과 목록과 다음 도래 차수는 겹치지 않는다
+      expect(overdueRounds).not.toContain(next?.roundNo)
+      // 경과 목록은 다음 도래 평가일보다 반드시 앞선다
+      expect(overdue.every((entry) => entry.daysOverdue > 0)).toBe(true)
+    }
+  })
+
+  it('만기까지 전 차수가 경과하면 다음 차수가 없고 목록이 비지 않는다', () => {
+    const asOf = '2027-06-01'
+    expect(nextEvaluation({ schedules, asOf })).toBeNull()
+    expect(
+      overdueEvaluations({ schedules, asOf, redemption: null }),
+    ).toHaveLength(3)
   })
 })
 

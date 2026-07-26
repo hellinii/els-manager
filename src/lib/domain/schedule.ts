@@ -1,4 +1,5 @@
 import { assertPositiveInteger } from '@/lib/decimal'
+import type { RedemptionMark } from './redemption'
 
 /**
  * 평가일정 — S-02, DOC-007 §7.2
@@ -150,6 +151,58 @@ export function nextEvaluation<
   }
 
   return next
+}
+
+/** 경과 미상환 차수 1건 — DOC-007 §9.2 */
+export type OverdueEvaluation<T> = {
+  schedule: T
+  /** 경과 일수. 항상 양수다 */
+  daysOverdue: number
+}
+
+/**
+ * 경과 미상환 차수 — DOC-007 §9.2 (E-07)
+ *
+ * ```
+ * = []                                                  if redemption ≠ NULL
+ * = [ (schedule, daysOverdue) | evaluation_date < asOf ] otherwise (평가일 오름차순)
+ * ```
+ *
+ * **상환 완료 상품은 빈 배열이다.** E-05가 우선한다 — 상환 처리로 확인이
+ * 완결되었으므로 경과 차수를 다시 묻지 않는다.
+ *
+ * 경과한 차수를 **전부** 반환한다. 최근 1건만 반환하면 여러 차수가 연속으로
+ * 경과한 상품에서 앞 차수의 확인이 누락된다.
+ *
+ * `nextEvaluation`과 서로 배타적인 두 구간을 담당한다. 평가일 당일은 경과로
+ * 보지 않으므로 어느 쪽에도 중복 포함되지 않는다.
+ *
+ * 결과가 비어 있지 않은 상품은 "상환 처리 또는 이월 확인" 대상이다. 시스템이
+ * 이월을 자동 확정하지 않는다. 확인 이력을 저장하지 않으므로 조회마다
+ * 재산출된다(RD-06).
+ */
+export function overdueEvaluations<
+  T extends { roundNo: number; evaluationDate: string },
+>(params: {
+  schedules: readonly T[]
+  asOf: string
+  /** 상환 레코드. 존재하면 E-05에 따라 빈 배열을 반환한다 */
+  redemption: RedemptionMark
+}): OverdueEvaluation<T>[] {
+  if (params.redemption != null) return []
+
+  const asOfDay = toEpochDay(parseIsoDate(params.asOf))
+
+  return params.schedules
+    .map((schedule) => ({
+      schedule,
+      daysOverdue: asOfDay - toEpochDay(parseIsoDate(schedule.evaluationDate)),
+    }))
+    .filter((entry) => entry.daysOverdue > 0)
+    .sort(
+      (a, b) =>
+        b.daysOverdue - a.daysOverdue || a.schedule.roundNo - b.schedule.roundNo,
+    )
 }
 
 /**

@@ -32,6 +32,8 @@ export {
   generateEvaluationDates,
   isPast,
   nextEvaluation,
+  overdueEvaluations,
+  type OverdueEvaluation,
 } from './schedule'
 
 export {
