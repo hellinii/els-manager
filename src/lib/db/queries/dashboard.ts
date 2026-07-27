@@ -58,22 +58,26 @@ export function makeDashboardQueries(ctx: QueryContext) {
   }): Promise<DashboardView> {
     const year = currentYear(ctx.asOf)
 
-    // ① 상품 계열. scope = 'ALL'이어도 세금은 본인 것만 쓴다(D-02).
-    const rows = await loadProducts(
-      ctx,
-      params.scope === 'MINE' ? { ownerId: ctx.viewerId } : {},
-    )
-    // ② 자산별 최신 시세
-    const prices = await loadLatestPrices(ctx, assetIdsOf(rows))
-    // ③④ 세율 연도 컨텍스트 + 본인 프로필
-    //
-    // **이 두 왕복이 없으면 2027-01-01에 홈 화면이 코드 변경 없이 죽는다** —
-    // currentYearTax도 당해 연도의 구간·상수를 요구하므로 D7의 연도 처리가
-    // 여기에도 적용되어야 한다.
-    const [yearContext, ownProfile] = await Promise.all([
+    /**
+     * ①③④ — **한 물결이다.** 세율 연도 컨텍스트와 본인 프로필은 `ctx.asOf`·
+     * `ctx.viewerId`만 있으면 되고 상품에 의존하지 않는다. 왕복은 4로 같고
+     * (§4.0 예산 불변) 대기만 3파 → 2파로 준다.
+     *
+     * **③④가 없으면 2027-01-01에 홈 화면이 코드 변경 없이 죽는다** —
+     * `currentYearTax`도 당해 연도의 구간·상수를 요구하므로 D7의 연도 처리가
+     * 여기에도 적용되어야 한다.
+     *
+     * `scope = 'ALL'`이어도 세금은 본인 것만 쓴다(D-02) — `computeOwnTax`가
+     * `owner_id`로 거른다.
+     */
+    const [rows, yearContext, ownProfile] = await Promise.all([
+      loadProducts(ctx, params.scope === 'MINE' ? { ownerId: ctx.viewerId } : {}),
       loadTaxYearContext(ctx, year),
       loadTaxProfile(ctx, ctx.viewerId, year),
     ])
+
+    // ② 자산별 최신 시세 — assetIdsOf(rows)를 알아야 하므로 여기만 순차다
+    const prices = await loadLatestPrices(ctx, assetIdsOf(rows))
 
     const judgments = rows.map((row) => ({ row, j: judge(row, prices, ctx.asOf) }))
 

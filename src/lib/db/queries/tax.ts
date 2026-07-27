@@ -209,6 +209,8 @@ export function contributionOf(
   }
 }
 
+export type Contribution = NonNullable<ReturnType<typeof contributionOf>>
+
 export type OwnTaxComputation = {
   elsTaxableIncome: DecimalValue
   otherFinancialIncome: DecimalValue
@@ -217,6 +219,14 @@ export type OwnTaxComputation = {
   brackets: TaxBracket[]
   constants: TaxConstants
   taxLawYear: number
+  /**
+   * 합계에 실제로 들어간 기여. **§4.6이 이것을 그대로 쓴다.**
+   *
+   * 목록을 따로 만들면 합계와 목록이 서로 다른 순회에서 나와, 한쪽의 필터가
+   * 바뀌는 순간 조용히 갈린다 — 실제로 v0.7이 그 상태였다(합계는 owner_id로
+   * 거르고 목록은 거르지 않았다). 같은 배열에서 둘 다 나오게 한다.
+   */
+  contributions: Array<{ row: ProductRow; contribution: Contribution }>
 }
 
 /**
@@ -241,7 +251,7 @@ export function computeOwnTax(params: {
     .filter((row) => row.owner_id === params.ownerId)
     .map((row) => ({ row, contribution: contributionOf(row, params.year, params.asOf) }))
     .filter(
-      (entry): entry is { row: ProductRow; contribution: NonNullable<typeof entry.contribution> } =>
+      (entry): entry is { row: ProductRow; contribution: Contribution } =>
         entry.contribution != null,
     )
 
@@ -274,6 +284,7 @@ export function computeOwnTax(params: {
     brackets,
     constants,
     taxLawYear: params.yearContext.taxLawYear,
+    contributions: items,
   }
 }
 
@@ -345,10 +356,6 @@ export function makeTaxQueries(ctx: QueryContext) {
 
     const threshold = dec(own.constants.comprehensiveTaxationThreshold)
 
-    const contributions = products
-      .map((row) => ({ row, c: contributionOf(row, params.year, ctx.asOf) }))
-      .filter((e) => e.c != null)
-
     return {
       year: params.year,
       taxLawYear: own.taxLawYear,
@@ -395,14 +402,16 @@ export function makeTaxQueries(ctx: QueryContext) {
           realMarginalRate: ratioString(bracketRow.realMarginalRate),
         }),
       ),
-      contributingProducts: contributions.map((entry) => ({
+      // 합계(`income.total`)와 **같은 배열**에서 나온다. 따로 순회하면 한쪽의
+      // 필터가 바뀔 때 두 값이 조용히 갈린다.
+      contributingProducts: own.contributions.map((entry) => ({
         productId: entry.row.id,
         productName: entry.row.name,
-        taxableIncome: amountString(entry.c!.amount),
-        isEstimated: entry.c!.isEstimated,
+        taxableIncome: amountString(entry.contribution.amount),
+        isEstimated: entry.contribution.isEstimated,
         // 금액은 바꾸지 않고 표식만 붙인다. 표식이 없으면 SCR-202에서 "수정 필요"로
         // 표시되는 같은 상품이 SCR-401에는 숫자로만 나타나 모순으로 읽힌다.
-        integrityIssue: entry.c!.integrityIssue,
+        integrityIssue: entry.contribution.integrityIssue,
       })),
     }
   }
@@ -420,13 +429,16 @@ export function makeTaxQueries(ctx: QueryContext) {
   async function listUserSummaries(): Promise<UserSummary[]> {
     const year = Number.parseInt(ctx.asOf.slice(0, 4), 10)
 
-    const [users, products, yearContext] = await Promise.all([
+    // 넷 다 ctx.asOf·ctx.viewerId만으로 출발하고 서로 의존하지 않는다 —
+    // **한 물결**이다. 왕복은 4로 같고(§4.0 예산 불변) 대기만 2파 → 1파로 준다.
+    const [users, products, yearContext, ownProfile] = await Promise.all([
       loadUsers(ctx),
       loadProducts(ctx),
       loadTaxYearContext(ctx, year),
+      // 본인 프로필만 읽힌다. 타인 것은 0행이 오며 그것이 이 계약의 전제다(D3) —
+      // 사용자 목록에 임베드할 수 없어 별도 요청이며 그것이 4번째 왕복의 정체다.
+      loadTaxProfile(ctx, ctx.viewerId, year),
     ])
-    // 본인 프로필만 읽힌다. 타인 것은 0행이 오며 그것이 이 계약의 전제다.
-    const ownProfile = await loadTaxProfile(ctx, ctx.viewerId, year)
 
     const brackets = toBrackets(yearContext)
     const constants = toConstants(yearContext)
