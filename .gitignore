@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# SEC-05: 변수명만 담은 예시 파일은 커밋한다. 값은 로컬·배포 환경에서 주입한다.
+!.env.example
 
 # vercel
 .vercel

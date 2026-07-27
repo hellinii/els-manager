@@ -138,6 +138,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 생성물 — `npm run db:types`가 덮어쓴다. 손으로 고칠 대상이 아니므로
+    // 린트하지 않는다. 스키마와의 신선도는 tests/integration의 드리프트
+    // 대조가 본다(AQ-19).
+    "src/types/database.types.ts",
   ]),
 ]);
 
