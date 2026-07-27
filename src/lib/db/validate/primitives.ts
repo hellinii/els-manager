@@ -109,6 +109,17 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * 계약이 받은 **식별자**의 형태 검사. 필드 검증이 아니라 경로 검증이다.
+ *
+ * `id`는 사용자가 입력하는 값이 아니라 화면이 들고 있는 값이므로 위반은
+ * `VALIDATION_FAILED`가 아니라 `NOT_FOUND`로 처리한다(§5.2·§5.3). 그대로 질의에
+ * 넘기면 PostgREST가 `22P02`를 내고, 그 코드는 "고칠 필드"를 지목할 수 없다.
+ */
+export function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID.test(value)
+}
+
 /** 존재하지 않는 날짜(`2026-02-30`)까지 거부한다. 형식만 보면 DB가 `22007`을 낸다 */
 export function isRealIsoDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false

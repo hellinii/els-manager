@@ -107,6 +107,31 @@ const NO_COERCION_SYNTAX = [
   },
 ];
 
+/**
+ * DOC-011 §5.0 W-04 — Q-08의 **쓰기 방향** (AQ-30).
+ *
+ * 읽기는 `::text` 캐스팅으로 막았는데 쓰기가 열려 있으면 절대 규칙 #2가 반쪽이다.
+ * 생성 타입의 `Insert`·`Update`가 금액·비율 열을 `number`로 요구하므로 **타입을
+ * 그대로 따르는 코드가 곧 위반**이고, 컴파일러는 그것을 정상이라고 말한다.
+ *
+ * 실측(P3b 7단계): 같은 값을 문자열로 실으면 `99999999999.999999`가 그대로
+ * 저장되고, JSON 수치로 실으면 `100000000000.000000`이 저장된다. 오류도 경고도
+ * 없으며 `numeric(15,0)` 금액은 15자리까지 float64로 정확하므로 **값 단언으로는
+ * 영원히 드러나지 않는다.** 그래서 값이 아니라 경로를 막는다.
+ *
+ * `InsertPayload<T>`가 타입으로 막고, 이 규칙이 **그 타입을 지나지 않는 경로**를
+ * 막는다 — 원시 객체 리터럴을 바로 넘기면 생성 타입이 그대로 적용되어 `number`가
+ * 통과한다. 두 번째 인자(`{ onConflict: … }`)는 대상이 아니므로 첫 인자만 본다.
+ */
+const NO_RAW_WRITE_PAYLOAD = [
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(insert|upsert|update)$/][arguments.0.type=/^(ObjectExpression|ArrayExpression)$/]",
+    message:
+      "DOC-011 §5.0 W-04 (AQ-30): 쓰기 payload를 리터럴로 넘기지 않는다. 생성 타입은 금액·비율을 number로 요구하므로 그 경로에서는 float64가 통과한다 — toInsert()/toUpdate()로 감싸 InsertPayload<T>의 검사를 받는다.",
+  },
+];
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -236,6 +261,7 @@ const eslintConfig = defineConfig([
             "환경변수는 src/lib/db/env.ts에서만 읽는다 (DOC-010 §7.2). 그 파일 하나로 service_role 부재를 감사한다.",
         },
         ...NO_COERCION_SYNTAX,
+        ...NO_RAW_WRITE_PAYLOAD,
       ],
     },
   },

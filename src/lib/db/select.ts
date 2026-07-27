@@ -38,6 +38,10 @@ type PublicTables = Database['public']['Tables']
 export type TableName = keyof PublicTables
 type TableRow<T extends TableName> = PublicTables[T]['Row']
 
+/** 생성 타입에서 이 파일이 파생하는 세 형태. 쓰기 방향(`mutations/payload.ts`)이 뒤 둘을 쓴다 */
+export type TableInsert<T extends TableName> = PublicTables[T]['Insert']
+export type TableUpdate<T extends TableName> = PublicTables[T]['Update']
+
 /** `'text'` = `::text` 캐스팅 후 문자열로 받는다. `'raw'` = 생성 타입 그대로. */
 export type ColumnKind = 'text' | 'raw'
 
@@ -61,13 +65,18 @@ export type SelectedRow<T extends TableName, S extends ColumnSpec<T>> = {
 }
 
 /**
- * 생성 타입이 `number`인 열 — 즉 캐스팅이 필수인 열.
+ * 개수를 세는 정수 열 — float64 위험이 **없는** 유일한 수치 열들.
  *
- * `smallint`·`integer`도 `number`로 생성되지만 그 열들(차수·개월수)은 개수를
- * 세는 정수이므로 float64 위험이 없다. 그래서 **예외 목록을 명시**한다 —
- * 예외를 열별로 적어 두면 새 수치 열이 자동으로 "캐스팅 필수"에 들어온다.
+ * `smallint`·`integer`도 생성 타입에서는 `number`이지만 차수·개월수·연도·순서는
+ * 세는 값이므로 정밀도 문제가 없다(`decimal.ts`가 그 구분을 이미 정했다). 그래서
+ * **예외를 열별로 명시**한다 — 이 목록에 없는 모든 수치 열은 자동으로 금액·비율로
+ * 분류되고, 새 금액 열이 조용히 통과하는 경로가 생기지 않는다.
+ *
+ * **읽기와 쓰기가 이 한 목록을 공유한다.** 읽기는 `MustCastColumn`(→ `::text`),
+ * 쓰기는 `mutations/payload.ts`의 `MoneyColumnOf`(→ `string`)가 같은 판정을
+ * 내린다. 두 방향이 각자 목록을 들면 갈리는 순간 한쪽만 막힌다.
  */
-type CountingColumn =
+export type CountingColumn =
   | 'round_no'
   | 'evaluation_period_months'
   | 'tax_year'

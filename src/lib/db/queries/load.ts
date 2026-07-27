@@ -135,6 +135,32 @@ export async function loadProduct(
   return data
 }
 
+/**
+ * 상환 id → 부모 상품 id. **§5.5가 요구하는 유일한 새 사전 조회 경로다.**
+ *
+ * `updateRedemption`·`deleteRedemption`은 상품이 아니라 **상환 `id`를 받는데**
+ * (§5.5), 소유자 판정도 V-10(상환일 ≥ 발행일)도 부모 상품을 읽어야 한다. 다른
+ * 로더는 전부 상품 id에서 출발하므로 그 사이를 잇는 것이 없다.
+ *
+ * 여기서 상품까지 임베드해 한 왕복으로 줄이지 않는다 — `PRODUCT_SELECT`를 이
+ * 방향으로 한 번 더 적으면 열 사양의 출처가 둘이 되고, `select.ts`가 "캐스팅과
+ * 선언이 같은 상수에서 나온다"로 막아 둔 것이 그 사본에서 풀린다. 왕복 하나를
+ * 더 쓰고 `loadProduct`를 그대로 재사용한다.
+ */
+export async function loadRedemptionRef(
+  ctx: QueryContext,
+  id: string,
+): Promise<{ id: string; elsId: string } | null> {
+  const { data, error } = await ctx.db
+    .from('redemptions')
+    .select('id,els_id')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error != null) fail('상환', error)
+  return data == null ? null : { id: data.id, elsId: data.els_id }
+}
+
 // ---------------------------------------------------------------------------
 // 평가일정 — 루트가 차수다
 // ---------------------------------------------------------------------------

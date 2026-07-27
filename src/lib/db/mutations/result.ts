@@ -58,6 +58,17 @@ export function fail<T = never>(
 }
 
 /**
+ * 이미 만들어진 `ActionError`를 결과로 감싼다.
+ *
+ * 사전 조회(`access.ts`)·검증(`Problems.toError()`)·순수 모듈 가드(`guard.ts`)가
+ * 전부 `ActionError`를 만들어 돌려주므로, 계약 함수는 그것을 **다시 풀어 쓰지
+ * 않는다** — 풀어 쓰면 `fields`를 빠뜨리는 자리가 계약 수만큼 생긴다.
+ */
+export function failWith<T = never>(error: ActionError): ActionResult<T> {
+  return fail<T>(error.code, error.message, error.fields)
+}
+
+/**
  * 미인증 — W-03.
  *
  * `server.ts`가 세션을 해석하지 못했을 때 **던지지 않고** 이 값을 준다. 계약
