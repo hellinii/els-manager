@@ -1,5 +1,6 @@
 import { expect } from 'vitest'
 import { dec } from '@/lib/decimal'
+import { TAX_CONSTANT_KEY_MAP } from '@/lib/db/taxConstants'
 import type { TaxConstants } from '@/lib/tax/types'
 import { BRACKETS_2026, CONSTANTS_2026 } from './tax-2026'
 
@@ -21,28 +22,15 @@ import { BRACKETS_2026, CONSTANTS_2026 } from './tax-2026'
  */
 
 /**
- * TS 키 ↔ DB 키 매핑 — DOC-002 §4.10의 키 목록이 정본이다.
+ * TS 키 ↔ DB 키 매핑의 **정본은 `src/lib/db/taxConstants.ts`로 옮겼다** (P3a).
  *
- * **단순 snake_case 변환이 아니다.** `employeeNonWageThreshold`의 DB 키는
- * `employee_non_wage_income_threshold`로 `income`이 들어간다. 이는 실수가
- * 아니라 DOC-007 §2 표가 의도적으로 기록한 대응이므로, 자동 변환을 쓰지 않고
- * 명시적으로 적는다. 자동 변환으로 다루면 이 한 건이 조용히 어긋나고
- * 직장가입자 산정 소득(DOC-007 §6.1)이 상수를 찾지 못한다.
+ * 조회 계층도 같은 매핑이 필요하고, 사본을 두면 두 사본이 갈리는 순간 상수
+ * 하나가 조용히 사라진다. 그 모듈은 `@/lib/tax/types` 외에 아무것도 import하지
+ * 않으므로 이 상시 스위트가 supabase 클라이언트를 끌어오지 않는다.
  *
- * `satisfies`가 컴파일 시점에 양방향 완전성을 강제한다 — 키가 빠지면 타입
- * 오류, 없는 키를 적으면 초과 속성 오류다. `npm run typecheck`가 1차 게이트다.
+ * `satisfies`에 의한 양방향 완전성 강제도 그 파일에 함께 있다.
  */
-export const TAX_CONSTANT_KEY_MAP = {
-  separateTaxationRate: 'separate_taxation_rate',
-  separateTaxationIncomeTaxRate: 'separate_taxation_income_tax_rate',
-  comprehensiveTaxationThreshold: 'comprehensive_taxation_threshold',
-  localIncomeTaxRate: 'local_income_tax_rate',
-  healthInsuranceRate: 'health_insurance_rate',
-  longTermCareRate: 'long_term_care_rate',
-  regionalIncomeThreshold: 'regional_income_threshold',
-  employeeNonWageThreshold: 'employee_non_wage_income_threshold', // ★ 단순 변환 아님
-  dependentIncomeThreshold: 'dependent_income_threshold',
-} as const satisfies Record<keyof TaxConstants, string>
+export { TAX_CONSTANT_KEY_MAP }
 
 /** `tax_constants` 1행 — DB·SQL 어느 쪽에서 왔든 값은 문자열이다 */
 export type ConstantRow = { key: string; value: string }

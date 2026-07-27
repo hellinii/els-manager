@@ -1,4 +1,9 @@
 import type { UserSessionClient } from '../client'
+import { makeDashboardQueries } from './dashboard'
+import { makeAssetQueries } from './prices'
+import { makeProductQueries } from './products'
+import { makeScheduleQueries } from './schedule'
+import { makeTaxQueries } from './tax'
 
 /**
  * 조회 컨텍스트 — DOC-011 §4.0
@@ -18,19 +23,29 @@ export type QueryContext = {
 }
 
 /**
- * 조회 계약 묶음.
- *
- * 계약은 P4 화면 순서로 하나씩 추가된다 — 각 커밋이 동작하는 상태여야 하므로
- * (CLAUDE.md 작업 방식) 여기에 선언된 것은 전부 구현되어 있다.
+ * 조회 계약 묶음 — 8개.
  *
  * §4.7 `getForecast`는 **의도적으로 없다** — `totalAssets`·`remainingPrincipal`의
- * 정의가 어느 문서에도 없어 P3a 범위 밖이다(DOC-011 §4.7, D8).
+ * 정의가 어느 문서에도 없다(DOC-011 §4.7). 부분 구현하면 화면이 빈 열을
+ * 렌더링하게 되고, 두 값은 RD-02(기본 적용 차수, 미결)에 의존하므로 지금
+ * 확정하면 그것이 닫힐 때 다시 손대게 된다. DOC-007 §7.5 신설이 선행 조건이다.
  */
-export type Queries = Record<never, never>
+export type Queries = ReturnType<typeof makeProductQueries> &
+  ReturnType<typeof makeScheduleQueries> &
+  ReturnType<typeof makeAssetQueries> &
+  ReturnType<typeof makeTaxQueries> &
+  ReturnType<typeof makeDashboardQueries>
 
 export function createQueries(ctx: QueryContext): Queries {
   assertContext(ctx)
-  return {}
+
+  return {
+    ...makeProductQueries(ctx),
+    ...makeScheduleQueries(ctx),
+    ...makeAssetQueries(ctx),
+    ...makeTaxQueries(ctx),
+    ...makeDashboardQueries(ctx),
+  }
 }
 
 /**

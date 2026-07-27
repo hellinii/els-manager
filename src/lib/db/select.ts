@@ -67,7 +67,11 @@ export type SelectedRow<T extends TableName, S extends ColumnSpec<T>> = {
  * 세는 정수이므로 float64 위험이 없다. 그래서 **예외 목록을 명시**한다 —
  * 예외를 열별로 적어 두면 새 수치 열이 자동으로 "캐스팅 필수"에 들어온다.
  */
-type CountingColumn = 'round_no' | 'evaluation_period_months' | 'tax_year'
+type CountingColumn =
+  | 'round_no'
+  | 'evaluation_period_months'
+  | 'tax_year'
+  | 'sequence'
 
 type MustCastColumn<T extends TableName> = {
   [K in keyof TableRow<T>]-?: K extends CountingColumn
@@ -160,3 +164,93 @@ export function assertNotTruncated(rows: readonly unknown[], what: string): void
     )
   }
 }
+
+// ---------------------------------------------------------------------------
+// 테이블별 열 사양 — 조회 계층이 읽는 열의 **정본**
+//
+// `select *`를 쓰지 않는다. 이유가 둘이다.
+//   ① `users`의 조회 GRANT를 열 단위로 좁히므로(D9) `select *`는 42501이 된다
+//   ② 열이 늘어날 때 조용히 따라오는 것을 막는다 — 캐스팅 판단이 필요한 열이
+//      추가되면 여기 등재되지 않아 `typecheck`가 아니라 아무 일도 안 일어난다
+// ---------------------------------------------------------------------------
+
+/** `email`을 담지 않는다 — 조회 계약 8개 어디도 쓰지 않는다(D9, DOC-010 §7) */
+export const USER_COLUMNS = defineColumns('users', {
+  id: 'raw',
+  display_name: 'raw',
+})
+
+export const ELS_PRODUCT_COLUMNS = defineColumns('els_products', {
+  id: 'raw',
+  owner_id: 'raw',
+  name: 'raw',
+  issuer: 'raw',
+  issue_date: 'raw',
+  principal: 'text',
+  evaluation_period_months: 'raw',
+  annual_coupon_rate: 'text',
+  ki_barrier: 'text',
+  ki_observation: 'raw',
+  ki_touched_at: 'raw',
+  account_type: 'raw',
+  note: 'raw',
+})
+
+export const UNDERLYING_COLUMNS = defineColumns('els_underlyings', {
+  asset_id: 'raw',
+  base_price: 'text',
+  sequence: 'raw',
+})
+
+export const SCHEDULE_COLUMNS = defineColumns('redemption_schedules', {
+  round_no: 'raw',
+  evaluation_date: 'raw',
+  barrier: 'text',
+  lizard_barrier: 'text',
+  lizard_coupon_rate: 'text',
+  lizard_requires_no_ki: 'raw',
+})
+
+export const REDEMPTION_COLUMNS = defineColumns('redemptions', {
+  id: 'raw',
+  redemption_type: 'raw',
+  round_no: 'raw',
+  redemption_date: 'raw',
+  gross_amount: 'text',
+  taxable_income: 'text',
+  withholding_tax: 'text',
+  is_confirmed: 'raw',
+  note: 'raw',
+})
+
+export const ASSET_COLUMNS = defineColumns('assets', {
+  id: 'raw',
+  name: 'raw',
+  market: 'raw',
+  currency: 'raw',
+})
+
+export const PRICE_COLUMNS = defineColumns('asset_prices', {
+  as_of_date: 'raw',
+  price: 'text',
+  source: 'raw',
+})
+
+export const TAX_PROFILE_COLUMNS = defineColumns('tax_profiles', {
+  user_id: 'raw',
+  tax_year: 'raw',
+  other_income_base: 'text',
+  other_financial_income: 'text',
+  health_insurance_type: 'raw',
+})
+
+export const TAX_BRACKET_COLUMNS = defineColumns('tax_brackets', {
+  lower_bound: 'text',
+  rate: 'text',
+  progressive_deduction: 'text',
+})
+
+export const TAX_CONSTANT_COLUMNS = defineColumns('tax_constants', {
+  key: 'raw',
+  value: 'text',
+})
