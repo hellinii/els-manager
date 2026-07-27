@@ -3,7 +3,7 @@ import { actingAs, asOwner } from './helpers/client'
 import { RLS_TABLES, USER_A, USER_B } from './helpers/fixtures'
 import { seedTaxProfile } from './helpers/seed'
 import {
-  COLUMN_UPDATE_PRIVILEGES,
+  COLUMN_PRIVILEGES,
   DML_PRIVILEGES,
   TABLE_PRIVILEGES,
 } from './helpers/authz-matrix'
@@ -200,10 +200,15 @@ describe('권한 매트릭스 — §7 표가 실제 GRANT와 일치한다', () =
     expect(leaked.rows).toEqual([])
   })
 
-  it('열 단위 UPDATE가 매트릭스와 정확히 일치한다', async () => {
+  it('열 단위 권한이 매트릭스와 정확히 일치한다 — 권한 종류까지', async () => {
     // pg_attribute.attacl 은 명시적 열 GRANT 만 담는다.
     // information_schema.column_privileges 는 테이블 권한을 전 열로 펼쳐서
-    // 보여주므로 "열 단위로만 부여됨"을 표현하지 못한다
+    // 보여주므로 "열 단위로만 부여됨"을 표현하지 못한다.
+    //
+    // **권한 종류를 하드코딩하지 않는다** (P3a 7단계). 실측한 attacl에서
+    // display_name은 `{authenticated=rw/postgres}` — 한 항목에 SELECT와 UPDATE가
+    // 함께 있다. 종류를 'UPDATE'로 고정하면 열 단위 SELECT를 표현할 수 없고,
+    // UPDATE가 늘어난 열도 잡지 못한다.
     const granted = await asOwner<{
       relname: string
       attname: string
@@ -219,11 +224,39 @@ describe('권한 매트릭스 — §7 표가 실제 GRANT와 일치한다', () =
         order by c.relname, at.attname, a.privilege_type`,
     )
 
-    const expected = Object.entries(COLUMN_UPDATE_PRIVILEGES).flatMap(
-      ([relname, columns]) =>
-        columns.map((attname) => ({ relname, attname, privilege_type: 'UPDATE' })),
-    )
+    const expected = Object.entries(COLUMN_PRIVILEGES)
+      .flatMap(([relname, columns]) =>
+        Object.entries(columns).flatMap(([attname, privileges]) =>
+          [...privileges]
+            .sort()
+            .map((privilege_type) => ({ relname, attname, privilege_type })),
+        ),
+      )
+      .sort(
+        (a, b) =>
+          a.relname.localeCompare(b.relname) ||
+          a.attname.localeCompare(b.attname) ||
+          a.privilege_type.localeCompare(b.privilege_type),
+      )
+
     expect(granted.rows).toEqual(expected)
+  })
+
+  it('email에는 어떤 권한도 없다 — 계약이 쓰지 않는 열은 열지 않는다', async () => {
+    // 위 단언이 양방향이라 이미 덮이지만, 이 열은 **로그인 식별자**이므로
+    // 의도를 이름으로 남긴다. 회귀가 생기면 원인이 바로 읽힌다.
+    const canRead = await asOwner<{ ok: boolean }>(
+      `select has_column_privilege('authenticated', 'public.users', 'email', 'SELECT') as ok`,
+    )
+    expect(canRead.rows[0].ok).toBe(false)
+  })
+
+  it('명시 열은 읽을 수 있다 — 축소가 정상 경로를 막지 않는지', async () => {
+    const readable = await asOwner<{ id: boolean; name: boolean }>(
+      `select has_column_privilege('authenticated', 'public.users', 'id', 'SELECT') as id,
+              has_column_privilege('authenticated', 'public.users', 'display_name', 'SELECT') as name`,
+    )
+    expect(readable.rows[0]).toEqual({ id: true, name: true })
   })
 
   it('신규 객체 기본 권한에 anon·authenticated가 없다', async () => {
