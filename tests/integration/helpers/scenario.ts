@@ -185,38 +185,108 @@ export async function setupScenario(): Promise<Scenario> {
   }
 }
 
+const REST_MARKER = '/rest/v1/'
+
 /**
- * REST 요청 수를 센다 — 왕복 예산 검증용.
+ * PostgREST 경로에서 테이블명을 꺼낸다 — `/rest/v1/els_products?select=…` → `els_products`.
+ *
+ * RPC는 접두어로 구분한다. 도입되면 왕복 예산의 성격이 달라지므로(노출면과
+ * `search_path` 관리가 새로 생긴다, DOC-011 §4.8) 테이블과 섞이면 안 된다.
+ */
+function restTableOf(url: string): string | null {
+  const at = url.indexOf(REST_MARKER)
+  if (at < 0) return null
+
+  const path = url.slice(at + REST_MARKER.length).split('?')[0].split('#')[0]
+  if (path === '') return '(root)'
+
+  const [head, ...rest] = path.split('/')
+  return head === 'rpc' ? `rpc:${rest.join('/')}` : head
+}
+
+/** 계수기가 활성인 동안 다시 만들면 원본 `fetch`를 잃는다 — §countRequests의 주석 참조 */
+let counterActive = false
+
+/**
+ * REST 요청 수와 **테이블별 경로**를 센다 — 왕복 예산·N+1 검증용.
  *
  * `fetch`를 감싸 `/rest/v1/` 요청만 센다. GoTrue 왕복(`/auth/v1/`)은 요청당
  * 1회이고 `cache()`로 중복 제거되므로 따로 센다.
+ *
+ * ## 수만 세면 N+1이 드러나지 않는다
+ *
+ * 총합은 "상품 2회"와 "상품 1회 + 시세 1회"를 구분하지 못한다. 사용자별·자산별
+ * N+1은 픽스처가 작을 때 **총합이 우연히 예산과 같아** 지나가고, 그때 틀리는 것은
+ * 값이 아니라 질의 수이므로 어떤 값 단언에도 걸리지 않는다. 그래서 **테이블
+ * 다중집합을 정본으로 둔다** — `listUserSummaries`의 `tax_profiles`가 1인지
+ * 사용자 수만큼인지는 그 항목만이 말한다(DOC-011 §4.8 D3의 전제).
+ *
+ * ## 중첩 금지
+ *
+ * `countRequests()`는 **호출 시점의** `globalThis.fetch`를 원본으로 잡는다. 두
+ * 계수기가 동시에 살아 있다가 LIFO가 아닌 순서로 복원하면 원본이 **영구히
+ * 사라지고** 이후 모든 파일이 조용히 계수된 fetch로 돈다 — 실패가 이 파일이
+ * 아니라 *다음* 파일에서 엉뚱한 숫자로 나타난다. 그래서 중첩을 막고, 복원할 때
+ * 자기가 건 패치가 맞는지 확인한다.
  */
 export function countRequests(): {
   rest: () => number
   auth: () => number
+  paths: () => string[]
   reset: () => void
   restore: () => void
 } {
+  if (counterActive) {
+    throw new Error(
+      'countRequests()가 이미 활성이다. 중첩하면 원본 fetch를 잃고 이후 파일이 조용히 계수된 fetch로 돈다.',
+    )
+  }
+  counterActive = true
+
   const original = globalThis.fetch
   let rest = 0
   let auth = 0
+  let paths: string[] = []
 
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const patched = ((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-    if (url.includes('/rest/v1/')) rest += 1
+    const table = restTableOf(url)
+    if (table != null) {
+      rest += 1
+      paths.push(table)
+    }
     if (url.includes('/auth/v1/')) auth += 1
     return original(input, init)
   }) as typeof fetch
 
+  globalThis.fetch = patched
+
   return {
     rest: () => rest,
     auth: () => auth,
+    // 복사본을 준다 — restore() 뒤에도 읽히고, 호출부가 내부 배열을 흔들 수 없다
+    paths: () => [...paths],
     reset: () => {
       rest = 0
       auth = 0
+      paths = []
     },
     restore: () => {
+      counterActive = false
+      // 우리가 건 패치가 아니면 남의 패치를 지우는 것이다 — 조용히 넘기지 않는다
+      if (globalThis.fetch !== patched) {
+        throw new Error(
+          'countRequests() 복원 실패 — 그 사이 누군가 fetch를 바꿨다(중첩 또는 누수).',
+        )
+      }
       globalThis.fetch = original
     },
   }
+}
+
+/** 경로 배열 → 테이블별 요청 수. 순서가 아니라 다중집합으로 비교하기 위함이다. */
+export function tallyPaths(paths: readonly string[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const path of paths) out[path] = (out[path] ?? 0) + 1
+  return out
 }

@@ -1,8 +1,23 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { FX, ITG_USER_A, ITG_USER_B } from './helpers/fixtures'
-import { closeSeedConnection } from './helpers/seed'
-import { AS_OF, YEAR, countRequests, setupScenario, type Scenario } from './helpers/scenario'
+import {
+  closeSeedConnection,
+  resetFixtures,
+  seedAsset,
+  seedPrice,
+  seedProduct,
+  seedSchedule,
+  seedUnderlying,
+} from './helpers/seed'
+import {
+  AS_OF,
+  YEAR,
+  countRequests,
+  setupScenario,
+  tallyPaths,
+  type Scenario,
+} from './helpers/scenario'
 
 /**
  * 계약 8개의 정상 경로 + 왕복 수 계수
@@ -19,6 +34,9 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  // 성장 픽스처를 세우므로 정리한다 — 다른 통합 파일과 규율을 맞춘다.
+  // 픽스처는 커밋되므로(HTTP 클라이언트가 다른 커넥션이다) 롤백이 없다.
+  await resetFixtures()
   await closeSeedConnection()
 })
 
@@ -487,76 +505,177 @@ describe('§4.8 listUserSummaries', () => {
 })
 
 describe('왕복 수 계수 — 실측', () => {
-  const measured: Array<{ contract: string; rest: number }> = []
-
-  async function measure(contract: string, run: () => Promise<unknown>): Promise<number> {
+  /**
+   * 부수효과 없는 측정. **전역 배열에 기록하지 않는다** — 기록하면 `beforeAll`의
+   * baseline 측정이 그 배열에 먼저 쌓여 뒤 테스트의 길이 단언이 어긋난다.
+   */
+  async function tables(run: () => Promise<unknown>): Promise<Record<string, number>> {
     const counter = countRequests()
-    counter.reset()
     try {
       await run()
-      const rest = counter.rest()
-      measured.push({ contract, rest })
-      return rest
+      return tallyPaths(counter.paths())
     } finally {
       counter.restore()
     }
   }
 
-  it('계약별 REST 요청 수를 측정한다', async () => {
-    const listProducts = await measure('listProducts', () => s.asA.listProducts())
-    const getProduct = await measure('getProduct', () => s.asA.getProduct(FX.productA))
-    const listSchedule = await measure('listSchedule', () => s.asA.listSchedule())
-    const listAssetPrices = await measure('listAssetPrices', () =>
-      s.asA.listAssetPrices(),
-    )
-    const searchAssets = await measure('searchAssets', () => s.asA.searchAssets('단독'))
-    const getTaxSummary = await measure('getTaxSummary', () =>
-      s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
-    )
-    const listUserSummaries = await measure('listUserSummaries', () =>
-      s.asA.listUserSummaries(),
-    )
-    const getDashboard = await measure('getDashboard', () =>
-      s.asA.getDashboard({ scope: 'ALL' }),
-    )
+  const GROWTH_PROBES: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
+    ['listProducts', () => s.asA.listProducts()],
+    ['listAssetPrices', () => s.asA.listAssetPrices()],
+    ['getDashboard', () => s.asA.getDashboard({ scope: 'ALL' })],
+  ]
 
+  const baseline = new Map<string, Record<string, number>>()
+
+  beforeAll(async () => {
     /**
-     * **실측된 계약별 REST 왕복 수** (아래 단언이 정본이다).
-     *
-     * | 계약 | 왕복 | 구성 |
-     * |---|---|---|
-     * | `listProducts` | 2 | 상품+하위 / 최신 시세 |
-     * | `getProduct` | 2 | 상품+하위 / 최신 시세 |
-     * | `listSchedule` | 2 | 차수+부모 / 최신 시세 |
-     * | `searchAssets` | 1 | 자산 이름 검색 |
-     * | `listAssetPrices` | 2 | 자산+시세 / 상품(참조 수 계산) |
-     * | `getTaxSummary` | 3 | 세율 연도 / 프로필 / 상품 |
-     * | `listUserSummaries` | 4 | 사용자 / 상품 / 세율 연도 / 프로필 |
-     * | `getDashboard` | 4 | 상품 / 시세 / 세율 연도 / 프로필 |
-     *
-     * 계획서의 예산과 두 곳이 다르다 — `listAssetPrices`는 3이 아니라 2(자산별
-     * `count` 질의를 두지 않고 상품을 한 번 읽어 JS에서 센다), `listUserSummaries`는
-     * 3이 아니라 4(본인 프로필을 별도로 읽는다. 사용자 목록에 임베드할 수 없다 —
-     * `tax_profiles` 조회가 본인 한정이라 타인 행은 어차피 오지 않는다).
-     *
-     * N+1이 생기면 이 수가 자산·상품 수에 비례해 늘어나므로 정확히 고정한다.
+     * 중첩 describe의 `beforeAll`은 **그 describe가 시작될 때** 실행되므로 위
+     * §4.2~§4.8의 모든 `it`은 성장 전 데이터를 본다. 그 순서를 가정으로만 두지
+     * 않고 여기서 못 박는다 — 파일 순서가 바뀌면 이 줄이 먼저 죽는다.
      */
-    expect(measured.map((m) => m.contract)).toHaveLength(8)
-    expect(listProducts).toBe(2)
-    expect(getProduct).toBe(2)
-    expect(listSchedule).toBe(2)
-    expect(searchAssets).toBe(1)
-    expect(listAssetPrices).toBe(2)
-    expect(getTaxSummary).toBe(3)
-    expect(listUserSummaries).toBe(4)
-    expect(getDashboard).toBe(4)
+    expect(await s.asA.listProducts()).toHaveLength(5)
+
+    for (const [name, run] of GROWTH_PROBES) baseline.set(name, await tables(run))
+
+    // 자산 5→7, 상품 5→6, 기초자산 6→8. 왕복이 데이터 크기에 비례하면 갈린다.
+    await seedAsset({ id: FX.assetGrowth1, name: '성장자산1' })
+    await seedAsset({ id: FX.assetGrowth2, name: '성장자산2' })
+    await seedPrice({
+      assetId: FX.assetGrowth1,
+      asOfDate: '2026-06-29',
+      price: '120.000000',
+    })
+    await seedPrice({
+      assetId: FX.assetGrowth2,
+      asOfDate: '2026-06-29',
+      price: '60.000000',
+    })
+    await seedProduct({
+      id: FX.productGrowth,
+      ownerId: ITG_USER_A,
+      name: '성장상품',
+      principal: '70000000',
+      kiBarrier: '0.5000',
+      kiObservation: 'CLOSING',
+    })
+    await seedUnderlying({
+      elsId: FX.productGrowth,
+      assetId: FX.assetGrowth1,
+      basePrice: '100.000000',
+      sequence: 1,
+    })
+    await seedUnderlying({
+      elsId: FX.productGrowth,
+      assetId: FX.assetGrowth2,
+      basePrice: '100.000000',
+      sequence: 2,
+    })
+    await seedSchedule({
+      elsId: FX.productGrowth,
+      roundNo: 1,
+      evaluationDate: '2026-10-05',
+      barrier: '0.9000',
+    })
   })
 
-  it('자산이 늘어도 왕복 수가 변하지 않는다 — N+1 부재', async () => {
-    const before = await measure('listProducts(1)', () => s.asA.listProducts())
-    // 시나리오에는 자산 5개·상품 5건이 이미 있다. 왕복이 그 수에 비례하지 않는다.
-    const after = await measure('listProducts(2)', () => s.asA.listProducts())
-    expect(before).toBe(after)
+  /**
+   * **계약별 REST 테이블 다중집합이 정본이다** (DOC-011 §4.0의 "구성" 열).
+   *
+   * 총합만 세면 "상품 2회"와 "상품 1회 + 시세 1회"가 구분되지 않는다. 배열
+   * 순서가 아니라 다중집합으로 비교하므로 `Promise.all`의 순서를 무해하게 바꿔도
+   * 깨지지 않고, 테이블이 하나 늘거나 같은 테이블을 두 번 치면 반드시 깨진다.
+   */
+  it('계약별 REST 테이블 다중집합 — N+1은 여기서 드러난다', async () => {
+    const budget = {
+      listProducts: await tables(() => s.asA.listProducts()),
+      getProduct: await tables(() => s.asA.getProduct(FX.productA)),
+      // 기초자산 0건이면 시세 로더가 아예 나가지 않는다 — 빈 in() 질의를 만들지 않는다
+      getProductNoUnderlying: await tables(() =>
+        s.asA.getProduct(FX.productNoUnderlying),
+      ),
+      listSchedule: await tables(() => s.asA.listSchedule()),
+      // asset_provider_symbols는 임베드라 왕복이 아니다
+      searchAssets: await tables(() => s.asA.searchAssets('단독')),
+      listAssetPrices: await tables(() => s.asA.listAssetPrices()),
+      // tax_brackets·tax_constants는 tax_years 임베드다 (D7)
+      getTaxSummary: await tables(() =>
+        s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
+      ),
+      listUserSummaries: await tables(() => s.asA.listUserSummaries()),
+      getDashboard: await tables(() => s.asA.getDashboard({ scope: 'ALL' })),
+    }
+
+    expect(budget.listProducts).toEqual({ els_products: 1, assets: 1 })
+    expect(budget.getProduct).toEqual({ els_products: 1, assets: 1 })
+    expect(budget.getProductNoUnderlying).toEqual({ els_products: 1 })
+    expect(budget.listSchedule).toEqual({ redemption_schedules: 1, assets: 1 })
+    expect(budget.searchAssets).toEqual({ assets: 1 })
+    expect(budget.listAssetPrices).toEqual({ assets: 1, els_products: 1 })
+    expect(budget.getTaxSummary).toEqual({
+      tax_years: 1,
+      tax_profiles: 1,
+      els_products: 1,
+    })
+
+    /**
+     * ★ `tax_profiles: 1` — **사용자 수와 무관하게 1이다.**
+     *
+     * §4.8은 타인의 프로필을 읽지 않는다(D3). 사용자별로 물으면 총 왕복이 사용자
+     * 수에 비례하는데, 사용자 2명 픽스처에서는 총합이 4 → 5로만 늘어 "예산이 하나
+     * 틀렸다"로 보인다. **본인 것만 읽는다는 전제가 깨졌다는 사실**은 이 항목만이 말한다.
+     */
+    expect(budget.listUserSummaries).toEqual({
+      users: 1,
+      els_products: 1,
+      tax_years: 1,
+      tax_profiles: 1,
+    })
+
+    expect(budget.getDashboard).toEqual({
+      els_products: 1,
+      assets: 1,
+      tax_years: 1,
+      tax_profiles: 1,
+    })
+
+    // 계약 8개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다)
+    expect(Object.keys(budget)).toHaveLength(9)
+  })
+
+  it('DOC-011 §4.0의 왕복 수와 일치한다', async () => {
+    const total = (m: Record<string, number>): number =>
+      Object.values(m).reduce((a, b) => a + b, 0)
+
+    expect(total(await tables(() => s.asA.listProducts()))).toBe(2)
+    expect(total(await tables(() => s.asA.getProduct(FX.productA)))).toBe(2)
+    expect(total(await tables(() => s.asA.listSchedule()))).toBe(2)
+    expect(total(await tables(() => s.asA.searchAssets('단독')))).toBe(1)
+    expect(total(await tables(() => s.asA.listAssetPrices()))).toBe(2)
+    expect(
+      total(
+        await tables(() => s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })),
+      ),
+    ).toBe(3)
+    expect(total(await tables(() => s.asA.listUserSummaries()))).toBe(4)
+    expect(total(await tables(() => s.asA.getDashboard({ scope: 'ALL' })))).toBe(4)
+  })
+
+  /**
+   * **데이터를 실제로 늘려서 잰다.**
+   *
+   * 종전 테스트는 같은 계약을 같은 데이터로 두 번 부르고 결과가 같은지 보았다 —
+   * 항진명제였다. 진짜 N+1 구현(`for (asset of assets) await count(asset)`)을
+   * 넣어도 두 호출의 왕복 수는 서로 같으므로 그 단언은 통과한다.
+   */
+  it('데이터가 늘어도 왕복 구성이 변하지 않는다 — N+1 부재', async () => {
+    // 성장 픽스처가 실제로 반영됐는지 먼저 확인한다 — 늘지 않았으면 이 테스트는
+    // 다시 항진명제가 된다
+    expect(await s.asA.listProducts()).toHaveLength(6)
+
+    for (const [name, run] of GROWTH_PROBES) {
+      // 키에 계약명을 실어 실패 메시지가 어느 계약인지 말하게 한다
+      expect({ [name]: await tables(run) }).toEqual({ [name]: baseline.get(name) })
+    }
   })
 })
 
