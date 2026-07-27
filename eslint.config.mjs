@@ -91,6 +91,16 @@ const NO_COERCION_SYNTAX = [
       "DOC-011 §4.0 Q-08: 금액·비율은 문자열로 유지한다. Number()는 캐스팅 누락을 float64로 덮어버린다 — Decimal에 문자열을 넘긴다.",
   },
   {
+    // 전역 parseFloat를 막으면서 Number.parseFloat를 열어 두면 우회로가 남는다.
+    // Number.parseInt는 의도적으로 허용한다 — 연도·차수·개월수는 개수를 세는
+    // 정수이며 decimal.ts가 그 값들을 number로 쓰기로 이미 정했다. 금액·비율에는
+    // 정수 파싱이 필요한 경우가 없다.
+    selector:
+      "MemberExpression[object.name='Number'][property.name='parseFloat']",
+    message:
+      "DOC-011 §4.0 Q-08: Number.parseFloat도 강제 변환이다. 금액·비율은 문자열로 유지하고 Decimal에 넘긴다.",
+  },
+  {
     selector: "UnaryExpression[operator='+'][argument.type!='Literal']",
     message:
       "DOC-011 §4.0 Q-08: 단항 +는 숫자 강제 변환이다. 금액·비율은 문자열로 유지하고 Decimal에 넘긴다.",
