@@ -1,3 +1,5 @@
+import type { UserSessionClient } from '@/lib/db/client'
+import { createMutations, type Mutations } from '@/lib/db/mutations/context'
 import { createQueries, type Queries } from '@/lib/db/queries/context'
 
 import { clientFor } from './auth'
@@ -182,6 +184,31 @@ export async function setupScenario(): Promise<Scenario> {
   return {
     asA: createQueries({ db: dbA, asOf: AS_OF, viewerId: ITG_USER_A }),
     asB: createQueries({ db: dbB, asOf: AS_OF, viewerId: ITG_USER_B }),
+  }
+}
+
+/**
+ * 조회·변경 계약을 **같은 세션·같은 기준일**로 묶어서 준다 — DOC-011 §5.0 W-02.
+ *
+ * 두 계약면이 컨텍스트를 공유한다는 것 자체가 규약이며, 여기서 갈라 놓으면
+ * V-17(미래 시세 거부)이 쓰는 기준일과 조회의 `asOf`가 어긋난 상태를 테스트가
+ * 정상으로 취급하게 된다. `db`도 함께 주는 이유는 **계약을 우회하는 경로**
+ * (쓰기 함수 직접 호출 = AQ-29)를 같은 권한으로 재현해야 하기 때문이다.
+ */
+export type Contracts = {
+  db: UserSessionClient
+  read: Queries
+  write: Mutations
+}
+
+export async function contractsFor(
+  userId: typeof ITG_USER_A | typeof ITG_USER_B,
+): Promise<Contracts> {
+  const db = await clientFor(userId)
+  return {
+    db,
+    read: createQueries({ db, asOf: AS_OF, viewerId: userId }),
+    write: createMutations({ db, asOf: AS_OF, viewerId: userId }),
   }
 }
 

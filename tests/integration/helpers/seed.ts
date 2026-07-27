@@ -64,11 +64,24 @@ export async function resetFixtures(): Promise<void> {
    * `assets`는 `els_underlyings`가 RESTRICT로 참조하므로 상품(→ 기초자산 CASCADE)
    * 삭제 **뒤에** 지운다.
    */
-  await sql('delete from public.redemptions where els_id = any($1::uuid[])', [
+  /**
+   * **고정 UUID만으로는 부족하다 (P3b 9단계).** 변경 계약 스위트는 `createProduct`가
+   * 서버에서 만든 UUID를 쓰므로 그 행들은 `ALL_FIXTURE_IDS`에 없다. 남겨 두면
+   * `els_underlyings.asset_id`가 RESTRICT라서 **다음 실행의 자산 삭제가 `23503`으로
+   * 죽는다** — 실패가 이 파일이 아니라 다음 실행에서 나타나는 부류다.
+   *
+   * 그래서 이름 대역도 함께 좁힌다. 자산에 이미 쓰던 규약(`FX_NAME_PREFIX`)을
+   * 상품으로 넓힌 것이며, RLS 스위트의 행은 접두사가 다르므로 걸리지 않는다.
+   */
+  const scope = 'id = any($1::uuid[]) or name like $2'
+  await sql(
+    `delete from public.redemptions
+      where els_id in (select id from public.els_products where ${scope})`,
+    [ALL_FIXTURE_IDS, `${FX_NAME_PREFIX}%`],
+  )
+  await sql(`delete from public.els_products where ${scope}`, [
     ALL_FIXTURE_IDS,
-  ])
-  await sql('delete from public.els_products where id = any($1::uuid[])', [
-    ALL_FIXTURE_IDS,
+    `${FX_NAME_PREFIX}%`,
   ])
   // assets CASCADE로도 지워지지만 명시해 의도를 남긴다
   await sql('delete from public.asset_prices where asset_id = any($1::uuid[])', [
