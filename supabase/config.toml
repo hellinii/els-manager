@@ -177,7 +177,11 @@ enable_refresh_token_rotation = true
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
 # Allow/disallow new user signups to your project.
-enable_signup = true
+# SEC-03(초대 기반 가입)·A-05: 공개 anon 키는 브라우저로 나가므로, 가입이 열려 있으면 키를 가진
+# 누구나 즉시 authenticated 세션을 얻는다. RLS 32정책은 전부 "아무나 authenticated가 될 수 없다"를
+# 전제하므로 이 값이 true면 정책 계층 전체가 무의미해진다. 사용자 추가는 SQL 시드/대시보드로만 한다.
+# 이 값을 바꾸면 `db:reset`으로는 반영되지 않는다 — `db:stop && db:start`가 필요하다.
+enable_signup = false
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -222,6 +226,10 @@ web3 = 30
 
 [auth.email]
 # Allow/disallow new user signups via email to your project.
+# 실측(P3a): 이 값을 false로 하면 GoTrue의 EXTERNAL_EMAIL_ENABLED가 꺼져 **이메일 로그인 자체가**
+# 막힌다(`/token?grant_type=password` → 422 email_provider_disabled). 가입 차단은 위 [auth]의
+# enable_signup = false 하나로 충분하며(422 signup_disabled), 그쪽은 로그인을 살려 둔다.
+# 초대 기반 가입(SEC-03)은 이메일/비밀번호 로그인을 전제하므로 이 값은 true로 둔다.
 enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
