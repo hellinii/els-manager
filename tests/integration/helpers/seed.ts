@@ -133,12 +133,17 @@ export async function seedProduct(params: {
   kiTouchedAt?: string | null
   accountType?: 'GENERAL' | 'TAX_FREE'
   issueDate?: string
+  /** 기본 `null`. 형식 검사(`formats.test.ts`)가 비-null 분기를 요구한다 */
+  issuer?: string | null
+  /** 기본 `null`. 위와 같다 */
+  note?: string | null
 }): Promise<void> {
   await sql(
     `insert into public.els_products
        (id, owner_id, name, issue_date, principal, evaluation_period_months,
-        annual_coupon_rate, ki_barrier, ki_observation, ki_touched_at, account_type)
-     values ($1, $2, $3, $4, $5, 6, 0.0800, $6, $7, $8, $9)`,
+        annual_coupon_rate, ki_barrier, ki_observation, ki_touched_at, account_type,
+        issuer, note)
+     values ($1, $2, $3, $4, $5, 6, 0.0800, $6, $7, $8, $9, $10, $11)`,
     [
       params.id,
       params.ownerId,
@@ -149,6 +154,8 @@ export async function seedProduct(params: {
       params.kiObservation ?? null,
       params.kiTouchedAt ?? null,
       params.accountType ?? 'GENERAL',
+      params.issuer ?? null,
+      params.note ?? null,
     ],
   )
 }
@@ -200,12 +207,14 @@ export async function seedRedemption(params: {
   grossAmount: string
   taxableIncome: string
   withholdingTax?: string | null
+  /** 기본 `null`. 형식 검사(`formats.test.ts`)가 비-null 분기를 요구한다 */
+  note?: string | null
 }): Promise<void> {
   await sql(
     `insert into public.redemptions
        (els_id, redemption_type, round_no, redemption_date,
-        gross_amount, taxable_income, withholding_tax, is_confirmed)
-     values ($1, $2, $3, $4, $5, $6, $7, true)`,
+        gross_amount, taxable_income, withholding_tax, is_confirmed, note)
+     values ($1, $2, $3, $4, $5, $6, $7, true, $8)`,
     [
       params.elsId,
       params.redemptionType,
@@ -214,6 +223,7 @@ export async function seedRedemption(params: {
       params.grossAmount,
       params.taxableIncome,
       params.withholdingTax ?? null,
+      params.note ?? null,
     ],
   )
 }

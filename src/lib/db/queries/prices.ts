@@ -4,7 +4,9 @@ import {
   loadAssetsByName,
   loadProducts,
 } from './load'
-import { isStale, redemptionMarkOf } from './map'
+import { dec } from '@/lib/decimal'
+
+import { isStale, priceString, redemptionMarkOf } from './map'
 
 /** §4.5·§4.9 — 시세 목록·자산 검색 */
 
@@ -56,7 +58,7 @@ export function makeAssetQueries(ctx: QueryContext) {
         name: asset.name,
         market: asset.market,
         currency: asset.currency,
-        latestPrice: latest?.price ?? null,
+        latestPrice: latest == null ? null : priceString(dec(latest.price)),
         asOfDate: latest?.as_of_date ?? null,
         source: latest?.source ?? null,
         usedByActiveProducts: activeUsage.get(asset.id) ?? 0,

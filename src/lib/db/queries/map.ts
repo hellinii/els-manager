@@ -57,6 +57,23 @@ export function ratioString(value: DecimalValue): string {
   return value.toDecimalPlaces(4).toFixed(4)
 }
 
+/**
+ * 시세: 소수 6자리 고정. 저장 정밀도 `numeric(18,6)`과 일치한다.
+ *
+ * **금액도 비율도 아니다.** `amountString`으로 접으면 `412.55 → "413"`으로 값이
+ * 망가지고, `ratioString`으로 접으면 저장 정밀도를 잃는다. Q-07이 v0.7까지 두
+ * 분류만 두어 세 필드(§4.3 `basePrice`·`currentPrice`, §4.5 `latestPrice`)가
+ * DB의 `::text` 원형을 그대로 통과하고 있었다.
+ *
+ * **DB 렌더링을 신뢰하지 않는다.** 지금 `numeric(18,6)`이 이미 6자리를 주므로
+ * 출력값은 같지만, 원형을 통과시키면 **형식의 주인이 열 선언**이 되어 열을
+ * `numeric(18,4)`로 바꾸는 순간 API 출력이 조용히 바뀐다. 비율이 `numeric(6,4)`인데도
+ * `ratioString`을 거치는 것과 같은 논거다.
+ */
+export function priceString(value: DecimalValue): string {
+  return value.toDecimalPlaces(6).toFixed(6)
+}
+
 // ---------------------------------------------------------------------------
 // 무결성 결함 — D1, DOC-002 I-07
 // ---------------------------------------------------------------------------
@@ -425,8 +442,9 @@ export function toProductDetailView(
         return {
           assetId: u.asset_id,
           assetName: latest?.asset.name ?? u.assets?.name ?? '(알 수 없음)',
-          basePrice: u.base_price,
-          currentPrice: latest?.price?.price ?? null,
+          basePrice: priceString(dec(u.base_price)),
+          currentPrice:
+            latest?.price == null ? null : priceString(dec(latest.price.price)),
           priceAsOf: latest?.price?.as_of_date ?? null,
           priceSource: latest?.price?.source ?? null,
           ratio: ratio == null ? null : ratioString(ratio),

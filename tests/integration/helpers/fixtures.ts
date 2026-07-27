@@ -53,6 +53,10 @@ export const FX = {
   assetGrowth1: '00000000-0000-4000-8000-000000000206',
   assetGrowth2: '00000000-0000-4000-8000-000000000207',
   productGrowth: '00000000-0000-4000-8000-000000000306',
+
+  /** `formats.test.ts`의 보강 — 정본이 닿지 않는 null/비-null 분기를 메운다 */
+  assetFormat: '00000000-0000-4000-8000-000000000208',
+  productFormat: '00000000-0000-4000-8000-000000000308',
 } as const
 
 /** 이름 대역도 예약한다 — `assets_name_market_key`(NULLS NOT DISTINCT) 충돌 회피 */

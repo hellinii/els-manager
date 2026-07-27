@@ -125,7 +125,9 @@ describe('§4.3 getProduct', () => {
     expect(view.product.annualCouponRate).toBe('0.0800')
     expect(view.product.kiBarrier).toBe('0.5000')
     expect(view.underlyings).toHaveLength(1)
-    expect(view.underlyings[0].currentPrice).toBe('95.000000')
+    // 자릿수는 formats.test.ts가 본다. 여기 리터럴로 두면 그 한 곳만 지켜지고
+    // 나머지 시세 필드는 무방비가 된다 — 실제로 그래서 놓쳤다.
+    // "80/500이 아니라 95가 뽑혔다"는 의미는 아래 두 줄이 고정한다.
     expect(view.underlyings[0].priceAsOf).toBe('2026-06-29')
     expect(view.underlyings[0].ratio).toBe('0.9500')
     expect(view.underlyings[0].isWorst).toBe(true)
