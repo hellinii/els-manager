@@ -19,8 +19,8 @@ export async function seedProduct(params: {
   const result = await asOwner<{ id: string }>(
     `insert into public.els_products
        (owner_id, name, issue_date, principal, evaluation_period_months,
-        total_rounds, annual_coupon_rate, ki_barrier, ki_observation, account_type)
-     values ($1, $2, '2026-01-02', 100000000, 6, 6, 0.08, 0.50, 'CLOSING', 'GENERAL')
+        annual_coupon_rate, ki_barrier, ki_observation, account_type)
+     values ($1, $2, '2026-01-02', 100000000, 6, 0.08, 0.50, 'CLOSING', 'GENERAL')
      returning id`,
     [params.ownerId ?? USER_A, params.name ?? 'A상품'],
   )
@@ -76,9 +76,13 @@ export async function seedSchedule(params: {
  *
  * **`seedProduct`가 아니라 여기에 두는 이유.** `seedProduct`에서 1차를 자동
  * 생성하면 `seedSchedule({ roundNo: 1 })`을 직접 호출하는 케이스들과
- * `UNIQUE(els_id, round_no)`로 충돌한다. 더 근본적으로는 `total_rounds`와
- * 일정 행 수의 정합성이 미결이므로(DOC-002 DQ-05) **픽스처가 한쪽 해석을
- * 전제하면 안 된다.** P3에서 I-07을 계약 계층에서 강제할 때 함께 재검토한다.
+ * `UNIQUE(els_id, round_no)`로 충돌한다.
+ *
+ * P3a에서 DQ-05가 닫혔다 — `total_rounds` 컬럼이 사라졌으므로 총 차수의 정본은
+ * 일정 **행 수**이고, 픽스처가 두 값의 정합성을 전제할 여지 자체가 없어졌다.
+ * `seedProduct`는 일정을 만들지 않으므로 그 상품의 총 차수는 0이다 — 조회 계층이
+ * `integrityIssue = 'SCHEDULE_MISSING'`으로 표시하는 상태이며(DOC-011 §4.2),
+ * 정책 검증에는 무해하다. I-07의 계약 계층 강제는 P3b다.
  *
  * `round_no`를 `NULL`로 두는 상환은 이 헬퍼로 만들 수 없다 — `EARLY`는 차수를
  * 반드시 갖기 때문이다(I-14). 만기 상환이 필요한 케이스는 유형과 차수를 함께

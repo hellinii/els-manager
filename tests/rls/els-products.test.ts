@@ -38,8 +38,8 @@ describe('생성은 본인 명의로만', () => {
     const created = await actingAs(USER_A).query<{ id: string }>(
       `insert into public.els_products
          (owner_id, name, issue_date, principal, evaluation_period_months,
-          total_rounds, annual_coupon_rate, account_type)
-       values ($1, '내 상품', '2026-01-02', 100000000, 6, 6, 0.08, 'GENERAL')
+          annual_coupon_rate, account_type)
+       values ($1, '내 상품', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')
        returning id`,
       [USER_A],
     )
@@ -53,8 +53,8 @@ describe('생성은 본인 명의로만', () => {
       actingAs(USER_B).query(
         `insert into public.els_products
            (owner_id, name, issue_date, principal, evaluation_period_months,
-            total_rounds, annual_coupon_rate, account_type)
-         values ($1, 'B가 A 명의로 만든 상품', '2026-01-02', 100000000, 6, 6, 0.08, 'GENERAL')`,
+            annual_coupon_rate, account_type)
+         values ($1, 'B가 A 명의로 만든 상품', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')`,
         [USER_A],
       ),
     )
