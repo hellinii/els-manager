@@ -93,6 +93,14 @@ npm run test:rls && npm run typecheck
 `supabase/config.toml`의 `[auth]`를 바꾸면 `db:reset`으로는 반영되지 않는다 —
 `db:stop && db:start`가 필요하다.
 
+**공개 가입은 `[auth].enable_signup = false`로만 끈다.** `[auth.email].enable_signup`을
+끄면 GoTrue의 `EXTERNAL_EMAIL_ENABLED`가 꺼져 **이메일 로그인 자체가** 막힌다
+(`422 email_provider_disabled`). 실측으로 확인했다 — DOC-010 §7 SEC-03 각주.
+
+`auth.users`에 사용자를 직접 넣을 때는 **토큰 열 8개를 `''`로 명시한다.** 4개는
+컬럼 기본값이 없어 `NULL`이 되고, GoTrue가 그것을 널 불가 `string`으로 스캔해
+로그인이 `500`으로 죽는다. `supabase/seed/00_rls_test_users.sql`의 주석 참조.
+
 ## 작업 방식
 
 - 변경 후 `npm run test`와 `npm run typecheck`를 실행한다
