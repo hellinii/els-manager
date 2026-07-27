@@ -17,6 +17,7 @@ import {
 } from '@/lib/tax'
 
 import { toTaxConstants } from '../taxConstants'
+import { currentYear } from '../today'
 import type { QueryContext } from './context'
 import {
   loadProducts,
@@ -427,7 +428,11 @@ export function makeTaxQueries(ctx: QueryContext) {
    * **합계 행을 제공하지 않는다** — 종합과세는 개인 단위다(절대 규칙 #7).
    */
   async function listUserSummaries(): Promise<UserSummary[]> {
-    const year = Number.parseInt(ctx.asOf.slice(0, 4), 10)
+    // AQ-27 — 귀속연도 파생은 `currentYear()` 하나다. 여기 있던 문자열 자르기는
+    // 같은 일을 두 번째로 적은 것이었고, 그쪽에는 형식 검사가 없었다(`asOf`가
+    // 깨지면 `NaN`이 되어 세율 조회가 엉뚱한 오류를 낸다). Q-02가 "요청당 한 번"을
+    // 구조로 만든 것과 같은 이유로 파생 규칙도 한 곳에만 둔다.
+    const year = currentYear(ctx.asOf)
 
     // 넷 다 ctx.asOf·ctx.viewerId만으로 출발하고 서로 의존하지 않는다 —
     // **한 물결**이다. 왕복은 4로 같고(§4.0 예산 불변) 대기만 2파 → 1파로 준다.

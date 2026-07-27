@@ -34,7 +34,7 @@ Next.js (App Router) · TypeScript · Supabase (PostgreSQL + Auth + RLS) · Verc
 위반 시 프로젝트의 핵심 전제가 깨진다.
 
 1. **검증 케이스의 기대값을 수정하지 않는다.** `07_계산_로직_명세.md` §10의 TC-01~TC-22는 검증된 정답이다. 테스트가 실패하면 테스트가 아니라 구현을 고친다.
-2. **금액·비율에 부동소수점을 쓰지 않는다.** Decimal 타입을 사용하고, 경계에서는 문자열로 전달한다.
+2. **금액·비율에 부동소수점을 쓰지 않는다.** Decimal 타입을 사용하고, 경계에서는 문자열로 전달한다. **경계는 양방향이다** — 읽기는 `select.ts`의 `::text` 캐스팅, 쓰기는 `mutations/payload.ts`의 `InsertPayload<T>`(`toInsert`/`toUpdate`)를 지난다. **생성 타입(`Insert`·`Update`)을 그대로 따르면 위반이다** — 금액 열을 `number`로 요구하며, 실측상 `99999999999.999999`가 `100000000000.000000`으로 저장된다(오류 없음, AQ-30). `.insert()`·`.upsert()`·`.update()`에 객체 리터럴을 바로 넘기는 것은 린트가 막는다.
 3. **`lib/tax`·`lib/domain`은 순수 모듈이다.** `lib/db`, `lib/providers`, `app`을 import할 수 없다. 프레임워크 API를 쓰지 않는다. 상수는 인자로 주입받는다.
 4. **`els_products`에 `status` 컬럼을 만들지 않는다.** 상태는 `redemptions` 레코드 존재로 유도한다.
 5. **세율·요율을 코드에 하드코딩하지 않는다.** `tax_brackets`·`tax_constants`에서 조회한다.
@@ -87,8 +87,10 @@ npm run test:rls && npm run typecheck
 ```
 
 `db:types`를 빠뜨리면 타입만 예전 스키마를 가리키는데 `typecheck`는 통과한다. 그 상태에서
-**금액을 문자열로 받는 방어(DOC-011 §4.0 Q-08)가 조용히 멈춘다.** 드리프트 대조 검사는
-`test:integration`에만 있어 상시 실행되지 않으므로, 절차로 지킨다(DOC-010 AQ-19).
+**금액을 문자열로 다루는 방어가 양방향 모두 조용히 멈춘다** — 읽기의 `::text`(DOC-011
+§4.0 Q-08)와 쓰기의 `InsertPayload<T>`(§5.0 W-04) 둘 다 생성 타입에서 파생되기 때문이다.
+드리프트 대조 검사는 `test:integration`에만 있어 상시 실행되지 않으므로, 절차로 지킨다
+(DOC-010 AQ-19).
 
 `supabase/config.toml`의 `[auth]`를 바꾸면 `db:reset`으로는 반영되지 않는다 —
 `db:stop && db:start`가 필요하다.
