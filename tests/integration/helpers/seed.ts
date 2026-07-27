@@ -1,7 +1,7 @@
 import { Client } from 'pg'
 
 import { resolveDatabaseUrl } from './env'
-import { ALL_FIXTURE_IDS, FX_NAME_PREFIX, ITG_USER_A } from './fixtures'
+import { ALL_FIXTURE_IDS, FX_NAME_PREFIX, ITG_USER_A, ITG_USER_B } from './fixtures'
 
 /**
  * 픽스처 — **선삭제 후 삽입(멱등)**, 고정 UUID.
@@ -46,11 +46,31 @@ export async function sql(text: string, values: unknown[] = []): Promise<void> {
  * 그것은 테스트가 아니라 사고다.
  */
 export async function resetFixtures(): Promise<void> {
-  // els_products → 하위(underlyings·schedules·redemptions)는 CASCADE
+  /**
+   * **삭제 순서가 중요하다 — 실측한 FK 규칙에 따른다.**
+   *
+   * | 자식 | 부모 | ON DELETE |
+   * |---|---|---|
+   * | `els_underlyings.els_id` | `els_products` | CASCADE |
+   * | `redemption_schedules.els_id` | `els_products` | CASCADE |
+   * | **`redemptions.els_id`** | `els_products` | **RESTRICT** |
+   * | **`els_underlyings.asset_id`** | `assets` | **RESTRICT** |
+   * | `asset_prices.asset_id` | `assets` | CASCADE |
+   *
+   * `redemptions`가 RESTRICT인 것은 설계다 — DOC-002 DQ-01("상환 완료 상품은
+   * 삭제 불가")을 DB가 강제한다. 그래서 상품보다 **먼저** 지워야 하고, 처음에
+   * "하위는 CASCADE"라고 가정했다가 `23503`으로 픽스처가 죽었다.
+   *
+   * `assets`는 `els_underlyings`가 RESTRICT로 참조하므로 상품(→ 기초자산 CASCADE)
+   * 삭제 **뒤에** 지운다.
+   */
+  await sql('delete from public.redemptions where els_id = any($1::uuid[])', [
+    ALL_FIXTURE_IDS,
+  ])
   await sql('delete from public.els_products where id = any($1::uuid[])', [
     ALL_FIXTURE_IDS,
   ])
-  // asset_prices → assets CASCADE이지만 명시해 의도를 남긴다
+  // assets CASCADE로도 지워지지만 명시해 의도를 남긴다
   await sql('delete from public.asset_prices where asset_id = any($1::uuid[])', [
     ALL_FIXTURE_IDS,
   ])
@@ -58,9 +78,17 @@ export async function resetFixtures(): Promise<void> {
     'delete from public.assets where id = any($1::uuid[]) or name like $2',
     [ALL_FIXTURE_IDS, `${FX_NAME_PREFIX}%`],
   )
-  // 이 스위트의 사용자 프로필만. USER_A·USER_B는 절대 건드리지 않는다.
+  /**
+   * 이 스위트의 **두 사용자** 프로필. 처음에 A만 지웠다가 B의 행이 남아
+   * `tax_profiles_user_id_tax_year_key`로 다음 실행이 `23505`로 죽었다 —
+   * 커밋하는 픽스처에서 선삭제 범위가 좁으면 실패가 다음 실행으로 미뤄진다.
+   *
+   * RLS 스위트의 USER_A·USER_B(`...00000a`/`...00000b`)는 **절대 건드리지 않는다.**
+   * 그쪽 `tax-profiles.test.ts`가 필터 없이 조회해 `toEqual([USER_A])`를 단언하므로,
+   * 여기서 그 행을 지우거나 새 행을 남기면 그 스위트가 빨간불이 된다.
+   */
   await sql('delete from public.tax_profiles where user_id = any($1::uuid[])', [
-    [ITG_USER_A],
+    [ITG_USER_A, ITG_USER_B],
   ])
 }
 
