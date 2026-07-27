@@ -136,13 +136,27 @@ describe('plpgsql RAISE — constraint 옵션이 HTTP 경계에서 사라진다'
     const body = bodyOf(error, 'I-16 위반')
     expect(body.code).toBe('23514')
 
-    // ★ 이 세 단언이 5·6단계의 detail 적재를 강제한다.
-    //   메시지는 한글 문구이므로 표준 형태의 파싱이 아무것도 찾지 못하고,
-    //   details·hint도 비어 있어 이름을 얻을 채널이 **하나도 없다**.
+    // ★ 표준 형태의 파싱은 여기서 아무것도 찾지 못한다 — 메시지가 한글 문구다.
+    //   `using constraint`는 `pg` 직결에서만 오고(tests/rls가 그것을 단언한다)
+    //   PostgREST를 지나면 사라진다. 이 두 단언이 detail 채널의 근거다.
     expect(CONSTRAINT_IN_MESSAGE.exec(body.message)).toBeNull()
     expect(body.message).toContain('DOC-002 I-16')
-    expect(body.details).toBeNull()
+
+    // 5단계에서 detail 첫 줄에 이름을 실었다. 이것이 계약 계층의 유일한 채널이다
+    expect(body.details).toBe('constraint=asset_prices_coordinates_immutable')
     expect(body.hint).toBeNull()
+  })
+
+  it('동일값 재대입은 통과한다 — .upsert()를 남기려는 설계 (§5.7)', async () => {
+    // 좌표를 **바꾸는** UPDATE만 거부된다. 이 케이스가 없으면 위 단언이
+    // "UPDATE가 전부 막힌다"로도 만족되고, 그 상태에서 saveManualPrice가 죽는다
+    const { error } = await dbA
+      .from('asset_prices')
+      .update({ asset_id: FX.assetSolo, as_of_date: '2026-06-29', source: 'MANUAL' })
+      .eq('asset_id', FX.assetSolo)
+      .eq('as_of_date', '2026-06-29')
+
+    expect(error).toBeNull()
   })
 })
 

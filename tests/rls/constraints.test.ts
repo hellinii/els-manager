@@ -574,3 +574,163 @@ describe('assets — UNIQUE NULLS NOT DISTINCT (name, market)', () => {
     expect(created.rowCount).toBe(1)
   })
 })
+
+describe('I-17 — 값 범위 (P3b, DQ-06 부분 해결)', () => {
+  /**
+   * 네 제약 모두 계약 계층에 대응 규칙이 있다(V-01·V-08·V-20). I-08과 같은 2층
+   * 구조이며, 여기서 보는 것은 **계약을 우회한 경로에서도 막히는가**다 —
+   * 마이그레이션·수동 SQL·쓰기 함수 직접 호출(AQ-29)이 그 경로다.
+   *
+   * 각 케이스는 **한 번에 한 제약만** 위반한다. `barrier = 0` 케이스가 리자드
+   * 열을 `NULL`로 두는 것이 그 이유다 — 기본 시드값(0.85)을 그대로 쓰면 I-04에도
+   * 동시에 걸려 어느 쪽이 보고되는지가 이름 알파벳순에 의존한다.
+   */
+  const insertProduct = `insert into public.els_products
+      (owner_id, name, issue_date, principal, evaluation_period_months,
+       annual_coupon_rate, account_type)
+    values ($1, 'I17', '2026-01-02', $2, $3, 0.08, 'GENERAL')`
+
+  it('원금 0을 거부한다', async () => {
+    await expectConstraintViolation(
+      () => actingAs(USER_A).query(insertProduct, [USER_A, '0', 6]),
+      '23514',
+      'els_products_principal_check',
+    )
+  })
+
+  it('원금 음수를 거부한다 — 산식의 부호가 뒤집힌다', async () => {
+    await expectConstraintViolation(
+      () => actingAs(USER_A).query(insertProduct, [USER_A, '-100000000', 6]),
+      '23514',
+      'els_products_principal_check',
+    )
+  })
+
+  it('원금 1은 통과한다 — 경계', async () => {
+    const created = await actingAs(USER_A).query(insertProduct, [USER_A, '1', 6])
+    expect(created.rowCount).toBe(1)
+  })
+
+  it('평가주기 0을 거부한다 — 순수 모듈이 거부하는 값이다', async () => {
+    await expectConstraintViolation(
+      () => actingAs(USER_A).query(insertProduct, [USER_A, '100000000', 0]),
+      '23514',
+      'els_products_evaluation_period_check',
+    )
+  })
+
+  it('평가주기 1은 통과한다 — 경계(월지급식)', async () => {
+    const created = await actingAs(USER_A).query(insertProduct, [USER_A, '100000000', 1])
+    expect(created.rowCount).toBe(1)
+  })
+
+  it('배리어 0을 거부한다 — 어떤 시세에서도 충족되는 조건이 된다', async () => {
+    const product = await seedProduct({ ownerId: USER_A })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          `insert into public.redemption_schedules
+             (els_id, round_no, evaluation_date, barrier, lizard_barrier, lizard_coupon_rate)
+           values ($1, 1, '2026-07-02', 0, null, null)`,
+          [product.id],
+        ),
+      '23514',
+      'redemption_schedules_barrier_check',
+    )
+  })
+
+  it('배리어 UPDATE로도 0이 될 수 없다', async () => {
+    const product = await seedProduct({ ownerId: USER_A })
+    const schedule = await seedSchedule({ elsId: product.id })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          'update public.redemption_schedules set barrier = 0, lizard_barrier = null, lizard_coupon_rate = null where id = $1',
+          [schedule.id],
+        ),
+      '23514',
+      'redemption_schedules_barrier_check',
+    )
+
+    const after = await asOwner<{ barrier: string }>(
+      'select barrier::text as barrier from public.redemption_schedules where id = $1',
+      [schedule.id],
+    )
+    expect(after.rows[0].barrier).toBe('0.9000')
+  })
+
+  it('실수령액 음수를 거부한다', async () => {
+    // MATURITY_GAIN + 과세소득 0 + round_no NULL — I-08·I-12·I-14를 함께
+    // 건드리지 않는 조합이다
+    const product = await seedProduct({ ownerId: USER_A })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          `insert into public.redemptions
+             (els_id, redemption_type, round_no, redemption_date,
+              gross_amount, taxable_income, is_confirmed)
+           values ($1, 'MATURITY_GAIN', null, '2027-01-02', -1, 0, true)`,
+          [product.id],
+        ),
+      '23514',
+      'redemptions_gross_amount_check',
+    )
+  })
+
+  it('실수령액 0은 통과한다 — 전액 손실은 표현 가능해야 한다', async () => {
+    const product = await seedProduct({ ownerId: USER_A })
+
+    const created = await actingAs(USER_A).query(
+      `insert into public.redemptions
+         (els_id, redemption_type, round_no, redemption_date,
+          gross_amount, taxable_income, is_confirmed)
+       values ($1, 'MATURITY_LOSS', null, '2027-01-02', 0, 0, true)`,
+      [product.id],
+    )
+    expect(created.rowCount).toBe(1)
+  })
+})
+
+describe('I-16 — 거부가 제약 이름을 두 채널로 싣는다 (P3b 2단계 실측)', () => {
+  it('pg 직결에서는 constraint 필드로 온다', async () => {
+    const asset = await seedAsset({})
+    const price = await seedPrice({ assetId: asset.id })
+
+    // 종전 케이스들이 이미 이것을 단언한다. 여기서는 detail을 더한 뒤에도
+    // 그 채널이 살아 있음을 확인한다 — 한쪽을 고치며 다른 쪽을 깨뜨리지 않았다
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          "update public.asset_prices set as_of_date = '2026-07-02' where id = $1",
+          [price.id],
+        ),
+      '23514',
+      'asset_prices_coordinates_immutable',
+    )
+  })
+
+  it('detail의 첫 줄에도 이름이 온다 — PostgREST 경로의 유일한 채널', async () => {
+    const asset = await seedAsset({})
+    // **다른** 자산으로 재부모화를 시도한다. 같은 값을 재대입하면 트리거가
+    // 통과시키므로(그것이 .upsert()를 남기려는 설계다) 오류가 나지 않는다
+    const other = await seedAsset({ name: '다른자산' })
+    const price = await seedPrice({ assetId: asset.id })
+
+    let detail: string | undefined
+    try {
+      await actingAs(USER_A).query(
+        'update public.asset_prices set asset_id = $1 where id = $2',
+        [other.id, price.id],
+      )
+    } catch (error) {
+      detail = (error as { detail?: string }).detail
+    }
+
+    // PostgrestError에는 constraint 필드가 없다(실측). detail이 없으면 계약
+    // 계층이 이름을 얻지 못해 assetId·asOfDate 필드 오류를 만들 수 없다
+    expect(detail).toBe('constraint=asset_prices_coordinates_immutable')
+  })
+})

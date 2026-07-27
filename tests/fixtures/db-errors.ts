@@ -26,7 +26,14 @@ export const CHECK_KI_PAIR: MeasuredBody = {
   hint: null,
 }
 
-/** plpgsql 트리거 — **이름이 어디에도 없다** (5단계 이전의 상태) */
+/**
+ * plpgsql 트리거 — **이름이 어디에도 없던 상태** (5단계 이전의 실측값)
+ *
+ * 지운 값이 아니라 남겨 둔다. 매핑이 이 형태에서 무엇을 하는지가 계약이다 —
+ * 이름을 얻지 못하면 SQLSTATE 기본값(`VALIDATION_FAILED`)으로 내려가되 필드를
+ * 만들지 않는다. 트리거를 고쳤어도 **다음에 추가되는 `RAISE`가 `detail`을 빠뜨리면
+ * 정확히 이 형태가 된다.**
+ */
 export const TRIGGER_I16_BEFORE_FIX: MeasuredBody = {
   code: '23514',
   message:
@@ -35,7 +42,10 @@ export const TRIGGER_I16_BEFORE_FIX: MeasuredBody = {
   hint: null,
 }
 
-/** plpgsql 트리거 — `detail` 첫 줄에 이름을 실은 뒤 (5단계 이후) */
+/**
+ * plpgsql 트리거 — `detail` 첫 줄에 이름을 실은 뒤. **현재의 실측값이다**
+ * (마이그레이션 `20260727143954`, `tests/integration/error-shape.test.ts`가 고정한다).
+ */
 export const TRIGGER_I16_AFTER_FIX: MeasuredBody = {
   ...TRIGGER_I16_BEFORE_FIX,
   details: 'constraint=asset_prices_coordinates_immutable',
