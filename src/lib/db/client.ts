@@ -96,3 +96,49 @@ export function readOnlyCookieAdapter(
     },
   }
 }
+
+/**
+ * 서버 액션용 쿠키 어댑터 — **쓸 수 있다.**
+ *
+ * 조회의 무연산 어댑터와 다른 것이 요점이다. 서버 액션은 응답 헤더가 확정되기
+ * 전에 실행되므로 Next가 쿠키 쓰기를 허용하고, 그래서 **변경 경로가 토큰 갱신을
+ * 실제로 저장하는 유일한 자리**다. 조회만 무연산이면 갱신된 토큰이 어디에도
+ * 남지 않아 매 요청이 다시 갱신한다(미들웨어가 없는 동안, P4 선행 조건).
+ *
+ * **쓰기 실패로 변경을 죽이지 않는다.** 여기까지 왔다면 DB 조작은 이미 끝났고,
+ * 쿠키를 저장하지 못한 결과는 "다음 요청이 토큰을 다시 갱신한다"일 뿐이다. 그
+ * 대가로 사용자의 저장을 실패로 보고하면 손해가 훨씬 크다 — 그러나 **삼킨 사실은
+ * 남긴다.** 이 경로가 상시로 도는 것은 결선이 잘못됐다는 신호다.
+ *
+ * ## `headers`를 버리지 않고 넘긴다
+ *
+ * `setAll`의 두 번째 인자는 라이브러리가 요구하는 캐시 금지 헤더다
+ * (`Cache-Control: private, no-store …`). **인증 쿠키를 싣는 응답이 캐시되면 한
+ * 사용자의 세션 토큰이 다른 사용자에게 나갈 수 있다** — AQ-02가 미결인 동안
+ * `noStoreFetch`로 막아 둔 것과 같은 부류의 위험이며, 이쪽은 우리가 보내는
+ * 응답이라 더 직접적이다.
+ *
+ * 서버 액션에서는 응답 헤더를 `cookies()`로 설정할 수 없다. 그것이 허용되는
+ * 이유는 서버 액션 응답이 POST이고 Next가 캐시하지 않기 때문이지, 헤더가
+ * 불필요해서가 아니다 — **Route Handler·미들웨어에서는 반드시 실어야 한다.**
+ * 그래서 어댑터는 두 인자를 그대로 전달하고, 헤더를 어떻게 할지는 주입하는
+ * 쪽이 정한다. 여기서 인자를 삼키면 그 결정이 사라진다.
+ */
+export function writableCookieAdapter(
+  getAll: CookieMethodsServer['getAll'],
+  setAll: NonNullable<CookieMethodsServer['setAll']>,
+): CookieMethodsServer {
+  return {
+    getAll,
+    setAll(cookiesToSet, headers) {
+      try {
+        setAll(cookiesToSet, headers)
+      } catch (error) {
+        console.error(
+          '[auth] 서버 액션에서 세션 쿠키를 저장하지 못했다 — 갱신된 토큰이 유실된다. ' +
+            `변경 자체는 이미 수행되었으므로 실패로 보고하지 않는다: ${String(error)}`,
+        )
+      }
+    },
+  }
+}
