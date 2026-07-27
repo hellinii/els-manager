@@ -433,7 +433,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_els_product: { Args: { payload: Json }; Returns: string }
+      update_els_product: {
+        Args: { p_id: string; payload: Json }
+        Returns: string
+      }
     }
     Enums: {
       account_type: "GENERAL" | "TAX_FREE"

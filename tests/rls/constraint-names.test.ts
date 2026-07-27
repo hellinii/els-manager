@@ -70,12 +70,20 @@ describe('사상의 이름이 실재한다', () => {
     expect(missing).toEqual([])
   })
 
-  it('RAISE 라벨이 마이그레이션 SQL에 있다', () => {
+  it('RAISE 라벨 전부가 마이그레이션 SQL에 있다', () => {
     const sql = migrationText()
-    // 6단계 전에는 쓰기 함수의 라벨이 아직 없다. 있는 것만 대조하고,
-    // 6단계가 끝나면 이 목록이 전부 채워진다 — 그 상태를 아래 단언이 고정한다
-    const present = RAISE_ONLY.filter((name) => sql.includes(`constraint = '${name}'`))
-    expect(present).toContain('asset_prices_coordinates_immutable')
+    const missing = RAISE_ONLY.filter((name) => !sql.includes(`constraint = '${name}'`))
+    expect(missing).toEqual([])
+  })
+
+  it('RAISE 라벨은 detail에도 실린다 — PostgREST 경로의 유일한 채널', () => {
+    // constraint 옵션만 지정하면 그 이름이 HTTP 경계에서 사라진다(2단계 실측).
+    // 두 채널을 다 채우지 않으면 계약 계층이 fields를 만들 수 없다
+    const sql = migrationText()
+    const missing = RAISE_ONLY.filter(
+      (name) => !sql.includes(`detail     = 'constraint=${name}'`),
+    )
+    expect(missing).toEqual([])
   })
 })
 
