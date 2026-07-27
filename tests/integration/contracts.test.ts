@@ -356,14 +356,24 @@ describe('§4.1 getDashboard', () => {
     expect(broken.worstOf).toBeNull()
   })
 
-  it('attentionItems — 무결성 결함 두 종류와 KI 하회', async () => {
+  it('attentionItems — 상품당 사유가 여러 개다. 결함이 나머지를 가리지 않는다', async () => {
     const view = await s.asA.getDashboard({ scope: 'ALL' })
-    const reasons = new Map(
-      view.attentionItems.map((i) => [i.productName.replace('[ITG] ', ''), i.reason]),
-    )
 
-    expect(reasons.get('A기초자산없음')).toBe('UNDERLYING_MISSING')
-    expect(reasons.get('A일정없음')).toBe('SCHEDULE_MISSING')
+    // **다중맵이어야 한다.** 상품명 → 사유 하나로 접으면 마지막 값만 남아
+    // 다중 사유를 잃는다 — 결함 상품에서 특히 그렇다(§4.1 v0.8).
+    const reasons = new Map<string, string[]>()
+    for (const item of view.attentionItems) {
+      const key = item.productName.replace('[ITG] ', '')
+      reasons.set(key, [...(reasons.get(key) ?? []), item.reason])
+    }
+
+    // 기초자산 0건 — 시세 파생 사유는 산출할 수 없고 1차(2026-09-01)는 미경과다.
+    // PRICE_MISSING이 없는 것이 요점 — 오지 않을 시세를 기다리게 하지 않는다.
+    expect(reasons.get('A기초자산없음')).toEqual(['UNDERLYING_MISSING'])
+
+    // 일정 0건 + 기초자산은 시세 없는 자산 → 결함과 진짜 E-01이 함께 온다
+    expect(reasons.get('A일정없음')).toEqual(['SCHEDULE_MISSING', 'PRICE_MISSING'])
+
     expect(view.attentionItems.some((i) => i.reason === 'KI_BELOW')).toBe(true)
     // 상환 완료 상품은 조치 대상이 아니다
     expect(view.attentionItems.some((i) => i.productName.includes('A상환완료'))).toBe(
@@ -443,12 +453,29 @@ describe('§4.6 getTaxSummary', () => {
     expect(byName.get('A상환완료')!.taxableIncome).toBe('4000000')
     expect(byName.get('A정상')!.isEstimated).toBe(true)
 
-    // 무결성 결함 상품도 기여한다 — 시세에 의존하지 않는 계약 조건 계산이다
+    // 무결성 결함 상품도 기여한다 — 시세에 의존하지 않는 계약 조건 계산이다.
+    // **금액은 v0.8에서도 바뀌지 않는다** — 이 두 줄이 "표식만 붙인다"의 회귀 고정이다.
     expect(byName.get('A기초자산없음')!.taxableIncome).toBe('1200000')
     expect(byName.get('A기초자산없음')!.isEstimated).toBe(true)
 
     // 일정 0건 상품은 적용 차수가 없으므로 기여하지 않는다
     expect(byName.has('A일정없음')).toBe(false)
+  })
+
+  it('contributingProducts가 결함을 드러낸다 — isEstimated와 직교한다 (v0.8)', async () => {
+    const view = await s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })
+    const byName = new Map(
+      view.contributingProducts.map((p) => [p.productName.replace('[ITG] ', ''), p]),
+    )
+
+    // 표식이 없으면 SCR-202에서 "수정 필요"인 같은 상품이 SCR-401에는 숫자로만
+    // 나타나 사용자가 모순으로 읽는다
+    expect(byName.get('A기초자산없음')!.integrityIssue).toBe('UNDERLYING_MISSING')
+    expect(byName.get('A정상')!.integrityIssue).toBeNull()
+    expect(byName.get('A상환완료')!.integrityIssue).toBeNull()
+
+    // 두 축이 직교한다 — 같은 상품이 결함이면서 추정이다
+    expect(byName.get('A기초자산없음')!.isEstimated).toBe(true)
   })
 
   it('타인 조회는 던진다 — 조용히 과소 산출하지 않는다 (D3)', async () => {

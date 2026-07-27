@@ -57,6 +57,15 @@ export const FX = {
   /** `formats.test.ts`의 보강 — 정본이 닿지 않는 null/비-null 분기를 메운다 */
   assetFormat: '00000000-0000-4000-8000-000000000208',
   productFormat: '00000000-0000-4000-8000-000000000308',
+
+  /**
+   * `integrity-inputs.test.ts` — **일정 0건 + 시세 있음.**
+   *
+   * 정본의 `productNoSchedule`(…305)은 일부러 시세 없는 자산을 참조하므로
+   * "일정 0건"과 "시세 없음"이 뒤엉켜 있다 — 그 픽스처로는 어느 원인이 값을
+   * 죽였는지 갈리지 않는다.
+   */
+  productNoScheduleWithPrice: '00000000-0000-4000-8000-000000000307',
 } as const
 
 /** 이름 대역도 예약한다 — `assets_name_market_key`(NULLS NOT DISTINCT) 충돌 회피 */

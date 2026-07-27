@@ -26,7 +26,13 @@ import {
   type ProductRow,
   type TaxYearContext,
 } from './load'
-import { amountString, bracketLabel, ratioString } from './map'
+import {
+  amountString,
+  bracketLabel,
+  integrityIssueOf,
+  ratioString,
+  type IntegrityIssue,
+} from './map'
 
 /** §4.6·§4.8 — 세금 요약·사용자별 현황 */
 
@@ -79,6 +85,14 @@ export type TaxSummaryView = {
     productName: string
     taxableIncome: string
     isEstimated: boolean
+    /**
+     * 결함 표식 — 금액에 영향을 주지 않는다.
+     *
+     * `isEstimated`와 **직교**한다. 그쪽은 "증권사 확정값이 아니라 시스템 추정"을
+     * 뜻하고 미상환이면 전부 `true`다. §4.4처럼 한 값으로 좁히지 않는 이유는
+     * `contributionOf`의 주석에 있다.
+     */
+    integrityIssue: IntegrityIssue | null
   }>
 }
 
@@ -121,7 +135,25 @@ export function contributionOf(
   row: ProductRow,
   year: number,
   asOf: string,
-): { amount: DecimalValue; isEstimated: boolean } | null {
+): {
+  amount: DecimalValue
+  isEstimated: boolean
+  /**
+   * 결함 표식 — **금액에 영향을 주지 않는다.** 과세 기여는 계약 조건에서만
+   * 나오고 결함이 파괴한 입력(기초자산·시세)을 쓰지 않으므로 금액은 유효하다.
+   *
+   * **§4.4처럼 `'UNDERLYING_MISSING'` 하나로 좁히면 안 된다.** "일정 0건이면
+   * 적용 차수가 없어 기여하지 않는다"는 **아래 추정 분기에서만** 참이다. 상환
+   * 분기가 일정 검사보다 먼저 반환하고, I-13 FK는 `MATCH SIMPLE`이라
+   * `round_no IS NULL`인 만기 상환을 검사하지 않는다 — 즉 만기 상환 상품은
+   * 일정 행이 전부 지워져도 `ON DELETE RESTRICT`에 걸리지 않고, 증권사 확정값으로
+   * 기여하면서 `SCHEDULE_MISSING`이다. §4.4의 좁힘은 "행 단위가 차수"라는
+   * 구조적 도달 불가에서 나왔고 여기는 행 단위가 상품이라 그 논거가 옮겨가지 않는다.
+   */
+  integrityIssue: IntegrityIssue | null
+} | null {
+  const integrityIssue = integrityIssueOf(row)
+
   // 상환 완료 — 증권사 확정값을 쓴다(A-04). 시스템 추정으로 대체하지 않는다.
   if (row.redemptions != null) {
     const attributed = attributionYear({
@@ -136,10 +168,13 @@ export function contributionOf(
         redemption: { taxableIncome: row.redemptions.taxable_income },
       }),
       isEstimated: false,
+      integrityIssue,
     }
   }
 
-  // 무결성 결함 상품은 기여를 산출하지 않는다 — 일정이 0건이면 적용 차수가 없다
+  // 일정이 0건이면 아래 nextEvaluation이 null을 주므로 여기서 끊지 않아도 결과는
+  // 같다. **결함이라서 빼는 것이 아니다** — 차수 입력이 없어 적용 차수를 정할 수
+  // 없을 뿐이며, 그 구분이 §4.2 입력 기준의 요점이다.
   if (row.redemption_schedules.length === 0) return null
 
   const next = nextEvaluation({
@@ -170,6 +205,7 @@ export function contributionOf(
       expectedGross: gross,
     }),
     isEstimated: true,
+    integrityIssue,
   }
 }
 
@@ -364,6 +400,9 @@ export function makeTaxQueries(ctx: QueryContext) {
         productName: entry.row.name,
         taxableIncome: amountString(entry.c!.amount),
         isEstimated: entry.c!.isEstimated,
+        // 금액은 바꾸지 않고 표식만 붙인다. 표식이 없으면 SCR-202에서 "수정 필요"로
+        // 표시되는 같은 상품이 SCR-401에는 숫자로만 나타나 모순으로 읽힌다.
+        integrityIssue: entry.c!.integrityIssue,
       })),
     }
   }

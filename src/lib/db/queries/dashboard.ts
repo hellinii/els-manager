@@ -11,7 +11,7 @@ import {
 } from './load'
 import {
   amountString,
-  attentionReasonsOf,
+  attentionReasonsFor,
   judge,
   ratioString,
   redemptionMarkOf,
@@ -121,8 +121,11 @@ export function makeDashboardQueries(ctx: QueryContext) {
       otherIncomeBase: dec(ownProfile?.other_income_base ?? '0'),
     })
 
+    // 판정은 상품당 **한 번**이다. `attentionReasonsOf(row, prices, asOf)`를 쓰면
+    // 위 `judgments`와 합쳐 두 번 판정하게 되고, 결함 상품의 로그가 두 번 찍혀
+    // 원인을 가린다 — `listSchedule`이 부모별로 한 번만 매핑하는 것과 같은 이유다.
     const attentionItems = judgments.flatMap((entry) =>
-      attentionReasonsOf(entry.row, prices, ctx.asOf).map((reason) => ({
+      attentionReasonsFor(entry.j).map((reason) => ({
         productId: entry.row.id,
         productName: entry.row.name,
         reason,

@@ -19,9 +19,14 @@ const ASOF = '2026-06-30'
 /**
  * 행 → 뷰 매핑 — DB 없이 검증한다.
  *
- * 핵심은 **`null`의 세 원인이 서로 구분되는가**다. 셋이 같은 필드 조합으로
- * 나타나면 화면이 구분할 수 없고, 특히 무결성 결함이 "시세 없음"으로 표시되면
- * 사용자가 **영원히 오지 않을 시세를 기다린다**.
+ * 핵심이 둘이다.
+ *
+ * ① **`null`의 원인이 서로 구분되는가.** 같은 필드 조합으로 나타나면 화면이
+ *    구분할 수 없고, 특히 무결성 결함이 "시세 없음"으로 표시되면 사용자가
+ *    **영원히 오지 않을 시세를 기다린다**.
+ * ② **억제가 원인의 범위를 넘지 않는가** (§4.2 입력 기준, v0.8). 결함은 그것이
+ *    파괴한 입력을 쓰는 값만 죽여야 한다. 통짜로 죽이면 같은 상품이 계약마다
+ *    다르게 보인다.
  */
 
 // 무결성 결함은 console.error로 남긴다(삼키지 않는다). 테스트 출력만 조용히 한다.
@@ -33,7 +38,7 @@ afterEach(() => {
   errorSpy.mockRestore()
 })
 
-describe('conditionResult·kiStatus의 null 3분기 (§4.2)', () => {
+describe('conditionResult·kiStatus의 null 원인 구분 (§4.2)', () => {
   it('E-01 시세 없음 — ACTIVE, worstOf=null, integrityIssue=null', () => {
     const item = toProductListItem(
       productRow(),
@@ -81,6 +86,8 @@ describe('conditionResult·kiStatus의 null 3분기 (§4.2)', () => {
     expect(item.status).toBe('ACTIVE')
     expect(item.worstOf).toBeNull()
     expect(item.conditionResult).toBeNull()
+    // ★ 차수 입력은 파괴되지 않았다 — 다음 평가일은 그대로 나온다 (v0.8)
+    expect(item.nextEvaluation?.roundNo).toBe(1)
   })
 
   it('무결성 결함(일정 0건) — SCHEDULE_MISSING', () => {
@@ -92,11 +99,15 @@ describe('conditionResult·kiStatus의 null 3분기 (§4.2)', () => {
     )
 
     expect(item.integrityIssue).toBe('SCHEDULE_MISSING')
+    // 차수가 없어 사라지는 것들 — 억제가 아니라 자연 결과다
     expect(item.nextEvaluation).toBeNull()
     expect(item.conditionResult).toBeNull()
+    // ★ 시세 입력은 온전하므로 살아 있다 (v0.8 입력 기준). 종전에는 둘 다 null이었다.
+    expect(item.worstOf).toBe('0.9500')
+    expect(item.kiStatus).toBe('SAFE')
   })
 
-  it('우선순위 — 결함 상품에 시세가 있어도 판정하지 않는다', () => {
+  it('UNDERLYING_MISSING은 시세 입력을 파괴한다 — 시세 행이 있어도 무관하다', () => {
     // 기초자산 0건이면 시세 유무와 무관하다. 순서가 없으면 "시세 없음"으로
     // 표시되어 DOC-007 §3.1이 막으려던 화면이 재현된다.
     const item = toProductListItem(
@@ -298,7 +309,7 @@ describe('§4.3 상품 상세', () => {
     expect(view.redemption?.taxableIncome).toBe('0')
   })
 
-  describe('projection의 null 3경우', () => {
+  describe('projection의 null 2경우 — v0.8에서 ②·③이 하나가 됐다', () => {
     it('① 상환 완료', () => {
       const view = toProductDetailView(
         productRow({ redemptions: redemption() }),
@@ -309,17 +320,40 @@ describe('§4.3 상품 상세', () => {
       expect(view.projection).toBeNull()
     })
 
-    it('② integrityIssue ≠ null', () => {
+    it('② 적용 차수 없음 — 일정 0건', () => {
+      const view = toProductDetailView(
+        productRow({ redemption_schedules: [] }),
+        priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
+        ASOF,
+        OWNER,
+      )
+      expect(view.projection).toBeNull()
+      expect(view.product.totalRounds).toBe(0)
+    })
+
+    it('무결성 결함은 사유가 아니다 — UNDERLYING_MISSING도 projection을 낸다', () => {
+      // v0.6은 "② integrityIssue ≠ null"로 적었고 구현이 그대로 억제했다.
+      // projection은 원금·쿠폰율·평가주기·차수만 쓰고 **시세를 쓰지 않으므로**
+      // 기초자산 0건과 무관하다 — §4.6이 같은 상품의 과세 기여를 내는 것과
+      // 같은 근거이며, 종전에는 두 계약이 그 지점에서 갈려 있었다.
       const view = toProductDetailView(
         productRow({ els_underlyings: [] }),
         priceMap([]),
         ASOF,
         OWNER,
       )
-      expect(view.projection).toBeNull()
+
+      expect(view.product.integrityIssue).toBe('UNDERLYING_MISSING')
+      expect(view.projection).not.toBeNull()
+      expect(view.projection!.appliedRoundNo).toBe(1)
+      expect(view.projection!.expectedGross).toBe('104000000')
+      expect(view.projection!.expectedTaxableIncome).toBe('4000000')
+      expect(view.projection!.attributionYear).toBe(2026)
+      // 시세가 파괴한 것은 그대로 죽는다
+      expect(view.schedules[0].conditionResult).toBeNull()
     })
 
-    it('③ 전 차수 경과 미상환 — v0.5의 주석이 놓친 경우', () => {
+    it('② 적용 차수 없음 — 전 차수 경과 미상환 (v0.5의 주석이 놓친 경우)', () => {
       const view = toProductDetailView(
         productRow(),
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
@@ -420,7 +454,9 @@ describe('§4.5 isStale', () => {
 })
 
 describe('§4.1 attentionItems', () => {
-  it('결함이면 그것만 보고한다', () => {
+  it('UNDERLYING_MISSING은 시세 파생 사유를 가린다 — 그것뿐이다', () => {
+    // 기초자산 0건이면 KI도 워스트오브도 산출할 수 없고, 기본 픽스처의 두 차수는
+    // 미경과다. 그래서 결과가 결함 하나다 — 다른 사유를 **억제해서**가 아니다.
     expect(
       attentionReasonsOf(productRow({ els_underlyings: [] }), priceMap([]), ASOF),
     ).toEqual(['UNDERLYING_MISSING'])
@@ -513,5 +549,192 @@ describe('§4.6 bracketLabel 합성', () => {
     expect(
       bracketLabel({ lowerBound: dec('0'), nextLowerBound: dec('14000000') }),
     ).toBe('1,400만 이하')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// §4.2 입력 기준 — 억제는 결함이 파괴한 입력을 쓰는 값에만 미친다 (v0.8)
+// ---------------------------------------------------------------------------
+
+describe('입력 기준 — 결함이 파괴한 입력만 죽는다', () => {
+  describe('SCHEDULE_MISSING은 차수 입력만 파괴한다', () => {
+    it('worstOf·kiStatus가 산출된다', () => {
+      const item = toProductListItem(
+        productRow({ redemption_schedules: [] }),
+        priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
+        ASOF,
+        OWNER,
+      )
+
+      expect(item.integrityIssue).toBe('SCHEDULE_MISSING')
+      expect(item.worstOf).toBe('0.9500')
+      expect(item.kiStatus).toBe('SAFE')
+    })
+
+    it('등급이 입력에 반응한다 — 기본값을 넣은 것이 아니다', () => {
+      // 'SAFE'만 보면 "판정을 건너뛰고 기본값을 넣었다"와 구분되지 않는다.
+      const item = toProductListItem(
+        productRow({ redemption_schedules: [] }),
+        priceMap([{ assetId: ASSET_1, price: '45.000000' }]),
+        ASOF,
+        OWNER,
+      )
+      expect(item.kiStatus).toBe('BELOW')
+    })
+
+    it('상세의 ratio·isWorst도 산출된다 — 종전에는 ratio만 나오고 isWorst는 전부 false였다', () => {
+      const view = toProductDetailView(
+        productRow({
+          redemption_schedules: [],
+          els_underlyings: [
+            { asset_id: ASSET_1, base_price: '100.000000', sequence: 1, assets: null },
+            { asset_id: ASSET_2, base_price: '200.000000', sequence: 2, assets: null },
+          ],
+        }),
+        priceMap([
+          { assetId: ASSET_1, price: '95.000000' }, // 0.95
+          { assetId: ASSET_2, price: '90.000000' }, // 0.45
+        ]),
+        ASOF,
+        OWNER,
+      )
+
+      expect(view.underlyings.map((u) => u.ratio)).toEqual(['0.9500', '0.4500'])
+      // ★ ratio가 나오는데 isWorst만 전부 false인 것은 그 자체로 내부 모순이었다
+      expect(view.underlyings.map((u) => u.isWorst)).toEqual([false, true])
+      // 차수가 없어 사라지는 것은 그대로다
+      expect(view.projection).toBeNull()
+      expect(view.schedules).toEqual([])
+    })
+
+    it('E-05는 별개 축이다 — 상환 완료면 kiStatus가 다시 null이다', () => {
+      // 위 표의 "산출"은 결함 축이 막지 않는다는 뜻이지 값이 반드시 나온다는
+      // 뜻이 아니다. 두 축이 겹치면 둘 다 걸린다.
+      const item = toProductListItem(
+        productRow({ redemption_schedules: [], redemptions: redemption() }),
+        priceMap([{ assetId: ASSET_1, price: '45.000000' }]),
+        ASOF,
+        OWNER,
+      )
+
+      expect(item.integrityIssue).toBe('SCHEDULE_MISSING')
+      expect(item.status).toBe('REDEEMED')
+      expect(item.kiStatus).toBeNull()
+    })
+  })
+
+  describe('UNDERLYING_MISSING은 시세 입력만 파괴한다', () => {
+    it('시세가 있어도 worstOf·kiStatus는 살아나지 않는다', () => {
+      // 기초자산 행이 0건이면 그 시세가 어느 자산의 것인지 말할 근거가 없다.
+      const item = toProductListItem(
+        productRow({ els_underlyings: [] }),
+        priceMap([{ assetId: ASSET_1, price: '200.000000' }]),
+        ASOF,
+        OWNER,
+      )
+
+      expect(item.worstOf).toBeNull()
+      expect(item.kiStatus).toBeNull()
+      expect(item.nextEvaluation?.roundNo).toBe(1) // 차수는 파괴되지 않았다
+    })
+
+    it('노낙인이어도 NO_KI로 새지 않는다', () => {
+      // kiStatus는 kiBarrier == null이면 **시세를 보기 전에** 'NO_KI'를 준다.
+      // 명시적 절단이 없으면 정의가 깨진 상품에 화면이 "노낙인 = 안전"을 말한다.
+      const item = toProductListItem(
+        productRow({ els_underlyings: [], ki_barrier: null }),
+        priceMap([]),
+        ASOF,
+        OWNER,
+      )
+      expect(item.kiStatus).toBeNull()
+    })
+
+    it('KI 터치가 확정돼 있어도 TOUCHED로 새지 않는다', () => {
+      // 같은 이유 — 'TOUCHED'도 worstOf 검사보다 먼저 반환된다.
+      const item = toProductListItem(
+        productRow({ els_underlyings: [], ki_touched_at: '2026-03-15' }),
+        priceMap([]),
+        ASOF,
+        OWNER,
+      )
+      expect(item.kiStatus).toBeNull()
+    })
+
+    it('차수별 expectedGross는 그대로다 — 계약 조건에서만 나오는 값이다', () => {
+      const view = toProductDetailView(
+        productRow({ els_underlyings: [] }),
+        priceMap([]),
+        ASOF,
+        OWNER,
+      )
+      expect(view.schedules.map((x) => x.expectedGross)).toEqual([
+        '104000000',
+        '108000000',
+      ])
+    })
+  })
+
+  describe('§4.1 조치 사유 — 결함이 다른 사유를 가리지 않는다', () => {
+    it('SCHEDULE_MISSING + KI 하회 → 둘 다 보고한다', () => {
+      // 일정 0건 상품은 §4.4에 행이 없고 upcomingEvaluations에도 없다.
+      // 억제하면 이 KI 하회가 시스템 어디에서도 보이지 않는다.
+      expect(
+        attentionReasonsOf(
+          productRow({ redemption_schedules: [] }),
+          priceMap([{ assetId: ASSET_1, price: '45.000000' }]),
+          ASOF,
+        ),
+      ).toEqual(['SCHEDULE_MISSING', 'KI_BELOW'])
+    })
+
+    it('결함이 먼저 온다 — 순서가 화면의 해석을 정한다', () => {
+      const reasons = attentionReasonsOf(
+        productRow({ redemption_schedules: [] }),
+        priceMap([{ assetId: ASSET_1, price: '45.000000' }]),
+        ASOF,
+      )
+      expect(reasons[0]).toBe('SCHEDULE_MISSING')
+    })
+
+    it('UNDERLYING_MISSING + 경과 → EVALUATION_PASSED도 보고한다', () => {
+      // overdueEvaluations의 입력은 (schedules, asOf, redemption)뿐 — 시세가 없다.
+      // 경과 미상환(E-07)과 결함 수정(SCR-204)은 서로 다른 조치다.
+      expect(
+        attentionReasonsOf(
+          productRow({ els_underlyings: [] }),
+          priceMap([]),
+          '2028-01-01',
+        ),
+      ).toEqual(['UNDERLYING_MISSING', 'EVALUATION_PASSED'])
+    })
+
+    it('UNDERLYING_MISSING은 PRICE_MISSING을 내지 않는다', () => {
+      // "시세가 수집되면 해소된다"는 약속인데, 기초자산 0건에서 그것은 영원히
+      // 오지 않을 시세를 기다리게 하는 바로 그 표시다(DOC-007 §3.1).
+      expect(
+        attentionReasonsOf(productRow({ els_underlyings: [] }), priceMap([]), ASOF),
+      ).not.toContain('PRICE_MISSING')
+    })
+
+    it('SCHEDULE_MISSING + 시세 없음은 진짜 E-01이다 — PRICE_MISSING을 낸다', () => {
+      expect(
+        attentionReasonsOf(
+          productRow({ redemption_schedules: [] }),
+          priceMap([{ assetId: ASSET_1, price: null }]),
+          ASOF,
+        ),
+      ).toEqual(['SCHEDULE_MISSING', 'PRICE_MISSING'])
+    })
+
+    it('상환 완료여도 결함은 보고한다 — 상환이 결함을 해소하지 않는다', () => {
+      expect(
+        attentionReasonsOf(
+          productRow({ els_underlyings: [], redemptions: redemption() }),
+          priceMap([]),
+          ASOF,
+        ),
+      ).toEqual(['UNDERLYING_MISSING'])
+    })
   })
 })

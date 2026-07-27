@@ -89,7 +89,14 @@ describe('getProduct — 복구 경로가 열려 있다', () => {
     expect(view).not.toBeNull()
     expect(view!.product.integrityIssue).toBe('UNDERLYING_MISSING')
     expect(view!.underlyings).toEqual([])
-    expect(view!.projection).toBeNull()
+    // ★ v0.8 — projection은 시세를 쓰지 않으므로 기초자산 0건과 무관하다.
+    // 종전에는 null이었고, 그 탓에 §4.6이 같은 상품의 과세 기여를 내는 것과
+    // 어긋나 있었다(§4.2 입력 기준). 원금 3천만 × (1 + 0.08 × 6/12) = 31,200,000
+    expect(view!.projection).not.toBeNull()
+    expect(view!.projection!.appliedRoundNo).toBe(1)
+    expect(view!.projection!.expectedGross).toBe('31200000')
+    expect(view!.projection!.expectedTaxableIncome).toBe('1200000')
+    expect(view!.projection!.attributionYear).toBe(2026)
   })
 
   it('일정 0건 상품도 상세가 열린다', async () => {

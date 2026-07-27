@@ -81,6 +81,32 @@ export function priceString(value: DecimalValue): string {
 export type IntegrityIssue = 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING'
 
 /**
+ * 결함이 **파괴한 입력**. 억제 범위의 유일한 근거다 — DOC-011 §4.2 입력 기준.
+ *
+ * 억제를 결함 **이름**이 아니라 파괴된 **입력**에 매단다. 그래야 "무엇을 멈출
+ * 것인가"가 결함마다 손으로 정하는 규율이 아니라, 결함을 등록할 때 자동으로
+ * 따라오는 값이 된다.
+ */
+export type DestroyedInput = 'PRICES' | 'ROUNDS'
+
+/**
+ * **전수 사상이다.** 결함 종류를 늘리면 여기서 컴파일이 깨지므로, 새 결함이
+ * 어느 입력을 파괴하는지 말하지 않고는 추가할 수 없다.
+ */
+const DESTROYED_BY: Record<IntegrityIssue, DestroyedInput> = {
+  // 기초자산 0건 → 시세 입력이 없다. 차수·계약조건은 온전하다.
+  UNDERLYING_MISSING: 'PRICES',
+  // 평가일정 0건 → 차수 입력이 없다. 시세는 온전하다.
+  SCHEDULE_MISSING: 'ROUNDS',
+}
+
+export function destroyedInputOf(
+  issue: IntegrityIssue | null,
+): DestroyedInput | null {
+  return issue == null ? null : DESTROYED_BY[issue]
+}
+
+/**
  * 결함을 **명시 상태로** 표시한다. `worstOf`에 0건을 넘기지 않는다.
  *
  * 넘기면 `RangeError`가 나고, 모든 SELECT가 `using (true)`이므로 **남의 결함
@@ -88,25 +114,36 @@ export type IntegrityIssue = 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING'
  * SCR-204(수정)도 같은 계약을 쓰므로 유일한 복구 경로가 함께 막혀 UI로는
  * 고칠 수 없는 상태가 된다.
  *
- * 순수 모듈은 그대로 던진다 — DB를 경유하는 다른 경로(AQ-14)의 최종 안전망이다.
- * 조회 계층은 그것을 **삼키지 않고** 기록한다.
+ * **순수 분류다 — 로그를 남기지 않는다.** 여러 계약이 같은 요청에서 이 함수를
+ * 부르므로(§4.6의 과세 기여도 결함 표식을 붙인다) 여기서 기록하면 같은 결함이
+ * 화면당 여러 번 찍혀 원인을 가린다. 기록은 판정 진입점 하나에서만 한다 —
+ * `listSchedule`이 부모별로 한 번만 매핑하는 것과 같은 이유다.
  */
 export function integrityIssueOf(row: ProductRow): IntegrityIssue | null {
-  if (row.els_underlyings.length === 0) {
-    console.error(
-      `[무결성] 상품 ${row.id}에 기초자산이 0건이다 (DOC-002 I-07). ` +
-        '조건 판정을 생략하고 integrityIssue로 표시한다.',
-    )
-    return 'UNDERLYING_MISSING'
-  }
-  if (row.redemption_schedules.length === 0) {
-    console.error(
-      `[무결성] 상품 ${row.id}에 평가일정이 0건이다 (DOC-002 I-07). ` +
-        '조건 판정을 생략하고 integrityIssue로 표시한다.',
-    )
-    return 'SCHEDULE_MISSING'
-  }
+  if (row.els_underlyings.length === 0) return 'UNDERLYING_MISSING'
+  if (row.redemption_schedules.length === 0) return 'SCHEDULE_MISSING'
   return null
+}
+
+/**
+ * 결함을 **삼키지 않고 기록**한다. `judge`에서만 부른다.
+ *
+ * 순수 모듈은 그대로 던진다 — DB를 경유하는 다른 경로(AQ-14)의 최종 안전망이다.
+ * 조회 계층은 그것을 상태로 바꾸되 조용히 넘기지는 않는다.
+ */
+function reportIntegrityIssue(
+  row: ProductRow,
+  issue: IntegrityIssue | null,
+): void {
+  if (issue == null) return
+
+  const what =
+    issue === 'UNDERLYING_MISSING' ? '기초자산이 0건이다' : '평가일정이 0건이다'
+  console.error(
+    `[무결성] 상품 ${row.id}에 ${what} (DOC-002 I-07). ` +
+      `${DESTROYED_BY[issue] === 'PRICES' ? '시세' : '차수'} 입력이 없으므로 ` +
+      '그 입력을 쓰는 판정을 생략하고 integrityIssue로 표시한다.',
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -173,23 +210,36 @@ function forJudgment(s: ScheduleRow): ScheduleForJudgment {
 export type Judgment = {
   status: 'ACTIVE' | 'REDEEMED'
   integrityIssue: IntegrityIssue | null
+  /** 결함이 파괴한 입력. 소비자가 결함 이름으로 억제 여부를 다시 유도하지 않게 한다 */
+  destroyed: DestroyedInput | null
   worstOf: DecimalValue | null
   next: ScheduleRow | null
   conditionResult: ConditionResult | null
   ki: KiStatus | null
+  /** 경과 미상환 차수(E-07). 차수 입력에서만 나오므로 시세 결함에 영향받지 않는다 */
+  overdue: ScheduleRow[]
 }
 
 /**
  * 한 상품의 판정 일체. 세 계약(§4.1·§4.2·§4.4)이 같은 값을 써야 하므로 한곳에서 낸다.
  *
- * **`conditionResult`·`ki`의 `null`은 세 원인을 갖고, 판정 순서가 있다** (§4.2).
- *   1. `integrityIssue ≠ null` — 시세를 기다려도 해소되지 않는다
- *   2. 상환 완료(E-05) — 영구적이다
- *   3. 시세 없음(E-01) — 시세가 수집되면 값이 생긴다
+ * ## 억제는 결함이 파괴한 입력을 쓰는 값에만 미친다 (§4.2 입력 기준)
  *
- * 순서가 필요한 이유: 무결성 결함 상품은 `status = 'ACTIVE'`이고 `worstOf = null`
- * 이므로 **3순위 조건을 그대로 만족한다.** 순서가 없으면 화면이 "시세 없음"을
- * 표시하며 영원히 오지 않을 시세를 기다린다 — DOC-007 §3.1이 막으려던 상태다.
+ * v0.7까지는 `integrityIssue ≠ null`이면 **전부** 죽였다. 그래서 같은 결함
+ * 상품이 계약마다 다르게 보였다 — §4.3은 `projection`을 `null`로 두면서 §4.6은
+ * 같은 상품의 같은 계산으로 과세 기여를 냈고, `SCHEDULE_MISSING` 상품은 `ratio`가
+ * 표시되는데 `isWorst`만 사라졌다. 멈추는 범위가 원인의 범위를 넘고 있었다(AQ-17).
+ *
+ * | 결함 | 파괴한 입력 | 죽는 값 | 사는 값 |
+ * |---|---|---|---|
+ * | `UNDERLYING_MISSING` | 시세 | `worstOf`·`ki`·`conditionResult` | `next`·`overdue`·`expectedGross`·`projection` |
+ * | `SCHEDULE_MISSING` | 차수 | (자연히) `next`·`overdue`·`conditionResult` | `worstOf`·`ki` |
+ *
+ * ## E-05는 별개 축이다
+ *
+ * 위 표는 `integrityIssue` 축만 규정한다. 상환 완료는 **독립적으로** `asActive`를
+ * 통해 `ki`·`conditionResult`를 죽이고 `next`를 `null`로 만든다. 두 축이 겹치면
+ * 둘 다 걸린다 — `SCHEDULE_MISSING` + 상환 완료의 `ki`는 표의 "산다"가 아니라 `null`이다.
  */
 export function judge(
   row: ProductRow,
@@ -199,24 +249,36 @@ export function judge(
   const mark = redemptionMarkOf(row)
   const status = isRedeemed(mark) ? 'REDEEMED' : 'ACTIVE'
   const integrityIssue = integrityIssueOf(row)
+  const destroyed = destroyedInputOf(integrityIssue)
+  reportIntegrityIssue(row, integrityIssue)
 
+  // ── 차수 입력에서 나오는 값 ──────────────────────────────────────────────
+  // ROUNDS가 파괴돼도 **끊지 않는다.** 일정이 0건이면 아래 두 함수가 이미 빈
+  // 결과를 준다 — 억제가 아니라 자연 결과이며, 둘을 구분해야 차수가 생겼을 때
+  // 무엇이 되살아나는지 알 수 있다.
+  const schedules = row.redemption_schedules.map(forJudgment)
   const next =
     status === 'REDEEMED'
       ? null
-      : (nextEvaluation({
-          schedules: row.redemption_schedules.map(forJudgment),
-          asOf,
-        })?.row ?? null)
+      : (nextEvaluation({ schedules, asOf })?.row ?? null)
+  const overdue = overdueEvaluations({ schedules, asOf, redemption: mark }).map(
+    (entry) => entry.schedule.row,
+  )
 
-  // 1순위 — 결함이면 판정하지 않는다
-  if (integrityIssue != null) {
+  // ── 시세 입력에서 나오는 값 ──────────────────────────────────────────────
+  // **자연 소멸에 기대면 안 된다.** kiStatus는 `kiBarrier == null`이면 시세를
+  // 보기 전에 'NO_KI'를, `kiTouchedAt != null`이면 'TOUCHED'를 반환한다. 여기서
+  // 끊지 않으면 기초자산 정의가 깨진 상품에 화면이 "노낙인 = 안전"을 말한다.
+  if (destroyed === 'PRICES') {
     return {
       status,
       integrityIssue,
+      destroyed,
       worstOf: null,
       next,
       conditionResult: null,
       ki: null,
+      overdue,
     }
   }
 
@@ -247,7 +309,16 @@ export function judge(
       conditionInput == null ? null : evaluateCondition(conditionInput)
   }
 
-  return { status, integrityIssue, worstOf: w, next, conditionResult, ki }
+  return {
+    status,
+    integrityIssue,
+    destroyed,
+    worstOf: w,
+    next,
+    conditionResult,
+    ki,
+    overdue,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -502,17 +573,24 @@ export function toProductDetailView(
 }
 
 /**
- * `projection`은 **세 경우에 `null`**이다 (§4.3).
- *   ① 상환 완료 ② `integrityIssue ≠ null`
- *   ③ **전 차수가 경과했는데 미상환** — DOC-007 §9.2가 이 경우 적용 차수를
- *      결정할 수 없다고 규정한다. v0.5의 주석("상환완료 시 null")은 ③을 놓쳤다.
+ * `projection`은 **두 경우에 `null`**이다 (§4.3, v0.8에서 정정).
+ *   ① 상환 완료
+ *   ② **적용 차수가 없다** — 전 차수가 경과했는데 미상환이거나(DOC-007 §9.2),
+ *      평가일정이 0건(`SCHEDULE_MISSING`)이다.
+ *
+ * **무결성 결함 자체는 사유가 아니다.** 이 값이 쓰는 입력은 원금·쿠폰율·평가주기·
+ * 차수·계좌구분뿐이고 **시세를 하나도 쓰지 않으므로**, `UNDERLYING_MISSING`
+ * 상품에서도 정의된다 — 바로 위 `expectedGross`가 판정과 무관하게 전 차수에
+ * 정의되는 것과 같은 이유다.
+ *
+ * v0.6의 "② `integrityIssue ≠ null`"은 원인의 범위를 넘어 억제했고, 그 결과 같은
+ * 상품이 §4.6에서는 과세에 기여하면서 여기서만 값을 잃어 두 화면이 모순되게 보였다.
  */
 function projectionOf(
   row: ProductRow,
   j: Judgment,
 ): ProductDetailView['projection'] {
   if (j.status === 'REDEEMED') return null
-  if (j.integrityIssue != null) return null
   if (j.next == null) return null
 
   const gross = expectedGrossOf(row, j.next.round_no)
@@ -632,35 +710,56 @@ export type AttentionReason =
  * 자동 확정하지 않으므로(D-04) 조치 목록의 존재 이유에 가장 가깝다. `KI_NEAR`로
  * 접으면 확인 요청이 경고로 격하되고, `KI_TOUCHED`로 접으면 확정되지 않은 사실을
  * 확정으로 표시한다.
+ *
+ * ## 결함은 다른 사유를 가리지 않는다 (§4.1, v0.8)
+ *
+ * 종전에는 결함이면 그것 하나만 반환했다. 그러나 사유는 저마다 다른 입력에서
+ * 나오므로 결함이 파괴하지 않은 입력에서 나오는 사유는 함께 보고한다.
+ *
+ * **일정 0건 상품에는 이 목록이 유일한 창구다** — §4.4는 행 자체를 만들지 않고
+ * (`toScheduleItems`가 0행) §4.1 `upcomingEvaluations`는 `next == null`로
+ * 제외한다. 억제하면 그 상품의 KI 하회가 시스템 어디에서도 보이지 않으며,
+ * 결함 수정(SCR-204)과 KI 확인은 서로 다른 조치다.
+ *
+ * ## 순서는 결함 우선으로 고정한다
+ *
+ * 결함은 사용자가 직접 고쳐야 해소되고 나머지는 시장 상황이므로 조치의 성격이
+ * 다르다. 정하지 않으면 구현이 임의로 정하고, 화면은 첫 사유를 대표값으로 읽는다.
+ */
+export function attentionReasonsFor(j: Judgment): AttentionReason[] {
+  const reasons: AttentionReason[] = []
+
+  // 결함이 먼저 온다. 상환으로도 시세로도 해소되지 않는다.
+  if (j.integrityIssue != null) reasons.push(j.integrityIssue)
+
+  // 상환이 끝난 상품은 그 밖의 조치 대상이 아니다(E-05)
+  if (j.status === 'REDEEMED') return reasons
+
+  if (j.ki === 'TOUCHED') reasons.push('KI_TOUCHED')
+  else if (j.ki === 'BELOW') reasons.push('KI_BELOW')
+  else if (j.ki === 'WARNING') reasons.push('KI_NEAR')
+
+  // 시세 입력이 파괴된 경우의 `worstOf == null`은 E-01이 **아니다.** 여기서
+  // PRICE_MISSING을 내면 화면이 영원히 오지 않을 시세를 기다린다(DOC-007 §3.1).
+  // 결함 이름이 아니라 `destroyed`로 판별한다 — 이름으로 가르면 시세 입력을
+  // 파괴하는 세 번째 결함이 생겼을 때 조용히 틀린다.
+  if (j.destroyed !== 'PRICES' && j.worstOf == null) reasons.push('PRICE_MISSING')
+
+  if (j.overdue.length > 0) reasons.push('EVALUATION_PASSED')
+
+  return reasons
+}
+
+/**
+ * §4.1의 서명. 판정을 이미 들고 있으면 `attentionReasonsFor`를 직접 쓴다 —
+ * 그러지 않으면 같은 상품을 두 번 판정하게 되고 결함 로그가 두 번 찍힌다.
  */
 export function attentionReasonsOf(
   row: ProductRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
 ): AttentionReason[] {
-  const j = judge(row, prices, asOf)
-  const reasons: AttentionReason[] = []
-
-  // 무결성 결함이 최우선 — 시세를 기다려도 해소되지 않는다
-  if (j.integrityIssue != null) return [j.integrityIssue]
-
-  // 상환이 끝난 상품은 조치 대상이 아니다(E-05)
-  if (j.status === 'REDEEMED') return []
-
-  if (j.ki === 'TOUCHED') reasons.push('KI_TOUCHED')
-  else if (j.ki === 'BELOW') reasons.push('KI_BELOW')
-  else if (j.ki === 'WARNING') reasons.push('KI_NEAR')
-
-  if (j.worstOf == null) reasons.push('PRICE_MISSING')
-
-  const overdue = overdueEvaluations({
-    schedules: row.redemption_schedules.map(forJudgment),
-    asOf,
-    redemption: redemptionMarkOf(row),
-  })
-  if (overdue.length > 0) reasons.push('EVALUATION_PASSED')
-
-  return reasons
+  return attentionReasonsFor(judge(row, prices, asOf))
 }
 
 // ---------------------------------------------------------------------------

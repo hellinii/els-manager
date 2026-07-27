@@ -214,6 +214,7 @@ const TAX_SUMMARY: Record<string, Spec> = {
   'contributingProducts[].productName': 'TEXT',
   'contributingProducts[].taxableIncome': 'AMOUNT',
   'contributingProducts[].isEstimated': 'BOOL',
+  'contributingProducts[].integrityIssue': INTEGRITY_ISSUES,
 }
 
 /** §4.8 사용자별 현황 */
