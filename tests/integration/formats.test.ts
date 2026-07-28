@@ -161,12 +161,17 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
 const SCHEDULE_ITEM: Record<string, Spec> = {
   productId: 'UUID',
   productName: 'TEXT',
+  // v1.8 신설 둘. `ownerId`·`status`의 분류는 §4.2의 같은 이름 필드와 **같아야
+  // 한다** — 형식이 갈리면 두 뷰가 같은 값을 다르게 직렬화한다는 뜻이고, 화면은
+  // 그 둘을 같은 함수(`deriveDisplay`·소유자 필터)에 넣는다.
+  ownerId: 'UUID',
   ownerName: 'TEXT',
   roundNo: 'NUMBER',
   evaluationDate: 'DATE',
   dDay: 'NUMBER',
   barrier: 'RATIO',
   hasLizard: 'BOOL',
+  status: STATUSES,
   worstOf: 'RATIO',
   conditionResult: CONDITION_RESULTS,
   integrityIssue: ['UNDERLYING_MISSING'],

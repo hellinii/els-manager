@@ -645,12 +645,39 @@ function projectionOf(
 export type ScheduleItem = {
   productId: string
   productName: string
+  /**
+   * 소유자 필터의 **선택지 값** (v1.8, P4 컷 7)
+   *
+   * 이 계약은 `params.ownerId`로 좁히는데 v1.7까지 반환에는 `ownerName`만 있었다 —
+   * 즉 **좁힐 값을 이 계약에서 얻을 수 없었다.** 화면이 선택지를 만들려면 이름을
+   * UUID로 되돌려야 하고 그 대응은 어디에도 없다. AQ-24와 같은 부류의 비대칭이며
+   * (그쪽은 파라미터가 반환보다 좁았다) §4.2는 처음부터 둘을 담고 있었다.
+   */
+  ownerId: string
   ownerName: string
   roundNo: number
   evaluationDate: string
   dDay: number
   barrier: string
   hasLizard: boolean
+  /**
+   * 상품 상태 — **§4.2 우선순위표의 E-05 단** (v1.8, P4 컷 7)
+   *
+   * `activeOnly`가 있는데도 필요한 이유는 **그 필터가 숨기는 수단**이라는 것이다.
+   * 꺼진 상태(기본)에서는 상환 완료 상품의 남은 차수가 미상환 차수와 **같은
+   * 모습으로** 내려가 「다가오는 평가일」에 도래하지 않을 날짜가 섞이고, 켜면
+   * 사라지지만 사라진 것과 상환된 것도 구분되지 않는다.
+   *
+   * §4.3의 판정 삼종(v1.4)과 같은 부류이며 **한 단계 더 나쁜 상태였다** — 그쪽은
+   * 화면이 `redemption == null`로 합성할 수 있었으나(그 합성을 볼 층이 없다는 것이
+   * 문제였다) 여기는 상환 레코드도 상환일도 뷰에 없어 **합성할 입력조차 없다.**
+   * `deriveDisplay`의 입력이 `{status, worstOf, integrityIssue}`이므로, 셋 중 하나가
+   * 없으면 다섯 화면 중 이 화면만 그 판정을 하지 못한다.
+   *
+   * **`isPast`와 직교한다.** 상환 완료 + 미래 차수도 실재한다 — I-01은 상환을
+   * 상품당 하나로 제한할 뿐 상환일 이후의 일정 행을 지우지 않는다.
+   */
+  status: 'ACTIVE' | 'REDEEMED'
   worstOf: string | null
   conditionResult: ConditionResult | null
   /** 일정 0건 상품은 이 목록에 **행 자체가 생기지 않으므로** SCHEDULE_MISSING은 도달 불가다 */
@@ -671,12 +698,19 @@ export function toScheduleItems(
     .map((s) => ({
       productId: row.id,
       productName: row.name,
+      // `users` 임베드가 없어도 소유자 id는 상품 행에 있다 — 이름과 달리
+      // 폴백이 필요하지 않다(`owner_id`는 `not null`이다).
+      ownerId: row.owner_id,
       ownerName: row.users?.display_name ?? '(알 수 없음)',
       roundNo: s.round_no,
       evaluationDate: s.evaluation_date,
       dDay: dDay({ from: asOf, evaluationDate: s.evaluation_date }),
       barrier: ratioString(dec(s.barrier)),
       hasLizard: s.lizard_barrier != null,
+      // 차수마다 같은 값이다 — `productName`·`ownerName`과 같은 형태이며, 상품별로
+      // 접어 내려보내면 §4.4가 루트를 차수로 둔 근거(날짜 범위가 루트 열 조건)가
+      // 무너진다.
+      status: j.status,
       worstOf: j.worstOf == null ? null : ratioString(j.worstOf),
       conditionResult:
         j.next != null && j.next.round_no === s.round_no

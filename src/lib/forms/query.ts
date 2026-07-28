@@ -1,4 +1,5 @@
 import type { ListProductsParams } from '@/lib/db/queries/products'
+import type { ListScheduleParams } from '@/lib/db/queries/schedule'
 import type { KiStatus } from '@/lib/domain'
 
 /**
@@ -145,6 +146,97 @@ export function filterQuery(
   return `?${pairs
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')}`
+}
+
+// ---------------------------------------------------------------------------
+// SCR-301 평가일정 — 컷 7
+// ---------------------------------------------------------------------------
+
+/**
+ * 기간 — **「전체」가 기본이다.**
+ *
+ * DOC-008 §5가 「과거/미래 구분」을 주요 요소로 규정하므로 기본 화면에 **둘 다**
+ * 있어야 한다. 「다가오는」을 기본으로 두면 보이는 것이 한 종류이므로 구분할 것이
+ * 없어지고, 그 요소는 눌러야 나타나는 기능이 된다.
+ *
+ * 계약 파라미터로는 `from`·`to`가 된다(Q-05 — §4.4가 「범위 조건을 조회 후로 미루면
+ * Q-06의 상한에 가장 먼저 닿는다」고 적었다. 행 단위가 차수다).
+ */
+export type ScheduleRange = 'ALL' | 'PAST' | 'UPCOMING'
+
+export type ScheduleFilter = {
+  ownerId: string | null
+  range: ScheduleRange
+  /** DOC-008 §5의 「미상환만 보기」. `false`가 「전체」다 */
+  activeOnly: boolean
+}
+
+/**
+ * 질의 문자열 키. **`ownerId`는 SCR-201과 같은 이름이다** — 두 화면의 소유자 필터가
+ * 같은 뜻이므로 주소에서도 같아야 한다(한쪽 링크를 다른 화면에 붙여도 축이 산다).
+ */
+export const SCHEDULE_KEYS = {
+  ownerId: FILTER_KEYS.ownerId,
+  range: 'range',
+  activeOnly: 'activeOnly',
+} as const
+
+export const SCHEDULE_RANGE_DEFAULT: ScheduleRange = 'ALL'
+
+const SCHEDULE_RANGES = ['ALL', 'PAST', 'UPCOMING'] as const
+
+export function parseScheduleFilter(values: QueryValues): ScheduleFilter {
+  return {
+    ownerId: uuidOr(one(values[SCHEDULE_KEYS.ownerId])),
+    range:
+      oneOf(one(values[SCHEDULE_KEYS.range]), SCHEDULE_RANGES) ??
+      SCHEDULE_RANGE_DEFAULT,
+    // 체크박스는 체크될 때만 전송된다 — 부재가 곧 `false`다(`parse.ts`의 `checkbox`와
+    // 같은 규약). 값은 보지 않는다: 주소를 손으로 적은 `activeOnly=0`도 「켬」이며,
+    // 폼이 만들 수 없는 형태에 특별한 뜻을 주지 않는다.
+    activeOnly: one(values[SCHEDULE_KEYS.activeOnly]) !== '',
+  }
+}
+
+/**
+ * 계약에 넘길 형태로. **기준일을 인자로 받는다** — 이 모듈은 오늘을 계산하지 않는다
+ * (`lib/format/date.ts`와 같은 규약이며 린트가 막는다).
+ *
+ * ## `PAST`의 `to`가 기준일 그 자체인 이유
+ *
+ * 계약의 `to`는 포함(`lte`)이고 「경과」는 `dDay < 0`이므로(당일은 경과가 아니다)
+ * `to = asOf`는 **당일 차수까지 실어 온다.** 그 한 줄을 여기서 빼려면 「기준일의
+ * 하루 전」을 계산해야 하고, 그러면 경계 판정이 계약과 화면 두 곳에 생긴다.
+ * 대신 목록을 `splitByPast`로 거르므로 **계약이 준 `isPast`가 경계를 정한다** —
+ * 질의는 범위를 좁혀 행 수를 줄이는 일만 하고(Q-05의 목적) 판정은 하지 않는다.
+ */
+export function toScheduleParams(
+  filter: ScheduleFilter,
+  asOf: string,
+): ListScheduleParams {
+  const params: ListScheduleParams = {}
+
+  if (filter.range === 'UPCOMING') params.from = asOf
+  if (filter.range === 'PAST') params.to = asOf
+  if (filter.ownerId != null) params.ownerId = filter.ownerId
+  if (filter.activeOnly) params.activeOnly = true
+
+  return params
+}
+
+/**
+ * **좁히는 필터가 걸려 있는가** — 빈 상태 셋 중 앞의 둘을 가른다.
+ *
+ * SCR-201의 `isNarrowed`와 같은 자리이며 **기간도 좁힌다**(정렬과 다르다 — 순서를
+ * 바꾸는 것이 아니라 행을 뺀다). 기본값 `ALL`이 아무것도 빼지 않으므로 기본 화면은
+ * 「좁히지 않음」이고 조회가 한 번이다.
+ */
+export function isScheduleNarrowed(filter: ScheduleFilter): boolean {
+  return (
+    filter.ownerId != null ||
+    filter.activeOnly ||
+    filter.range !== SCHEDULE_RANGE_DEFAULT
+  )
 }
 
 // ---------------------------------------------------------------------------

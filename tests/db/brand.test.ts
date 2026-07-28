@@ -84,12 +84,17 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
     const plain: ScheduleItem = {
       productId: 'p1',
       productName: '상품',
+      // v1.8 신설 둘. 이 리터럴이 **전수 대조**이므로 필드가 늘면 여기서 컴파일이
+      // 깨진다 — 그것이 이 파일의 목적이다(브랜드가 섞여 들어오면 채울 수 없는
+      // 속성이 생긴다). 컷 7이 실제로 그 신호를 받아 두 줄을 더했다.
+      ownerId: OWNER,
       ownerName: '소유자',
       roundNo: 1,
       evaluationDate: '2026-07-02',
       dDay: 2,
       barrier: '0.9000',
       hasLizard: false,
+      status: 'ACTIVE',
       worstOf: '0.9500',
       conditionResult: 'EARLY',
       integrityIssue: null,

@@ -4,12 +4,18 @@ import { KI_STATUS_LABELS } from '@/lib/format'
 import type { KiStatus } from '@/lib/domain'
 import {
   FILTER_KEYS,
+  SCHEDULE_KEYS,
+  SCHEDULE_RANGE_DEFAULT,
   SORT_DEFAULT,
   filterQuery,
   isNarrowed,
+  isScheduleNarrowed,
   parseProductFilter,
+  parseScheduleFilter,
   toListParams,
+  toScheduleParams,
   type ProductFilter,
+  type ScheduleFilter,
 } from '@/lib/forms/query'
 
 /**
@@ -171,5 +177,118 @@ describe('질의 문자열 되돌리기', () => {
     const query = filterQuery(filter)
     const values = Object.fromEntries(new URLSearchParams(query.slice(1)).entries())
     expect(parse(values)).toEqual(filter)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SCR-301 평가일정 — 컷 7
+// ---------------------------------------------------------------------------
+
+/**
+ * 같은 파일에 두는 이유: **같은 규약을 공유한다.** 인식하지 못한 값은 버리고,
+ * 배열은 버리고, 소유자는 UUID 형식만 본다. 파일을 나누면 그 셋이 두 파서에서
+ * 같다는 사실을 아무도 대조하지 않는다.
+ */
+const ASOF = '2026-07-28'
+
+const NO_SCHEDULE_FILTER: ScheduleFilter = {
+  ownerId: null,
+  range: SCHEDULE_RANGE_DEFAULT,
+  activeOnly: false,
+}
+
+describe('평가일정 필터 (SCR-301)', () => {
+  it('빈 주소는 전체 기간이고 좁히지 않는다', () => {
+    /*
+     * ★ **기본값이 `ALL`인 것이 화면의 구조를 정한다.** DOC-008 §5가 「과거/미래
+     * 구분」을 주요 요소로 규정하므로 기본 화면에 둘 다 있어야 하고, 좁히지 않으면
+     * 조회가 한 번이다(소유자 선택지를 위한 두 번째 조회가 필요 없다).
+     */
+    expect(parseScheduleFilter({})).toEqual(NO_SCHEDULE_FILTER)
+    expect(isScheduleNarrowed(parseScheduleFilter({}))).toBe(false)
+    expect(toScheduleParams(parseScheduleFilter({}), ASOF)).toEqual({})
+  })
+
+  it('기간 셋이 각각 다른 계약 입력이 된다', () => {
+    // `from`·`to`는 질의 조건이다(Q-05) — 행 단위가 차수여서 조회 후로 미루면
+    // Q-06의 상한에 가장 먼저 닿는다(§4.4).
+    const upcoming = parseScheduleFilter({ [SCHEDULE_KEYS.range]: 'UPCOMING' })
+    const past = parseScheduleFilter({ [SCHEDULE_KEYS.range]: 'PAST' })
+
+    expect(toScheduleParams(upcoming, ASOF)).toEqual({ from: ASOF })
+    expect(toScheduleParams(past, ASOF)).toEqual({ to: ASOF })
+    // 기간도 좁힌다 — 정렬과 다르다(순서를 바꾸는 것이 아니라 행을 뺀다).
+    expect(isScheduleNarrowed(upcoming)).toBe(true)
+    expect(isScheduleNarrowed(past)).toBe(true)
+  })
+
+  it('`PAST`의 `to`가 기준일 그 자체다 — 경계는 계약이 정한다', () => {
+    /*
+     * ★ 계약의 `to`는 포함(`lte`)이고 「경과」는 `dDay < 0`이므로(당일은 경과가
+     * 아니다) 이 질의는 **당일 차수까지 실어 온다.** 그 한 줄을 여기서 빼려면
+     * 「기준일의 하루 전」을 계산해야 하고, 그러면 경계 판정이 계약과 화면 두 곳에
+     * 생긴다 — 화면은 `splitByPast`로 거른다(`tests/app/schedule.test.ts`).
+     *
+     * 즉 이 단언은 「하루를 빼지 않는다」를 고정한다. 빼는 구현으로 바꾸면 여기가
+     * 빨간불이 되고, 그때 물어야 하는 것은 경계를 누가 정하는가다.
+     */
+    expect(toScheduleParams(parseScheduleFilter({ range: 'PAST' }), ASOF).to).toBe(ASOF)
+  })
+
+  it('미상환만 보기는 체크박스 규약을 따른다 — 부재가 `false`다', () => {
+    expect(parseScheduleFilter({}).activeOnly).toBe(false)
+    // 브라우저는 체크될 때 `on`을 보낸다. 값은 보지 않는다.
+    expect(parseScheduleFilter({ [SCHEDULE_KEYS.activeOnly]: 'on' }).activeOnly).toBe(true)
+    /*
+     * 주소를 손으로 적은 `activeOnly=0`도 「켬」이다 — 폼이 만들 수 없는 형태에
+     * 특별한 뜻을 주지 않는다(`parse.ts`의 `checkbox`와 같은 규약이며, 그쪽은
+     * 히든 이송이 값 없는 키를 실었을 때 `true`가 되는 것을 막기 위해 빈 문자열을
+     * `false`로 둔다).
+     */
+    expect(parseScheduleFilter({ [SCHEDULE_KEYS.activeOnly]: '0' }).activeOnly).toBe(true)
+    expect(parseScheduleFilter({ [SCHEDULE_KEYS.activeOnly]: '' }).activeOnly).toBe(false)
+    expect(toScheduleParams(parseScheduleFilter({ activeOnly: 'on' }), ASOF)).toEqual({
+      activeOnly: true,
+    })
+  })
+
+  it('소유자 축이 SCR-201과 같은 키를 쓴다', () => {
+    /*
+     * 두 화면의 소유자 필터가 같은 뜻이므로 주소에서도 같아야 한다 — 키가 갈리면
+     * 한쪽 링크를 다른 화면에 붙였을 때 그 축이 조용히 사라진다.
+     */
+    expect(SCHEDULE_KEYS.ownerId).toBe(FILTER_KEYS.ownerId)
+
+    const owner = '00000000-0000-4000-8000-000000000403'
+    expect(parseScheduleFilter({ ownerId: owner }).ownerId).toBe(owner)
+    expect(toScheduleParams(parseScheduleFilter({ ownerId: owner }), ASOF)).toEqual({
+      ownerId: owner,
+    })
+  })
+
+  it('조작된 주소가 오류가 되지 않는다 — 같은 규약이다', () => {
+    expect(parseScheduleFilter({ [SCHEDULE_KEYS.range]: 'YESTERDAY' }).range).toBe(
+      SCHEDULE_RANGE_DEFAULT,
+    )
+    expect(parseScheduleFilter({ ownerId: 'not-a-uuid' }).ownerId).toBeNull()
+    // 같은 키가 두 번 오면 버린다 — 폼이 만들 수 없는 형태다.
+    expect(parseScheduleFilter({ [SCHEDULE_KEYS.range]: ['PAST', 'UPCOMING'] }).range).toBe(
+      SCHEDULE_RANGE_DEFAULT,
+    )
+  })
+
+  it('세 축이 함께 걸린다', () => {
+    const owner = '00000000-0000-4000-8000-000000000404'
+    const filter = parseScheduleFilter({
+      ownerId: owner,
+      [SCHEDULE_KEYS.range]: 'UPCOMING',
+      [SCHEDULE_KEYS.activeOnly]: 'on',
+    })
+
+    expect(toScheduleParams(filter, ASOF)).toEqual({
+      from: ASOF,
+      ownerId: owner,
+      activeOnly: true,
+    })
   })
 })

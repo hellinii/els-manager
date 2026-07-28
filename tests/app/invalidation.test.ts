@@ -175,6 +175,17 @@ describe('실재하는 라우트', () => {
     expect(ROUTES).toContain('/products/[id]/redeem')
   })
 
+  it('컷 7이 `/schedule`을 자리표시에서 실화면으로 바꿨다', () => {
+    /*
+     * 라우트는 컷 0d부터 있었으므로 `actualRoutes()`로는 아무 변화가 없다 —
+     * 이 컷의 변화는 **자리표시 원장**에서만 보인다(아래 「두 원장이 함께 센다」).
+     * 그래서 여기서는 그 사실을 직접 단언한다: 파일이 `PendingScreen`을 더 이상
+     * 담지 않는다.
+     */
+    expect(ROUTES).toContain(PATHS.schedule)
+    expect(placeholderRoutes()).not.toContain(PATHS.schedule)
+  })
+
   it('낡는 라우트가 전부 DOC-008 §4가 정의한 라우트다', () => {
     /*
      * **실재보다 문서가 기준이다.** 맵은 P4 전체를 미리 적으므로 아직 파일이 없는
@@ -553,8 +564,8 @@ describe('DOC-008 §4 ↔ 라우트', () => {
      * 않는다」로 결정된 `/users`만 표에 남으므로 이 목록은 비어 있다.
      */
     expect(noFile.sort()).toEqual([])
-    // 컷 7(일정) · 8(세금) · 9(홈) · P4b(전망)
-    expect(placeholders.sort()).toEqual(['/', '/forecast', '/schedule', '/tax'])
+    // 컷 8(세금) · 9(홈) · P4b(전망) — 컷 7이 `/schedule`을 세웠다
+    expect(placeholders.sort()).toEqual(['/', '/forecast', '/tax'])
   })
 
   it('세 번째 원장이 두 번째로 비었다 — 컷 6이 SCR-202의 셋을 세웠다', () => {

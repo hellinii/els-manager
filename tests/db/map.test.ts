@@ -840,3 +840,163 @@ describe('목록과 상세가 같은 판정을 낸다 (§4.3 판정 삼종)', ()
     expect(view.product.kiStatus).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// 평가일정 ↔ 목록의 판정 동일성 — §4.4 `ownerId`·`status` (v1.8, P4 컷 7)
+// ---------------------------------------------------------------------------
+
+/**
+ * **차수 뷰가 상품 뷰와 같은 판정을 낼 수 있는가.**
+ *
+ * v1.7까지는 낼 수 없었다 — `ScheduleItem`에 `status`가 없어 §4.2 우선순위표의
+ * E-05 단(상환 완료)을 판정할 입력이 모자랐고, `ownerId`가 없어 소유자 필터의
+ * 선택지를 만들 수 없었다. 컷 3이 상세 뷰에 대해 한 대조(판정 삼종)를 같은 형태로
+ * 세 번째 뷰에 적용한다 — **한 행을 두 매퍼에 넣고 같은 함수를 걸어** 비교한다.
+ *
+ * `deriveDisplay`를 여기서 부르는 것이 `lib/db` 테스트로서 이상해 보이지만, 확인
+ * 대상은 포매터가 아니라 **두 뷰가 그 포매터에 같은 것을 준다**는 매핑의 성질이다.
+ *
+ * ## 음성 대조 4건 — 셋이 갈렸고 **하나는 갈리지 않았다**
+ *
+ * 매퍼의 한 줄씩 깨뜨려 실행하고 되돌렸다. 마지막 줄을 함께 적는 이유는 그것이
+ * 이 describe가 방어하지 **못하는** 범위이기 때문이다.
+ *
+ * | 깨뜨린 것 | 결과 |
+ * |---|---|
+ * | `status: j.status` → `'ACTIVE'` 고정 | 이 describe 3건 (+ 컷 3의 대조 3건) |
+ * | `ownerId: row.owner_id` → 다른 UUID 고정 | `it.each` 5건 전부 |
+ * | `ownerId` → `row.users?.id ?? ''` | **1건** — `users: null` 케이스만. 다른 넷은 픽스처에서 두 값이 같아 통과한다 |
+ * | `status` → `row.redemptions == null ? …` 로 재유도 | **갈리지 않았다** — `judge()`의 `isRedeemed(redemptionMarkOf(row))`가 지금 정확히 그 식이다 |
+ *
+ * 넷째 줄은 결함이 아니라 **사실의 기록**이다. 두 유도가 오늘 같은 답을 내므로 이
+ * 대조로는 「`judge()`를 지나야 한다」를 강제할 수 없다. 강제하는 것은 §4.2의 억제
+ * 규칙이 `judge()` 안에 있다는 구조이며(E-05가 `asActive`를 통해 `ki`·
+ * `conditionResult`를 죽인다) 그 판정이 갈리는 날 위 `deriveDisplay` 대조가 먼저
+ * 빨간불이 된다.
+ */
+describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () => {
+  const SCHEDULE_CASES: Array<{
+    label: string
+    row: ProductRow
+    prices: Map<string, LatestPrice>
+  }> = [
+    {
+      label: 'ACTIVE — 시세가 있고 미상환',
+      row: productRow(),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+    {
+      label: 'REDEEMED — 상환 후에도 차수 행은 남는다',
+      row: productRow({ redemptions: redemption() }),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+    {
+      label: 'PRICE_MISSING — E-01',
+      row: productRow(),
+      prices: priceMap([{ assetId: ASSET_1, price: null }]),
+    },
+    {
+      label: 'INTEGRITY — 기초자산 0건',
+      row: productRow({ els_underlyings: [] }),
+      prices: priceMap([]),
+    },
+    {
+      label: '타인 소유 — 소유자 필터의 선택지 값',
+      row: productRow({ owner_id: OTHER, users: { id: OTHER, display_name: '타인' } }),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+  ]
+
+  it.each(SCHEDULE_CASES)('$label', ({ row, prices }) => {
+    const item = toProductListItem(row, prices, ASOF, OWNER)
+    const rounds = toScheduleItems(row, prices, ASOF)
+
+    expect(rounds.length).toBeGreaterThan(0)
+    for (const round of rounds) {
+      // 상품 단위 사실은 차수마다 같은 값이다 — `productName`·`ownerName`과 같은 형태
+      expect(round.status).toBe(item.status)
+      expect(round.ownerId).toBe(item.ownerId)
+      expect(round.worstOf).toBe(item.worstOf)
+      expect(round.integrityIssue).toBe(item.integrityIssue)
+
+      // 그러므로 §4.2 우선순위 판정도 같다 — 화면이 순서를 다시 정하지 않는다
+      expect(deriveDisplay(round)).toEqual(deriveDisplay(item))
+    }
+  })
+
+  it('다섯 경우가 실제로 세 종류의 판정을 낸다', () => {
+    // 픽스처가 전부 같은 `kind`를 내면 위 `it.each`는 항진명제다.
+    const kinds = SCHEDULE_CASES.map(({ row, prices }) =>
+      toScheduleItems(row, prices, ASOF).map((r) => deriveDisplay(r).kind),
+    )
+    expect(kinds).toEqual([
+      ['VALUED', 'VALUED'],
+      ['REDEEMED', 'REDEEMED'],
+      ['PRICE_MISSING', 'PRICE_MISSING'],
+      ['INTEGRITY', 'INTEGRITY'],
+      ['VALUED', 'VALUED'],
+    ])
+  })
+
+  it('★ 상환 완료 + 미래 차수가 실재한다 — 이 필드가 생긴 이유다', () => {
+    /*
+     * ★ I-01은 상환을 상품당 하나로 제한할 뿐 **상환일 이후의 일정 행을 지우지
+     * 않는다.** 그래서 상환된 상품의 차수가 「다가오는 평가일」 절에 그대로 온다 —
+     * `status`가 없으면 그 행은 미상환 차수와 **구별되지 않고**, 사용자는 도래하지
+     * 않을 날짜를 기다린다.
+     *
+     * `activeOnly`는 그것을 **숨기는** 수단이므로 대신하지 못한다(꺼진 것이 기본이고,
+     * 켜면 숨긴 것과 상환된 것이 구분되지 않는다).
+     */
+    const rounds = toScheduleItems(
+      productRow({ redemptions: redemption() }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+    )
+
+    expect(rounds.every((r) => r.status === 'REDEEMED')).toBe(true)
+    // 두 차수 모두 기준일(2026-06-30) 뒤다 — 즉 상환 완료이면서 미래다
+    expect(rounds.every((r) => !r.isPast)).toBe(true)
+    // 판정은 생략된다(E-05) — 남는 것은 표식뿐이므로 그 표식이 뷰에 있어야 한다
+    expect(rounds.every((r) => r.conditionResult == null)).toBe(true)
+  })
+
+  it('`ownerId`는 상품 행에서 나온다 — 이름과 달리 폴백이 없다', () => {
+    /*
+     * ★ **`users` 임베드가 없어도 소유자 id는 있어야 한다.** 그 임베드는 타입상
+     * nullable이고(`ProductRow`), 이름은 그때 `(알 수 없음)`으로 폴백한다. id를 같은
+     * 자리에서 유도하면(`row.users?.id`) 폴백할 값이 없어 빈 문자열이나 `undefined`가
+     * 되는데, **그 값이 소유자 필터의 선택지에 실린다** — 「전체」와 구분되지 않는
+     * 항목이 생기고, 고르면 0건이 나오면서 그 이유가 화면에 없다.
+     *
+     * 픽스처에서 `users.id === owner_id`이므로 이 케이스가 **두 구현을 가르는 유일한
+     * 자리**다(음성 대조로 확인: `row.users?.id ?? row.owner_id`로 바꾸면 다른 네
+     * 케이스는 전부 통과한다).
+     */
+    const rounds = toScheduleItems(
+      productRow({ users: null }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+    )
+
+    expect(rounds.every((r) => r.ownerId === OWNER)).toBe(true)
+    expect(rounds.every((r) => r.ownerName === '(알 수 없음)')).toBe(true)
+  })
+
+  it('`isPast`와 `status`가 직교한다 — 미상환의 경과 차수도 있다', () => {
+    /*
+     * 넷 중 둘을 여기서 고정한다(위 케이스가 「상환 + 미래」를 고정했다). 미상환
+     * 상품의 경과 차수는 E-07이며 §4.1이 `EVALUATION_PASSED`로 조치를 요구하는
+     * 상태다 — 그 행이 지난 절에 오고, 그때도 상품은 `ACTIVE`다.
+     */
+    const rounds = toScheduleItems(
+      productRow(),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      // 두 차수(2026-07-02·2027-01-04) 중 앞의 것만 지난 기준일
+      '2026-08-01',
+    )
+
+    expect(rounds.map((r) => r.isPast)).toEqual([true, false])
+    expect(rounds.every((r) => r.status === 'ACTIVE')).toBe(true)
+  })
+})
