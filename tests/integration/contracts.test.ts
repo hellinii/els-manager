@@ -275,13 +275,37 @@ describe('§4.9 searchAssets', () => {
     expect(options[0].hasPriceProvider).toBe(false)
   })
 
-  it('빈 검색어는 전체를 반환하지 않는다', async () => {
-    expect(await s.asA.searchAssets('')).toEqual([])
-    expect(await s.asA.searchAssets('   ')).toEqual([])
+  /**
+   * **빈 질의는 전량이다 (§4.9 v1.5, P4 컷 4a).** 종전 단언은 `[]`였다 —
+   * SCR-204가 소비자가 되면서 그 값이 「자동완성을 영구히 비게 만드는 값」임이
+   * 드러났다. §1.2가 조회를 서버 액션으로 감싸지 않으므로 타이핑마다 묻는 경로가
+   * 없고, 화면은 렌더 1회에 전량을 받아 클라이언트에서 좁힌다.
+   *
+   * 건수를 고정하지 않는다 — 이 스위트는 다른 실행이 남긴 자산과 함께 돌고
+   * (자산에는 삭제 계약이 없다) 필터 없는 전역 건수 단언은 CLAUDE.md가 경고한
+   * 형태다. 대신 **부분일치 결과의 상위집합이며 그 원소를 포함한다**를 본다.
+   */
+  it('빈 검색어는 전량이다 — 이름 필터만 없다', async () => {
+    const all = await s.asA.searchAssets('')
+    const named = await s.asA.searchAssets('단독')
+
+    expect(all.length).toBeGreaterThanOrEqual(named.length)
+    expect(all.map((option) => option.id)).toContain(named[0].id)
+    // 공백만 있는 질의도 같은 경로다(`trim()` 후 판정한다).
+    expect((await s.asA.searchAssets('   ')).length).toBe(all.length)
+    // 이름 순 정렬은 두 경로가 공유한다.
+    expect([...all].map((o) => o.name)).toEqual(
+      [...all].map((o) => o.name).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)),
+    )
   })
 
   it('% 한 글자가 전체 목록을 반환하지 않는다', async () => {
-    // 이스케이프하지 않으면 %가 와일드카드가 되어 전 자산이 나온다
+    /*
+     * 이스케이프하지 않으면 %가 와일드카드가 되어 전 자산이 나온다. **빈 질의가
+     * 전량이 된 뒤에도 이 단언은 유효하다** — 두 경로는 다른 함수이고, `'%'`는
+     * 비-빈 질의이므로 이름 필터를 지난다. 즉 이스케이프가 사라지면 이 결과가
+     * 빈 질의의 결과와 같아진다.
+     */
     const wildcard = await s.asA.searchAssets('%')
     expect(wildcard).toEqual([])
   })

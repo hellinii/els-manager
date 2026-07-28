@@ -19,11 +19,23 @@ export function SubmitButton({
   pendingLabel,
   variant = 'primary',
   fullWidth = false,
+  name,
+  value,
 }: {
   label: string
   pendingLabel: string
   variant?: 'primary' | 'secondary'
   fullWidth?: boolean
+  /**
+   * 제출 버튼도 값을 나른다 — SCR-204의 단계 전이가 그것으로 표현된다
+   * (`name="intent" value="NEXT"`).
+   *
+   * **`onClick`으로 상태를 바꾸지 않는 이유**는 컷 1b가 실측한 것과 같다: 클릭
+   * 처리기에 의미를 두면 JS 없이 누른 버튼이 아무 일도 하지 않는다. 버튼의
+   * `name`·`value`는 브라우저가 제출에 싣는 표준 동작이므로 두 경로에서 같다.
+   */
+  name?: string
+  value?: string
 }) {
   const { pending } = useFormStatus()
 
@@ -35,6 +47,8 @@ export function SubmitButton({
   return (
     <button
       type="submit"
+      name={name}
+      value={value}
       disabled={pending}
       className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${styles}${
         fullWidth ? ' w-full' : ''

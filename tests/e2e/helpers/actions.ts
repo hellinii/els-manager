@@ -67,6 +67,11 @@ export function actionIdOf(exportedName: string): string {
  * 고른다. 순서로 고르면 줄이 늘어나는 순간 다른 폼을 잡는다.
  */
 export function formFieldsFor(html: string, actionId: string): Field[] {
+  return hiddenFieldsOf(formHtmlFor(html, actionId))
+}
+
+/** 그 액션에 묶인 `<form>` 태그 전체. 단계 폼은 그 안을 더 들여다봐야 한다 */
+export function formHtmlFor(html: string, actionId: string): string {
   const form = [...html.matchAll(/<form[^>]*>[\s\S]*?<\/form>/g)]
     .map((m) => m[0])
     .find((candidate) => candidate.includes(actionId))
@@ -74,10 +79,83 @@ export function formFieldsFor(html: string, actionId: string): Field[] {
   if (form == null) {
     throw new Error(`액션 ${actionId}의 폼이 HTML에 없다 — 화면이 그 폼을 렌더하지 않았다`)
   }
+  return form
+}
 
-  return [
-    ...form.matchAll(/<input type="hidden" name="([^"]+)"(?: value="([^"]*)")?\s*\/>/g),
-  ].map((m) => [unescapeHtml(m[1]!), unescapeHtml(m[2] ?? '')])
+/**
+ * 히든 필드 — **속성 순서를 가정하지 않는다.**
+ *
+ * 종전 정규식은 `type="hidden" name=… value=…` 순서를 고정했다. React의 속성
+ * 순서는 JSX 순서가 아니며(`prices.test.ts`가 `max`에서 같은 함정을 겪었다)
+ * `value` 없는 필드도 있다(`$ACTION_REF_1`). 태그를 먼저 잡고 속성을 따로 읽으면
+ * 두 가정이 사라진다 — SCR-204의 히든 이송은 필드가 스무 개를 넘으므로 하나만
+ * 빠져도 **조용히 값이 없는 제출**이 된다.
+ */
+function hiddenFieldsOf(form: string): Field[] {
+  return [...form.matchAll(/<input\b[^>]*>/g)]
+    .map((m) => m[0])
+    .filter((tag) => /\btype="hidden"/.test(tag))
+    .map((tag): Field => {
+      const name = /\bname="([^"]*)"/.exec(tag)?.[1]
+      const value = /\bvalue="([^"]*)"/.exec(tag)?.[1]
+      return [unescapeHtml(name ?? ''), unescapeHtml(value ?? '')]
+    })
+    .filter(([name]) => name !== '')
+}
+
+/**
+ * 제출 버튼이 나르는 `name`·`value` — **손으로 적지 않는다**
+ *
+ * ## 음성 대조가 이 함수를 만들었다
+ *
+ * 처음에는 테스트가 `['intent', 'NEXT']`를 직접 붙였다. 그 상태에서 `SubmitButton`의
+ * `name`·`value` 전달을 지우는 음성 대조를 했더니 **전부 초록이었다** — 테스트가
+ * 브라우저가 보낼 것을 흉내내면서 브라우저가 그것을 **어디서 얻는지**는 확인하지
+ * 않았기 때문이다. 실제 JS 없는 제출에서는 `intent`가 아예 실리지 않아 아무 일도
+ * 일어나지 않는데 스위트는 통과한다(컷 1b의 「JS 없이 동작하지 않는 폼」이 정확히
+ * 그 형태였고, 그때는 e2e가 잡았다).
+ *
+ * 그래서 값을 **렌더된 버튼에서 읽는다.** 버튼이 그 값을 나르지 않으면 여기서
+ * 던진다 — 픽스처가 두 구현을 가른다.
+ */
+export function buttonField(form: string, value: string): Field {
+  const button = [...form.matchAll(/<button\b[^>]*>/g)]
+    .map((m) => m[0])
+    .find(
+      (tag) =>
+        /\btype="submit"/.test(tag) && new RegExp(`\\bvalue="${value}"`).test(tag),
+    )
+
+  if (button == null) {
+    throw new Error(
+      `value="${value}"를 나르는 제출 버튼이 없다 — 렌더된 폼에서 그 의도를 보낼 방법이 없다.\n` +
+        '  버튼의 name·value가 빠지면 JS 없는 제출에서 아무 일도 일어나지 않는다.',
+    )
+  }
+
+  const name = /\bname="([^"]*)"/.exec(button)?.[1]
+  if (name == null || name === '') {
+    throw new Error(`제출 버튼에 name이 없다: ${button}`)
+  }
+  return [unescapeHtml(name), value]
+}
+
+/**
+ * 그 폼이 렌더한 **모든** 입력의 `name` — 히든·보임 구분 없이.
+ *
+ * 단계 폼의 불변식이 「선언된 이름은 렌더되거나 이송된다」이고(`STEP_NAMES` +
+ * `carryNames`), 그 합집합이 실제 DOM과 같은지는 **렌더된 문서에만** 있다.
+ * 빠진 이름은 저장 버튼을 누를 때까지 증상이 없으므로 여기서 센다.
+ */
+export function inputNamesOf(form: string): Set<string> {
+  const names = new Set<string>()
+  for (const tag of [
+    ...form.matchAll(/<(?:input|select|textarea)\b[^>]*>/g),
+  ].map((m) => m[0])) {
+    const name = /\bname="([^"]*)"/.exec(tag)?.[1]
+    if (name != null && name !== '') names.add(unescapeHtml(name))
+  }
+  return names
 }
 
 /** 같은 폼에 렌더된 `value` 있는 히든 필드 하나를 읽는다(예: `assetId`). */

@@ -23,3 +23,37 @@ export function manualPriceDefaults(asOf: string): Record<string, string> {
 export function assetDefaults(): Record<string, string> {
   return { name: '', assetType: '', market: '', currency: 'KRW' }
 }
+
+/**
+ * §5.1 상품 등록의 기본값 — SCR-204.
+ *
+ * **기본값을 주는 것은 `evaluationPeriodMonths` 하나다.** DOC-005 §3이 평가주기를
+ * 「통상 6」으로 등재했으므로 문서가 근거를 준 자리이고, 틀리면 사용자가 고친다.
+ *
+ * `accountType`은 비운다 — `assetType`과 같은 판단이다(그쪽 각주). 일반/비과세는
+ * 세액이 갈리는 선택이므로(DOC-007 §5) 기본값을 주면 「비과세 계좌의 상품을 일반으로
+ * 등록」이 조용히 통과하고, 그 결과는 SCR-401의 숫자로만 드러난다.
+ *
+ * `issueDate`도 비운다 — 오늘이 아니다. 발행일은 증권사 서류에 적힌 과거 날짜이며,
+ * 오늘을 채우면 평가일 전체가 그만큼 밀린 채 ④ 미리보기가 그럴듯해 보인다.
+ *
+ * 기초자산은 **한 행**으로 시작한다(V-02는 1개 이상을 요구한다).
+ */
+export function productDefaults(): Record<string, string> {
+  return {
+    name: '',
+    issuer: '',
+    issueDate: '',
+    principal: '',
+    accountType: '',
+    note: '',
+    evaluationPeriodMonths: '6',
+    totalRounds: '',
+    annualCouponRate: '',
+    kiBarrier: '',
+    kiObservation: '',
+    barriers: '',
+    'underlyings[0].assetId': '',
+    'underlyings[0].basePrice': '',
+  }
+}

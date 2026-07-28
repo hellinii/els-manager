@@ -1,30 +1,52 @@
-import { PendingScreen } from '@/components/system/PendingScreen'
+import type { Metadata } from 'next'
+
+import { ProductForm } from '@/components/products/ProductForm'
+import { getQueries } from '@/lib/db/server'
 
 /**
- * SCR-204 ELS 등록 — 컷 4a에서 선다.
+ * SCR-204 ELS 등록 — 골격 (P4 컷 4a, DOC-008 §5·§7.1)
  *
- * ## 왜 컷 2에서 자리표시를 두는가
+ * ## 자산 전량을 한 번 실어 보낸다
  *
- * SCR-201이 이 주소로 가는 버튼을 **둘 갖는다** — 머리글의 `+ 등록`(DOC-008 §5:
- * 「항상 노출」)과 「전체 없음」 빈 상태의 다음 행동(ST-02). 둘이 404로 가면
- * 그것은 사용자에게 **결함으로 보인다**: 「이 화면은 아직 없다」와 「이 주소는
- * 틀렸다」는 다른 사실이다(`PendingScreen`의 근거). 컷 0d가 다섯 탭에 같은 판단을
- * 했다.
+ * `searchAssets('')`이 전량이다(§4.9 v1.5). 타이핑마다 서버에 묻는 경로는
+ * §1.2가 금지했으므로(조회를 서버 액션으로 감싸지 않는다) 자동완성은 **렌더 1회
+ * 전량 + 클라이언트 필터**로 성립한다 — 그 결정이 계약의 빈 질의를 바꿨다.
  *
- * 그래서 `tests/app/invalidation.test.ts`의 `NOT_YET_BUILT`에서 이 라우트를
- * 지웠다 — 그 원장은 「파일이 없는 라우트」를 세므로 자리표시가 서면 그 단언이
- * 빨간불이 된다. **정보가 사라진 것은 아니다**: 남은 컷의 표식이 원장에서 이
- * 파일로 옮겨졌고, `placeholderRoutes()`가 그 목록을 센다(계획 §4의
- * `grep PendingScreen` 절차를 테스트로 옮긴 것이다).
+ * 종전 구현은 빈 질의에 `[]`를 주었고, 그 값이면 자산이 있어도 이 화면에서 하나도
+ * 고를 수 없다. 「화면이 계약의 결함을 드러낸다」의 세 번째 사례다(컷 2의 AQ-24,
+ * 컷 3의 판정 삼종에 이어).
  *
- * ## 이 파일이 없으면 `/products/new`가 상품 id로 해석된다
+ * ## `listAssetPrices`로 대신하지 않는다
  *
- * 정적 세그먼트가 동적 세그먼트보다 우선하므로 이 파일이 있으면 여기로 온다.
- * 없으면 `[id]` 라우트가 `id = 'new'`로 받고, 그쪽의 UUID 형식 가드가 404로
- * 돌린다 — **500이 아닌 것은 그 가드 덕분이다.** 두 방어가 겹쳐 있고 어느 쪽도
- * 빠뜨려도 되는 것이 아니다: 가드가 없으면 500, 이 파일이 없으면 404다.
+ * 그쪽은 `usedByActiveProducts` 때문에 상품 계열을 한 번 더 읽고(왕복 2), 등록
+ * 화면이 쓰지 않는 값 때문에 이 라우트의 무효화 축이 상품 변경 전체로 넓어진다
+ * (`listAssetPrices`가 `PRODUCT_WIDE`에 있다). `ROUTE_QUERIES`가 이 라우트에
+ * `searchAssets` 하나만 적은 것이 그 판단이다.
+ *
+ * ## 서버 컴포넌트다
+ *
+ * 조회는 여기서 하고 폼만 클라이언트다. 자산 목록을 props로 내리므로 `lib/db`가
+ * 클라이언트 번들에 실리지 않는다(린트가 값 import를 막는다).
  */
 
-export default function ProductNewPage() {
-  return <PendingScreen screen="SCR-204" title="ELS 등록" cut="컷 4a" />
+export const metadata: Metadata = {
+  title: 'ELS 등록 · 언제들어오나',
+}
+
+export default async function ProductNewPage() {
+  const queries = await getQueries()
+  const assets = await queries.searchAssets('')
+
+  return (
+    <section className="flex flex-col gap-5">
+      <header>
+        <h1 className="text-xl font-semibold tracking-tight">ELS 등록</h1>
+        <p className="mt-1 text-sm text-neutral-600">
+          네 단계로 입력한다. 각 단계의 값은 이동해도 남는다.
+        </p>
+      </header>
+
+      <ProductForm assets={assets} />
+    </section>
+  )
 }

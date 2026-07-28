@@ -440,34 +440,63 @@ export async function loadUsers(ctx: QueryContext): Promise<UserRow[]> {
   return data
 }
 
+/** §4.9의 두 경로가 함께 읽는 열 — 공급자 심볼은 존재 여부만 쓴다(`hasPriceProvider`) */
+type AssetOptionRow = AssetRow & { asset_provider_symbols: Array<{ id: string }> }
+
+const ASSET_OPTION_SELECT = [
+  selectList(ASSET_COLUMNS),
+  embed('asset_provider_symbols', 'id'),
+].join(',')
+
 /**
- * 자산 이름 부분일치 — §4.9.
+ * 자산 이름 부분일치 — §4.9의 **비-빈 질의** 경로.
  *
  * **입력을 필터 문법으로부터 격리한다.** postgrest-js는 필터 값을 인용하지
  * 않으므로 사용자가 넣은 `,`가 필터를 쪼개고 `%` 한 글자가 전체 목록을 반환한다.
+ *
+ * 상한은 **의도된 자름**이므로 절단 감지를 걸지 않는다 — 넘치면 사용자가 더 좁게
+ * 적으면 된다. 감지가 필요한 것은 아래 전량 경로다(§4.9 v1.5의 표).
  */
 export async function loadAssetsByName(
   ctx: QueryContext,
   query: string,
   limit: number,
-): Promise<Array<AssetRow & { asset_provider_symbols: Array<{ id: string }> }>> {
+): Promise<AssetOptionRow[]> {
   const { data, error } = await ctx.db
     .from('assets')
-    .select(
-      [
-        selectList(ASSET_COLUMNS),
-        embed('asset_provider_symbols', 'id'),
-      ].join(','),
-    )
+    .select(ASSET_OPTION_SELECT)
     .ilike('name', `%${escapeLikePattern(query)}%`)
     .order('name')
     .limit(limit)
-    .overrideTypes<
-      Array<AssetRow & { asset_provider_symbols: Array<{ id: string }> }>,
-      { merge: false }
-    >()
+    .overrideTypes<AssetOptionRow[], { merge: false }>()
 
   if (error != null) fail('자산 검색', error)
+  return data
+}
+
+/**
+ * 자산 전량 — §4.9의 **빈 질의** 경로 (P4 컷 4a).
+ *
+ * 위 함수에 `limit`만 바꿔 넘기지 않고 따로 두는 이유는 **자름의 성질이 반대**라는
+ * 것이다. 검색의 상한 20은 의도된 자름이고 여기의 상한은 **감지용**이다 —
+ * 자동완성이 전량을 한 번 받으므로 조용히 잘리면 21번째 자산이 어떤 방법으로도
+ * 선택되지 않는다(AQ-22가 지적한 "호출부에 절단 신호가 없다"의 실현 형태).
+ * 한 함수에 두 뜻을 담으면 그 구분이 호출부의 인자값에만 남는다.
+ *
+ * `listAssetPrices`로 대신하지 않는다 — 그쪽은 `usedByActiveProducts` 때문에 상품
+ * 계열을 한 번 더 읽고(왕복 2), 등록 화면이 쓰지 않는 값을 위해 그 화면의 무효화
+ * 축이 상품 변경 전체로 넓어진다(`listAssetPrices`가 `PRODUCT_WIDE`에 있다).
+ */
+export async function loadAllAssetOptions(ctx: QueryContext): Promise<AssetOptionRow[]> {
+  const { data, error } = await ctx.db
+    .from('assets')
+    .select(ASSET_OPTION_SELECT)
+    .order('name')
+    .limit(TRUNCATION_PROBE_LIMIT)
+    .overrideTypes<AssetOptionRow[], { merge: false }>()
+
+  if (error != null) fail('자산 목록', error)
+  assertNotTruncated(data, '자산 목록')
   return data
 }
 

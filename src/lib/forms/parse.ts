@@ -1,5 +1,20 @@
 import { dec } from '@/lib/decimal'
-import type { AssetInput, ManualPriceInput } from '@/lib/db/mutations/types'
+import type {
+  AssetInput,
+  ManualPriceInput,
+  ProductInput,
+  ScheduleInput,
+  UnderlyingInput,
+} from '@/lib/db/mutations/types'
+
+import { path } from './fieldPath'
+import { previewDates } from './schedules'
+import {
+  MAX_ROUNDS,
+  SCHEDULE_SUBS,
+  UNDERLYING_SUBS,
+  rowCountOf,
+} from './steps'
 
 /**
  * FormData → 계약 입력 — **순수**하다. `next`도 `react`도 모른다
@@ -31,9 +46,16 @@ export function optionalText(form: FormData, name: string): string | undefined {
   return value === '' ? undefined : value
 }
 
-/** 체크박스는 체크될 때만 전송된다. 부재가 곧 `false`다. */
+/**
+ * 체크박스는 체크될 때만 전송된다. 부재가 곧 `false`다.
+ *
+ * **빈 문자열도 `false`다.** 부재만 보면 히든 이송(`carryNames`)이 값 없는 키를
+ * 실었을 때 그것이 `true`가 된다 — 단계 폼에서 「체크를 풀었는데 다음 단계를
+ * 지나 돌아오면 켜져 있다」가 되는 형태이며, 원인이 폼이 아니라 이송이라
+ * 재현 조건을 찾기 어렵다.
+ */
 export function checkbox(form: FormData, name: string): boolean {
-  return form.get(name) != null
+  return text(form, name) !== ''
 }
 
 /**
@@ -71,6 +93,147 @@ export function parseManualPriceForm(form: FormData): ManualPriceInput {
     asOfDate: text(form, 'asOfDate'),
     price: text(form, 'price'),
   }
+}
+
+/**
+ * 금액 입력 — **쉼표와 공백을 지운다.**
+ *
+ * DOC-005 §2가 금액 **표시**에 천단위 쉼표를 쓰므로 사용자는 `100,000,000`을
+ * 그대로 적어 넣는다. 계약에 그대로 넘기면 `V-01`이 「정수로 입력한다」를 내는데,
+ * 사용자에게는 자기가 적은 것이 정수이므로 고칠 방향이 보이지 않는다.
+ *
+ * **값을 바꾸지 않는다** — 쉼표 제거는 문자열 연산이고 float64를 경유하지 않는다.
+ * 소수점은 남긴다(`base_price`는 `numeric(18,6)`이다).
+ */
+function amountText(form: FormData, name: string): string {
+  return text(form, name).replace(/[,\s]/g, '')
+}
+
+/**
+ * 개수를 세는 정수 — 차수·개월수. **금액이 아니다**(`lib/decimal`이 이미 정한 구분).
+ *
+ * 형식이 아니면 `NaN`을 준다. 계약의 `requireInt`가 `Number.isInteger`로 거부하며
+ * (V-20 「정수로 입력한다」) **여기서 오류 문구를 만들지 않는다** — 그러면 규칙이
+ * 두 곳에 생기고, 두 곳이 갈리면 어느 쪽이 정본인지 알 수 없다.
+ */
+function countText(form: FormData, name: string): number {
+  const raw = text(form, name)
+  return /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN
+}
+
+/** 퍼센트로 적힌 선택 비율 — 빈 칸은 「없음」이며 `0`은 값이다(원금상환형 리자드) */
+function optionalRatioText(form: FormData, name: string): string | undefined {
+  const raw = optionalText(form, name)
+  return raw == null ? undefined : percentToRatio(raw)
+}
+
+/**
+ * §5.1·§5.2 상품 등록·수정 — SCR-204.
+ *
+ * ## 인덱스를 다시 붙이지 않는다
+ *
+ * 배열 행의 인덱스는 **폼의 `name`이 정본**이다(`underlyings[1].assetId`).
+ * 빈 행을 걸러내며 번호를 다시 매기면 계약이 돌려주는 `fields` 키가 화면의 칸과
+ * 어긋나고, 그러면 오류가 **다른 행에** 표시된다. 그것은 표시되지 않는 오류보다
+ * 나쁘다 — 사용자가 채운 칸을 의심하게 된다. 빈 행은 그대로 넘겨 계약이 그 행을
+ * 가리키게 하고, 행을 없애는 것은 삭제 버튼(`removeRow`)의 일이다.
+ *
+ * ## 차수 행 수는 `totalRounds`가 정한다
+ *
+ * 값 맵에는 지난 입력의 잔재가 남을 수 있다(총 차수를 6에서 3으로 줄이면
+ * `schedules[3..5]`의 키가 남는다). 키에서 개수를 파생시키면 그 잔재가 되살아나
+ * V-03이 「6건이 총 차수 3과 다르다」를 낸다 — 사용자가 지운 것을 우리가 되살린
+ * 것이므로 원인이 화면에 없다. 그래서 **입력한 차수까지만** 읽는다.
+ *
+ * `MAX_ROUNDS`로 자르는 것은 렌더 상한과 같은 값이다. 조작된 `totalRounds`(V-20은
+ * `smallint`까지 허용한다)에 대해 화면과 파서가 같은 수의 행을 보므로, 남는 차이는
+ * V-03이 「N건이 총 차수 M과 다르다」로 설명한다.
+ */
+export function parseProductForm(form: FormData): ProductInput {
+  const underlyings: UnderlyingInput[] = []
+  const rowCount = rowCountOf(valuesOfForm(form), 'underlyings')
+  for (let index = 0; index < rowCount; index += 1) {
+    underlyings.push({
+      assetId: text(form, path('underlyings', index, UNDERLYING_SUBS[0])),
+      basePrice: amountText(form, path('underlyings', index, UNDERLYING_SUBS[1])),
+      // 순서는 입력이 아니라 행의 위치다 — 사용자가 정할 것이 없다.
+      sequence: index + 1,
+    })
+  }
+
+  const issueDate = text(form, 'issueDate')
+  const evaluationPeriodMonths = countText(form, 'evaluationPeriodMonths')
+  const totalRounds = countText(form, 'totalRounds')
+  const rounds = Number.isInteger(totalRounds)
+    ? Math.min(Math.max(totalRounds, 0), MAX_ROUNDS)
+    : 0
+
+  // 평가일은 생성값이다 — 화면의 미리보기와 **같은 함수**를 같은 입력에 부른다.
+  const dates = previewDates({ issueDate, evaluationPeriodMonths, totalRounds: rounds })
+
+  const schedules: ScheduleInput[] = []
+  for (let index = 0; index < rounds; index += 1) {
+    const at = (sub: (typeof SCHEDULE_SUBS)[number]): string =>
+      path('schedules', index, sub)
+
+    const lizardBarrier = optionalRatioText(form, at('lizardBarrier'))
+    const schedule: ScheduleInput = {
+      roundNo: index + 1,
+      // 생성할 수 없으면 `''`이고 계약이 그 이유를 말한다(V-07). 화면은 그 전에
+      // 「발행일·평가주기를 먼저 입력한다」를 표로 보여 준다.
+      evaluationDate: dates[index] ?? '',
+      barrier: percentToRatio(text(form, at('barrier'))),
+    }
+
+    /*
+     * 리자드 조건은 **배리어가 정의한다.** 배리어가 없으면 나머지 둘을 보내지
+     * 않는다 — DB에 그 조합을 막는 제약이 없으므로(I-10은 반대 방향만 본다)
+     * 보내면 아무 판정도 읽지 않는 값이 저장된다. ④ 미리보기가 「리자드 없음」을
+     * 보여주므로 이 누락은 사용자가 저장 전에 확인한다.
+     */
+    if (lizardBarrier != null) {
+      schedule.lizardBarrier = lizardBarrier
+      const couponRate = optionalRatioText(form, at('lizardCouponRate'))
+      if (couponRate != null) schedule.lizardCouponRate = couponRate
+      schedule.lizardRequiresNoKi = checkbox(form, at('lizardRequiresNoKi'))
+    }
+
+    schedules.push(schedule)
+  }
+
+  const input: ProductInput = {
+    name: text(form, 'name'),
+    issueDate,
+    principal: amountText(form, 'principal'),
+    evaluationPeriodMonths,
+    totalRounds,
+    annualCouponRate: percentToRatio(text(form, 'annualCouponRate')),
+    accountType: text(form, 'accountType') as ProductInput['accountType'],
+    underlyings,
+    schedules,
+  }
+
+  const issuer = optionalText(form, 'issuer')
+  if (issuer != null) input.issuer = issuer
+  const kiBarrier = optionalRatioText(form, 'kiBarrier')
+  if (kiBarrier != null) input.kiBarrier = kiBarrier
+  const kiObservation = optionalText(form, 'kiObservation')
+  if (kiObservation != null) {
+    input.kiObservation = kiObservation as ProductInput['kiObservation']
+  }
+  const note = optionalText(form, 'note')
+  if (note != null) input.note = note
+
+  return input
+}
+
+/** 행 수 판정에만 쓰는 얕은 사본 — `rowCountOf`가 값 맵을 받는다 */
+function valuesOfForm(form: FormData): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') values[key] = value
+  }
+  return values
 }
 
 /**

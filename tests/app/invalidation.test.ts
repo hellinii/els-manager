@@ -15,6 +15,7 @@ import {
   type QueryName,
 } from '@/lib/routes/invalidation'
 import { PATHS } from '@/lib/routes/paths'
+import { PENDING_PARTS } from '@/lib/forms/steps'
 
 /**
  * 무효화 맵 — 세 축으로 대조한다 (DOC-011 §8 · 계획 §8)
@@ -547,13 +548,23 @@ describe('DOC-008 §4 ↔ 라우트', () => {
 
     // 컷 5(수정) · 컷 6(상환)
     expect(noFile.sort()).toEqual(['/products/[id]/edit', '/products/[id]/redeem'])
-    // 컷 4a(등록) · 7(일정) · 8(세금) · 9(홈) · P4b(전망)
-    expect(placeholders.sort()).toEqual([
-      '/',
-      '/forecast',
-      '/products/new',
-      '/schedule',
-      '/tax',
-    ])
+    // 컷 7(일정) · 8(세금) · 9(홈) · P4b(전망)
+    expect(placeholders.sort()).toEqual(['/', '/forecast', '/schedule', '/tax'])
+  })
+
+  it('컷 4a가 세운 화면의 남은 조각은 세 번째 원장이 센다', () => {
+    /*
+     * ★ **합계가 줄었으므로 근거가 필요하다.** `/products/new`가 자리표시를 떠났고
+     * (컷 4a가 실화면을 세웠다) 위 두 원장의 합은 7에서 6이 되었다. 그런데 그
+     * 화면은 **부분적으로** 섰다 — ③④와 저장이 컷 4b다. 두 원장 중 어느 것도 화면
+     * **안의** 미완성을 표현하지 못하므로, 컷 2·3이 「합계를 단언한다」로 막은 상태가
+     * 한 층 아래에서 재발한다: 숫자만 줄고 「화면이 섰다」로 읽힌다.
+     *
+     * 그래서 세 번째 원장을 둔다. `PENDING_PARTS`는 순수 모듈이므로 이 단언에
+     * 인프라가 필요 없고, 조각이 서면 여기가 빨간불이 되어 지우라고 말한다 —
+     * `NOT_YET_BUILT`와 같은 형태다.
+     */
+    expect(actualRoutes()).toContain(PATHS.productNew)
+    expect(Object.keys(PENDING_PARTS).sort()).toEqual(['CONDITIONS', 'CONFIRM', 'SUBMIT'])
   })
 })

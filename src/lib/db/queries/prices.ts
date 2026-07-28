@@ -1,5 +1,6 @@
 import type { QueryContext } from './context'
 import {
+  loadAllAssetOptions,
   loadAllAssetsWithLatestPrice,
   loadAssetsByName,
   loadProducts,
@@ -30,7 +31,10 @@ export type AssetOption = {
   hasPriceProvider: boolean
 }
 
-/** §4.9 — 결과 건수 상한. 자동완성 목록이므로 화면이 감당할 크기로 자른다. */
+/**
+ * §4.9 — **비-빈 질의**의 결과 건수 상한. 자동완성 목록이므로 화면이 감당할 크기로
+ * 자른다. 빈 질의(전량)에는 걸지 않는다 — 아래 `searchAssets` 각주.
+ */
 const SEARCH_LIMIT = 20
 
 export function makeAssetQueries(ctx: QueryContext) {
@@ -67,12 +71,25 @@ export function makeAssetQueries(ctx: QueryContext) {
     })
   }
 
+  /**
+   * §4.9 — 빈 질의는 **전량**이다 (v1.5, P4 컷 4a).
+   *
+   * 종전에는 `[]`였고 사유가 "자동완성이 열릴 때마다 전 자산을 내려보내게 된다"였다.
+   * **SCR-204에서 그 전제가 성립하지 않는다** — §1.2가 조회를 서버 액션으로 감싸지
+   * 않으므로 타이핑마다 묻는 경로가 없고, 화면은 렌더 1회에 전량을 받아 클라이언트에서
+   * 좁힌다. 그 상태에서 `[]`는 절약이 아니라 **자동완성을 영구히 비게 만드는 값**이었다:
+   * 자산이 있어도 등록 화면에서 하나도 고를 수 없다.
+   *
+   * 전량 경로에 `SEARCH_LIMIT`을 물리지 않는 이유는 그 자름이 **선택 불가능한 자산**을
+   * 만들기 때문이다 — 21번째 자산은 어떤 방법으로도 고를 수 없는데 화면에는 그 사실이
+   * 나타나지 않는다. 대신 Q-06의 절단 감지를 쓴다(`loadAllAssetOptions`).
+   */
   async function searchAssets(query: string): Promise<AssetOption[]> {
-    // 빈 검색어로 전체 목록을 반환하지 않는다 — 자동완성이 열릴 때마다
-    // 전 자산을 내려보내게 된다.
-    if (query.trim() === '') return []
-
-    const rows = await loadAssetsByName(ctx, query.trim(), SEARCH_LIMIT)
+    const trimmed = query.trim()
+    const rows =
+      trimmed === ''
+        ? await loadAllAssetOptions(ctx)
+        : await loadAssetsByName(ctx, trimmed, SEARCH_LIMIT)
 
     return rows.map((asset) => ({
       id: asset.id,
