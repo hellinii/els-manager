@@ -107,7 +107,7 @@ type ConstraintRule = {
  * 담당하고, 여기까지 온 것은 배열 단위로 표시한다 — 없는 정보를 지어내면
  * 사용자가 엉뚱한 행을 고친다.
  */
-const BY_CONSTRAINT: Record<string, ConstraintRule> = {
+export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
   // ── I-01 상품당 상환 1건 ────────────────────────────────────────────────
   redemptions_els_id_key: {
     rule: 'I-01',
@@ -260,7 +260,17 @@ const BY_CONSTRAINT: Record<string, ConstraintRule> = {
   },
 }
 
-/** 사상에 있는 제약 이름 — DB 카탈로그와 대조하는 테스트가 이 목록을 쓴다 */
+/**
+ * 사상에 있는 제약 이름 — 두 대조가 이 목록을 쓴다.
+ *
+ * | 축 | 어디서 |
+ * |---|---|
+ * | 이름이 `pg_constraint`에 실재하는가 | `tests/rls/constraint-names.test.ts` |
+ * | 문서 §3.2.1 표와 양방향으로 같은가 | `tests/db/docs-contract.test.ts` |
+ *
+ * 후자가 P3b.5에서 생겼다 — 그전까지 문서 대조는 손으로 옮긴 15개 배열에
+ * `arrayContaining`을 걸어서, 코드에 9개가 더 있어도 통과했다.
+ */
 export const MAPPED_CONSTRAINTS = Object.keys(BY_CONSTRAINT)
 
 /**

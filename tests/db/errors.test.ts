@@ -357,27 +357,13 @@ describe('사상 목록의 온전성', () => {
     expect(new Set(MAPPED_CONSTRAINTS).size).toBe(MAPPED_CONSTRAINTS.length)
   })
 
-  it('DOC-011 §3.2.1이 열거한 제약이 모두 사상에 있다', () => {
-    // 문서의 표와 코드가 갈리는 것을 막는다. **DB 카탈로그와의 대조는 별개다** —
-    // 여기서는 이름이 SQL에 실재하는지 알 수 없으므로(암묵 FK 이름은 SQL 텍스트에
-    // 없다) tests/rls가 pg_constraint와 양방향으로 본다.
-    const documented = [
-      'els_products_ki_pair_check',
-      'els_products_ki_touched_check',
-      'redemption_schedules_lizard_barrier_check',
-      'redemption_schedules_lizard_coupon_check',
-      'redemptions_maturity_loss_check',
-      'redemptions_taxable_income_check',
-      'redemptions_round_no_required_check',
-      'asset_prices_coordinates_immutable',
-      'els_products_principal_check',
-      'els_products_evaluation_period_check',
-      'redemption_schedules_barrier_check',
-      'redemptions_gross_amount_check',
-      'els_products_underlyings_required',
-      'els_products_schedules_required',
-      'els_products_redeemed_immutable',
-    ]
-    expect(MAPPED_CONSTRAINTS).toEqual(expect.arrayContaining(documented))
-  })
+  /**
+   * **문서 대조는 `tests/db/docs-contract.test.ts`로 옮겼다 (P3b.5).**
+   *
+   * 여기 있던 단언은 §3.2.1 표를 **손으로 옮긴 15개 배열**에
+   * `expect.arrayContaining`을 걸었다. 그 형태는 여분을 허용하도록 설계된
+   * 것이라, 코드에 9개가 더 있는 상태(문서가 뒤처진 상태)가 영원히 조용했다.
+   * 새 파일은 문서를 **파싱해서** 이름·`규칙`·`fields`를 양방향으로 본다 —
+   * 사본을 하나 더 두지 않는 것이 요점이다.
+   */
 })

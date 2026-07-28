@@ -21,9 +21,58 @@ import type { ActionError } from '../mutations/result'
  * 필요해진다 — 여기서 막으면 그 예외가 애초에 나지 않는다.
  */
 
-/** 위반 1건. `rule`은 규칙 ID이며 전수 열거 단언의 근거다 */
+/**
+ * §6 표의 ID 전체. **테스트가 이 목록을 순회해 케이스 누락을 잡는다.**
+ *
+ * **`rules.ts`가 아니라 여기 있는 이유.** `Problems.add`의 인자를 `RuleId`로
+ * 좁히려면 이 모듈이 그 타입을 알아야 하는데, `rules.ts`는 이미 `Problems`를
+ * import한다 — 반대 방향 import를 더하면 순환이 된다. ID는 위반 수집기의
+ * 어휘이므로 수집기와 같은 모듈에 두고 `rules.ts`가 재export한다.
+ *
+ * **이 목록은 §6 표의 사본이며 그 사실이 검증된다.** `tests/db/docs-contract.test.ts`가
+ * `docs/11_API_계약_명세.md` §6을 파싱해 **순서까지** 대조하므로 문서에 규칙이
+ * 늘거나 줄면 실패한다 — v1.0까지는 손으로 옮긴 사본이라 §6이 앞서가도
+ * 아무것도 실패하지 않았다.
+ */
+export const RULE_IDS = [
+  'V-01',
+  'V-02',
+  'V-03',
+  'V-04',
+  'V-05',
+  'V-06',
+  'V-07',
+  'V-08',
+  'V-09',
+  'V-10',
+  'V-11',
+  'V-12',
+  'V-13',
+  'V-14',
+  'V-15',
+  'V-16',
+  'V-17',
+  'V-18',
+  'V-19',
+  'V-20',
+] as const
+
+export type RuleId = (typeof RULE_IDS)[number]
+
+/**
+ * 위반 1건. `rule`은 규칙 ID이며 전수 열거 단언의 근거다.
+ *
+ * **`string`이 아니라 `RuleId`다.** 좁히지 않으면 오타(`'V-2'`)나 없는 ID
+ * (`'V-21'`)가 컴파일을 통과하고, 전수 열거 단언은 `CASES`가 선언한 ID만 보므로
+ * `inputs.ts`가 실제로 붙인 문자열은 아무도 검사하지 않았다.
+ *
+ * **좁혀도 남는 것이 있다** — 20개 *안에서* 잘못 고르는 것은 타입이 잡지 못한다
+ * (§6 v1.1 각주). 셰이프 파싱이 형태 검사에 그 필드의 규칙 ID를 빌려 쓰므로,
+ * 그 자리를 없애려면 §6에 형태 규칙을 신설해야 하고 그러면 `RULE_IDS`가 §6에서
+ * 파생된다는 방향이 뒤집힌다.
+ */
 export type Violation = {
-  rule: string
+  rule: RuleId
   field: string
   message: string
 }
@@ -39,7 +88,7 @@ export type Violation = {
 export class Problems {
   private readonly items: Violation[] = []
 
-  add(rule: string, field: string, message: string): void {
+  add(rule: RuleId, field: string, message: string): void {
     this.items.push({ rule, field, message })
   }
 
@@ -48,7 +97,7 @@ export class Problems {
   }
 
   /** 걸린 규칙 ID(중복 없이). 전수 열거 단언과 로그가 쓴다 */
-  rules(): string[] {
+  rules(): RuleId[] {
     return [...new Set(this.items.map((item) => item.rule))]
   }
 
@@ -137,7 +186,7 @@ export function isRealIsoDate(value: string): boolean {
 
 export function requireString(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; max?: number; exact?: number; upperAlpha?: boolean },
@@ -163,7 +212,7 @@ export function requireString(
 
 export function optionalString(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; max?: number },
@@ -174,7 +223,7 @@ export function optionalString(
 
 export function requireUuid(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   label: string,
@@ -188,7 +237,7 @@ export function requireUuid(
 
 export function requireIsoDate(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   label: string,
@@ -209,7 +258,7 @@ export function requireIsoDate(
  */
 export function requireAmount(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: 'positive' | 'zero'; integer?: boolean },
@@ -241,7 +290,7 @@ export function requireAmount(
 
 export function optionalAmount(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: 'positive' | 'zero'; integer?: boolean },
@@ -259,7 +308,7 @@ export function optionalAmount(
  */
 export function requireRatio(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: 'positive' | 'zero' },
@@ -288,7 +337,7 @@ export function requireRatio(
 
 export function optionalRatio(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: 'positive' | 'zero' },
@@ -300,7 +349,7 @@ export function optionalRatio(
 /** 개수를 세는 정수 — V-20. `smallint` 범위를 넘으면 DB가 `22003`을 낸다 */
 export function requireInt(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: number; max?: number },
@@ -319,7 +368,7 @@ export function requireInt(
 
 export function optionalInt(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   options: { label: string; min: number; max?: number },
@@ -330,7 +379,7 @@ export function optionalInt(
 
 export function requireEnum<T extends string>(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   allowed: readonly T[],
@@ -345,7 +394,7 @@ export function requireEnum<T extends string>(
 
 export function optionalEnum<T extends string>(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   allowed: readonly T[],
@@ -357,7 +406,7 @@ export function optionalEnum<T extends string>(
 
 export function requireBoolean(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   label: string,
@@ -371,7 +420,7 @@ export function requireBoolean(
 
 export function optionalBoolean(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   label: string,
@@ -382,7 +431,7 @@ export function optionalBoolean(
 
 export function requireArray(
   p: Problems,
-  rule: string,
+  rule: RuleId,
   field: string,
   value: unknown,
   label: string,

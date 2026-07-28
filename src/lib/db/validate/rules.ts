@@ -6,7 +6,7 @@ import type {
   ScheduleInput,
   UnderlyingInput,
 } from '../mutations/types'
-import type { Problems } from './primitives'
+import type { Problems, RuleId } from './primitives'
 
 /**
  * 검증 규칙 — DOC-011 §6이 정본이다. **규칙 ID가 함수 이름이다.**
@@ -17,31 +17,15 @@ import type { Problems } from './primitives'
  * 전수 열거 단언(`tests/db/validate.test.ts`)이 빠짐을 잡는다.
  */
 
-/** §6 표의 ID 전체. **테스트가 이 목록을 순회해 케이스 누락을 잡는다** */
-export const RULE_IDS = [
-  'V-01',
-  'V-02',
-  'V-03',
-  'V-04',
-  'V-05',
-  'V-06',
-  'V-07',
-  'V-08',
-  'V-09',
-  'V-10',
-  'V-11',
-  'V-12',
-  'V-13',
-  'V-14',
-  'V-15',
-  'V-16',
-  'V-17',
-  'V-18',
-  'V-19',
-  'V-20',
-] as const
-
-export type RuleId = (typeof RULE_IDS)[number]
+/**
+ * §6 표의 ID 전체 — **정의는 `primitives.ts`에 있고 여기서 재export한다.**
+ *
+ * `Problems.add`가 `RuleId`를 받으려면 수집기 쪽이 그 타입을 알아야 하는데
+ * 이 파일은 이미 `Problems`를 import하므로 반대 방향을 더하면 순환이 된다.
+ * 소비자(`tests/db/validate.test.ts`)의 import 경로를 바꾸지 않으려고
+ * 이름은 여기 그대로 남긴다.
+ */
+export { RULE_IDS, type RuleId } from './primitives'
 
 /** 각 규칙의 대상 — 문서 §6 표의 요약. 로그와 테스트 이름이 읽는다 */
 export const RULE_TARGETS: Record<RuleId, string> = {
