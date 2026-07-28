@@ -387,6 +387,52 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
   })
 
   /**
+   * **④와 짝이다 — 같은 구간에서 다른 이유로 죽는다.**
+   *
+   * ④는 하위 INSERT 도중 `23505`로 죽는 경우이고, 이것은 **말미 검사**로
+   * 죽는 경우다. 둘 다 삭제와 삽입 사이를 지난 뒤이므로 되돌리지 않으면
+   * 0건 상태가 남고 원본은 이미 없다.
+   *
+   * update 쪽 I-07은 P3b.5 전까지 세 스위트 어디에도 없었다. 계약을 경유하면
+   * V-02가 앞에서 잡으므로(왕복 0) 이 경로는 함수 직접 호출로만 닿는다(AQ-29).
+   */
+  it('④-2 update 말미 검사 — 기초자산 0건 교체가 되돌아간다 (I-07)', async () => {
+    const productId = dataOf(await a.write.createProduct(productInput({ assetId }))).id
+
+    const { error } = await a.db.rpc('update_els_product', {
+      p_id: productId,
+      payload: {
+        name: `${FX_NAME_PREFIX} 변경-말미검사`,
+        issuer: null,
+        issueDate: '2026-01-02',
+        principal: '1',
+        evaluationPeriodMonths: 6,
+        annualCouponRate: '0.08',
+        kiBarrier: null,
+        kiObservation: null,
+        accountType: 'GENERAL',
+        note: null,
+        underlyings: [],
+        schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' }],
+      } as never,
+    })
+
+    expect(error!.code).toBe('23514')
+    // plpgsql RAISE의 이름은 details 첫 줄로 온다 — create 쪽 ①②와 같은 채널이다
+    expect(error!.details).toBe('constraint=els_products_underlyings_required')
+
+    // ★ 상품 열도, **이미 지워졌던 하위 행도** 그대로다
+    const view = await a.read.getProduct(productId)
+    expect(view!.product.name).toBe(NAME.created)
+    expect(view!.product.principal).toBe(PRINCIPAL)
+    expect(view!.underlyings).toHaveLength(1)
+    expect(view!.underlyings[0].basePrice).toBe(BASE_PRICE)
+    expect(view!.schedules).toHaveLength(2)
+
+    await a.write.deleteProduct(productId)
+  })
+
+  /**
    * **대조군 — 함수를 쓰지 않았다면 무엇이 남는가.**
    *
    * ①~④는 "아무것도 남지 않는다"를 보인다. 그러나 그것이 함수 덕분인지, 애초에
