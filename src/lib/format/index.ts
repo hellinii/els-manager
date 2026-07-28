@@ -40,3 +40,15 @@ export {
 } from './badges'
 export { deriveDisplay, PRICE_MISSING_LABEL, type DisplayState } from './derived'
 export { groupByMonth, splitByPast, type MonthGroup } from './schedule'
+export {
+  groupAttention,
+  heaviestGrade,
+  isImminent,
+  takeVisible,
+  IMMINENT_DAYS,
+  IMMINENT_LABEL,
+  RECENT_VISIBLE,
+  UPCOMING_VISIBLE,
+  type AttentionGroup,
+  type Visible,
+} from './dashboard'

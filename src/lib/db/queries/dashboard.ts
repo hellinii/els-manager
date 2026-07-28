@@ -1,5 +1,5 @@
 import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
-import { aggregateRealizedPnl, dDay } from '@/lib/domain'
+import { aggregateRealizedPnl, dDay, realizedPnl } from '@/lib/domain'
 
 import { currentYear } from '../today'
 import type { QueryContext } from './context'
@@ -13,6 +13,7 @@ import {
   amountString,
   attentionReasonsFor,
   judge,
+  ownerNameOf,
   ratioString,
   redemptionMarkOf,
   type AttentionReason,
@@ -48,7 +49,41 @@ export type DashboardView = {
   attentionItems: Array<{
     productId: string
     productName: string
+    /**
+     * **`scope = 'ALL'`에서 필요하다** (v2.0, P4 컷 9).
+     *
+     * 이 목록의 사유는 저마다 조치를 지목하고(`KI_BELOW` → SCR-202에서 사용자가
+     * 터치를 확정한다, 결함 둘 → SCR-204에서 고친다) **그 조치는 소유자만 할 수
+     * 있다**(ST-04 · W-01). 소유자를 담지 않으면 사용자는 자기가 할 수 없는 일이
+     * 목록에 있는 이유를 상세로 들어가서야 안다.
+     *
+     * 같은 뷰의 `upcomingEvaluations`가 이미 담고 있었다 — **한 뷰 안에서 두
+     * 목록의 주어가 달랐던 것**이 이 필드가 없던 상태다.
+     */
+    ownerName: string
     reason: AttentionReason
+  }>
+  /**
+   * ⑤ 최근 상환 실적 — DOC-008 §5 SCR-101의 다섯째 요소 (v2.0, P4 컷 9)
+   *
+   * v1.9까지 이 뷰는 요소 넷만 담았고 ⑤에는 **자료원이 없었다.** §8이 이 화면에
+   * 배정한 조회 계약은 `getDashboard` 하나이므로 그 요소는 문서에만 존재했다 —
+   * `totals.realizedPnl`은 합계이며 「무엇이 상환되었는가」를 말하지 않는다.
+   *
+   * **왕복은 늘지 않는다**: `loadProducts`가 이미 `redemptions`를 임베드로 읽고
+   * 그 값으로 `totals.realizedPnl`을 계산한다. 같은 행의 다른 투영이다.
+   */
+  recentRedemptions: Array<{
+    productId: string
+    productName: string
+    ownerName: string
+    redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
+    redemptionDate: string
+    grossAmount: string
+    /** 음수 가능 — 과세 금융소득과 갈리는 지점이다(절대 규칙 #8) */
+    realizedPnl: string
+    /** ST-05 — 지급명세서 미확인 값을 확정값과 같은 모습으로 표시하지 않는다 */
+    isConfirmed: boolean
   }>
 }
 
@@ -96,7 +131,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
         return {
           productId: entry.row.id,
           productName: entry.row.name,
-          ownerName: entry.row.users?.display_name ?? '(알 수 없음)',
+          ownerName: ownerNameOf(entry.row),
           roundNo: next.round_no,
           evaluationDate: next.evaluation_date,
           dDay: dDay({ from: ctx.asOf, evaluationDate: next.evaluation_date }),
@@ -132,9 +167,42 @@ export function makeDashboardQueries(ctx: QueryContext) {
       attentionReasonsFor(entry.j).map((reason) => ({
         productId: entry.row.id,
         productName: entry.row.name,
+        ownerName: ownerNameOf(entry.row),
         reason,
       })),
     )
+
+    /**
+     * ⑤ — **기간 창을 두지 않는다.** `upcomingEvaluations`와 같은 근거이고 여기서는
+     * 그것이 검산 가능한 형태가 된다: 창이 없으므로
+     * `totals.realizedPnl = Σ recentRedemptions[].realizedPnl`이 **항등식**이며,
+     * 창을 넣는 순간 그 항등식이 깨진다. 표시 건수와 자름의 표시는 화면이 정한다.
+     *
+     * 정렬은 상환일 **내림차순**이다(「최근」이 그 뜻이다). 동일 일자는 상품명으로
+     * 안정화한다 — 정하지 않으면 DB가 준 순서가 되고, 그 순서는 아무 의미가 없는데
+     * 안정적이라 의미가 있는 것처럼 보인다.
+     */
+    const recentRedemptions = redeemedRows
+      .map((row) => {
+        const r = row.redemptions!
+        return {
+          productId: row.id,
+          productName: row.name,
+          ownerName: ownerNameOf(row),
+          redemptionType: r.redemption_type,
+          redemptionDate: r.redemption_date,
+          grossAmount: amountString(dec(r.gross_amount)),
+          realizedPnl: amountString(
+            realizedPnl({ grossAmount: r.gross_amount, principal: row.principal }),
+          ),
+          isConfirmed: r.is_confirmed,
+        }
+      })
+      .sort(
+        (a, b) =>
+          b.redemptionDate.localeCompare(a.redemptionDate) ||
+          a.productName.localeCompare(b.productName),
+      )
 
     return {
       upcomingEvaluations,
@@ -163,6 +231,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
         additionalTax: amountString(own.result.additionalPayment),
       },
       attentionItems,
+      recentRedemptions,
     }
   }
 

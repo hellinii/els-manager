@@ -74,7 +74,20 @@ const DASHBOARD: Record<string, Spec> = {
   'currentYearTax.additionalTax': 'AMOUNT',
   'attentionItems[].productId': 'UUID',
   'attentionItems[].productName': 'TEXT',
+  // v2.0 — 같은 뷰의 `upcomingEvaluations[].ownerName`과 **같은 분류여야 한다.**
+  // 갈리면 한 뷰가 소유자 이름을 두 형식으로 직렬화한다는 뜻이다.
+  'attentionItems[].ownerName': 'TEXT',
   'attentionItems[].reason': ATTENTION_REASONS,
+  // ⑤ 최근 상환 실적 (v2.0). `realizedPnl`은 **음수 가능**이므로 `AMOUNT` 분류가
+  // 부호를 허용해야 한다 — §4.3의 `redemption.realizedPnl`과 같은 자리다.
+  'recentRedemptions[].productId': 'UUID',
+  'recentRedemptions[].productName': 'TEXT',
+  'recentRedemptions[].ownerName': 'TEXT',
+  'recentRedemptions[].redemptionType': REDEMPTION_TYPES,
+  'recentRedemptions[].redemptionDate': 'DATE',
+  'recentRedemptions[].grossAmount': 'AMOUNT',
+  'recentRedemptions[].realizedPnl': 'AMOUNT',
+  'recentRedemptions[].isConfirmed': 'BOOL',
 }
 
 /** §4.2 상품 목록 */

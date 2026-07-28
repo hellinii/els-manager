@@ -412,6 +412,79 @@ describe('§4.1 getDashboard', () => {
     expect(view.currentYearTax.financialIncome).not.toBe('')
     expect(typeof view.currentYearTax.isComprehensive).toBe('boolean')
   })
+
+  it('attentionItems가 소유자를 담는다 — v2.0 `ownerName`', async () => {
+    /*
+     * ★ 이 목록의 사유는 저마다 조치를 지목하고 **그 조치는 소유자만 할 수 있다**
+     * (ST-04 · W-01). 같은 뷰의 `upcomingEvaluations`는 v0.6부터 담고 있었으므로
+     * **한 뷰 안에서 두 목록의 주어가 달랐다.**
+     *
+     * 두 목록이 같은 상품에 대해 같은 이름을 낸다는 것까지 본다 — 폴백 문자열이
+     * 호출부마다 적혀 있으면 `users` 행이 없을 때만 갈리고, 그 상태는 평소에 보이지
+     * 않는다(`ownerNameOf`를 한 함수로 둔 이유).
+     */
+    const view = await s.asA.getDashboard({ scope: 'ALL' })
+
+    expect(view.attentionItems.length).toBeGreaterThan(0)
+    for (const attention of view.attentionItems) {
+      expect(attention.ownerName, attention.productName).not.toBe('')
+      const upcoming = view.upcomingEvaluations.find(
+        (e) => e.productId === attention.productId,
+      )
+      if (upcoming != null) expect(attention.ownerName).toBe(upcoming.ownerName)
+    }
+
+    // B의 상품이 섞여 있으므로 이름이 하나가 아니다 — 그래야 이 필드에 뜻이 있다.
+    expect(new Set(view.attentionItems.map((i) => i.ownerName)).size).toBeGreaterThan(1)
+  })
+
+  it('recentRedemptions가 상환 실적을 담고 합계와 어긋나지 않는다 — v2.0', async () => {
+    /*
+     * ★ **⑤에 자료원이 없던 것이 컷 9의 발견이다**(DOC-008 §5는 요소 다섯을
+     * 규정하는데 v1.9의 뷰는 넷만 담았다). 기간 창을 두지 않았으므로
+     * `totals.realizedPnl = Σ recentRedemptions[].realizedPnl`이 **항등식**이며,
+     * 창을 넣는 순간 이 단언이 깨진다 — 그것이 이 케이스의 존재 이유다.
+     */
+    const view = await s.asA.getDashboard({ scope: 'MINE' })
+
+    // A의 상환 완료 1건: 104,000,000 − 100,000,000
+    expect(view.recentRedemptions).toHaveLength(1)
+    const row = view.recentRedemptions[0]!
+    expect(row.productName).toContain('A상환완료')
+    expect(row.grossAmount).toBe('104000000')
+    expect(row.realizedPnl).toBe('4000000')
+    expect(row.redemptionDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(typeof row.isConfirmed).toBe('boolean')
+
+    // 항등식 — 문자열이므로 합을 만들지 않고 1건일 때의 동일성으로 본다.
+    expect(view.totals.realizedPnl).toBe(row.realizedPnl)
+  })
+
+  it('recentRedemptions와 activeCount가 행을 정확히 나눈다', async () => {
+    /*
+     * `activeRows`는 상환 레코드가 없는 것, `redeemedRows`는 있는 것이므로 둘의 합이
+     * 그 범위의 전체다. **SCR-101의 빈 상태 판정이 이 성질에 의존한다** — 화면이
+     * 「상품이 아예 없다」를 둘로만 판정하며, 어느 행이 양쪽에 없거나 양쪽에 있으면
+     * 상품이 있는데도 빈 상태가 렌더된다.
+     *
+     * > **정렬 방향은 여기서 확인할 수 없다.** 정본 시나리오의 상환이 1건이므로
+     * > 오름차순과 내림차순이 **같은 배열**을 낸다 — 실측으로 확인했다(정렬을
+     * > 뒤집는 음성 대조가 초록이었다). 픽스처가 두 구현에서 일치하는 부류의 무효
+     * > 대조이며, 정본에 상환을 더하면 `activeCount`·`realizedPnl`·
+     * > `usedByActiveProducts` 단언 여럿이 그 한 상품의 인질이 된다. 방향은
+     * > **상환 둘을 통제할 수 있는 곳**에서 본다 — `tests/e2e/home.test.ts`가
+     * > 전용 사용자에게 서로 다른 날짜의 상환 둘을 만들어 대조한다.
+     */
+    const view = await s.asA.getDashboard({ scope: 'ALL' })
+
+    expect(view.recentRedemptions.length + view.totals.activeCount).toBe(
+      (await s.asA.listProducts()).length,
+    )
+    // 미상환 상품이 이 목록에 섞이지 않는다(위 등식의 한쪽 방향을 값으로 고정한다)
+    const redeemedIds = new Set(view.recentRedemptions.map((r) => r.productId))
+    expect(redeemedIds.has(FX.productA)).toBe(false)
+    expect(redeemedIds.has(FX.productRedeemed)).toBe(true)
+  })
 })
 
 describe('§4.6 getTaxSummary', () => {

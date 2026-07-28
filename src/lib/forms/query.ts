@@ -149,6 +149,49 @@ export function filterQuery(
 }
 
 // ---------------------------------------------------------------------------
+// SCR-101 홈 — 컷 9
+// ---------------------------------------------------------------------------
+
+/**
+ * 표시 범위 — **기본은 본인이다** (DOC-008 §9 SQ-03)
+ *
+ * 계약 파라미터가 그대로 축이므로(§4.1 `params.scope`) 파서가 좁힐 것이 하나다.
+ * 다른 화면의 필터와 달리 **`null`이 없다** — 계약이 두 값 중 하나를 요구하고
+ * 「선택 안 함」에 해당하는 뜻이 없다(SCR-301의 `range`가 같은 형태다).
+ *
+ * 인식하지 못한 값은 기본값으로 떨어진다. 즉 `?scope=BOGUS`는 본인 보기이며
+ * 그것이 이 화면의 「좁혀지지 않은」 상태가 아니다 — **본인 보기가 좁힌 상태다.**
+ * 그 사실이 빈 상태의 문구를 가른다(DOC-008 §6 각주).
+ */
+export type DashboardScope = 'MINE' | 'ALL'
+
+export const DASHBOARD_KEYS = { scope: 'scope' } as const
+
+export const DASHBOARD_SCOPE_DEFAULT: DashboardScope = 'MINE'
+
+const DASHBOARD_SCOPES = ['MINE', 'ALL'] as const
+
+export function parseDashboardScope(values: QueryValues): DashboardScope {
+  return (
+    oneOf(one(values[DASHBOARD_KEYS.scope]), DASHBOARD_SCOPES) ??
+    DASHBOARD_SCOPE_DEFAULT
+  )
+}
+
+/**
+ * 그 범위의 주소 — 전환 링크가 쓴다.
+ *
+ * **기본값은 주소에 싣지 않는다**(`filterQuery`와 같은 규약). 그래서 홈의 기본
+ * 주소가 `/`이고, 「내 상품」을 다시 누르는 링크가 `/?scope=MINE`이 아니라 `/`다 —
+ * 두 주소가 같은 화면을 렌더하면 공유된 링크가 어느 쪽인지에 따라 달라 보인다.
+ */
+export function dashboardQuery(scope: DashboardScope): string {
+  return scope === DASHBOARD_SCOPE_DEFAULT
+    ? ''
+    : `?${DASHBOARD_KEYS.scope}=${encodeURIComponent(scope)}`
+}
+
+// ---------------------------------------------------------------------------
 // SCR-301 평가일정 — 컷 7
 // ---------------------------------------------------------------------------
 

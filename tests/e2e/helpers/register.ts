@@ -50,6 +50,14 @@ export type RegisteredProduct = {
   assetName: string
   /** 실제로 입력된 발행일. V-10(상환일 ≥ 발행일)을 만족하는 상환일을 고를 때 쓴다 */
   issueDate: string
+  /**
+   * 저장된 투자원금 — **쉼표 없는 정수 문자열이다.**
+   *
+   * 컷 9가 필요해졌다: SCR-101의 `activePrincipal`을 값으로 단언하려면 화면이 입력한
+   * 값과 계약이 돌려준 값을 같은 형태로 비교해야 한다. 입력에 쉼표를 붙이는 것은
+   * 사용자가 그렇게 적기 때문이고(파서가 지운다) 저장값은 그것이 아니다.
+   */
+  principal: string
   /** 기준가. **18자리 유효숫자다** — AQ-30의 값 경로를 화면에서 확인한다 */
   basePrice: string
   /** 워스트오브가 이 값이 된다 — 시세 ÷ 기준가 */
@@ -69,6 +77,15 @@ export type RegisteredProduct = {
 const BASE_PRICE = '99999999999.999999'
 const CURRENT_PRICE = '119999999999.999999' // 기준가 × 1.2 (정확히)
 
+/**
+ * 기본 원금 — 쉼표까지 사용자가 적는 형태로 넘긴다(파서가 지운다).
+ *
+ * 15자리인 이유는 `numeric(15,0)`의 상한 근처를 지나게 하려는 것이다. 컷 9처럼
+ * **합계를 손으로 검산**해야 하는 곳은 `principal` 옵션으로 작은 값을 준다 —
+ * 15자리 두 개의 합을 테스트에 적으면 그 자릿수가 단언의 주제를 가린다.
+ */
+const DEFAULT_PRINCIPAL = '123,456,789,012,345'
+
 export async function registerProduct(
   jar: ReturnType<typeof cookieJar>,
   options: {
@@ -80,6 +97,20 @@ export async function registerProduct(
     issueDate?: string
     /** 접두사. 한 실행에 여러 상품을 만들 때 어느 것인지 구분한다 */
     label?: string
+    /**
+     * 원금 — **컷 9가 필요해졌다.** SCR-101의 ②③⑤가 합계와 세액을 내므로 그 값을
+     * 손으로 검산할 수 있어야 하고, 기본값(15자리)의 합은 단언의 주제를 가린다.
+     * 쉼표를 포함해도 된다(사용자가 적는 형태이며 파서가 지운다).
+     */
+    principal?: string
+    /**
+     * 계좌유형 — **컷 9가 필요해졌다.** SCR-101 ③의 금융소득을 값으로 단언하려면
+     * 「그 해에 기여하는 상품」이 정확히 정해져야 하는데, 미상환 상품의 기여는 적용
+     * 차수의 귀속연도에 달려 그 값이 **오늘이 언제인지에 의존한다.** 비과세 계좌는
+     * 확정값이 있어도 과세소득이 0이므로(DOC-007 §4.2 — `taxableIncome`의 첫 줄)
+     * 그 상품을 `TAX_FREE`로 두면 시각에 의존하지 않는 단언이 된다.
+     */
+    accountType?: 'GENERAL' | 'TAX_FREE'
   } = {},
 ): Promise<RegisteredProduct> {
   const stamp = String(Date.now()).slice(-6)
@@ -87,6 +118,7 @@ export async function registerProduct(
   const assetName = `[E2E] 자산${suffix}`
   const productName = `[E2E] 상품${suffix}`
   const barriers = ['90', '85', '80'] as const
+  const principal = options.principal ?? DEFAULT_PRINCIPAL
 
   const assetId = await createAssetViaScreen(jar, assetName)
   await savePriceViaScreen(jar, assetId)
@@ -101,8 +133,8 @@ export async function registerProduct(
     issuer: 'E2E증권',
     issueDate,
     // 쉼표를 적는다 — 사용자가 그렇게 적으며 파서가 지운다(값은 바뀌지 않는다)
-    principal: '123,456,789,012,345',
-    accountType: 'GENERAL',
+    principal,
+    accountType: options.accountType ?? 'GENERAL',
     note: '화면 왕복',
   })
 
@@ -153,10 +185,29 @@ export async function registerProduct(
     assetId,
     assetName,
     issueDate,
+    principal: principal.replace(/,/g, ''),
     basePrice: BASE_PRICE,
     worstOfRatio: '1.2000',
     barriers,
   }
+}
+
+/**
+ * 그 자산의 시세를 다시 저장한다 — **워스트오브를 원하는 값으로 옮기는 수단** (컷 9)
+ *
+ * §5.7이 `(asset_id, as_of_date)` UPSERT이므로 같은 날짜로 다시 저장하면 값이 갱신된다.
+ * `registerProduct`는 기준가 × 1.2를 넣어 KI 안전 상태를 만들므로, KI 하회 상태가
+ * 필요한 곳은 이 함수로 낮춘다 — **화면을 지나므로 V-15·V-17이 그대로 걸린다.**
+ *
+ * 자산이 상품마다 하나씩 새로 만들어지는 것이 이 함수가 안전한 이유다(이름에
+ * 타임스탬프가 붙는다) — 다른 상품의 워스트오브가 함께 움직이지 않는다.
+ */
+export async function saveAssetPrice(
+  jar: ReturnType<typeof cookieJar>,
+  assetId: string,
+  price: string,
+): Promise<void> {
+  await savePriceViaScreen(jar, assetId, price)
 }
 
 /** 한 단계 제출. 의도는 **렌더된 버튼에서** 읽는다(컷 4a의 음성 대조 참조) */
@@ -228,6 +279,7 @@ async function createAssetViaScreen(
 async function savePriceViaScreen(
   jar: ReturnType<typeof cookieJar>,
   assetId: string,
+  price: string = CURRENT_PRICE,
 ): Promise<void> {
   const savePriceId = actionIdOf('saveManualPriceAction')
   const html = await (await get(PATHS.prices, jar)).text()
@@ -241,7 +293,7 @@ async function savePriceViaScreen(
   const res = await submitAction(PATHS.prices, jar, [
     ...formFieldsFor(row, savePriceId),
     ['assetId', assetId],
-    ['price', CURRENT_PRICE],
+    ['price', price],
     ['asOfDate', asOf],
   ])
   const after = await res.text()

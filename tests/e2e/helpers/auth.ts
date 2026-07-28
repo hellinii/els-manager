@@ -2,13 +2,9 @@ import { expect } from 'vitest'
 
 import { signIn } from '@/lib/auth/session'
 
-import {
-  ITG_EMAIL,
-  ITG_PASSWORD,
-  ITG_USER_A,
-  type ItgUser,
-} from '../../integration/helpers/fixtures'
+import { ITG_USER_A } from '../../integration/helpers/fixtures'
 import { cookieJar } from './server'
+import { credentialsOf, type SuiteUser } from './users'
 
 /**
  * 브라우저가 로그인 후 갖게 될 쿠키 jar.
@@ -21,23 +17,24 @@ import { cookieJar } from './server'
  * **둘째 사용자가 컷 5에서 필요해졌다.** 소유자 전용 라우트가 처음 생겼고(수정)
  * SCR-902에 도달하는 유일한 길이 「그 주소를 직접 타이핑」이므로, 타인의 상품으로
  * 그 경로를 밟아야 화면이 실제로 그것을 막는지 알 수 있다.
+ *
+ * **셋째 사용자가 컷 9에서 필요해졌다** — 자격증명은 `helpers/users.ts`가 들고 있고
+ * 그 파일의 머리글에 근거가 있다(AQ-34: 한 소유자의 데이터를 전부 통제해야
+ * 관측되는 상태 둘).
  */
 export async function authenticatedJar(
-  user: ItgUser = ITG_USER_A,
+  user: SuiteUser = ITG_USER_A,
 ): Promise<ReturnType<typeof cookieJar>> {
   const cookies = new Map<string, string>()
-  const result = await signIn(
-    { email: ITG_EMAIL[user], password: ITG_PASSWORD },
-    {
-      getAll: () => [...cookies.entries()].map(([name, value]) => ({ name, value })),
-      setAll: (toSet) => {
-        for (const { name, value } of toSet) {
-          if (value === '') cookies.delete(name)
-          else cookies.set(name, value)
-        }
-      },
+  const result = await signIn(credentialsOf(user), {
+    getAll: () => [...cookies.entries()].map(([name, value]) => ({ name, value })),
+    setAll: (toSet) => {
+      for (const { name, value } of toSet) {
+        if (value === '') cookies.delete(name)
+        else cookies.set(name, value)
+      }
     },
-  )
-  expect(result.ok, '시드 사용자 로그인이 실패했다').toBe(true)
+  })
+  expect(result.ok, `시드 사용자 로그인이 실패했다: ${user}`).toBe(true)
   return cookieJar(Object.fromEntries(cookies))
 }

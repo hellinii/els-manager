@@ -39,6 +39,26 @@ export async function sql(text: string, values: unknown[] = []): Promise<void> {
 }
 
 /**
+ * 행을 되읽는다 — **`sql()`과 같은 커넥션을 쓴다** (P4 컷 9).
+ *
+ * 이 파일이 쓰기 전용인 것은 규율이 아니라 **날짜·수치의 파싱 위험** 때문이다(머리글).
+ * 그래서 반환을 허용하되 용도를 좁힌다: `count(*)::text`처럼 **문자열로 캐스팅한
+ * 검산값**을 읽는 데 쓴다. `tests/e2e/helpers/defects.ts`가 결함 픽스처가 실제로
+ * 만들어졌는지 확인하는 자리이며, 확인하지 않으면 픽스처의 실패가 화면의 실패로
+ * 보고된다.
+ *
+ * 두 번째 커넥션을 열지 않는 이유는 그쪽이 이 커넥션의 트랜잭션 밖을 보기 때문이다.
+ */
+export async function queryRows<T extends Record<string, unknown>>(
+  text: string,
+  values: unknown[] = [],
+): Promise<{ rows: T[] }> {
+  const c = await db()
+  const result = await c.query<T>(text, values)
+  return { rows: result.rows }
+}
+
+/**
  * 이 스위트가 만든 것만 지운다.
  *
  * 상품은 고정 UUID로, 자산은 고정 UUID + 예약 이름 접두사로 좁힌다 —

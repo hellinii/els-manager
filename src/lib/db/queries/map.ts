@@ -158,6 +158,18 @@ export function redemptionMarkOf(row: ProductRow): RedemptionMark {
     : { redemptionDate: row.redemptions.redemption_date }
 }
 
+/**
+ * 소유자 표시 이름 — **폴백 문자열이 한 곳에만 있어야 한다.**
+ *
+ * `users`가 `null`일 수 있는 것은 임베드가 to-one이라는 실측(위 `ProductRow` 각주)의
+ * 다른 절반이다. 폴백을 호출부마다 적으면 뷰마다 다른 말이 나오고, 그 갈림은
+ * **`users` 행이 실제로 없을 때에만** 드러난다 — 즉 평소에는 아무 테스트도 보지
+ * 못한다. 지금 소비자가 여섯이다(§4.1의 두 목록 · §4.2 · §4.3 · §4.4).
+ */
+export function ownerNameOf(row: ProductRow): string {
+  return row.users?.display_name ?? '(알 수 없음)'
+}
+
 /** 기초자산별 비율. 시세가 하나라도 없으면 `null`을 담는다. */
 function ratiosOf(
   row: ProductRow,
@@ -360,7 +372,7 @@ export function toProductListItem(
     id: row.id,
     name: row.name,
     ownerId: row.owner_id,
-    ownerName: row.users?.display_name ?? '(알 수 없음)',
+    ownerName: ownerNameOf(row),
     principal: amountString(dec(row.principal)),
     accountType: row.account_type,
     status: j.status,
@@ -508,7 +520,7 @@ export function toProductDetailView(
       name: row.name,
       issuer: row.issuer,
       ownerId: row.owner_id,
-      ownerName: row.users?.display_name ?? '(알 수 없음)',
+      ownerName: ownerNameOf(row),
       isOwner: row.owner_id === viewerId,
       issueDate: row.issue_date,
       principal: amountString(dec(row.principal)),
@@ -701,7 +713,7 @@ export function toScheduleItems(
       // `users` 임베드가 없어도 소유자 id는 상품 행에 있다 — 이름과 달리
       // 폴백이 필요하지 않다(`owner_id`는 `not null`이다).
       ownerId: row.owner_id,
-      ownerName: row.users?.display_name ?? '(알 수 없음)',
+      ownerName: ownerNameOf(row),
       roundNo: s.round_no,
       evaluationDate: s.evaluation_date,
       dDay: dDay({ from: asOf, evaluationDate: s.evaluation_date }),
