@@ -12,10 +12,33 @@ import {
 
 /** §4.2·§4.3 — 상품 목록·상세 */
 
+/**
+ * ## `kiStatus`가 `KiStatus`다 — AQ-24 해결 (P4 컷 2)
+ *
+ * v1.3까지 파라미터는 3값(`SAFE`·`WARNING`·`TOUCHED`)이고 반환은 5값이었다.
+ * 그래서 **`BELOW`·`NO_KI` 상품은 어떤 필터로도 뽑을 수 없었고**, 그중 `BELOW`는
+ * §4.1이 「사용자 확인이 필요한 유일한 상태」라고 규정한 값이다 — 목록에서 그것만
+ * 골라볼 수 없다는 것은 설계가 아니라 결함이었다.
+ *
+ * **리터럴 유니온을 다시 적지 않고 `KiStatus`를 색인한다.** 다시 적으면 두 목록이
+ * 갈릴 수 있고 AQ-24는 정확히 그 갈림이었다. 도메인 열거값이 여섯째로 늘면
+ * 파라미터가 함께 늘고, `KI_STATUS_LABELS`(`Record<KiStatus, string>`)와
+ * `KI_STATUS_GRADES`도 함께 컴파일이 깨진다 — 비대칭이 규율이 아니라 타입으로
+ * 막힌다.
+ *
+ * `status`는 그대로 리터럴이다. 그쪽은 파생 유니온(`ProductListItem['status']`)이
+ * 두 값뿐이고 도메인 열거형이 아니다.
+ *
+ * > **`kiStatus`가 `null`인 상품은 여전히 어떤 값으로도 뽑히지 않는다.** 그것은
+ * > 남은 결함이 아니라 정의다 — `null`은 상태가 아니라 **판정의 부재**이고 원인이
+ * > 셋이다(§4.2 우선순위표: 무결성 결함 / 상환 완료 / 시세 없음). 셋을 한 필터
+ * > 값으로 묶으면 성격이 다른 상태 셋을 하나로 표시하게 되고, 그중 상환 완료는
+ * > 이미 `status` 필터가 가른다. 화면은 `deriveDisplay()`로 셋을 구분해 표시한다.
+ */
 export type ListProductsParams = {
   ownerId?: string
   status?: 'ACTIVE' | 'REDEEMED'
-  kiStatus?: 'SAFE' | 'WARNING' | 'TOUCHED'
+  kiStatus?: KiStatus
   sortBy?: 'EVALUATION_DATE' | 'PRINCIPAL' | 'D_DAY'
 }
 
@@ -60,10 +83,11 @@ function sortItems(
   }
 }
 
-const KI_FILTER_MATCH: Record<
-  NonNullable<ListProductsParams['kiStatus']>,
-  KiStatus
-> = { SAFE: 'SAFE', WARNING: 'WARNING', TOUCHED: 'TOUCHED' }
+/*
+ * 파라미터를 `KiStatus`로 넓히면서 `KI_FILTER_MATCH`(3값 → `KiStatus` 사상)를
+ * 지웠다. 항등 사상이 되므로 남기면 **아무 변환도 하지 않는데 변환처럼 보이는
+ * 표**가 된다 — `paths.ts`의 홈 예외 분기를 지운 것과 같은 판단이다.
+ */
 
 export function makeProductQueries(ctx: QueryContext) {
   async function listProducts(
@@ -83,8 +107,7 @@ export function makeProductQueries(ctx: QueryContext) {
       items = items.filter((item) => item.status === params.status)
     }
     if (params.kiStatus != null) {
-      const want = KI_FILTER_MATCH[params.kiStatus]
-      items = items.filter((item) => item.kiStatus === want)
+      items = items.filter((item) => item.kiStatus === params.kiStatus)
     }
 
     return sortItems(items, params.sortBy)

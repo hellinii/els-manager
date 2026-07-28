@@ -110,6 +110,11 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'product.principal': 'AMOUNT',
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
+  // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면
+  // 두 뷰가 같은 값을 다르게 직렬화한다는 뜻이다.
+  'product.status': STATUSES,
+  'product.worstOf': 'RATIO',
+  'product.kiStatus': KI_STATUSES,
   'product.integrityIssue': INTEGRITY_ISSUES,
   'product.annualCouponRate': 'RATIO',
   'product.kiBarrier': 'RATIO',

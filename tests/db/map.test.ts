@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { LatestPrice, ProductRow } from '@/lib/db/queries/load'
 import {
   STALE_DAYS,
   attentionReasonsOf,
@@ -10,6 +11,7 @@ import {
   toScheduleItems,
 } from '@/lib/db/queries/map'
 import { dec } from '@/lib/decimal'
+import { deriveDisplay } from '@/lib/format'
 
 import { ASSET_1, ASSET_2, OTHER, OWNER, priceMap, productRow, redemption, schedule } from './helpers/rows'
 
@@ -725,5 +727,116 @@ describe('입력 기준 — 결함이 파괴한 입력만 죽는다', () => {
         ),
       ).toEqual(['UNDERLYING_MISSING'])
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 목록 ↔ 상세의 판정 동일성 — §4.3 판정 삼종 (v1.4, P4 컷 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * **`deriveDisplay()`가 두 뷰에서 같은 답을 내는가.**
+ *
+ * §4.2 우선순위표(무결성 결함 > E-05 > E-01)는 다섯 화면이 하는 판정이고 구현은
+ * `lib/format/derived.ts` 하나다. 그런데 「같은 함수를 쓴다」는 **같은 입력을
+ * 받는다는 뜻이 아니다** — v1.3까지 상세 뷰에는 `status`·`worstOf`가 없어서
+ * SCR-202가 `redemption == null`과 `isWorst` 탐색으로 둘을 합성해야 했고, 그
+ * 합성은 화면 안에 있으므로 어떤 스위트도 볼 수 없었다(AQ-23).
+ *
+ * v1.4가 뷰에 셋을 담았으므로 이제 **한 행을 두 매퍼에 넣고 같은 함수를 걸어**
+ * 대조할 수 있다. 이 파일이 순수 모듈만 다루므로 DB도 Next도 없다.
+ *
+ * `deriveDisplay`를 import하는 것이 `lib/db` 테스트로서 이상해 보이지만, 확인
+ * 대상은 포매터가 아니라 **두 뷰가 그 포매터에 같은 것을 준다**는 매핑의 성질이다.
+ *
+ * ## 음성 대조 3건 — 세 필드가 각각 무게를 진다
+ *
+ * 상세 매퍼의 한 줄씩 깨뜨려 빨간불을 확인하고 되돌렸다. 어느 필드를 틀리게 해도
+ * 무언가가 실패한다는 것이 이 describe가 항진명제가 아님을 뜻한다.
+ *
+ * | 깨뜨린 것 | 실패한 케이스 |
+ * |---|---|
+ * | `status`를 늘 `'ACTIVE'`로 | 3건 — `REDEEMED`, 일정 0건 + 상환 완료, 상환 완료의 워스트오브 |
+ * | `kiStatus`를 늘 `null`로 | 1건 — `VALUED` |
+ * | `worstOf`를 늘 `null`로 | 4건 |
+ *
+ * `kiStatus`가 1건뿐인 이유는 다른 네 케이스에서 그 값이 원래 `null`이기 때문이다
+ * (상환 완료·결함·시세 없음). 즉 **`VALUED` 케이스가 그 필드의 유일한 대조점**이며
+ * 그것을 지우면 `kiStatus`는 검증되지 않는다.
+ */
+describe('목록과 상세가 같은 판정을 낸다 (§4.3 판정 삼종)', () => {
+  /** §4.2 우선순위가 실제로 갈리는 다섯 경우. 각각 다른 `kind`를 내야 한다. */
+  const CASES: Array<{ label: string; row: ProductRow; prices: Map<string, LatestPrice> }> = [
+    {
+      label: 'VALUED — 시세가 있고 미상환',
+      row: productRow(),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+    {
+      label: 'PRICE_MISSING — E-01',
+      row: productRow(),
+      prices: priceMap([{ assetId: ASSET_1, price: null }]),
+    },
+    {
+      label: 'REDEEMED — E-05',
+      row: productRow({ redemptions: redemption() }),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+    {
+      label: 'INTEGRITY — 기초자산 0건',
+      row: productRow({ els_underlyings: [] }),
+      prices: priceMap([]),
+    },
+    {
+      label: 'INTEGRITY — 일정 0건이 상환 완료를 이긴다',
+      row: productRow({ redemption_schedules: [], redemptions: redemption() }),
+      prices: priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+    },
+  ]
+
+  it.each(CASES)('$label', ({ row, prices }) => {
+    const item = toProductListItem(row, prices, ASOF, OWNER)
+    const view = toProductDetailView(row, prices, ASOF, OWNER)
+
+    // 세 필드가 값으로 같다 — 여기가 어긋나면 아래 판정이 우연히 같을 수 있다
+    expect(view.product.status).toBe(item.status)
+    expect(view.product.worstOf).toBe(item.worstOf)
+    expect(view.product.kiStatus).toBe(item.kiStatus)
+    expect(view.product.integrityIssue).toBe(item.integrityIssue)
+
+    // 그러므로 우선순위 판정도 같다
+    expect(deriveDisplay(view.product)).toEqual(deriveDisplay(item))
+  })
+
+  it('다섯 경우가 실제로 서로 다른 판정을 낸다', () => {
+    /*
+     * ★ 이 단언이 위의 `it.each`를 항진명제에서 구한다. 픽스처가 전부 같은
+     * `kind`를 내면 「두 뷰가 같다」는 자동으로 참이고 우선순위는 한 번도
+     * 시험되지 않는다. `INTEGRITY`가 둘이므로 네 종류가 나와야 한다.
+     */
+    const kinds = CASES.map(
+      ({ row, prices }) => deriveDisplay(toProductListItem(row, prices, ASOF, OWNER)).kind,
+    )
+    expect(kinds).toEqual([
+      'VALUED',
+      'PRICE_MISSING',
+      'REDEEMED',
+      'INTEGRITY',
+      'INTEGRITY',
+    ])
+  })
+
+  it('상환 완료 상품도 워스트오브를 갖는다 — 두 축 어디에도 막히지 않는다', () => {
+    // §4.2 v0.8의 확인 사항이며, 상세 화면이 그 값을 표시하는 근거다.
+    const view = toProductDetailView(
+      productRow({ redemptions: redemption() }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+      OWNER,
+    )
+    expect(view.product.status).toBe('REDEEMED')
+    expect(view.product.worstOf).toBe('1.2000')
+    // 죽는 것은 **판정값**이다.
+    expect(view.product.kiStatus).toBeNull()
   })
 })

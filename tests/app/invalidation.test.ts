@@ -98,19 +98,48 @@ function actualRoutes(dir: string = APP, prefix = ''): string[] {
 }
 
 /**
- * **아직 세우지 않은 화면의 라우트 → 세우는 컷.**
+ * **자리표시만 있는 라우트** — 파일은 있으나 화면은 없다.
+ *
+ * 계획 §4는 「자리표시 `PendingScreen`을 실제 화면으로 갈 때 `grep PendingScreen`으로
+ * 남은 것을 센다」고 적었다. 사람이 세는 절차는 다음 사람이 지키지 않으면 썩으므로
+ * 여기서 센다 — `NOT_YET_BUILT`가 「파일 없음」을 세는 것과 **같은 원장의 다른 절반**이며,
+ * 둘의 합이 P4에 남은 화면 수다.
+ */
+function placeholderRoutes(dir: string = APP, prefix = ''): string[] {
+  const routes: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name === 'page.tsx') {
+      if (readFileSync(join(dir, entry.name), 'utf8').includes('PendingScreen')) {
+        routes.push(prefix === '' ? '/' : prefix)
+      }
+      continue
+    }
+    if (!entry.isDirectory()) continue
+    const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`
+    routes.push(...placeholderRoutes(join(dir, entry.name), `${prefix}${segment}`))
+  }
+  return routes
+}
+
+/**
+ * **파일이 아예 없는 라우트 → 세우는 컷.**
  *
  * 맵은 P4 전체를 미리 적는다(계획 §8) — 컷마다 고치면 그때그때의 화면만 보고
  * 정하게 되고, 그것이 "무효화를 나중에 추측으로 넣는다"가 막으려던 상태다.
  * 그래서 여기 있는 경로는 문서가 정의했으나 파일이 아직 없다.
  *
- * **이 표는 스스로 줄어든다** — 화면이 서면 "없어야 한다"는 단언이 빨간불이 되어
+ * **이 표는 스스로 줄어든다** — 파일이 생기면 "없어야 한다"는 단언이 빨간불이 되어
  * 지우라고 말한다. 주석으로 남기면 다음 사람이 지우지 않는다.
+ *
+ * > **자리표시가 서면 여기서 지운다** — 그것이 원장의 상실이 아니라 **이전**이다.
+ * > `/products/new`가 컷 2에서 그렇게 옮겨졌다: SCR-201이 그 주소로 가는 버튼을
+ * > 둘 갖게 되었고(`+ 등록`·빈 상태의 다음 행동) 404는 사용자에게 결함으로 보이므로
+ * > `PendingScreen`을 두었다. 남은 컷의 표식은 그 파일 안으로 옮겨지고, 아래
+ * > `placeholderRoutes()`가 그것을 센다 — 계획 §4가 「`grep PendingScreen`으로 남은
+ * > 것을 센다」고 적은 절차의 테스트판이다.
  */
 const NOT_YET_BUILT: Record<string, string> = {
-  '/products/[id]': '컷 3 — SCR-202 상세',
   '/products/[id]/redeem': '컷 6 — SCR-203 상환',
-  '/products/new': '컷 4a~4b — SCR-204 등록',
   '/products/[id]/edit': '컷 5 — SCR-204 수정',
   '/users': '만들지 않는다 — DOC-008 SQ-01',
 }
@@ -129,6 +158,18 @@ describe('실재하는 라우트', () => {
     expect(ROUTES.length).toBeGreaterThan(5)
     expect(ROUTES).toContain(PATHS.home)
     expect(ROUTES).toContain(PATHS.login)
+  })
+
+  it('컷 2·3이 세운 라우트가 실재한다', () => {
+    /*
+     * 셋 다 컷 2·3에서 `NOT_YET_BUILT`를 떠났다. 여기서 직접 단언하는 이유는
+     * 원장에서 지우는 것만으로는 **지웠다는 사실**만 남고 「대신 무엇이 생겼는가」가
+     * 남지 않기 때문이다. `/products/new`는 자리표시이므로 `placeholderRoutes()`가
+     * 다시 세고, `/products/[id]`는 실제 화면이라 어느 원장에도 없다.
+     */
+    expect(ROUTES).toContain(PATHS.products)
+    expect(ROUTES).toContain('/products/[id]')
+    expect(ROUTES).toContain(PATHS.productNew)
   })
 
   it('낡는 라우트가 전부 DOC-008 §4가 정의한 라우트다', () => {
@@ -493,9 +534,26 @@ describe('DOC-008 §4 ↔ 라우트', () => {
     }
   })
 
-  it('P4가 남긴 화면이 넷이다 — SCR-202·203·204(등록·수정)', () => {
-    // 진행 상황을 숫자로 고정한다. 컷이 진행되면 줄어들고, 늘면 무언가를 지운 것이다.
-    const pending = Object.keys(NOT_YET_BUILT).filter((route) => route !== '/users')
-    expect(pending).toHaveLength(4)
+  it('P4에 남은 화면을 두 원장이 함께 센다', () => {
+    /*
+     * 진행 상황을 숫자로 고정한다. 컷이 진행되면 줄어들고, 늘면 무언가를 지운 것이다.
+     *
+     * **두 원장을 함께 세는 것이 요점이다.** 자리표시를 세우고 `NOT_YET_BUILT`에서
+     * 지우면 앞의 숫자만 줄어들어 「화면이 섰다」로 읽힌다 — 실제로는 파일만 생겼다.
+     * 합계는 그 이전에 불변이므로, 줄어들 때는 진짜로 화면이 선 것이다.
+     */
+    const noFile = Object.keys(NOT_YET_BUILT).filter((route) => route !== '/users')
+    const placeholders = placeholderRoutes()
+
+    // 컷 5(수정) · 컷 6(상환)
+    expect(noFile.sort()).toEqual(['/products/[id]/edit', '/products/[id]/redeem'])
+    // 컷 4a(등록) · 7(일정) · 8(세금) · 9(홈) · P4b(전망)
+    expect(placeholders.sort()).toEqual([
+      '/',
+      '/forecast',
+      '/products/new',
+      '/schedule',
+      '/tax',
+    ])
   })
 })

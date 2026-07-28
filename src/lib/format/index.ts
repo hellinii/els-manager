@@ -11,7 +11,7 @@
  */
 
 export { amount, koreanAmount, koreanWon, signedWon, withCommas, won } from './money'
-export { percent, percentPoint } from './ratio'
+export { barrierGap, percent, percentPoint } from './ratio'
 export { priceDisplay } from './price'
 export { dDayLabel, korDate, korMonth, monthKey, ymd } from './date'
 export {

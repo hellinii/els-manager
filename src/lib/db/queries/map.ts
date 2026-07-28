@@ -410,6 +410,25 @@ export type ProductDetailView = {
     principal: string
     evaluationPeriodMonths: number
     totalRounds: number
+    /**
+     * 판정 삼종 — **§4.2 우선순위표의 입력이다** (v1.4 신설, P4 컷 3)
+     *
+     * 셋은 `judge()`가 이미 내는 값이고 v1.3까지 이 매퍼가 **버렸다**. 담는
+     * 근거는 편의가 아니라 `deriveDisplay()`가 단일 구현이라는 것이다 — 그
+     * 함수의 입력이 정확히 `{status, worstOf, integrityIssue}`이므로 뷰가 셋을
+     * 담지 않으면 SCR-202가 `status`를 `redemption == null`로, `worstOf`를
+     * `underlyings.find(u => u.isWorst)?.ratio`로 **합성한 뒤** 부르게 된다.
+     *
+     * 두 합성은 오늘 옳다. 문제는 옳음을 확인할 층이 없다는 것이다 — 화면은
+     * 어떤 스위트의 import 그래프에도 없다(AQ-23). 뷰가 담으면 두 화면이 같은
+     * 함수에 같은 모양을 넘기고 그 동일성이 순수 모듈에서 대조된다.
+     *
+     * `kiStatus`는 합성조차 불가능하다. 등급 임계 배수와 `NO_KI`·`TOUCHED`·
+     * `BELOW`의 순서를 요구하므로 `lib/domain`의 재구현이 된다.
+     */
+    status: 'ACTIVE' | 'REDEEMED'
+    worstOf: string | null
+    kiStatus: KiStatus | null
     integrityIssue: IntegrityIssue | null
     annualCouponRate: string
     kiBarrier: string | null
@@ -497,6 +516,11 @@ export function toProductDetailView(
       // 정본은 **행 수**다. max(round_no)가 아니다 — 연속성(V-04)은 계약 계층에만
       // 있어 DB는 1,2,99를 허용하므로 두 값이 갈린다(DOC-002 §4.6).
       totalRounds: schedules.length,
+      // 목록(§4.2)과 **같은 판정에서 나온다.** 두 뷰가 한 상품에 대해 다른
+      // 표시 상태를 만들 수 없다는 것이 이 세 줄의 존재 이유다.
+      status: j.status,
+      worstOf: j.worstOf == null ? null : ratioString(j.worstOf),
+      kiStatus: j.ki,
       integrityIssue: j.integrityIssue,
       annualCouponRate: ratioString(dec(row.annual_coupon_rate)),
       kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
