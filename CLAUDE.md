@@ -119,6 +119,12 @@ npm run test:rls && npm run typecheck
 끄면 GoTrue의 `EXTERNAL_EMAIL_ENABLED`가 꺼져 **이메일 로그인 자체가** 막힌다
 (`422 email_provider_disabled`). 실측으로 확인했다 — DOC-010 §7 SEC-03 각주.
 
+**`db:reset` 직후 GoTrue가 `502`를 낼 수 있다.** 리셋이 컨테이너를 재시작하는데
+Kong이 낡은 업스트림을 잡고 있어서다 — 컨테이너는 전부 `healthy`인데 인증만 죽어
+있으므로 스위트 결함으로 오해하기 쉽다(`tests/e2e/global-setup.ts`가 "시드 사용자로
+로그인할 수 없다: 502"로 실패한다). `docker restart supabase_kong_<프로젝트>` 후
+8초면 200이 된다.
+
 `auth.users`에 사용자를 직접 넣을 때는 **토큰 열 8개를 `''`로 명시한다.** 4개는
 컬럼 기본값이 없어 `NULL`이 되고, GoTrue가 그것을 널 불가 `string`으로 스캔해
 로그인이 `500`으로 죽는다. `supabase/seed/00_rls_test_users.sql`의 주석 참조.
