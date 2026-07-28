@@ -38,11 +38,12 @@ type FunctionRow = {
   proname: string
   prosecdef: boolean
   acl: string | null
+  config: string | null
 }
 
 async function publicFunctions(): Promise<FunctionRow[]> {
   const result = await asOwner<FunctionRow>(
-    `select p.proname, p.prosecdef, p.proacl::text as acl
+    `select p.proname, p.prosecdef, p.proacl::text as acl, p.proconfig::text as config
        from pg_proc p
       where p.pronamespace = 'public'::regnamespace
       order by p.proname`,
@@ -59,6 +60,27 @@ describe('실행 컨텍스트 — SECURITY DEFINER는 정책을 우회한다', (
     // 양방향이다. 새 함수에 편의로 definer를 붙이면 여기서 먼저 실패하고,
     // 반대로 기존 함수의 definer가 사라지면(트리거가 조용히 실패한다) 그것도 잡는다
     expect(definers.sort()).toEqual([...DEFINER_ALLOWLIST].sort())
+  })
+
+  /**
+   * **네 번째 축 — `search_path` (P3b.5 추가).**
+   *
+   * v0.8까지 이 파일은 `prosecdef`·`PUBLIC`의 `EXECUTE`·롤별 실행 가능 목록
+   * 셋만 보았다. 그 셋을 다 지키고 **`set search_path = ''`만 빠뜨린 함수는
+   * 조용히 통과했다.** 비우지 않으면 함수 안의 미수식 참조가 호출자의 검색
+   * 경로를 타므로 `security invoker`에서도 위험이 남는다.
+   *
+   * **화이트리스트가 아니라 전 함수 열거다** — 다른 세 축과 같은 형태로 둔다.
+   * 새 함수가 이 줄을 빠뜨리면 여기서 먼저 실패한다.
+   */
+  it('전 함수가 search_path를 비운 채 고정한다', async () => {
+    const rows = await publicFunctions()
+    expect(rows.length, '함수를 하나도 못 찾았다 — 질의가 조용히 0건이다').toBeGreaterThan(0)
+
+    // proconfig는 text[]이며 `set search_path = ''`는 `{"search_path=\"\""}`로 남는다
+    expect(rows.map((row) => `${row.proname}: ${row.config ?? '(null)'}`)).toEqual(
+      rows.map((row) => `${row.proname}: {"search_path=\\"\\""}`),
+    )
   })
 
   it('쓰기 함수는 INVOKER다 — RLS가 함수 안의 INSERT에도 적용된다', async () => {
@@ -378,6 +400,44 @@ describe('update_els_product', () => {
         ]),
       '23514',
       'els_products_redeemed_immutable',
+    )
+  })
+
+  /**
+   * **I-07 — create 쪽과 대칭이다 (P3b.5).**
+   *
+   * 말미 검사가 create에만 테스트되어 있었다. update 쪽 두 블록은 지우면
+   * 세 스위트가 전부 초록이었다 — §5.2가 "원자성이 `createProduct`보다 **더**
+   * 필요하다"고 적은 쪽이 오히려 미검증이었다.
+   *
+   * 계약을 경유하면 V-02·V-03이 앞에서 잡으므로 여기 닿지 않는다(AQ-29).
+   * 함수를 직접 부르는 것이 DB 층 방어를 보는 유일한 방법이다.
+   */
+  it('I-07 — 기초자산 0건 교체는 거부된다', async () => {
+    const { id } = await seedFull(USER_A)
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query('select public.update_els_product($1, $2::jsonb)', [
+          id,
+          updatePayload(USER_A, { underlyings: [] }),
+        ]),
+      '23514',
+      'els_products_underlyings_required',
+    )
+  })
+
+  it('I-07 — 평가일정 0건 교체도 거부된다', async () => {
+    const { id, assetId } = await seedFull(USER_A)
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query('select public.update_els_product($1, $2::jsonb)', [
+          id,
+          updatePayload(assetId, { schedules: [] }),
+        ]),
+      '23514',
+      'els_products_schedules_required',
     )
   })
 
