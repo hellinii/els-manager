@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 1.0 |
+| 버전 | 1.1 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록, DOC-010 아키텍처 v0.8 |
@@ -16,6 +16,7 @@
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
 | 0.1 | 2026-07-26 | 민서 | 최초 작성 |
+| 1.1 | 2026-07-28 | 민서 | **P3b 산출물 대조 검증(P3b.5)에 따른 정정. 감사 8건 중 문서가 정본인 것들을 먼저 고친다(U-01).** (1) **§3.2.1 제약 이름 표에 9행 추가 — 문서가 코드보다 뒤처져 있었다.** 표는 15개 이름을 열거했는데 `errors.ts`의 `BY_CONSTRAINT`는 24개였고, 빠진 것들(`redemptions_els_id_key`·`assets_name_market_key`·`tax_profiles_user_id_tax_year_key` 등)이 전부 **계약 경로에서 도달 가능한 제약**이다. 대조 단언이 `arrayContaining`이라 여분을 허용했으므로 그 뒤처짐이 어느 테스트도 실패시키지 않았다 — v1.1부터 `tests/db/docs-contract.test.ts`가 이 표를 파싱해 **양방향**으로 대조한다. `*_required` 두 개를 한 행에 합쳐 두었던 것도 갈랐다(합치면 `규칙` 열 분해가 파서에만 존재하는 특수 처리가 된다). (2) **§5.9에 `fields` 키를 명시 — V-18이 층마다 다른 칸을 가리키고 있었다.** 계약 계층은 `touchedAt`, DB 매핑(`els_products_ki_touched_check`)과 §6 V-18은 `kiTouchedAt`이었다. §3.1이 `fields` 키를 "계약 입력의 필드 이름"으로 정의했는데 이 계약의 입력은 위치 인자라 필드 이름이 없고, 그 공백에서 갈렸다. `kiTouchedAt`으로 통일한다. (3) **§6 V-20 대상에 `totalRounds` 추가**(구현은 처음부터 검사하고 있었고 목록에만 빠져 있었다. 저장되지 않는 값이라 이 검사가 유일한 방어다) **+ 규칙 ID 재사용 각주 신설** — 셰이프 파싱이 형태·열거·boolean 검사에 그 필드의 규칙 ID를 빌려 쓰는 사실과, **20개 안에서의 오태그는 어떤 단언도 잡지 못한다**는 대가를 함께 적었다. §6에 형태 규칙을 신설하지 **않는** 이유는 `RULE_IDS`가 §6에서 파생된다는 방향이 뒤집히기 때문이다. (4) **§5.4에 과거 연도 상환의 `INTERNAL`을 명시** — 시드보다 과거 연도는 조회 계층이 거부하므로(ADR-005) `withholdingTax` 미입력 시 `INTERNAL`이 된다. 그것이 옳은 코드인지는 정하지 않았고 이유(원인이 두 필드로 갈려 안내 문구가 정반대다)와 함께 P4로 미룬다. (5) **AQ-30 보완 — W-04가 구조로 걸리는 범위는 11개 중 9개다.** `.rpc()` 경유 2개는 린트 셀렉터가 보지 않고 `productPayload()`가 열 사양에서 파생되지 않는다. 새 금액 열이 생기면 빠뜨려도 아무것도 실패하지 않는다. (6) **AQ-31 신설** — `refreshPrices`의 성공 경로가 한 줄도 실행되지 않으며 ADR-007이 닫히는 순간 처음 실행된다 |
 | 1.0 | 2026-07-28 | 민서 | **P3b 구현 완료 반영 — 이 버전부터 §5는 선행 명세가 아니라 구현 대조본이다.** (1) **§5.0.1 신설 — 왕복 수 실측표(계약 11개).** 테이블 다중집합으로 세며, 사전 조회가 필요한 계약만 2 이상이고 §5.5의 두 계약만 3인 이유(상품이 아니라 상환 `id`를 받는다)를 함께 적었다. **검증에서 거부되는 입력은 왕복 0**임도 실측했다. (2) **AQ-30 해결** — 생성 타입을 그대로 따르면 `99999999999.999999`가 `100000000000.000000`으로 저장된다는 것을 실측했다. **두 요청 모두 `201`이며** 거부도 경고도 없다 — 그 사실이 동시에 PostgREST가 `numeric` 열에 JSON 문자열을 그대로 받는다는 증거이므로, 어긋나는 쪽은 전송 계층이 아니라 생성 타입이다. `InsertPayload<T>`가 열 사양에서 금액 열을 파생하고 린트가 리터럴 우회를 막는다. 읽기·쓰기가 `CountingColumn` 하나를 공유하므로 두 방향이 갈릴 수 없으며 그 동치를 타입 수준에서 단언한다. (3) **AQ-27 해결** — 귀속연도 파생을 `currentYear()` 하나로 합쳤다. (4) **AQ-29 보완** — 계약과 함수 직접 호출의 차이를 실측해 등재했다(우회 시 잃는 것은 배열 인덱스와 "DB에 닿지 않음"이다). (5) §5.1·§5.2의 원자성을 **대조군과 함께** 측정했다 — 요청 3개로 나누면 기초자산 0건 상품이 실제로 남고(`UNDERLYING_MISSING`), 함수를 경유하면 상품 열·하위 행이 모두 되돌아간다 |
 | 0.9 | 2026-07-27 | 민서 | P3b 변경 계약 구현 착수에 따른 선행 명세. **구현은 P3b 3단계 이후다.** (0) **§5.0 신설 — 변경 컨텍스트와 쓰기 규약 W-01~W-05.** §4.0이 조회에 대해 한 일을 변경에 대해 한다. (1) **§5.1·§5.2의 원자성 수단 확정(U-03).** "단일 트랜잭션"은 PostgREST가 요청당 1 트랜잭션이므로 요청 3개로는 만족되지 않는다 — 그대로 구현하면 부분 실패가 기초자산 0건 상태를 남기고 **§5.3의 "계약을 경유하는 어떤 조작도 0건 상태를 만들 수 없다"가 거짓이 된다.** 쓰기 함수 `create_els_product`·`update_els_product`를 경유하며, 그 함수가 I-07에 **DB 층 방어를 처음 부여**한다(DOC-010 AQ-14 부분 해소). (2) **§3.2에 오류 매핑 표 신설** — SQLSTATE는 거부의 형태이고 `ErrorCode`는 화면 처리이므로 둘은 1:1이 아니다. 제약 이름이 최종 판정자다. (3) **AQ-17 종결** — 순수 모듈의 예외는 전부 `RangeError`라 예외로는 입력 오류와 상태 결함을 구분할 수 없으므로 **호출 지점**이 코드를 부여한다. `CONFLICT`는 순수 모듈 예외에서 나오지 않는다. (4) **AQ-10 종결** — 스키마 검증 도구를 도입하지 않는다. (5) **§6 V-08을 필드별로 세분(U-03)** — `0 < x`가 DOC-007 §4.1의 원금상환형 리자드(`lizardCouponRate = 0`)를 거부하고 있었다. **V-19·V-20 신설**(문자열 길이·정수 범위) — 초과분이 `22001`·`22003`으로만 거부되어 어느 필드인지 알 수 없었다. (6) §5.4~§5.9 각 절에 산출 세부·2단계 삭제의 위치·기준일 의존·공급자 미선정 시 동작 명기. (7) **§9 AQ-26·AQ-27 처리, AQ-29 신설.** (8) **§3.2.1에 오류 본문 실측 표(P3b 2단계)** — 두 가지가 명세를 고쳤다: **plpgsql `RAISE`의 `constraint` 옵션이 HTTP 경계를 넘지 못하므로**(`pg` 직결에서는 오는데 PostgREST를 지나면 사라진다) `detail` 첫 줄에 이름을 함께 싣는 규약을 추가했고, **날짜 형식 오류는 `22P02`가 아니라 `22007`**이어서 매핑에 그 코드를 더했다 — 빠뜨리면 잘못 입력한 날짜가 `INTERNAL`이 된다 |
 | 0.8 | 2026-07-27 | 민서 | P3a 산출물 대조 검증(P3a.5)에 따른 정정. (0) **§4.2에 D1의 억제 범위 신설 — 본 버전의 핵심.** v0.6이 정한 우선순위 표는 `conditionResult`·`kiStatus`만 규정했는데 구현이 그것을 **결함 상품 전체의 판정 중단**으로 해석했고, 그 결과 같은 결함 상품이 계약마다 다르게 보였다 — §4.3은 `projection`을 `null`로 두면서 §4.6은 같은 상품의 예상 과세소득을 숫자로 냈고, `SCHEDULE_MISSING` 상품은 `ratio`가 표시되는데 `isWorst`만 사라졌다. **억제는 그 결함이 파괴한 입력을 쓰는 값에만 미친다**(입력 기준)로 확정하고, `integrityIssue` 축과 E-05 축이 별개임을 함께 명기했다. (1) **§4.3 `projection`의 null 사유 재정의(U-03)** — v0.6의 "② `integrityIssue ≠ null`"을 철회한다. 이 값은 계약 조건에서만 나오고 시세를 쓰지 않으므로 `UNDERLYING_MISSING`에서도 산출된다. ②·③을 "적용 차수 없음" 하나로 합쳤다. (2) **§4.3 `isWorst` 정의 보강** — `SCHEDULE_MISSING`은 "산출 불가"에 해당하지 않는다. (3) **§4.1 `attentionItems`에 원칙 적용 + 표시 순서 고정** — 결함이 파괴하지 않은 입력에서 나오는 사유는 함께 보고한다. 일정 0건 상품은 §4.4에 행이 없고 `upcomingEvaluations`에도 없어 **이 목록이 유일한 창구**이므로, 억제하면 그 KI 하회가 시스템 어디에서도 보이지 않는다. `PRICE_MISSING`은 시세 입력이 파괴된 결함에서 내지 않는다. (4) **§4.0 Q-07에 시세 형식 분류 신설** — 시세(`numeric(18,6)`)는 금액·비율 어느 쪽도 아닌데 세 필드가 DB `::text` 원형을 그대로 통과시키고 있었다. 계약 계층에서 6자리로 정규화한다. (5) **§4.6 `contributingProducts[].integrityIssue` 신설** — 금액은 불변이고 표식만 붙는다. (6) **§4.2 `nextEvaluation` 주석 정정** — v0.6이 `projection`에만 적용한 "전 차수 경과 미상환" 정정을 전파. (7) **§4.8에 표식을 두지 않는 판단 기록.** (8) **§9 AQ-22·AQ-24~27 신설**, AQ-09·AQ-17 보완 |
@@ -124,20 +125,32 @@ type ActionError = {
 
 | 제약 이름 | 규칙 | `fields` 키 |
 |---|---|---|
-| `els_products_ki_pair_check` | I-11 / V-16 | `kiObservation` |
-| `els_products_ki_touched_check` | I-15 / V-18 | `kiTouchedAt` |
+| `redemptions_els_id_key` | I-01 | — |
+| `els_underlyings_els_id_asset_id_key` | I-02 / V-09 | `underlyings` |
+| `redemption_schedules_els_id_round_no_key` | I-03 / V-04 | `schedules` |
 | `redemption_schedules_lizard_barrier_check` | I-04 / V-05 | `schedules` |
 | `redemption_schedules_lizard_coupon_check` | I-10 / V-06 | `schedules` |
+| `els_products_ki_pair_check` | I-11 / V-16 | `kiObservation` |
+| `els_products_ki_touched_check` | I-15 / V-18 | `kiTouchedAt` |
 | `redemptions_maturity_loss_check` | I-08 / V-12 | `taxableIncome` |
 | `redemptions_taxable_income_check` | I-12 / V-11 | `taxableIncome` |
 | `redemptions_round_no_required_check` | I-14 / V-13 | `roundNo` |
+| `redemptions_els_id_round_no_fkey` | I-13 / V-14 | `roundNo` |
 | `asset_prices_coordinates_immutable` | I-16 | `assetId` · `asOfDate` |
 | `els_products_principal_check` | I-17 / V-01 | `principal` |
 | `els_products_evaluation_period_check` | I-17 / V-20 | `evaluationPeriodMonths` |
 | `redemption_schedules_barrier_check` | I-17 / V-08 | `schedules` |
 | `redemptions_gross_amount_check` | I-17 | `grossAmount` |
-| `els_products_underlyings_required` · `els_products_schedules_required` | I-07 / V-02 · V-03 | `underlyings` · `schedules` |
+| `els_products_underlyings_required` | I-07 / V-02 | `underlyings` |
+| `els_products_schedules_required` | I-07 / V-03 | `schedules` |
 | `els_products_redeemed_immutable` | 상태 충돌 → `CONFLICT` | — |
+| `redemptions_els_id_fkey` | I-01 / §5.3 | — |
+| `els_underlyings_asset_id_fkey` | §8.1 | `underlyings` |
+| `assets_name_market_key` | §5.10 | `name` · `market` |
+| `tax_profiles_user_id_tax_year_key` | I-06 | `year` |
+| `asset_prices_asset_id_as_of_date_key` | I-05 | `asOfDate` |
+
+**이 표는 `errors.ts`의 `BY_CONSTRAINT`와 양방향으로 일치한다 (v1.1).** `tests/db/docs-contract.test.ts`가 이 표를 파싱해 이름 집합·`규칙`·`fields` 키를 대조하므로, 한쪽만 늘거나 줄면 실패한다. v1.0까지 이 표는 **9행이 모자랐고**(`redemptions_els_id_key`·`assets_name_market_key` 등 계약 경로에서 도달 가능한 것들이다) 대조 단언이 `arrayContaining`이라 여분을 영원히 허용했다 — 문서가 코드보다 뒤처진 사실이 어느 테스트도 실패시키지 않는 상태였다. **한 행에 이름을 둘 싣지 않는다** — `*_required` 두 개를 합쳐 두었던 행을 v1.1에서 갈랐다. 합치면 `규칙` 열의 `I-07 / V-02 · V-03`을 이름과 짝지어 분해해야 하고, 그 특수 처리가 파서에만 존재하게 된다.
 
 **배열 인덱스를 붙이지 않는다.** DB 오류는 몇 번째 원소가 위반했는지 말하지 않는다. 인덱스가 있는 경로(`schedules[3].lizardBarrier`)는 계약 계층 검증이 담당하고, DB까지 도달한 것은 배열 단위로 표시한다 — 없는 정보를 지어내면 사용자가 엉뚱한 행을 고친다.
 
@@ -912,6 +925,10 @@ type RedemptionInput = {
 >
 > 이 값은 **사용자가 덮어쓸 수 있는 기본값**이다. 증권사가 확정한 실제 징수액이 있으면 그것이 정본이며(A-04) 계약은 입력값을 그대로 저장한다. 산출은 미입력 시에만 일어난다.
 
+> **시드보다 과거 연도의 상환은 산출할 수 없다 (v1.1).** 산출이 `year(redemptionDate)`의 상수를 요구하는데 조회 계층은 시드보다 과거 연도를 **거부한다** — 뒤 연도의 법으로 과거를 계산하면 재현성이 깨진다(ADR-005). 그래서 2025년 상환을 `withholdingTax` 없이 등록하면 `INTERNAL`이 된다(§3.2.2 4행: 세율 시드 없음 → `INTERNAL`). **정상 경로는 막히지 않는다** — 실제 징수액이 정본이므로 값을 적어 넣으면 그대로 저장되고 세율 조회 자체가 일어나지 않는다.
+>
+> **`INTERNAL`이 옳은 코드인지는 정하지 않았다.** 사용자가 고칠 수 있는 일("징수액을 직접 입력한다")인데 시스템 오류로 보고하므로 §3.2의 정의와 어긋나는 면이 있다. 그렇다고 `VALIDATION_FAILED`로 내리려면 어느 필드를 가리킬지 정해야 하는데, 원인이 `withholdingTax`가 비어 있는 것인지 `redemptionDate`가 시드 범위 밖인 것인지 갈린다 — 전자면 "값을 입력하라"이고 후자면 "그 해는 지원하지 않는다"로 안내 문구가 정반대다. 그 판단은 화면이 서는 P4에서 한다. **지금은 상태를 명시하고 테스트로 고정한다**(P3b.5) — 조용히 두면 P4에서 "왜 여기가 `INTERNAL`인가"를 처음부터 다시 조사하게 된다.
+
 > **결함 상품에도 상환을 기록할 수 있다 (v0.9).** `integrityIssue`가 있는 상품의 상환을 막지 않는다 — 상환 실적은 증권사가 확정한 외부 사실이고(A-04) 결함은 우리 쪽 데이터의 문제이므로, 사실의 기록을 우리 결함이 막으면 과세 이력이 누락된다. 단 `EARLY`·`LIZARD`는 `round_no`가 실재해야 하므로(I-13) `SCHEDULE_MISSING` 상품에서는 DB가 `23503`으로 거부하며 `CONFLICT`가 된다 — 그때 사용자가 할 일은 상환을 포기하는 것이 아니라 **일정을 먼저 복구하는 것**이고, 그 경로가 §4.2·SCR-204로 열려 있다.
 
 ### 5.5 상환 수정 · 취소 — SCR-202
@@ -998,6 +1015,8 @@ function setKiTouched(
 - `kiBarrier`가 없는 상품(노낙인)에는 터치를 설정할 수 없다 → `VALIDATION_FAILED` + `kiTouchedAt` (V-18, I-15). 계약이 사전 조회로 판정하며 DB `CHECK`가 최종 보장이다
 - `touchedAt`은 `YYYY-MM-DD` 형식이어야 한다. `null`은 해제이며 노낙인 상품에서도 허용된다 — 이미 없는 것을 없애는 요청은 거부할 이유가 없다
 
+> **`fields` 키는 `kiTouchedAt`이다 (v1.1).** 파라미터 이름은 `touchedAt`이지만 화면이 가리키는 것은 상품의 `kiTouchedAt` 칸이고, 같은 규칙을 DB가 잡을 때(`els_products_ki_touched_check`)도 같은 키다 — **층에 따라 다른 칸을 가리키면 안 된다.** §3.1이 `fields`의 키를 "계약 입력의 필드 이름"으로 정의했는데 이 계약의 입력은 **위치 인자**라 필드 이름이 없고, 그 공백에서 계약 계층만 `touchedAt`을 쓰고 있었다(v1.0까지의 구현). §6 V-18의 대상과 §3.2.1의 사상이 처음부터 `kiTouchedAt`이었으므로 그쪽으로 맞춘다.
+
 > 시스템은 KI 터치를 자동 확정하지 않는다(DOC-002 D-04). 수집 시세로 하회가 관측되면 화면에 후보로 표시하고, 확정은 본 계약을 통해 사용자가 수행한다.
 
 > **미래 일자 터치를 거부하지 않는다 (v0.9).** V-17은 시세에만 걸린다. 터치 확정일은 사용자가 증권사 통지에서 옮겨 적는 외부 사실이고, 기준일보다 앞선 날짜가 들어오는 것은 입력 오류이기 이전에 **관측일과 통지일의 시차**일 수 있다. 판정 쪽에서도 `ki_touched_at`은 존재 여부만 쓰이고 날짜 비교에 들어가지 않으므로(DOC-007 §3.4), 미래 일자가 판정을 틀리게 만드는 경로가 없다 — 시세와 다른 점이다.
@@ -1046,7 +1065,13 @@ function createAsset(input: {
 | V-17 | `asOfDate` | 미래 일자 거부. 기준일 이후의 시세는 존재할 수 없다 |
 | V-18 | `kiTouchedAt` | `kiBarrier` 부재 시 입력 불가 (I-15) |
 | V-19 | 문자열 필드 | 열 선언 길이 이내. `currency`는 정확히 3자 대문자 |
-| V-20 | 정수 필드 | `smallint` 범위 이내(`roundNo`·`sequence`·`evaluationPeriodMonths`·`year`). `evaluationPeriodMonths ≥ 1`, `year`는 4자리 |
+| V-20 | 정수 필드 | `smallint` 범위 이내(`roundNo`·`sequence`·`evaluationPeriodMonths`·`totalRounds`·`year`). `evaluationPeriodMonths ≥ 1`, `year`는 4자리 |
+
+> **V-20에 `totalRounds`를 추가했다 (v1.1).** 구현은 처음부터 `min: 1` + `smallint` 상한으로 검사하고 있었는데 대상 목록에만 빠져 있었다. 규칙 신설이 아니라 누락 정정이다 — `totalRounds`는 저장되지 않으므로(DQ-05) DB가 볼 수 없고, 이 검사가 유일한 방어다.
+
+> **셰이프 파싱은 필드가 속한 규칙의 ID를 재사용한다 (v1.1).** `inputs.ts`의 형태·열거·boolean 검사는 §6에 대응 규칙이 없으므로 그 필드를 다루는 규칙 ID를 빌린다 — 예컨대 `accountType`의 열거값 검사는 `V-19`로, `redemptionType`의 열거값 검사는 `V-13`으로 기록된다. **§6에 형태 규칙을 신설하지 않는 것이 의도다.** 이 표는 도메인 검증 규칙의 정본이고, 코드 사정으로 행을 늘리면 `RULE_IDS`가 §6에서 파생된다는 방향이 뒤집힌다.
+>
+> 그 대가를 적어 둔다. **20개 안에서의 오태그는 어떤 단언도 잡지 못한다.** `tests/db/docs-contract.test.ts`가 "§6에 없는 ID는 존재할 수 없다"를 강제하고 `RuleId` 타입이 오타를 막지만, 둘 다 *어느* ID를 골랐는지는 보지 않는다. P3b.5 감사가 20개를 전수 확인한 결과 **오태그만으로 덮이는 규칙은 현재 없다**(모든 규칙에 자기 내용을 검사하는 케이스가 하나 이상 있다). 새 필드 검사를 쓸 때 ID는 이 표에서 고르고, 마땅한 것이 없으면 그 필드가 다루는 도메인 규칙을 먼저 찾는다.
 
 > **V-08의 의도.** 사용자가 `90`을 입력했는데 정규화되지 않고 전달되면 배리어가 9000%가 된다. 상한 검사로 이런 유입을 차단한다.
 
@@ -1138,8 +1163,9 @@ type CronResult = {
 | AQ-25 | `projection`의 4번째 `null` 분기 | 미결 | 구현은 §4.3이 정한 두 경우 외에 `attributionYear`가 `null`일 때도 `null`을 반환한다(방어적 분기). 그 함수가 언제 `null`을 주는지 계약에 서술이 없어 **도달 조건이 불명**이고, 따라서 죽은 코드인지 실재하는 경우인지 판별되지 않는다. DOC-007 §7.2의 귀속연도 산출을 정리할 때 함께 닫는다 |
 | AQ-26 | 필터 문법 격리의 검증 범위 | **해결 (P3b 4단계)** | 이스케이프 대상 10문자 전부에 케이스를 두고, 특히 **`\`의 순서 의존성**(먼저 처리하지 않으면 자기가 넣은 백슬래시를 다시 이스케이프한다)을 단언한다. 검증 계층의 테스트와 같은 파일에 둔다 — 둘 다 "사용자 입력을 문법에서 격리한다"는 같은 일이다 |
 | AQ-27 | 기준일 → 귀속연도 파생 지점의 이원화 | **해결 (P3b 10단계)** | 파생 지점을 `today.ts`의 `currentYear()` 하나로 합쳤다. `tax.ts:430`의 문자열 자르기를 그 호출로 교체했다 — Q-02가 "요청당 한 번"을 구조로 만든 것과 같은 이유로 파생 규칙도 한 곳에만 있어야 한다. **교체가 형식 검사도 함께 들여왔다** — 종전 자리에는 그것이 없어 `asOf`가 깨지면 `NaN`이 조용히 세율 조회로 흘렀다 |
-| AQ-30 | 생성 타입의 쓰기 방향이 Q-08·W-04와 어긋난다 | **해결 (P3b 7단계)** | **실측이 두 번 있었다.** ① P3b 2단계 — `supabase gen types`의 `Insert`·`Update`가 금액·비율 열을 `number`로 선언한다. ② **P3b 7단계 — 그것을 따르면 값이 실제로 바뀐다.** `asset_prices.price`(`numeric(18,6)`)에 같은 값을 두 형태로 실어 `::text`로 되읽었다: 문자열 `"99999999999.999999"` → **`201`** + `99999999999.999999`(정확) / JSON 수치(생성 타입이 요구하는 형태) → **`201`** + **`100000000000.000000`**. **두 요청 모두 `201`이다** — 거부도 경고도 없이 값만 달라졌고, DB에 닿기 전에 `JSON.stringify`가 float64를 직렬화하며 자릿수를 잃었다. 첫 경우가 동시에 **PostgREST가 `numeric` 열에 JSON 문자열을 그대로 받는다**는 증거이므로 어긋나는 쪽은 전송 계층이 아니라 생성 타입이다. 그리고 `numeric(15,0)` 금액은 15자리까지 float64로 정확하므로 **값 단언으로는 영원히 드러나지 않는다.** 방어는 두 겹이다 — (a) `InsertPayload<T>`가 열 사양에서 금액 열을 파생해 `string`으로 바꾸고, 읽기 쪽 `MustCastColumn`과 **같은 `CountingColumn` 하나**를 공유하므로 두 방향이 "무엇이 금액인가"에 대해 갈릴 수 없다(`tests/db/payload.test.ts`가 6개 테이블에 대해 두 집합의 동치를 타입 수준으로 단언한다). (b) 린트 `els/db-layer`가 `.insert()`·`.upsert()`·`.update()`의 첫 인자로 **객체 리터럴을 금지**해 `toInsert()`/`toUpdate()`를 지나지 않는 경로를 막는다. 단언은 그 두 함수 안의 **두 개가 전부**다. **남는 문제:** ① `db:types` 재생성이 열 타입을 바꾸면 파생 타입이 조용히 따라간다 — 드리프트 대조는 수동 스위트에만 있다(AQ-19와 같은 자리). ② 테스트 픽스처는 `pg`로 직접 넣으므로 이 타입을 지나지 않는다 |
+| AQ-30 | 생성 타입의 쓰기 방향이 Q-08·W-04와 어긋난다 | **해결 (P3b 7단계)** | **실측이 두 번 있었다.** ① P3b 2단계 — `supabase gen types`의 `Insert`·`Update`가 금액·비율 열을 `number`로 선언한다. ② **P3b 7단계 — 그것을 따르면 값이 실제로 바뀐다.** `asset_prices.price`(`numeric(18,6)`)에 같은 값을 두 형태로 실어 `::text`로 되읽었다: 문자열 `"99999999999.999999"` → **`201`** + `99999999999.999999`(정확) / JSON 수치(생성 타입이 요구하는 형태) → **`201`** + **`100000000000.000000`**. **두 요청 모두 `201`이다** — 거부도 경고도 없이 값만 달라졌고, DB에 닿기 전에 `JSON.stringify`가 float64를 직렬화하며 자릿수를 잃었다. 첫 경우가 동시에 **PostgREST가 `numeric` 열에 JSON 문자열을 그대로 받는다**는 증거이므로 어긋나는 쪽은 전송 계층이 아니라 생성 타입이다. 그리고 `numeric(15,0)` 금액은 15자리까지 float64로 정확하므로 **값 단언으로는 영원히 드러나지 않는다.** 방어는 두 겹이다 — (a) `InsertPayload<T>`가 열 사양에서 금액 열을 파생해 `string`으로 바꾸고, 읽기 쪽 `MustCastColumn`과 **같은 `CountingColumn` 하나**를 공유하므로 두 방향이 "무엇이 금액인가"에 대해 갈릴 수 없다(`tests/db/payload.test.ts`가 6개 테이블에 대해 두 집합의 동치를 타입 수준으로 단언한다). (b) 린트 `els/db-layer`가 `.insert()`·`.upsert()`·`.update()`의 첫 인자로 **객체 리터럴을 금지**해 `toInsert()`/`toUpdate()`를 지나지 않는 경로를 막는다. 단언은 그 두 함수 안의 **두 개가 전부**다. **남는 문제:** ① `db:types` 재생성이 열 타입을 바꾸면 파생 타입이 조용히 따라간다 — 드리프트 대조는 수동 스위트에만 있다(AQ-19와 같은 자리). ② 테스트 픽스처는 `pg`로 직접 넣으므로 이 타입을 지나지 않는다. ③ **구조로 걸리는 범위는 계약 11개 중 9개다 (P3b.5 보완).** `toInsert`/`toUpdate` + 린트를 지나는 것이 6개(`createRedemption`·`updateRedemption`·`setKiTouched`·`saveTaxProfile`·`saveManualPrice`·`createAsset`), 쓰기가 없는 것이 3개(`deleteProduct`·`deleteRedemption`·`refreshPrices`), **`.rpc()` jsonb를 지나는 2개(`createProduct`·`updateProduct`)는 둘 다 아니다** — 린트 셀렉터가 `/^(insert\|upsert\|update)$/`라 `.rpc()`를 보지 않고, `productPayload()`는 열 사양에서 파생되지 않은 손으로 쓴 `Json`이다. 지금 값이 옳은 것은 `ProductInput`이 금액을 `string`으로 선언하고 쓰기 함수가 `->>`+`::numeric`으로 받으며 왕복이 실측되어 있기 때문이며(`99999999999.999999`), **방어의 종류가 다르다** — `els_products`·`els_underlyings`·`redemption_schedules`에 새 금액 열이 생기면 `.insert()` 경로는 `InsertPayload<T>`가 자동으로 따라오지만 `productPayload`와 SQL 함수는 손으로 고쳐야 하고 **빠뜨려도 아무것도 실패하지 않는다.** 닫으려면 `.rpc()`의 payload도 열 사양에서 파생시켜야 하는데, 그 payload는 테이블 하나가 아니라 세 테이블의 합성이라 `InsertPayload<T>`를 그대로 쓸 수 없다 — P4에서 화면이 붙은 뒤 형태를 정한다 |
 | AQ-29 | 쓰기 함수가 계약 계층 검증을 우회하는 경로 | 미결 (P3b 9단계에서 **경계를 실측**) | **함수는 I-07(하위 행 수)과 상태 충돌만 검사하고 §6의 나머지 규칙은 보지 않는다.** 계약을 경유하면 V-01~V-20이 먼저 걸리지만, 함수는 `authenticated`에게 `EXECUTE`가 열려 있으므로 `supabase-js`나 SQL로 직접 부르면 V-04(차수 연속성)·V-07(평가일 증가)·V-09(자산 중복)를 통과하지 않은 상품이 만들어진다. **DB 제약이 있는 규칙(I-02·I-03·I-04·I-10)은 그래도 막히지만 나머지는 막히지 않는다** — 예를 들어 차수 `1, 2, 99`인 상품이 함수로 만들어질 수 있고, 그것은 DQ-05가 총 차수 정본을 `max(round_no)`가 아니라 행 수로 정한 이유와 같은 상태다. 함수 안으로 검증을 옮기는 것은 규칙을 두 언어로 두 번 쓰는 일이므로 하지 않는다. 남은 선택은 (a) 그대로 두고 계약 밖 호출을 신뢰하지 않는다 (b) 함수 시그니처를 계약 계층만 알 수 있는 형태로 좁힌다 — P4에서 화면이 붙은 뒤 실제 위험을 보고 정한다. **P3b 9단계 보완 — 두 층의 경계를 실측했다.** 같은 입력(기초자산 0건 / 자산 중복)을 계약과 함수 양쪽에 넣어 무엇이 다른지 기록한다: 계약은 `VALIDATION_FAILED` + **배열 인덱스까지 붙은** `fields`(`underlyings[1].assetId`)를 내고 **왕복 0**으로 끝나며, 함수 직접 호출은 `23514`·`23505`를 낸다. 즉 우회 경로에서 잃는 것은 "막힘" 자체가 아니라 **어느 원소가 문제인지**와 **DB에 닿지 않음**이다 — DB 제약이 없는 V-04·V-07은 그마저도 없다 |
+| AQ-31 | `refreshPrices` 성공 경로의 검증 공백 | 미결 (P3b.5 신설) | **공급자 0개인 동안 §5.8은 항상 `PROVIDER_UNAVAILABLE`로 끝나므로 반환 타입 `{succeeded, failed}`를 조립하는 코드가 한 줄도 실행되지 않는다.** 부분 실패 병합, 실패 목록의 `assetId`·`assetName`·`reason` 구성, `asset_prices`의 `source = 'AUTO'` UPSERT가 전부 그 뒤에 있다. 지금 이 계약을 검증하는 것은 "공급자가 0개면 `PROVIDER_UNAVAILABLE`이고 왕복이 0이다" 둘뿐이며(`tests/db/mutations.test.ts`·`tests/integration/mutations.test.ts`), 그것은 **분기 하나만 증명한다.** ADR-007(AQ-01)이 닫히는 순간 검증 없는 코드가 처음 실행된다 — AQ-01은 "어느 공급자를 고를까"이고 이 항목은 "고른 뒤 무엇이 미검증인가"라 성격이 다르므로 번호를 따로 둔다. 공급자 도입 시 (a) 스텁 어댑터로 부분 실패 경로(일부 성공·일부 실패) (b) `source = 'AUTO'` UPSERT가 I-16 트리거를 통과하는지 (c) `PROVIDER_UNAVAILABLE`↔`INTERNAL` 분기 — 셋을 **같은 커밋에서** 세운다. §5.8이 "스텁은 테스트 안에서만 쓴다"고 한 것이 그 전제다 |
 
 **AQ-17의 조회 부분 — 결정과 철회 기록 (v0.6, U-03)**
 
