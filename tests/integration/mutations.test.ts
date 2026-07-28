@@ -650,6 +650,99 @@ describe('§5.4 createRedemption', () => {
     expect(view!.product.integrityIssue).toBeNull()
   })
 
+  /**
+   * **소수부가 남는 값을 쓴다.** 종전 검증값은 전부 요율의 정확한 배수라
+   * (`4,000,000 × 0.154 = 616,000`) `truncateToUnit`를 `roundToUnit`으로 바꿔도
+   * 초록이었다 — §5.4 각주가 "접는 규칙을 DB에 맡기면 절사가 조용히 반올림이
+   * 된다(AQ-16과 같은 부류)"고 적은 결정만 미측정이었다.
+   */
+  it('절사다 — 반올림이 아니다 (원 단위, DOC-007 §2)', async () => {
+    const productId = dataOf(await a.write.createProduct(productInput({ assetId }))).id
+
+    // 1,000,005 × 0.154 = 154,000.77 → 절사 154,000 / 반올림 154,001
+    dataOf(
+      await a.write.createRedemption(productId, {
+        redemptionType: 'MATURITY_GAIN',
+        redemptionDate: '2026-07-02',
+        grossAmount: '101000005',
+        taxableIncome: '1000005',
+        isConfirmed: true,
+      }),
+    )
+
+    const view = await a.read.getProduct(productId)
+    expect(view!.redemption!.withholdingTax).toBe('154000')
+
+    await a.write.deleteRedemption(view!.redemption!.id)
+    await a.write.deleteProduct(productId)
+  })
+
+  /**
+   * **어느 연도의 상수인가 — 거부/성공으로 구분한다.**
+   *
+   * §5.4 각주는 `year(redemptionDate)`이지 기준일의 연도가 아니라고 규정한다.
+   * 그런데 스위트의 상환일이 전부 2026년이고 `AS_OF`도 2026이라 두 구현이
+   * 같은 값을 냈다. **`asOf`만 미래로 두는 접근은 무효다** —
+   * `loadTaxYearContext`가 미시드 미래 연도를 최신 시드로 **근사**하므로 잘못된
+   * 구현이 근사에 가려진다. 시드보다 **과거**는 거부되므로(ADR-005, 재현성)
+   * 그쪽이 두 구현을 가른다.
+   *
+   * ```
+   * 올바른 구현  year('2025-12-31') = 2025 → 시드 이전 → throw → INTERNAL
+   * 깨진 구현    year(asOf)        = 2026 → 정확 매치 → ok, 값이 나온다
+   * ```
+   *
+   * **현재는 거부/성공으로 구분하며, 다른 연도 시드가 추가되면 값 단언으로
+   * 강화한다.** 2025·2026의 실제 분리과세율이 둘 다 15.4%라 값으로 가르려면
+   * 없는 요율을 지어내야 하므로 지금은 하지 않는다. 시드가 늘면 이 케이스를
+   * `expect(withholdingTax).toBe(<그 해의 값>)`으로 바꾼다.
+   *
+   * 이 테스트가 고정하는 "과거 상환 + 원천징수 미입력 = `INTERNAL`"은 §5.4
+   * v1.1 각주가 먼저 명시한 상태다 — 옳은 코드인지는 P4에서 정한다.
+   */
+  it('상환일의 연도다 — 기준일의 연도가 아니다 (시드 이전 연도는 거부된다)', async () => {
+    const productId = dataOf(
+      await a.write.createProduct(
+        productInput({
+          assetId,
+          name: `${FX_NAME_PREFIX} 변경-과거연도`,
+          issueDate: '2025-01-02',
+          schedules: [
+            { roundNo: 1, evaluationDate: '2025-07-02', barrier: '0.9000' },
+            { roundNo: 2, evaluationDate: '2026-01-05', barrier: '0.8500' },
+          ],
+        }),
+      ),
+    ).id
+
+    const past: RedemptionInput = {
+      redemptionType: 'MATURITY_GAIN',
+      redemptionDate: '2025-12-31',
+      grossAmount: '104000000',
+      taxableIncome: '4000000',
+      isConfirmed: true,
+    }
+
+    // 미입력이면 2025년 상수를 찾다가 거부된다. 기준일(2026) 연도를 썼다면 통과한다
+    expect(errorOf(await a.write.createRedemption(productId, past)).code).toBe('INTERNAL')
+
+    /**
+     * **양성 대조 — 산출은 미입력 시에만 일어난다 (A-04).**
+     *
+     * 이것이 없으면 위 `INTERNAL`이 세율 조회가 아니라 다른 이유(상품·상환
+     * 자체의 결함)에서 왔을 수 있다. 실제 징수액을 적으면 같은 상환이 통과하므로
+     * 거부의 원인이 **세율 조회 하나**임이 고정된다.
+     */
+    const redemptionId = dataOf(
+      await a.write.createRedemption(productId, { ...past, withholdingTax: '616000' }),
+    ).id
+    const view = await a.read.getProduct(productId)
+    expect(view!.redemption!.withholdingTax).toBe('616000')
+
+    await a.write.deleteRedemption(redemptionId)
+    await a.write.deleteProduct(productId)
+  })
+
   it('I-01 — 두 번째 상환은 CONFLICT다', async () => {
     const error = errorOf(await a.write.createRedemption(productId, input))
     expect(error.code).toBe('CONFLICT')
