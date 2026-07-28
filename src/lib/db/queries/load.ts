@@ -317,11 +317,20 @@ export async function loadAllAssetsWithLatestPrice(
 export type TaxYearContext = {
   /** 실제 적용된 세율·상수의 연도. 요청 연도와 다르면 근사다 (§4.6 `taxLawYear`) */
   taxLawYear: number
+  /**
+   * 시드된 연도 전체(오름차순) — §4.6 `seededYears` (v1.9, P4 컷 8).
+   *
+   * 화면의 연도 선택기가 이 값을 쓴다. **하한이 여기밖에 없다** — 시드보다 과거인
+   * 연도는 아래에서 예외가 되므로, 화면이 범위를 추측하면 그중 일부가 오류 화면으로
+   * 가는 선택지가 된다. `taxLawYear`로는 유도할 수 없다(그 값은 요청 연도 또는
+   * 최신 시드 연도이며 어느 경우에도 하한을 말하지 않는다).
+   */
+  seededYears: number[]
   brackets: Array<SelectedRow<'tax_brackets', typeof TAX_BRACKET_COLUMNS>>
   constants: Array<SelectedRow<'tax_constants', typeof TAX_CONSTANT_COLUMNS>>
 }
 
-type TaxYearRow = {
+export type TaxYearRow = {
   tax_year: number
   tax_brackets: Array<SelectedRow<'tax_brackets', typeof TAX_BRACKET_COLUMNS>>
   tax_constants: Array<SelectedRow<'tax_constants', typeof TAX_CONSTANT_COLUMNS>>
@@ -381,6 +390,35 @@ export async function loadTaxYearContext(
   ctx: QueryContext,
   year: number,
 ): Promise<TaxYearContext> {
+  return resolveTaxYear(await loadAllTaxYears(ctx), year)
+}
+
+/**
+ * `tax_years` 전체 — **I/O만 한다** (AQ-22 부분 처리, P4 컷 8).
+ *
+ * ## Q-06 방어를 여기서 부여한다
+ *
+ * AQ-22가 「규약은 조회 전체를 말하는데 구현은 로더 5개에만 있다」고 적었고
+ * `loadTaxYearContext`가 그 목록에 없던 하나였다. 루트가 `tax_years`이므로 현재
+ * 규모에서 상한에 닿을 수 없지만, **닿았다면 AQ-09를 닫으라는 신호**라는 Q-06의
+ * 목적이 이 경로에서는 작동하지 않았다 — 세 계약(§4.1·§4.6·§4.8)이 이 로더를 탄다.
+ *
+ * 연도 하나에 대해 `tax_brackets`·`tax_constants`가 각각 여러 행이므로 **행 수는
+ * 연도 수의 몇 배**다. 임베드 안쪽은 이 상한이 세지 않는다는 것도 함께 적어 둔다 —
+ * 루트 행(연도)만 센다.
+ *
+ * ## 판정을 함께 하지 않는다
+ *
+ * 근사·거부의 규칙(아래 `resolveTaxYear`)은 **시드 상태에 대한 판정**이고 순수하다.
+ * 붙여 두면 그 규칙을 실행하는 유일한 방법이 DB를 세우는 것이 되고, **시드가 아예
+ * 없는 분기는 통합 스위트로 관측할 수 없다**(그 상태를 만들면 다른 216건이 함께
+ * 죽는다 — 컷 6이 `TaxSeedRangeError`의 분류를 순수 함수로 뗀 것과 같은 이유다).
+ * 떼어 두면 상시 스위트가 세 분기를 전부 본다.
+ *
+ * P4b가 `getForecast`를 만들 때 **같은 함수를 여러 연도에 재사용한다** — 6개 연도의
+ * 컨텍스트를 얻기 위해 왕복을 6번 하지 않는다.
+ */
+export async function loadAllTaxYears(ctx: QueryContext): Promise<TaxYearRow[]> {
   const select = [
     'tax_year',
     embed('tax_brackets', selectList(TAX_BRACKET_COLUMNS), {
@@ -395,38 +433,59 @@ export async function loadTaxYearContext(
     .from('tax_years')
     .select(select)
     .order('tax_year', { ascending: true })
+    .limit(TRUNCATION_PROBE_LIMIT)
     .overrideTypes<TaxYearRow[], { merge: false }>()
 
   if (error != null) fail('세율 연도', error)
 
-  const seeded = data.filter(
-    (row) => row.tax_brackets.length > 0 && row.tax_constants.length > 0,
-  )
+  assertNotTruncated(data, '세율 연도')
+  return data
+}
+
+/**
+ * 요청 연도 → 적용할 세율 연도. **순수하다** — 위 표의 세 분기가 전부 여기 있다.
+ *
+ * 시드로 인정하는 조건은 「구간과 상수가 **둘 다** 있다」다. 한쪽만 있는 연도를
+ * 통과시키면 `calculateHealthInsurance`가 상수 부재로 죽는데, 그 실패는 세율 조회가
+ * 아니라 계산에서 나타나 원인이 가려진다.
+ */
+export function resolveTaxYear(rows: readonly TaxYearRow[], year: number): TaxYearContext {
+  const seeded = rows
+    .filter((row) => row.tax_brackets.length > 0 && row.tax_constants.length > 0)
+    // 순서를 여기서 보장한다 — 질의의 `order`에 기대면 이 함수가 그 성질을 잃는다.
+    .sort((a, b) => a.tax_year - b.tax_year)
+
   if (seeded.length === 0) {
+    // **`TaxSeedRangeError`가 아니다.** 사용자가 고칠 수 없는 시스템 결함이므로
+    // §3.2.2의 기본값(`INTERNAL`)으로 가야 한다 — 컷 6이 두 예외를 타입으로 가른
+    // 이유가 이것이고, 합치면 마이그레이션 미적용이 「징수액을 입력하라」가 된다.
     throw new Error(
       '세율·요율 시드가 없다. 마이그레이션이 적용되지 않았다 (ADR-005).',
     )
   }
 
+  const seededYears = seeded.map((row) => row.tax_year)
   const exact = seeded.find((row) => row.tax_year === year)
   if (exact != null) {
     return {
       taxLawYear: exact.tax_year,
+      seededYears,
       brackets: exact.tax_brackets,
       constants: exact.tax_constants,
     }
   }
 
-  const earliest = seeded[0]
+  const earliest = seeded[0]!
   if (year < earliest.tax_year) {
     // 근사하지 않는다. 없는 값을 근사하는 것보다 없다고 말하는 것이 맞다.
     // 전용 타입인 이유는 §5.4가 이 하나만 `VALIDATION_FAILED`로 옮기기 때문이다.
     throw new TaxSeedRangeError(year, earliest.tax_year)
   }
 
-  const latest = seeded[seeded.length - 1]
+  const latest = seeded[seeded.length - 1]!
   return {
     taxLawYear: latest.tax_year,
+    seededYears,
     brackets: latest.tax_brackets,
     constants: latest.tax_constants,
   }

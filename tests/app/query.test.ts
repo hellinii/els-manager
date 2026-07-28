@@ -6,12 +6,14 @@ import {
   FILTER_KEYS,
   SCHEDULE_KEYS,
   SCHEDULE_RANGE_DEFAULT,
+  TAX_KEYS,
   SORT_DEFAULT,
   filterQuery,
   isNarrowed,
   isScheduleNarrowed,
   parseProductFilter,
   parseScheduleFilter,
+  parseTaxFilter,
   toListParams,
   toScheduleParams,
   type ProductFilter,
@@ -290,5 +292,114 @@ describe('평가일정 필터 (SCR-301)', () => {
       ownerId: owner,
       activeOnly: true,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SCR-401 세금 계산 — 컷 8
+// ---------------------------------------------------------------------------
+
+/**
+ * **조정값이 주소에 있다는 것이 「저장되지 않는다」의 형태다** (DOC-011 §4.6).
+ *
+ * 조정 폼이 `<form method="GET">`이므로 변경 계약으로 가는 경로가 아예 없다. 이
+ * 파서가 그 주소를 계약의 `override`로 옮기며, **`null`인지 아닌지가 화면의 문구를
+ * 가른다** — 계약의 `isSaved = false`가 「저장된 프로필 없음」과 「조정 중」을 한
+ * 거짓으로 접기 때문이다(§4.6). 그 구분을 만드는 자리가 여기다.
+ */
+const HEALTH_TYPES = ['EMPLOYEE', 'REGIONAL', 'DEPENDENT', 'NONE'] as const
+
+describe('세금 필터 (SCR-401)', () => {
+  it('빈 주소는 연도도 조정도 없다 — 화면이 기준일의 연도를 쓴다', () => {
+    expect(parseTaxFilter({}, HEALTH_TYPES)).toEqual({ year: null, override: null })
+  })
+
+  it('연도는 4자리만 받는다 — 범위는 보지 않는다', () => {
+    /*
+     * 어느 연도가 유효한지는 세율 시드가 정하고(§4.6 `seededYears`) 그 지식은 조회
+     * 결과에 있다. 여기서 범위를 정하면 시드가 늘 때 두 곳을 고쳐야 한다.
+     */
+    expect(parseTaxFilter({ year: '2026' }, HEALTH_TYPES).year).toBe(2026)
+    // 시드보다 과거여도 파서는 통과시킨다 — 화면이 그 예외를 안내로 바꾼다.
+    expect(parseTaxFilter({ year: '1999' }, HEALTH_TYPES).year).toBe(1999)
+    for (const bogus of ['26', '20261', 'two-thousand', '', '-2026']) {
+      expect(parseTaxFilter({ year: bogus }, HEALTH_TYPES).year, bogus).toBeNull()
+    }
+  })
+
+  it('축 하나만 있어도 조정이다 — 계약의 `override`가 필드별 선택이다', () => {
+    const filter = parseTaxFilter({ [TAX_KEYS.otherIncomeBase]: '50000000' }, HEALTH_TYPES)
+    expect(filter.override).toEqual({ otherIncomeBase: '50000000' })
+  })
+
+  it('세 축이 함께 실린다', () => {
+    const filter = parseTaxFilter(
+      {
+        [TAX_KEYS.otherIncomeBase]: '50000000',
+        [TAX_KEYS.otherFinancialIncome]: '3000000',
+        [TAX_KEYS.healthInsuranceType]: 'REGIONAL',
+      },
+      HEALTH_TYPES,
+    )
+    expect(filter.override).toEqual({
+      otherIncomeBase: '50000000',
+      otherFinancialIncome: '3000000',
+      healthInsuranceType: 'REGIONAL',
+    })
+  })
+
+  it('★ 빈 칸은 조정이 아니다 — `0`으로 읽지 않는다', () => {
+    /*
+     * ★ `'0'`으로 읽으면 **사용자가 적지 않은 값을 우리가 지어낸다.** 그리고 그
+     * 상태가 `override`가 되어 「시뮬레이션 중」으로 표시되므로, 저장된 프로필이
+     * 있는 사용자에게 「저장되지 않았다」가 뜬다 — 원인 둘을 가르는 값이 잘못 켜지는
+     * 형태다(§4.6).
+     */
+    const filter = parseTaxFilter(
+      { [TAX_KEYS.otherIncomeBase]: '', [TAX_KEYS.otherFinancialIncome]: '   ' },
+      HEALTH_TYPES,
+    )
+    expect(filter.override).toBeNull()
+  })
+
+  it('주소에 실린 쉼표를 지운다 — 값은 바뀌지 않는다', () => {
+    /*
+     * 조정 폼이 GET이므로 직전 값이 주소를 지나 입력란으로 돌아온다. 쉼표가 섞이면
+     * V-19가 「정수로 입력한다」를 내는데 사용자에게는 자기가 적은 것이 정수다 —
+     * `parse.ts`의 `amountText`가 폼 경로에서 막는 것과 같은 함정이며 주소 경로에도
+     * 있다. 15자리로 확인한다(`numeric(15,0)` 상한이며 그 위에서 float64가 값을 민다).
+     */
+    const filter = parseTaxFilter(
+      { [TAX_KEYS.otherIncomeBase]: '123,456,789,012,345' },
+      HEALTH_TYPES,
+    )
+    expect(filter.override?.otherIncomeBase).toBe('123456789012345')
+  })
+
+  it('인식하지 못한 가입 유형은 그 축을 조정하지 않는다', () => {
+    // 조작된 주소가 오류가 되지 않는다(SCR-201·301과 같은 규약). 그 축은 저장값이
+    // 그대로 쓰인다 — 계약의 `override`가 필드별 선택이므로 자연히 그렇게 된다.
+    const filter = parseTaxFilter(
+      { [TAX_KEYS.healthInsuranceType]: 'GOLD_MEMBER' },
+      HEALTH_TYPES,
+    )
+    expect(filter.override).toBeNull()
+
+    const mixed = parseTaxFilter(
+      {
+        [TAX_KEYS.healthInsuranceType]: 'GOLD_MEMBER',
+        [TAX_KEYS.otherIncomeBase]: '1000',
+      },
+      HEALTH_TYPES,
+    )
+    expect(mixed.override).toEqual({ otherIncomeBase: '1000' })
+  })
+
+  it('같은 키가 두 번 오면 버린다 — 폼이 만들 수 없는 형태다', () => {
+    const filter = parseTaxFilter(
+      { [TAX_KEYS.healthInsuranceType]: ['EMPLOYEE', 'REGIONAL'], year: ['2026', '2025'] },
+      HEALTH_TYPES,
+    )
+    expect(filter).toEqual({ year: null, override: null })
   })
 })

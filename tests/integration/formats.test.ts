@@ -195,6 +195,8 @@ const ASSET_PRICE: Record<string, Spec> = {
 const TAX_SUMMARY: Record<string, Spec> = {
   year: 'NUMBER',
   taxLawYear: 'NUMBER',
+  // v1.9 — 연도 선택기의 하한. 배열이므로 잎은 `seededYears[]`로 접힌다.
+  'seededYears[]': 'NUMBER',
   'profile.otherIncomeBase': 'AMOUNT',
   'profile.otherFinancialIncome': 'AMOUNT',
   'profile.healthInsuranceType': HEALTH_TYPES,

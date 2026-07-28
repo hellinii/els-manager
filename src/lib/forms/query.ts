@@ -240,6 +240,99 @@ export function isScheduleNarrowed(filter: ScheduleFilter): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// SCR-401 세금 계산 — 컷 8
+// ---------------------------------------------------------------------------
+
+/**
+ * 연도와 **시뮬레이션 값**이 주소에 있다 — 그것이 「저장되지 않는다」의 형태다
+ *
+ * DOC-011 §4.6이 `override`를 시뮬레이션 전용으로 정하고 저장을 §5.6으로 분리한
+ * 이유가 「값을 조정해봤을 뿐인데 저장되는」 문제다. 조정을 **주소**에 두면 그
+ * 분리가 구조가 된다 — 조정 폼이 `<form method="GET">`이므로 변경 계약으로 가는
+ * 경로가 애초에 없다(서버 액션이 아니다).
+ *
+ * ## 세 값이 **함께** 있어야 `override`가 된다고 보지 않는다
+ *
+ * 하나만 있어도 override다. 계약의 `override`가 필드별 선택이므로(`?:`) 나머지는
+ * 저장값이 그대로 쓰인다 — 부분 조정이 계약의 설계다.
+ */
+export type TaxOverrideValues = {
+  otherIncomeBase?: string
+  otherFinancialIncome?: string
+  healthInsuranceType?: string
+}
+
+export type TaxFilter = {
+  /** 요청 연도. `null`이면 화면이 기준일의 연도를 쓴다 */
+  year: number | null
+  /** 시뮬레이션 값. **키가 하나도 없으면 `null`이다** — 그 구분이 표시를 가른다 */
+  override: TaxOverrideValues | null
+}
+
+export const TAX_KEYS = {
+  year: 'year',
+  otherIncomeBase: 'otherIncomeBase',
+  otherFinancialIncome: 'otherFinancialIncome',
+  healthInsuranceType: 'healthInsuranceType',
+} as const
+
+/**
+ * **`override`가 `null`인지가 화면의 문구를 정한다.**
+ *
+ * 계약의 `isSaved = false`는 「저장된 프로필이 없다」와 「override 적용 중」을 한
+ * 거짓으로 접는다(§4.6). 두 상태의 표시가 정반대이므로(미입력 경고 / 시뮬레이션
+ * 안내) 가르는 값이 필요한데, **그것을 계약에 묻지 않는다** — `override`를 넘긴 것은
+ * 화면 자신이고 여기가 그 사실이 만들어지는 자리다.
+ *
+ * `healthInsuranceType`은 **화면이 제시한 값 집합을 인자로 받는다**(`parseProductFilter`가
+ * `kiStatus`에 하는 것과 같다). 라벨 표가 정본이므로 목록을 여기서 다시 적지 않는다.
+ */
+export function parseTaxFilter(
+  values: QueryValues,
+  healthTypes: readonly string[],
+): TaxFilter {
+  const override: TaxOverrideValues = {}
+
+  // 금액은 **비어 있지 않을 때만** 담는다. 빈 칸은 「조정하지 않음」이고 `'0'`이
+  // 아니다 — `'0'`으로 읽으면 사용자가 적지 않은 값을 우리가 지어내는 것이 된다.
+  const base = one(values[TAX_KEYS.otherIncomeBase])
+  if (base !== '') override.otherIncomeBase = amountDigits(base)
+  const other = one(values[TAX_KEYS.otherFinancialIncome])
+  if (other !== '') override.otherFinancialIncome = amountDigits(other)
+
+  // 열거값은 인식할 때만 담는다. 조작된 값은 그 축을 조정하지 않은 것이 된다.
+  const health = oneOf(one(values[TAX_KEYS.healthInsuranceType]), healthTypes)
+  if (health != null) override.healthInsuranceType = health
+
+  return {
+    year: yearOr(one(values[TAX_KEYS.year])),
+    override: Object.keys(override).length === 0 ? null : override,
+  }
+}
+
+/**
+ * 4자리 연도만 받는다. **범위는 보지 않는다** — 어느 연도가 유효한지는 세율 시드가
+ * 정하고(§4.6 `seededYears`) 그 지식은 조회 결과에 있다. 여기서 범위를 정하면
+ * 시드가 늘 때 두 곳을 고쳐야 한다.
+ */
+function yearOr(raw: string): number | null {
+  return /^\d{4}$/.test(raw) ? Number.parseInt(raw, 10) : null
+}
+
+/**
+ * 주소에 실린 금액에서 쉼표·공백을 지운다.
+ *
+ * 조정 폼은 GET이므로 **직전 값이 그대로 주소에 실려 다시 입력란으로 돌아온다.**
+ * 화면이 천단위 쉼표를 붙여 렌더하면(사용자가 그렇게 적기도 한다) 그 문자열이
+ * 계약으로 가는데, `requireAmount`가 「정수로 입력한다」를 내고 사용자에게는 자기가
+ * 적은 것이 정수다 — `parse.ts`의 `amountText`가 폼 경로에서 막는 것과 같은 함정이며
+ * 주소 경로에도 있다. **값은 바뀌지 않는다**(문자열 연산이고 float64를 경유하지 않는다).
+ */
+function amountDigits(raw: string): string {
+  return raw.replace(/[,\s]/g, '')
+}
+
+// ---------------------------------------------------------------------------
 // 원시값 좁히기
 // ---------------------------------------------------------------------------
 

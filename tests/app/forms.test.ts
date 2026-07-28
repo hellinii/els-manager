@@ -7,6 +7,7 @@ import {
   optionalText,
   parseAssetForm,
   parseManualPriceForm,
+  parseTaxProfileForm,
   percentToRatio,
   text,
 } from '@/lib/forms/parse'
@@ -293,5 +294,63 @@ describe('ActionResult → FormState', () => {
       NAMES,
     )
     expect(JSON.parse(JSON.stringify(state))).toEqual(state)
+  })
+})
+
+describe('§5.6 과세 프로필 폼 — SCR-401 (컷 8)', () => {
+  it('네 칸을 계약 입력으로 좁힌다', () => {
+    const input = parseTaxProfileForm(
+      formData({
+        year: '2026',
+        otherIncomeBase: '50000000',
+        otherFinancialIncome: '3000000',
+        healthInsuranceType: 'REGIONAL',
+      }),
+    )
+
+    expect(input).toEqual({
+      year: 2026,
+      otherIncomeBase: '50000000',
+      otherFinancialIncome: '3000000',
+      healthInsuranceType: 'REGIONAL',
+    })
+  })
+
+  it('쉼표를 지운다 — 값은 바뀌지 않는다', () => {
+    /*
+     * 이 폼의 칸은 전부 히든이고 값은 **조정 폼(GET)에서** 온다. 그런데 그 경로에도
+     * 쉼표가 실릴 수 있으므로(사용자가 적거나 주소에 남아 있다) 같은 방어가 필요하다 —
+     * 없으면 V-19가 「정수로 입력한다」를 내고 사용자에게는 자기가 적은 것이 정수다.
+     *
+     * 문자열 연산이므로 float64를 경유하지 않는다(15자리로 확인한다 —
+     * `numeric(15,0)` 상한이며 그 위에서 float64가 값을 밀기 시작한다).
+     */
+    const input = parseTaxProfileForm(
+      formData({
+        year: '2026',
+        otherIncomeBase: '123,456,789,012,345',
+        otherFinancialIncome: ' 1,000 ',
+        healthInsuranceType: 'EMPLOYEE',
+      }),
+    )
+    expect(input.otherIncomeBase).toBe('123456789012345')
+    expect(input.otherFinancialIncome).toBe('1000')
+  })
+
+  it('연도가 형식이 아니면 `NaN`이다 — 계약이 거부한다', () => {
+    /*
+     * V-20이 「정수로 입력한다」를 낸다. 여기서 기본값을 채우면 사용자가 보고 있던
+     * 연도가 아닌 해의 프로필이 조용히 저장된다 — 집계 키가 `(owner_id, year)`이므로
+     * (절대 규칙 #7) 그 저장은 다른 연도의 계산을 바꾼다.
+     */
+    const input = parseTaxProfileForm(formData({ year: '', healthInsuranceType: 'NONE' }))
+    expect(Number.isNaN(input.year)).toBe(true)
+  })
+
+  it('가입 유형을 좁히지 않는다 — 열거 검사는 V-19가 한다', () => {
+    // 여기서 캐스팅만 하므로 조작된 값이 타입만 통과한다. 그것이 의도다 —
+    // 규칙이 두 곳에 생기면 어느 쪽이 정본인지 알 수 없다(이 파일 머리글).
+    const input = parseTaxProfileForm(formData({ year: '2026', healthInsuranceType: 'BOGUS' }))
+    expect(input.healthInsuranceType).toBe('BOGUS')
   })
 })

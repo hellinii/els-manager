@@ -38,7 +38,14 @@ import type { ActionResult } from './mutations/result'
  */
 const requestAsOf = cache((): string => today())
 
-const requestQueries = cache(async (): Promise<Queries> => {
+/**
+ * 세션 해석 — **한 요청에 한 번**이며 아래 둘이 공유한다.
+ *
+ * `getQueries()`와 `getViewerId()`를 각자 해석하면 `getUser()`가 요청당 한 번 더
+ * 늘고(§4.0 왕복 표는 프록시 + 여기 = 2로 등재되어 있다) 두 값이 다른 사용자를
+ * 가리키는 창이 생긴다 — 갱신이 그 사이에 일어나면 실재하는 경우다.
+ */
+const requestSession = cache(async () => {
   // Next 16의 cookies()는 async다.
   const store = await cookies()
   const db = createSessionClient(
@@ -48,15 +55,43 @@ const requestQueries = cache(async (): Promise<Queries> => {
   // getUser()는 토큰을 GoTrue에서 검증한다. getSession()은 쿠키를 그대로 믿으므로
   // 서버에서 신뢰 판단의 근거로 쓰지 않는다.
   const { data, error } = await db.auth.getUser()
+  return { db, user: error != null ? null : data.user }
+})
+
+const requestQueries = cache(async (): Promise<Queries> => {
+  const { db, user } = await requestSession()
 
   // 판단은 `queriesFor`에 있다 — 이 파일은 테스트 그래프 밖이므로(AQ-23) 여기에
   // 분기를 두면 그것만 미검증으로 남는다. 남는 것은 결선뿐이다.
-  return queriesFor(error != null ? null : data.user, { db, asOf: requestAsOf() })
+  return queriesFor(user, { db, asOf: requestAsOf() })
 })
 
 /** 서버 컴포넌트·라우트에서 조회 계약을 얻는 유일한 경로. */
 export function getQueries(): Promise<Queries> {
   return requestQueries()
+}
+
+/**
+ * 조회자의 id — 화면이 읽는다 (P4 컷 8, SCR-401).
+ *
+ * **계약이 아니라 프레임워크 배선이다**(`getAsOf()`와 같은 자리 — DOC-011 무변경).
+ * 필요한 이유는 §4.6이 본인 전용임을 **인자로 드러내기** 때문이다:
+ * `getTaxSummary({ ownerId })`는 `ownerId ≠ 조회자`이면 던지며, 그 단언이 걸리게
+ * 하려고 인자를 남긴 것이므로(§4.6의 각주) 화면이 자기 id를 알아야 한다.
+ * 계약이 기본값으로 조회자를 채우게 하면 그 의도 드러내기가 사라진다.
+ *
+ * **미인증이면 던진다** — Q-04와 같은 이유이며 같은 예외다. 프록시가 먼저 거르므로
+ * 여기 도달하는 요청은 인증되어 있고, 그러고도 던졌다면 프록시가 놓쳤다는 신호다.
+ * `queriesFor`가 그 판단의 단일 구현이므로 여기서 다시 분기하지 않고 그것을 부른다.
+ */
+export async function getViewerId(): Promise<string> {
+  // 미인증 판단을 여기서 다시 적지 않는다 — 같은 요청의 조회 묶음이 이미 그것을
+  // 하고(`queriesFor`가 `UnauthenticatedError`를 던진다) `cache()`가 그 호출을
+  // 공유하므로 왕복도 늘지 않는다. 그 분기는 상시 스위트가 본다
+  // (`tests/db/context-branches.test.ts`).
+  await requestQueries()
+  const { user } = await requestSession()
+  return user!.id
 }
 
 /**

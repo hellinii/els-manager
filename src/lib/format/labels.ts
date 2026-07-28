@@ -1,6 +1,7 @@
 import type { ConditionResult, KiStatus } from '@/lib/domain'
 import type { AttentionReason, IntegrityIssue, ProductListItem, RedemptionView } from '@/lib/db/queries/map'
 import type { AssetPriceView } from '@/lib/db/queries/prices'
+import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import type { AssetInput, ProductInput } from '@/lib/db/mutations/types'
 
 /**
@@ -112,6 +113,26 @@ export const ATTENTION_REASON_LABELS: Record<AttentionReason, string> = {
 }
 
 /**
+ * 건강보험 가입 유형 — **`NONE`은 「해당 없음」이 아니라 「미입력」이다** (DOC-005 §5·§6.1)
+ *
+ * 다른 셋은 제도상의 자격이고 이 값만 **입력의 부재**다. DOC-011 §4.6이 프로필 행이
+ * 없을 때의 폴백으로 쓰며, 그 상태의 건강보험료는 `0`이다 — 「해당 없음」으로 적으면
+ * 그 0이 **판정의 결과**처럼 읽히고 사용자는 부과액이 0이라고 이해한다.
+ *
+ * 라벨을 「미입력」으로 두면 그 규칙이 정본 표에 들어와 화면이 다시 정할 것이 없다.
+ * 선택 상자에서도 같은 문자열이며, 그것을 고르는 것이 **가입 유형을 비우는 동작**이다.
+ */
+export const HEALTH_INSURANCE_TYPE_LABELS: Record<
+  TaxSummaryView['profile']['healthInsuranceType'],
+  string
+> = {
+  EMPLOYEE: '직장가입자',
+  REGIONAL: '지역가입자',
+  DEPENDENT: '피부양자',
+  NONE: '미입력',
+}
+
+/**
  * 축 이름 → 라벨 표. **키가 DOC-005 §6.1의 `축` 열과 같아야 한다** — 문서 파싱
  * 대조가 그 이름으로 짝을 짓는다. 축이 늘어나면 문서에도 늘어야 실패하지 않는다.
  */
@@ -126,6 +147,7 @@ export const LABEL_AXES = {
   priceSource: PRICE_SOURCE_LABELS,
   integrityIssue: INTEGRITY_ISSUE_LABELS,
   attentionReason: ATTENTION_REASON_LABELS,
+  healthInsuranceType: HEALTH_INSURANCE_TYPE_LABELS,
 } as const satisfies Record<string, Record<string, string>>
 
 /** 「시세 오래됨」 — DOC-005 §6 `isStale`. 열거형이 아니라 boolean이므로 따로 둔다. */

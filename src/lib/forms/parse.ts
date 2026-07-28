@@ -5,6 +5,7 @@ import type {
   ProductInput,
   RedemptionInput,
   ScheduleInput,
+  TaxProfileInput,
   UnderlyingInput,
 } from '@/lib/db/mutations/types'
 
@@ -294,6 +295,30 @@ export function parseRedemptionForm(form: FormData): RedemptionInput {
   if (note != null) input.note = note
 
   return input
+}
+
+/**
+ * §5.6 과세 프로필 저장 — SCR-401 (P4 컷 8).
+ *
+ * ## 이 폼만 「보이는 칸」이 다른 폼에 있다
+ *
+ * SCR-401은 조정(GET)과 저장(POST)을 두 폼으로 가르므로(DOC-008 §5 v0.9) 사용자가
+ * 값을 적는 칸은 조정 폼에 있고 이 폼은 **적용된 값을 히든으로** 들고 온다. 그래서
+ * 파서 입장에서는 다른 폼과 다를 것이 없다 — 이름이 같으면 히든이든 아니든 같다.
+ *
+ * `year`는 `countOf`로 읽으므로 형식이 아니면 `NaN`이고 V-20이 「정수로 입력한다」로
+ * 거부한다. 화면이 같은 판정을 하지 않는 이유는 이 파일 머리글과 같다.
+ */
+export function parseTaxProfileForm(form: FormData): TaxProfileInput {
+  return {
+    year: countOf(text(form, 'year')),
+    otherIncomeBase: amountText(form, 'otherIncomeBase'),
+    otherFinancialIncome: amountText(form, 'otherFinancialIncome'),
+    healthInsuranceType: text(
+      form,
+      'healthInsuranceType',
+    ) as TaxProfileInput['healthInsuranceType'],
+  }
 }
 
 /**

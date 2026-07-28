@@ -46,6 +46,8 @@ export type TaxOverride = {
 export type TaxSummaryView = {
   year: number
   taxLawYear: number
+  /** 시드된 세율 연도 전체(오름차순) — 연도 선택기의 하한(§4.6 v1.9) */
+  seededYears: number[]
   profile: {
     otherIncomeBase: string
     otherFinancialIncome: string
@@ -360,6 +362,9 @@ export function makeTaxQueries(ctx: QueryContext) {
     return {
       year: params.year,
       taxLawYear: own.taxLawYear,
+      // 화면의 연도 선택기가 쓴다 — 하한이 여기밖에 없다(§4.6 v1.9). 왕복은 늘지
+      // 않는다: `loadTaxYearContext`가 이미 `tax_years` 전체를 읽어 근사를 판정한다.
+      seededYears: yearContext.seededYears,
       profile: {
         otherIncomeBase: amountString(dec(effective.otherIncomeBase)),
         otherFinancialIncome: amountString(dec(effective.otherFinancialIncome)),
