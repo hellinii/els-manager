@@ -413,6 +413,28 @@ describe('합성 — affects × ROUTE_QUERIES', () => {
     expect(staleRoutesFor('setKiTouched')).toContain(PATHS.schedule)
   })
 
+  it('설정은 어떤 변경에도 낡지 않는다 — 조회 계약을 읽지 않는 유일한 라우트다', () => {
+    /*
+     * ★ **빈 배열이 옳은 유일한 자리다.** `ROUTE_QUERIES`의 다른 항목이 비면 그 화면은
+     * 「저장했는데 그 화면만 그대로」가 되지만, SCR-502는 조회 계약을 부르지 않으므로
+     * (로그아웃 + 앱 정보·면책뿐) 낡을 값이 없다. 그래서 **그 사실을 케이스로 박는다** —
+     * 나중에 이 화면이 무언가를 읽게 되면 여기가 빨간불이 되어 항목을 채우라고 말한다.
+     *
+     * 같은 사실의 다른 면: 이 라우트는 `next build`에서 정적으로 프리렌더된다
+     * (`cookies()`를 지나지 않는다). 그래서 **날짜·시각을 표시할 수 없다** — 그
+     * 함정의 실측 기록이 `src/app/(app)/settings/page.tsx`의 머리글에 있다.
+     */
+    expect(ROUTE_QUERIES[PATHS.settings]).toEqual([])
+    for (const name of MUTATION_NAMES) {
+      expect(staleRoutesFor(name), name).not.toContain(PATHS.settings)
+    }
+    // 빈 항목이 여기 하나뿐이다 — 다른 화면이 조용히 비면 이 단언이 잡는다.
+    const empty = Object.entries(ROUTE_QUERIES)
+      .filter(([, queries]) => queries.length === 0)
+      .map(([route]) => route)
+    expect(empty).toEqual([PATHS.settings])
+  })
+
   it('`/forecast`는 세금 요약과 함께 낡는다 — P4b의 대리 기준', () => {
     // 계약이 없으므로 `getTaxSummary`를 대리로 쓴다(`PENDING_ROUTES`의 근거).
     expect(Object.keys(PENDING_ROUTES)).toEqual([PATHS.forecast])
@@ -578,6 +600,35 @@ describe('DOC-008 §4 ↔ 라우트', () => {
      * 라우트의 무효화 대리 기준을 함께 들고 있다.
      */
     expect(placeholders.sort()).toEqual(['/forecast'])
+  })
+
+  it('P4가 세우는 화면 12개가 전부 섰다 — 컷 10의 종료 조건', () => {
+    /*
+     * ★ **P4의 종료 상태를 숫자로 고정한다.** 계획 §4의 「화면 12개 ↔ 컷」 표가 그
+     * 목록이며, DOC-008 §4의 14개에서 SCR-501(만들지 않는다)을 빼고 SCR-901·902를
+     * 선행 조건 ③으로 흡수한 결과다.
+     *
+     * 여기서 세는 것은 **라우트**이므로 12와 같지 않다: SCR-202·203·204가 라우트
+     * 다섯이고(상세·상환·등록·수정) SCR-901·902는 라우트가 아니다. 그래서 개수 대신
+     * **자리표시 원장이 하나로 줄었다**는 사실을 종료 조건으로 쓴다 — 그 하나가
+     * `/forecast`이고 화면이 아니라 계약 신설이다(P4b).
+     */
+    const placeholders = placeholderRoutes()
+    expect(placeholders).toEqual([PATHS.forecast])
+
+    /*
+     * 나머지 라우트는 전부 실화면이다 — 문서가 정의한 경로 중 파일 없는 것도,
+     * 자리표시로 남은 것도 없다. `/forecast`만 건너뛴다(위 단언이 그 하나를 이미
+     * 고정했고, 그것이 P4의 범위 밖이라는 것이 §4의 결정이다).
+     */
+    const routes = new Set(actualRoutes())
+    for (const [screen, paths] of Object.entries(screenRoutes())) {
+      for (const path of paths) {
+        if (path in NOT_YET_BUILT || path === PATHS.forecast) continue
+        expect(routes.has(path), `${screen} ${path}`).toBe(true)
+        expect(placeholders, `${screen} ${path}는 아직 자리표시다`).not.toContain(path)
+      }
+    }
   })
 
   it('세 번째 원장이 두 번째로 비었다 — 컷 6이 SCR-202의 셋을 세웠다', () => {
