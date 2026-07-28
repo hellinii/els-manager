@@ -109,8 +109,36 @@ npm run test:rls && npm run typecheck
 새 파일이 자동으로 `db:reset`에 실리고, `tests/integration/`에는 **필터 없는 전역 건수 단언**이
 있다(모든 SELECT 정책이 `using (true)`라 남의 상품도 센다). 즉 시드에 상품을 하나 넣으면
 성장 불변 테스트가 **잘못된 이유로** 빨간불이 된다. 개발용 표본은 `supabase/dev/`(글롭 밖)에 두고
-`psql -f`로 수동 적용한다 — `db:reset`이 지우므로 격리가 규율이 아니라 구조다. 1차 입력 경로는
-**화면**이다(P4 컷 1b부터).
+수동 적용한다 — `db:reset`이 지우므로 격리가 규율이 아니라 구조다. 1차 입력 경로는
+**화면**이다(P4 컷 1b부터). **사용자는 예외로 `seed/`에 둔다**(`03_dev_users.sql`) — 그쪽 단언은
+전부 id로 필터하므로 안전하고, 상품·시세와 달리 매 리셋에 살아 있어야 로그인할 수 있다.
+
+```bash
+npm run db:reset
+docker exec -i supabase_db_els-manager psql -U postgres -d postgres -f - \
+  < supabase/dev/01_sample_portfolio.sql        # 상품 12건 (표시 상태 전수)
+docker exec -i supabase_db_els-manager psql -U postgres -d postgres -f - \
+  < supabase/dev/02_broken_fixtures.sql         # 무결성 결함 2건 (ST-06)
+# 브라우저: dev-a@example.test / dev-b@example.test, 비밀번호 dev-password
+npm run db:reset                                # 스위트 돌리기 전에 반드시
+```
+
+**호스트에 `psql`이 없다**(실측) — 컨테이너를 경유한다. `postgresql://postgres:postgres@127.0.0.1:54322/postgres`
+자체는 도달하지만 클라이언트를 따로 깔아야 한다.
+
+**표본은 손으로 INSERT하지 않고 `create_els_product`를 부른다.** 계약과 같은 함수이므로
+I-07과 테이블 CHECK가 강제되고 `owner_id`는 함수가 `auth.uid()`로 박는다. 그 대신 **V-04
+(차수 연속성)·V-07(평가일 증가)·V-09(자산 중복)는 함수가 보지 않으므로**(DOC-011 AQ-29)
+표본 파일이 그 셋을 구조로 만족시킨다 — 차수는 `generate_series`, 평가일은 `발행일 + n×주기`다.
+
+**`set local role authenticated`는 트랜잭션 안에서만 동작하고, 빠뜨리면 실패가 아니라
+조용한 성공이 된다.** 밖에서는 `WARNING: SET LOCAL can only be used in transaction blocks`만
+남기고 `current_user`가 `postgres`로 남는데 그 롤은 **`rolbypassrls = t`**다 — 실측으로 남의
+상품을 `update_els_product`로 고치는 데 성공했다. 그리고 `auth.uid()`는 롤이 아니라 GUC를 읽으므로
+(`current_setting('request.jwt.claims', true)::jsonb ->> 'sub'`) **롤과 claims 두 절반이 모두**
+필요하다. claims만 빠지면 `owner_id`의 널 위반(`23502`)이 아니라 RLS의 `42501`이 나서 정책
+결함처럼 보인다. 그래서 `supabase/dev/*.sql`은 맨 앞에서 `current_user`와 `auth.uid()`를
+**스스로 단언한다.**
 
 `supabase/config.toml`의 `[auth]`를 바꾸면 `db:reset`으로는 반영되지 않는다 —
 `db:stop && db:start`가 필요하다.
