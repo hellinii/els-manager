@@ -2,7 +2,13 @@ import { dec, truncateToUnit } from '@/lib/decimal'
 import { attributionYear } from '@/lib/domain'
 import { DEFAULT_ROUNDING } from '@/lib/tax'
 
-import { loadRedemptionRef, loadTaxYearContext, type ProductRow } from '../queries/load'
+import {
+  TaxSeedRangeError,
+  loadRedemptionRef,
+  loadTaxYearContext,
+  type ProductRow,
+  type TaxYearContext,
+} from '../queries/load'
 import { toTaxConstants } from '../taxConstants'
 import { parseRedemptionInput } from '../validate/inputs'
 import { Problems, isUuid } from '../validate/primitives'
@@ -17,7 +23,7 @@ import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { guardInput, guardSystem, guardSystemAsync } from './guard'
 import { toInsert, toUpdate } from './payload'
-import { failWith, ok, okVoid, type ActionResult } from './result'
+import { failWith, ok, okVoid, type ActionError, type ActionResult } from './result'
 import type { RedemptionInput } from './types'
 
 /** §5.4·§5.5 — 상환 처리·수정·취소 */
@@ -34,6 +40,55 @@ import type { RedemptionInput } from './types'
  * **사용자가 덮어쓸 수 있는 기본값이다.** 증권사가 확정한 실제 징수액이 있으면
  * 그것이 정본이므로(A-04) 입력값이 있으면 산출하지 않는다 — 왕복 하나도 아낀다.
  */
+/**
+ * 세율 조회의 예외 → `ActionError` — **두 종을 갈라야 한다** (§5.4 v1.7, P4 컷 6)
+ *
+ * `guardSystemAsync`를 그대로 쓰면 어떤 예외든 `INTERNAL`이 된다. 그 접기가 옳은
+ * 경우가 대부분이지만(시드 부재·상수 누락은 사용자가 고칠 수 없다) **한 가지가
+ * 아니다**: 상환일이 시드 범위보다 과거인 것은 사용자가 고칠 수 있다 — 실제 징수액을
+ * 적으면 이 조회 자체가 일어나지 않는다(A-04상 그 값이 정본이다).
+ *
+ * 가리키는 칸이 `withholdingTax`인 이유는 §5.4의 표에 있다. `redemptionDate`를
+ * 가리키면 「그 해는 지원하지 않는다」가 되어 사용자가 **가진 사실**을 부정한다.
+ *
+ * **`TaxSeedRangeError`만 옮긴다.** 시드가 아예 없는 경우(마이그레이션 미적용)까지
+ * 옮기면 진짜 장애가 「징수액을 입력하라」로 보고되고 사용자는 몇 번을 입력해도 같은
+ * 오류를 본다 — §3.2가 `INTERNAL`을 「사용자가 고칠 수 없는 것」으로 정의한 이유다.
+ *
+ * ## 왜 내보내는가
+ *
+ * **가르는 쪽 절반은 통합 스위트로 관측할 수 없다.** 시드 없는 상태를 만들려면
+ * 마이그레이션을 되돌려야 하고, 그러면 다른 216건이 함께 죽는다. 순수 함수로 떼어
+ * 두면 양쪽 분기가 상시 스위트에서 보이며, 그러지 않으면 「전부 `VALIDATION_FAILED`로
+ * 접는 구현」이 아무 단언도 깨지 않고 통과한다(음성 대조로 확인했다).
+ */
+export function taxSeedError(error: unknown, year: number): ActionError {
+  if (error instanceof TaxSeedRangeError) {
+    const message =
+      `${year}년의 세율이 없어 원천징수세액을 자동 산출할 수 없다. ` +
+      '지급명세서의 실제 징수액을 입력한다.'
+    return { code: 'VALIDATION_FAILED', message, fields: { withholdingTax: message } }
+  }
+
+  // §3.2.2 4행 — 그 밖은 전부 시스템 전제의 위반이다. 원문은 로그에만 남긴다.
+  console.error(
+    `[시스템] ${year}년 원천징수 산출용 세율 조회 — ` +
+      (error instanceof Error ? `${error.name}: ${error.message}` : String(error)),
+  )
+  return { code: 'INTERNAL', message: '처리 중 오류가 발생했다.' }
+}
+
+async function taxYearForWithholding(
+  ctx: MutationContext,
+  year: number,
+): Promise<Access<TaxYearContext>> {
+  try {
+    return { ok: true, value: await loadTaxYearContext(ctx, year) }
+  } catch (error) {
+    return { ok: false, error: taxSeedError(error, year) }
+  }
+}
+
 async function withholdingFor(
   ctx: MutationContext,
   input: RedemptionInput,
@@ -53,11 +108,8 @@ async function withholdingFor(
   }
   const attributionTo = year.value
 
-  // §3.2.2 4행 — 시드 부재·상수 누락은 사용자가 고칠 수 없다. INTERNAL이다.
-  const context = await guardSystemAsync(
-    () => loadTaxYearContext(ctx, attributionTo),
-    `${attributionTo}년 원천징수 산출용 세율 조회`,
-  )
+  // 예외 두 종이 다른 코드로 간다 — 위 함수의 각주(§5.4 v1.7).
+  const context = await taxYearForWithholding(ctx, attributionTo)
   if (!context.ok) return { ok: false, error: context.error }
 
   const constants = guardSystem(

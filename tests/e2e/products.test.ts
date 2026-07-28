@@ -291,23 +291,24 @@ describe('SCR-202 상세', () => {
     expect(detail).toContain(won('123456789012345'))
   })
 
-  it('소유자에게 수정 링크와 삭제 폼이 있다 — `OwnerOnly`의 첫 소비자 (컷 5)', async () => {
+  it('소유자에게 액션 셋이 있다 — `OwnerOnly`의 첫 소비자 (컷 5·6)', async () => {
     /*
-     * ★ 컷 4b까지 이 케이스는 「액션 버튼이 아직 없다」였다. 컷 5가 둘을 붙이자
-     * **빨간불이 되어 반대 방향으로 고치라고 말했다** — `NOT_YET_BUILT` 원장과 같은
-     * 형태이며, 「미노출」이 ST-04의 적용인지 미구현인지가 그 전환에서 구분된다.
-     *
-     * `상환 처리`(컷 6)는 여전히 없다. 그쪽 라우트가 서기 전에 링크를 두면 404다.
+     * ★ **이 케이스가 두 번 방향을 바꿨다.** 컷 4b까지는 「액션 버튼이 아직 없다」였고,
+     * 컷 5가 수정·삭제를 붙이자 빨간불이 되어 반대 방향으로 고치라고 말했다. 컷 6이
+     * 상환 처리를 붙이자 「그것은 여전히 없다」가 다시 빨간불이 되었다 —
+     * `NOT_YET_BUILT` 원장과 같은 형태이며, 「미노출」이 ST-04의 적용인지 미구현인지가
+     * 그 전환마다 구분된다.
      */
     const detail = await (await get(`/products/${seeded.productId}`, jar)).text()
 
     expect(detail).toContain(`href="${PATHS.productEdit(seeded.productId)}"`)
+    // 미상환 상품이므로 상환 처리가 있다(I-01 — 상환되면 사라진다).
+    expect(detail).toContain(`href="${PATHS.productRedeem(seeded.productId)}"`)
     // 삭제는 폼이다 — 링크로 두면 프리페치·크롤러가 상품을 지운다.
     expect(detail).toContain('정말 삭제한다')
-    expect(detail).not.toContain(`href="${PATHS.productRedeem(seeded.productId)}"`)
   })
 
-  it('타인에게는 그 둘이 없다 — 조회는 되고 액션만 사라진다 (ST-04)', async () => {
+  it('타인에게는 그 셋이 없다 — 조회는 되고 액션만 사라진다 (ST-04)', async () => {
     /*
      * ST-04(숨김 vs 비활성화)를 **증명하지는 않는다** — 요소의 부재는 HTML 문자열로
      * `hidden` 클래스와 구분되지 않는다(AQ-32). 여기서 고정하는 것은 `OwnerOnly`가
@@ -326,6 +327,7 @@ describe('SCR-202 상세', () => {
     expect(detail).toContain('타인의 상품이다')
 
     expect(detail).not.toContain(`href="${PATHS.productEdit(seeded.productId)}"`)
+    expect(detail).not.toContain(`href="${PATHS.productRedeem(seeded.productId)}"`)
     expect(detail).not.toContain('정말 삭제한다')
   })
 })

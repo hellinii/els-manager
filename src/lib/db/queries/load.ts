@@ -328,6 +328,39 @@ type TaxYearRow = {
 }
 
 /**
+ * 시드 범위보다 과거인 연도 — **`INTERNAL`과 갈라야 하는 예외** (§5.4 v1.7, P4 컷 6)
+ *
+ * `loadTaxYearContext`는 두 가지를 던진다: 그 연도가 시드보다 과거이거나, 시드가
+ * **아예 없다**(마이그레이션 미적용). 둘의 화면 처리는 정반대다.
+ *
+ * | 무엇 | 코드 | 사용자가 할 일 |
+ * |---|---|---|
+ * | 이 오류 | `VALIDATION_FAILED` + `fields.withholdingTax` | 실제 징수액을 적는다(A-04상 그것이 정본이다) |
+ * | 그 밖 | `INTERNAL` | 없다 — 시스템 결함이다 |
+ *
+ * 가르지 않으면 마이그레이션 미적용이 「징수액을 입력하라」로 보고되고 사용자는 몇
+ * 번을 입력해도 같은 오류를 본다. `guardSystemAsync`가 **어떤 예외든** `INTERNAL`로
+ * 접는 것이 옳은 이유와 같은 논거의 반대편이다(`guard.ts`의 머리글).
+ *
+ * **조회 계약은 이 타입을 보지 않는다** — 그쪽은 그대로 던진다(ADR-005). 타입을 두는
+ * 이유는 문구 정규식으로 분류하지 않기 위함이며, `UnauthenticatedError`가 같은 자리에
+ * 있다(그쪽 각주: 경계에서 `instanceof`를 시도하지 않는다는 경고까지 같다).
+ */
+export class TaxSeedRangeError extends Error {
+  override readonly name = 'TaxSeedRangeError'
+
+  constructor(
+    readonly year: number,
+    readonly earliestSeeded: number,
+  ) {
+    super(
+      `${year}년의 세율·요율이 없다. 시드는 ${earliestSeeded}년부터 있다. ` +
+        '뒤 연도의 법으로 과거를 계산하면 재현성이 깨진다(ADR-005).',
+    )
+  }
+}
+
+/**
  * 연도별 세율·상수를 **한 왕복**으로 읽는다 — D7.
  *
  * 셋을 따로 읽으면 `tax_constants`만 빠진 연도에서 구간은 있는데 상수가 없어
@@ -387,10 +420,8 @@ export async function loadTaxYearContext(
   const earliest = seeded[0]
   if (year < earliest.tax_year) {
     // 근사하지 않는다. 없는 값을 근사하는 것보다 없다고 말하는 것이 맞다.
-    throw new Error(
-      `${year}년의 세율·요율이 없다. 시드는 ${earliest.tax_year}년부터 있다. ` +
-        '뒤 연도의 법으로 과거를 계산하면 재현성이 깨진다(ADR-005).',
-    )
+    // 전용 타입인 이유는 §5.4가 이 하나만 `VALIDATION_FAILED`로 옮기기 때문이다.
+    throw new TaxSeedRangeError(year, earliest.tax_year)
   }
 
   const latest = seeded[seeded.length - 1]

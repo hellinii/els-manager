@@ -801,7 +801,7 @@ describe('§5.4 createRedemption', () => {
    * 그쪽이 두 구현을 가른다.
    *
    * ```
-   * 올바른 구현  year('2025-12-31') = 2025 → 시드 이전 → throw → INTERNAL
+   * 올바른 구현  year('2025-12-31') = 2025 → 시드 이전 → 거부
    * 깨진 구현    year(asOf)        = 2026 → 정확 매치 → ok, 값이 나온다
    * ```
    *
@@ -810,8 +810,18 @@ describe('§5.4 createRedemption', () => {
    * 없는 요율을 지어내야 하므로 지금은 하지 않는다. 시드가 늘면 이 케이스를
    * `expect(withholdingTax).toBe(<그 해의 값>)`으로 바꾼다.
    *
-   * 이 테스트가 고정하는 "과거 상환 + 원천징수 미입력 = `INTERNAL`"은 §5.4
-   * v1.1 각주가 먼저 명시한 상태다 — 옳은 코드인지는 P4에서 정한다.
+   * ## 코드가 바뀌었다 — `INTERNAL` → `VALIDATION_FAILED` (P4 컷 6, §5.4 v1.7)
+   *
+   * v1.1 각주가 「옳은 코드인지는 화면이 서는 P4에서 정한다」로 미뤄 둔 판단이며
+   * P3b.5가 그 상태를 이 케이스로 고정했다. SCR-203이 서면서 정했다: 사용자가
+   * 고칠 수 있는 일이므로(실제 징수액을 적는다 — A-04상 그것이 정본이다)
+   * `VALIDATION_FAILED`이고 가리키는 칸은 **`withholdingTax`**다.
+   * `redemptionDate`를 가리키면 「그 해는 지원하지 않는다」가 되어 사용자가 가진
+   * 사실(증권사가 확정한 상환일)을 부정한다.
+   *
+   * `fields` 키를 함께 단언하는 이유는 코드만 보면 **어느 칸에도 붙지 않는
+   * `VALIDATION_FAILED`**도 통과하기 때문이다 — 그것은 화면에서 「저장이 안 되는데
+   * 아무 칸에도 표시가 없다」가 된다.
    */
   it('상환일의 연도다 — 기준일의 연도가 아니다 (시드 이전 연도는 거부된다)', async () => {
     const productId = dataOf(
@@ -837,7 +847,13 @@ describe('§5.4 createRedemption', () => {
     }
 
     // 미입력이면 2025년 상수를 찾다가 거부된다. 기준일(2026) 연도를 썼다면 통과한다
-    expect(errorOf(await a.write.createRedemption(productId, past)).code).toBe('INTERNAL')
+    const rejected = errorOf(await a.write.createRedemption(productId, past))
+    expect(rejected.code).toBe('VALIDATION_FAILED')
+    expect(rejected.fields?.withholdingTax).toBeDefined()
+    // 안내가 다음 행동을 말한다 — 「그 해는 지원하지 않는다」가 아니다.
+    expect(rejected.fields?.withholdingTax).toContain('실제 징수액')
+    // `redemptionDate`를 가리키지 않는다(§5.4 v1.7의 표).
+    expect(rejected.fields?.redemptionDate).toBeUndefined()
 
     /**
      * **양성 대조 — 산출은 미입력 시에만 일어난다 (A-04).**

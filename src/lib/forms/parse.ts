@@ -3,6 +3,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  RedemptionInput,
   ScheduleInput,
   UnderlyingInput,
 } from '@/lib/db/mutations/types'
@@ -250,6 +251,61 @@ function valuesOfForm(form: FormData): Record<string, string> {
     if (typeof value === 'string') values[key] = value
   }
   return values
+}
+
+/**
+ * §5.4·§5.5 상환 처리·수정 — SCR-203·SCR-202 (P4 컷 6).
+ *
+ * ## 비율이 없다
+ *
+ * 상환 입력은 전부 금액·날짜·열거값이므로 `percentToRatio`가 지나지 않는다. 그것이
+ * 이 폼이 상품 폼보다 단순한 실제 이유다(배열도 없다).
+ *
+ * ## `withholdingTax`가 비면 **보내지 않는다**
+ *
+ * 계약은 `undefined`일 때만 산출한다(§5.4). `''`를 보내면 `optionalAmount`가 그것을
+ * `undefined`로 읽어 같은 결과가 되지만, **그 동일성이 계약 쪽 구현의 성질**이므로
+ * 여기서 기대지 않는다 — 빈 칸과 미입력의 구분은 `optionalText`가 이미 한다.
+ *
+ * ## `roundNo`는 개수를 세는 정수다
+ *
+ * `countOf`를 쓰므로 형식이 아니면 `NaN`이고, 그 값은 V-20이 「정수로 입력한다」로
+ * 거부한다 — 화면이 같은 판정을 하지 않는 이유는 `parse.ts` 머리글과 같다.
+ * 만기 상환은 차수가 없으므로 **빈 값이 정상**이다(I-14는 조기·리자드만 요구한다).
+ */
+export function parseRedemptionForm(form: FormData): RedemptionInput {
+  const input: RedemptionInput = {
+    redemptionType: text(form, 'redemptionType') as RedemptionInput['redemptionType'],
+    redemptionDate: text(form, 'redemptionDate'),
+    grossAmount: amountText(form, 'grossAmount'),
+    taxableIncome: amountText(form, 'taxableIncome'),
+    isConfirmed: checkbox(form, 'isConfirmed'),
+  }
+
+  const roundNo = optionalText(form, 'roundNo')
+  if (roundNo != null) input.roundNo = countOf(roundNo)
+
+  const withholdingTax = optionalText(form, 'withholdingTax')
+  if (withholdingTax != null) {
+    input.withholdingTax = amountText(form, 'withholdingTax')
+  }
+
+  const note = optionalText(form, 'note')
+  if (note != null) input.note = note
+
+  return input
+}
+
+/**
+ * §5.9 KI 터치 확정 — SCR-202.
+ *
+ * **빈 칸이 `null`(해제)이다.** 계약의 두 번째 인자가 `string | null`이고 `null`이
+ * 해제이므로, 빈 칸을 `''`로 넘기면 「YYYY-MM-DD 형식이 아니다」가 되어 **해제할
+ * 방법이 없어진다.** 의도를 버튼이 나르는 대신 값의 부재로 표현하는 이유는 해제가
+ * 「비우고 저장」이라는 한 동작이기 때문이다.
+ */
+export function parseTouchedAtForm(form: FormData): string | null {
+  return optionalText(form, 'kiTouchedAt') ?? null
 }
 
 /**

@@ -140,7 +140,6 @@ function placeholderRoutes(dir: string = APP, prefix = ''): string[] {
  * > 것을 센다」고 적은 절차의 테스트판이다.
  */
 const NOT_YET_BUILT: Record<string, string> = {
-  '/products/[id]/redeem': '컷 6 — SCR-203 상환',
   '/users': '만들지 않는다 — DOC-008 SQ-01',
 }
 
@@ -160,17 +159,20 @@ describe('실재하는 라우트', () => {
     expect(ROUTES).toContain(PATHS.login)
   })
 
-  it('컷 2·3·5가 세운 라우트가 실재한다', () => {
+  it('컷 2·3·5·6이 세운 라우트가 실재한다', () => {
     /*
-     * 넷 다 `NOT_YET_BUILT`를 떠났다. 여기서 직접 단언하는 이유는 원장에서 지우는
+     * 다섯 다 `NOT_YET_BUILT`를 떠났다. 여기서 직접 단언하는 이유는 원장에서 지우는
      * 것만으로는 **지웠다는 사실**만 남고 「대신 무엇이 생겼는가」가 남지 않기
      * 때문이다. `/products/new`는 자리표시이므로 `placeholderRoutes()`가 다시 세고,
-     * `/products/[id]`와 `/products/[id]/edit`은 실제 화면이라 어느 원장에도 없다.
+     * 나머지는 실제 화면이라 어느 원장에도 없다.
+     *
+     * **상품 계열이 이 컷에서 완결되었다** — 목록·상세·등록·수정·상환 다섯이다.
      */
     expect(ROUTES).toContain(PATHS.products)
     expect(ROUTES).toContain('/products/[id]')
     expect(ROUTES).toContain(PATHS.productNew)
     expect(ROUTES).toContain('/products/[id]/edit')
+    expect(ROUTES).toContain('/products/[id]/redeem')
   })
 
   it('낡는 라우트가 전부 DOC-008 §4가 정의한 라우트다', () => {
@@ -546,29 +548,28 @@ describe('DOC-008 §4 ↔ 라우트', () => {
     const noFile = Object.keys(NOT_YET_BUILT).filter((route) => route !== '/users')
     const placeholders = placeholderRoutes()
 
-    // 컷 6(상환) 하나가 남았다 — 컷 5가 수정 화면을 세웠다
-    expect(noFile.sort()).toEqual(['/products/[id]/redeem'])
+    /*
+     * **파일 없는 라우트가 없다** — 컷 6이 마지막 하나(상환)를 세웠다. 「만들지
+     * 않는다」로 결정된 `/users`만 표에 남으므로 이 목록은 비어 있다.
+     */
+    expect(noFile.sort()).toEqual([])
     // 컷 7(일정) · 8(세금) · 9(홈) · P4b(전망)
     expect(placeholders.sort()).toEqual(['/', '/forecast', '/schedule', '/tax'])
   })
 
-  it('세 번째 원장이 컷 5에서 다시 채워졌다 — 화면 안의 미완성 셋', () => {
+  it('세 번째 원장이 두 번째로 비었다 — 컷 6이 SCR-202의 셋을 세웠다', () => {
     /*
-     * ★ **원장이 비었다가 다시 찼다 — 그것이 이 표가 살아 있다는 증거다.**
+     * ★ **원장이 두 번 찼다가 두 번 비었다 — 그것이 이 표가 살아 있다는 증거다.**
      *
-     * 컷 4a가 `PENDING_PARTS`를 만든 이유는 라우트가 실화면으로 바뀌면 위 두 원장의
-     * 합이 줄어들어 「화면이 섰다」로 읽히는데 실제로는 **부분적으로** 섰기 때문이다.
-     * 컷 4b가 세 조각을 세워 표를 비웠고, 컷 5가 SCR-202에 `수정`·`삭제`를 붙이며 같은
-     * 상태를 만들었다 — 삭제 실패 문구가 가리키는 **상환 취소가 컷 6의 계약**이므로
-     * 화면에 문구는 있고 누를 것이 없다.
+     * 컷 4a가 셋(③·④·저장)을 등재하고 컷 4b가 비웠으며, 컷 5가 SCR-202의 셋(상환
+     * 처리·상환 취소·KI 터치 확정)을 등재하고 컷 6이 비웠다. 두 번째 채움의 계기는
+     * 컷 5의 삭제 실패 문구가 **가리킬 대상이 없었다**는 것이다(「상환을 먼저
+     * 취소한다」의 그 취소가 컷 6의 계약이었다).
      *
-     * 컷 6이 셋을 세우면 이 단언이 빨간불이 되어 표를 비우라고 말한다.
+     * 비었음을 단언으로 남기므로 다음에 조각을 미루는 컷이 오면 여기가 그 사실을
+     * 요구한다.
      */
     expect(actualRoutes()).toContain(PATHS.productNew)
-    expect(Object.keys(PENDING_PARTS).sort()).toEqual([
-      'SCR-202 KI 터치 확정',
-      'SCR-202 상환 처리',
-      'SCR-202 상환 취소',
-    ])
+    expect(PENDING_PARTS).toEqual({})
   })
 })

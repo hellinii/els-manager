@@ -48,6 +48,8 @@ export type RegisteredProduct = {
   productName: string
   assetId: string
   assetName: string
+  /** 실제로 입력된 발행일. V-10(상환일 ≥ 발행일)을 만족하는 상환일을 고를 때 쓴다 */
+  issueDate: string
   /** 기준가. **18자리 유효숫자다** — AQ-30의 값 경로를 화면에서 확인한다 */
   basePrice: string
   /** 워스트오브가 이 값이 된다 — 시세 ÷ 기준가 */
@@ -69,17 +71,28 @@ const CURRENT_PRICE = '119999999999.999999' // 기준가 × 1.2 (정확히)
 
 export async function registerProduct(
   jar: ReturnType<typeof cookieJar>,
+  options: {
+    /**
+     * 발행일을 고정한다 — **컷 6이 필요해졌다.** §5.4의 「시드 이전 연도」는 상환일이
+     * 2025년일 때 나오고 V-10이 상환일 ≥ 발행일을 요구하므로, 그 경로를 화면에서
+     * 밟으려면 발행일도 2025년이어야 한다. 기본값은 아래 `issueYear()`의 각주 참조.
+     */
+    issueDate?: string
+    /** 접두사. 한 실행에 여러 상품을 만들 때 어느 것인지 구분한다 */
+    label?: string
+  } = {},
 ): Promise<RegisteredProduct> {
   const stamp = String(Date.now()).slice(-6)
-  const assetName = `[E2E] 자산${stamp}`
-  const productName = `[E2E] 상품${stamp}`
+  const suffix = options.label == null ? stamp : `${options.label}${stamp}`
+  const assetName = `[E2E] 자산${suffix}`
+  const productName = `[E2E] 상품${suffix}`
   const barriers = ['90', '85', '80'] as const
 
   const assetId = await createAssetViaScreen(jar, assetName)
   await savePriceViaScreen(jar, assetId)
 
   const actionId = actionIdOf('productFormAction')
-  const issueDate = `${issueYear()}-01-02`
+  const issueDate = options.issueDate ?? `${issueYear()}-01-02`
 
   // ① 기본 정보 → ②
   let html = await (await get(PATHS.productNew, jar)).text()
@@ -139,6 +152,7 @@ export async function registerProduct(
     productName,
     assetId,
     assetName,
+    issueDate,
     basePrice: BASE_PRICE,
     worstOfRatio: '1.2000',
     barriers,

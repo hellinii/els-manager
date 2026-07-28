@@ -6,8 +6,10 @@ import {
   failDb,
   mapDbError,
 } from '@/lib/db/mutations/errors'
+import { taxSeedError } from '@/lib/db/mutations/redemptions'
 import { fail, ok, okVoid, unauthenticated } from '@/lib/db/mutations/result'
 import { guardInput, guardSystem, guardSystemAsync } from '@/lib/db/mutations/guard'
+import { TaxSeedRangeError } from '@/lib/db/queries/load'
 
 import {
   CHECK_KI_PAIR,
@@ -349,6 +351,44 @@ describe('순수 모듈 예외 → ErrorCode (§3.2.2)', () => {
     ].map((r) => (r.ok ? 'ok' : r.error.code))
 
     expect(codes).not.toContain('CONFLICT')
+  })
+})
+
+describe('세율 시드 예외 — 두 종을 가른다 (§5.4 v1.7, P4 컷 6)', () => {
+  /**
+   * ★ **가르는 쪽 절반은 통합 스위트로 관측할 수 없다.** 시드 없는 상태를 만들려면
+   * 마이그레이션을 되돌려야 하고 그러면 다른 216건이 함께 죽는다. 그래서 분류를
+   * 순수 함수로 떼어 여기서 양쪽 분기를 본다 — 그러지 않으면 「전부
+   * `VALIDATION_FAILED`로 접는 구현」이 아무 단언도 깨지 않고 통과한다.
+   */
+  it('시드 범위보다 과거는 사용자가 고칠 수 있다 — `withholdingTax`를 가리킨다', () => {
+    const mapped = taxSeedError(new TaxSeedRangeError(2025, 2026), 2025)
+
+    expect(mapped.code).toBe('VALIDATION_FAILED')
+    // A-04 — 실제 징수액이 정본이므로 다음 행동이 그 칸의 입력이다.
+    expect(mapped.fields?.withholdingTax).toContain('실제 징수액')
+    // `redemptionDate`를 가리키면 「그 해는 지원하지 않는다」가 되어 사용자가
+    // 가진 사실(증권사가 확정한 상환일)을 부정한다.
+    expect(mapped.fields?.redemptionDate).toBeUndefined()
+    expect(logged).toEqual([]) // 정상 거부다 — 시스템 오류로 남기지 않는다
+  })
+
+  it('시드가 아예 없으면 `INTERNAL`이다 — 사용자가 할 일이 없다', () => {
+    const mapped = taxSeedError(
+      new Error('세율·요율 시드가 없다. 마이그레이션이 적용되지 않았다 (ADR-005).'),
+      2026,
+    )
+
+    expect(mapped.code).toBe('INTERNAL')
+    expect(mapped.fields).toBeUndefined()
+    // 원문은 로그에만 남는다 — 사용자에게 마이그레이션을 말하지 않는다.
+    expect(logged.join('\n')).toContain('마이그레이션')
+    expect(mapped.message).not.toContain('마이그레이션')
+  })
+
+  it('예외가 아닌 값도 `INTERNAL`이다', () => {
+    // `throw '문자열'`이 어딘가에 있어도 분류가 죽지 않는다.
+    expect(taxSeedError('알 수 없음', 2026).code).toBe('INTERNAL')
   })
 })
 

@@ -4,10 +4,13 @@ import { notFound } from 'next/navigation'
 
 import { Badge } from '@/components/display/Badge'
 import { DeleteProductForm } from '@/components/products/DeleteProductForm'
+import { KiTouchForm } from '@/components/products/KiTouchForm'
+import { RedemptionActions } from '@/components/products/RedemptionActions'
 import { ScheduleTable } from '@/components/products/ScheduleTable'
 import { UnderlyingTable } from '@/components/products/UnderlyingTable'
 import { OwnerOnly } from '@/components/state/OwnerOnly'
 import type { ProductDetailView } from '@/lib/db/queries/map'
+import { redemptionValuesOf, roundOptionsOf } from '@/lib/forms/redemption'
 import { getQueries } from '@/lib/db/server'
 import {
   ACCOUNT_TYPE_LABELS,
@@ -30,20 +33,30 @@ import { isUuid } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
- * SCR-202 ELS 상세 — 읽기 + **소유자 액션 둘** (P4 컷 3·5, DOC-008 §5·DOC-011 §4.3)
+ * SCR-202 ELS 상세 — 읽기 + **소유자 액션 다섯** (P4 컷 3·5·6, DOC-008 §5·DOC-011 §4.3)
  *
- * ## 액션은 그 액션을 만드는 컷에 붙는다
+ * ## 액션은 그 액션을 만드는 컷에 붙었다
  *
- * DOC-008은 `수정`·`상환 처리`·`삭제`를 이 화면에 둔다. 컷 3은 셋 다 없었고(라우트도
- * 계약도 화면이 없었다) 컷 5가 `수정`·`삭제`를 붙인다 — `상환 처리`와 상환 수정·취소·
- * KI 확정은 **컷 6**이다. 없는 라우트로 가는 링크를 미리 두지 않는 이유는 404가
- * 사용자에게 「아직 없다」가 아니라 「주소가 틀렸다」로 읽히기 때문이다.
+ * DOC-008은 `수정`·`상환 처리`·`삭제`를 이 화면에 둔다. 컷 3은 셋 다 없었고, 컷 5가
+ * `수정`·`삭제`를, 컷 6이 `상환 처리`(링크) + `상환 수정`·`상환 취소`·`KI 터치 확정`을
+ * 붙였다. 없는 라우트로 가는 링크를 미리 두지 않는 규율이 그 순서를 정했다 — 404는
+ * 사용자에게 「아직 없다」가 아니라 「주소가 틀렸다」로 읽힌다.
  *
  * **`OwnerOnly`의 첫 소비자가 여기다**(ST-04). 비활성화가 아니라 숨김이며, 그
  * 컴포넌트에는 `disabled`가 없다 — 선택지를 없앤 것이 방어다.
  *
- * `수정`은 링크이고 `삭제`는 폼이다. 삭제는 상태를 바꾸므로 GET일 수 없다 — 링크로
- * 두면 프리페치·크롤러가 상품을 지운다.
+ * `수정`·`상환 처리`는 링크이고 나머지는 폼이다. 상태를 바꾸는 것은 GET일 수 없다 —
+ * 링크로 두면 프리페치·크롤러가 상품을 지운다.
+ *
+ * ## 조건부 노출 셋이 ST-04와 다른 이유
+ *
+ * | 무엇 | 언제 없는가 | 왜 |
+ * |---|---|---|
+ * | `상환 처리` | 이미 상환됨 | I-01. 링크가 있어도 SCR-203이 「이미 상환되었다」만 보여 준다 |
+ * | 상환 수정·취소 | 미상환 | 대상 레코드가 없다 |
+ * | KI 터치 확정 | 노낙인 | V-18이 그 설정을 거부한다(I-15) — 누를 수 있는데 항상 실패하는 칸을 두지 않는다 |
+ *
+ * 셋 다 「권한」이 아니라 **상태**의 문제이므로 `OwnerOnly` 안쪽에서 한 겹 더 가른다.
  *
  * ## 미존재는 `notFound()`다 — 계약은 `null`을 준다
  *
@@ -132,10 +145,20 @@ export default async function ProductDetailPage({
               >
                 수정
               </Link>
+
               {/*
-                `상환 처리`는 컷 6이다 — 그 라우트가 서기 전에 링크를 두면 404가 된다.
-                미구현은 `PENDING_PARTS`(화면 안의 원장)가 센다.
+                상환 처리는 **미상환 상품에만** 있다(I-01). 상환된 상품에서 이 링크를
+                두면 SCR-203이 「이미 상환 처리되었다」만 보여 주는 화면이 되고, 그
+                조작의 다음 행동은 이 화면의 수정·취소다 — 왕복이 늘 뿐이다.
               */}
+              {redemption == null && (
+                <Link
+                  href={PATHS.productRedeem(product.id)}
+                  className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+                >
+                  상환 처리
+                </Link>
+              )}
             </div>
 
             <DeleteProductForm productId={product.id} productName={product.name} />
@@ -169,6 +192,19 @@ export default async function ProductDetailPage({
       {/* ── ④ KI 상태 ──────────────────────────────────────────────────── */}
       <Section title="KI 상태">
         <KiFacts product={product} />
+
+        {/*
+          §5.9의 조치. 노낙인 상품에는 두지 않는다 — V-18이 그 설정을 거부하므로
+          (I-15) 폼을 두면 누를 수 있는데 저장이 항상 실패하는 칸이 된다.
+          비활성화가 아니라 부재인 이유는 ST-04와 같다.
+        */}
+        {product.kiBarrier != null && (
+          <OwnerOnly isOwner={product.isOwner}>
+            <div className="rounded-lg border border-neutral-200 p-3">
+              <KiTouchForm productId={product.id} touchedAt={product.kiTouchedAt} />
+            </div>
+          </OwnerOnly>
+        )}
       </Section>
 
       {/* ── ③ 차수별 조건 ──────────────────────────────────────────────── */}
@@ -185,6 +221,18 @@ export default async function ProductDetailPage({
       {redemption != null && (
         <Section title="상환 실적">
           <Redemption redemption={redemption} />
+
+          {/*
+            §5.5의 두 계약. 상환 실적 **옆에** 있는 이유는 두 조작의 대상이 지금 보고
+            있는 그 값이기 때문이다 — 별 라우트로 두면 §4에 없는 화면이 둘 생긴다.
+          */}
+          <OwnerOnly isOwner={product.isOwner}>
+            <RedemptionActions
+              redemption={redemption}
+              rounds={roundOptionsOf(view)}
+              initialValues={redemptionValuesOf(redemption)}
+            />
+          </OwnerOnly>
         </Section>
       )}
     </article>
