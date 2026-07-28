@@ -5,7 +5,6 @@ import {
   attentionReasonsOf,
   bracketLabel,
   isStale,
-  koreanAmount,
   toProductDetailView,
   toProductListItem,
   toScheduleItems,
@@ -521,18 +520,8 @@ describe('§4.1 attentionItems', () => {
 })
 
 describe('§4.6 bracketLabel 합성', () => {
-  it('만 단위 한글', () => {
-    expect(koreanAmount(dec('14000000'))).toBe('1,400만')
-    expect(koreanAmount(dec('50000000'))).toBe('5,000만')
-    expect(koreanAmount(dec('88000000'))).toBe('8,800만')
-  })
-
-  it('1억 이상은 억 단위', () => {
-    expect(koreanAmount(dec('150000000'))).toBe('1억 5,000만')
-    expect(koreanAmount(dec('300000000'))).toBe('3억')
-    expect(koreanAmount(dec('1000000000'))).toBe('10억')
-  })
-
+  // 만·억 단위 렌더러 자체는 `tests/app/format.test.ts`가 본다 —
+  // 구현이 `lib/format/money.ts`로 이관되었고, 여기서는 그것을 쓰는 **합성**만 본다.
   it('중간 구간은 하한~다음 하한', () => {
     expect(
       bracketLabel({ lowerBound: dec('14000000'), nextLowerBound: dec('50000000') }),

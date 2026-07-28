@@ -23,6 +23,8 @@ import {
   type RedemptionMark,
 } from '@/lib/domain'
 
+import { koreanAmount } from '@/lib/format/money'
+
 import type { LatestPrice, ProductRow, ScheduleRow } from './load'
 
 /**
@@ -766,25 +768,14 @@ export function attentionReasonsOf(
 // §4.6 bracketLabel 합성
 // ---------------------------------------------------------------------------
 
-function withCommas(digits: string): string {
-  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-}
-
 /**
- * 만·억 단위 한글 금액. `tax_brackets`에는 하한만 있고 표시 문자열의 원천이
- * 없으므로 계약 계층이 합성한다(§4.6).
+ * 만·억 단위 한글 금액은 **`lib/format/money.ts`로 이관했다** (P4 컷 1a).
+ *
+ * 화면도 같은 렌더러가 필요하고(SCR-401의 구간 표, SCR-101의 요약) 복제하면 두
+ * 개가 갈리는데 그 갈림을 `bracketLabel` 테스트가 보지 못한다. `lib/db →
+ * lib/format` 방향은 어느 의존 규칙도 금지하지 않는다 — 금지는 `lib/tax`·
+ * `lib/domain`이 **밖으로** 나가는 것뿐이다(DEP-01).
  */
-export function koreanAmount(value: DecimalValue): string {
-  const eok = value.div('100000000').floor()
-  const man = value.mod('100000000').div('10000').floor()
-
-  if (eok.gt(0) && man.gt(0)) {
-    return `${withCommas(eok.toFixed(0))}억 ${withCommas(man.toFixed(0))}만`
-  }
-  if (eok.gt(0)) return `${withCommas(eok.toFixed(0))}억`
-  if (man.gt(0)) return `${withCommas(man.toFixed(0))}만`
-  return '0'
-}
 
 /**
  * 구간 표시 문자열. 하한과 **다음 구간의 하한**으로 합성한다.
