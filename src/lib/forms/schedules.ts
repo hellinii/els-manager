@@ -1,6 +1,6 @@
 import { generateEvaluationDates } from '@/lib/domain'
 
-import { MAX_ROUNDS } from './steps'
+import { MAX_ROUNDS, countOf, roundCountOf } from './steps'
 
 /**
  * 차수표의 파생값 — **평가일은 입력이 아니라 생성값이다** (DOC-008 §5 SCR-204 ④)
@@ -54,4 +54,19 @@ export function previewDates(input: {
      */
     return []
   }
+}
+
+/**
+ * 값 맵에서 바로 — **화면과 파서가 부르는 것이 이 함수 하나다.**
+ *
+ * 셋을 각자 뽑아 넘기면 한쪽이 `evaluationPeriodMonths`를 다르게 읽는 날이 오고,
+ * 그때 ④의 미리보기와 저장되는 평가일이 **다른 날**이 된다. 사용자는 확인 화면에서
+ * 본 날짜가 저장되었다고 믿는다.
+ */
+export function previewDatesOf(values: Record<string, string>): string[] {
+  return previewDates({
+    issueDate: values.issueDate ?? '',
+    evaluationPeriodMonths: countOf(values.evaluationPeriodMonths),
+    totalRounds: roundCountOf(values),
+  })
 }

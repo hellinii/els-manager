@@ -141,6 +141,73 @@ export function buttonField(form: string, value: string): Field {
 }
 
 /**
+ * **브라우저가 제출할 것 전부** — 히든 + 보이는 칸 (P4 컷 4b)
+ *
+ * ## 실측이 이 함수를 만들었다
+ *
+ * `formFieldsFor`는 히든 필드만 준다. 컷 4a의 단계 폼에서는 그것으로 충분했다 —
+ * ①②의 칸 값을 테스트가 직접 얹었기 때문이다. ③이 붙자 **`다음`을 누르는 순간
+ * ③의 값이 전부 사라졌다**(평가주기·총 차수·연쿠폰율·배리어). 원인은 앱이 아니라
+ * 이 헬퍼였다: 실제 브라우저는 보이는 칸도 함께 보내는데 우리는 히든만 복제했다.
+ *
+ * 「테스트가 브라우저를 흉내내면서 브라우저가 실제로 무엇을 보내는지는 보지 않는다」의
+ * 두 번째 사례다(첫 번째는 버튼의 `name`·`value`였고 `buttonField`가 그것을 닫았다).
+ *
+ * ## 규칙은 HTML 폼 제출 규약이다
+ *
+ * | 요소 | 보내는 값 |
+ * |---|---|
+ * | `input[type=checkbox|radio]` | `checked`일 때만 `value`(없으면 `on`) |
+ * | `input[type=submit|button]` | 보내지 않는다 — 누른 버튼만이며 `buttonField`가 준다 |
+ * | 그 밖의 `input` | `value`(없으면 `''`) |
+ * | `select` | `selected`인 옵션, 없으면 **첫 옵션**(브라우저 기본값) |
+ * | `textarea` | 태그 사이의 내용 |
+ *
+ * `name`이 없는 칸은 제출되지 않는다 — ②의 검색 상자가 그것이다(의도된 설계).
+ */
+export function formValuesFor(html: string, actionId: string): Field[] {
+  const form = formHtmlFor(html, actionId)
+  const fields: Field[] = []
+
+  for (const tag of [...form.matchAll(/<input\b[^>]*>/g)].map((m) => m[0])) {
+    const name = /\bname="([^"]*)"/.exec(tag)?.[1]
+    if (name == null || name === '') continue
+
+    const type = (/\btype="([^"]*)"/.exec(tag)?.[1] ?? 'text').toLowerCase()
+    if (type === 'submit' || type === 'button' || type === 'reset') continue
+
+    const value = /\bvalue="([^"]*)"/.exec(tag)?.[1]
+    if (type === 'checkbox' || type === 'radio') {
+      if (!/\bchecked(?:="[^"]*")?/.test(tag)) continue
+      fields.push([unescapeHtml(name), unescapeHtml(value ?? 'on')])
+      continue
+    }
+    fields.push([unescapeHtml(name), unescapeHtml(value ?? '')])
+  }
+
+  for (const tag of [...form.matchAll(/<select\b[^>]*>[\s\S]*?<\/select>/g)].map(
+    (m) => m[0],
+  )) {
+    const name = /\bname="([^"]*)"/.exec(tag)?.[1]
+    if (name == null || name === '') continue
+
+    const options = [...tag.matchAll(/<option\b[^>]*>/g)].map((m) => m[0])
+    const chosen =
+      options.find((option) => /\bselected(?:="[^"]*")?/.test(option)) ?? options[0]
+    const value = chosen == null ? '' : (/\bvalue="([^"]*)"/.exec(chosen)?.[1] ?? '')
+    fields.push([unescapeHtml(name), unescapeHtml(value)])
+  }
+
+  for (const tag of [...form.matchAll(/<textarea\b[^>]*>([\s\S]*?)<\/textarea>/g)]) {
+    const name = /\bname="([^"]*)"/.exec(tag[0])?.[1]
+    if (name == null || name === '') continue
+    fields.push([unescapeHtml(name), unescapeHtml(tag[1] ?? '')])
+  }
+
+  return fields
+}
+
+/**
  * 그 폼이 렌더한 **모든** 입력의 `name` — 히든·보임 구분 없이.
  *
  * 단계 폼의 불변식이 「선언된 이름은 렌더되거나 이송된다」이고(`STEP_NAMES` +

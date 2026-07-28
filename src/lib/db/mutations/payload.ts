@@ -83,6 +83,43 @@ type StringifyMoney<Shape> = {
 /** 어느 열이 금액으로 분류되었는가 — 타입 수준 테스트가 이 이름을 읽는다 */
 export type MoneyColumnOf<T extends TableName> = MoneyColumnIn<TableInsert<T>>
 
+/**
+ * `snake_case` 열 이름 → `camelCase` 계약 필드 이름.
+ *
+ * 두 이름 공간을 잇는다. DOC-005 §2가 열은 `snake_case`, 계약 입력은 문서의 서명
+ * (`camelCase`)으로 고정했으므로 그 사상이 어딘가에 한 번은 있어야 하고, 손으로
+ * 적으면 **새 금액 열이 생겼을 때 따라오지 않는다** — 그것이 AQ-30 잔여 ③이었다.
+ */
+type SnakeToCamel<S extends string> = S extends `${infer Head}_${infer Tail}`
+  ? `${Head}${Capitalize<SnakeToCamel<Tail>>}`
+  : S
+
+/**
+ * 그 테이블의 금액 열을 **계약 입력의 이름으로** — `.rpc()` payload가 쓴다 (AQ-30 잔여 ③)
+ *
+ * ## `.rpc()`는 `toInsert`를 지나지 않는다
+ *
+ * `create_els_product`·`update_els_product`는 `jsonb` 하나를 받으므로 `InsertPayload<T>`도
+ * 린트 셀렉터(`/^(insert|upsert|update)$/`)도 그 경로를 보지 못한다. 즉 계약 11개 중
+ * 둘은 **손으로 쓴 `Json`**이었고, 세 테이블(`els_products`·`els_underlyings`·
+ * `redemption_schedules`)에 새 금액 열이 생기면 `productPayload`를 고치지 않아도
+ * **아무것도 실패하지 않았다.**
+ *
+ * ## 단언이 아니라 파생으로 닫는다
+ *
+ * 「payload에 그 키가 있는가」를 테스트로 물으면 실패가 **보고**되지만, 파생시키면
+ * 키가 없으면 **컴파일이 깨진다** — 고칠 곳이 하나로 정해진다. payload가 세 테이블의
+ * 합성이라 `InsertPayload<T>`를 그대로 쓸 수 없다는 것이 미결의 이유였고, 답은
+ * 「합성의 각 조각을 각 테이블에서 파생시킨다」다.
+ *
+ * 널 허용을 좁히지 않는다(`string | null`) — payload는 없는 값을 `null`로 명시하며
+ * (§5.2가 전체 교체이므로 누락이 곧 비움이다) 어느 열이 널 허용인지는 함수의
+ * `->>`가 정한다. 여기서 보려는 것은 **어느 이름이 문자열로 실려야 하는가**다.
+ */
+export type MoneyFieldsOf<T extends TableName> = {
+  [K in SnakeToCamel<MoneyColumnOf<T> & string>]: string | null
+}
+
 /** 생성 타입의 `Insert`에서 금액·비율 열만 `string`으로 바꾼 형태 */
 export type InsertPayload<T extends TableName> = StringifyMoney<TableInsert<T>>
 

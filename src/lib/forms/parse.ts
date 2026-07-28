@@ -8,11 +8,12 @@ import type {
 } from '@/lib/db/mutations/types'
 
 import { path } from './fieldPath'
-import { previewDates } from './schedules'
+import { previewDatesOf } from './schedules'
 import {
-  MAX_ROUNDS,
   SCHEDULE_SUBS,
   UNDERLYING_SUBS,
+  countOf,
+  roundCountOf,
   rowCountOf,
 } from './steps'
 
@@ -109,18 +110,6 @@ function amountText(form: FormData, name: string): string {
   return text(form, name).replace(/[,\s]/g, '')
 }
 
-/**
- * 개수를 세는 정수 — 차수·개월수. **금액이 아니다**(`lib/decimal`이 이미 정한 구분).
- *
- * 형식이 아니면 `NaN`을 준다. 계약의 `requireInt`가 `Number.isInteger`로 거부하며
- * (V-20 「정수로 입력한다」) **여기서 오류 문구를 만들지 않는다** — 그러면 규칙이
- * 두 곳에 생기고, 두 곳이 갈리면 어느 쪽이 정본인지 알 수 없다.
- */
-function countText(form: FormData, name: string): number {
-  const raw = text(form, name)
-  return /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN
-}
-
 /** 퍼센트로 적힌 선택 비율 — 빈 칸은 「없음」이며 `0`은 값이다(원금상환형 리자드) */
 function optionalRatioText(form: FormData, name: string): string | undefined {
   const raw = optionalText(form, name)
@@ -150,8 +139,12 @@ function optionalRatioText(form: FormData, name: string): string | undefined {
  * V-03이 「N건이 총 차수 M과 다르다」로 설명한다.
  */
 export function parseProductForm(form: FormData): ProductInput {
+  // 화면과 같은 함수로 계수를 뽑는다 — 두 곳이 다른 수를 보면 V-03이 저장 시점에야
+  // 그 어긋남을 말하고, 원인이 화면에 없다.
+  const values = valuesOfForm(form)
+
   const underlyings: UnderlyingInput[] = []
-  const rowCount = rowCountOf(valuesOfForm(form), 'underlyings')
+  const rowCount = rowCountOf(values, 'underlyings')
   for (let index = 0; index < rowCount; index += 1) {
     underlyings.push({
       assetId: text(form, path('underlyings', index, UNDERLYING_SUBS[0])),
@@ -162,14 +155,12 @@ export function parseProductForm(form: FormData): ProductInput {
   }
 
   const issueDate = text(form, 'issueDate')
-  const evaluationPeriodMonths = countText(form, 'evaluationPeriodMonths')
-  const totalRounds = countText(form, 'totalRounds')
-  const rounds = Number.isInteger(totalRounds)
-    ? Math.min(Math.max(totalRounds, 0), MAX_ROUNDS)
-    : 0
+  const evaluationPeriodMonths = countOf(values.evaluationPeriodMonths)
+  const totalRounds = countOf(values.totalRounds)
+  const rounds = roundCountOf(values)
 
-  // 평가일은 생성값이다 — 화면의 미리보기와 **같은 함수**를 같은 입력에 부른다.
-  const dates = previewDates({ issueDate, evaluationPeriodMonths, totalRounds: rounds })
+  // 평가일은 생성값이다 — 화면의 미리보기와 **같은 함수**를 같은 값에 부른다.
+  const dates = previewDatesOf(values)
 
   const schedules: ScheduleInput[] = []
   for (let index = 0; index < rounds; index += 1) {

@@ -5,12 +5,15 @@ import {
   KI_STATUS_LABELS,
   STATUS_LABELS,
   percent,
+  priceDisplay,
+  won,
 } from '@/lib/format'
+import { percentToRatio } from '@/lib/forms/parse'
 import { FILTER_KEYS } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 import { authenticatedJar } from './helpers/auth'
-import { seedProduct, type SeededProduct } from './helpers/seed'
+import { registerProduct, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get } from './helpers/server'
 
 /**
@@ -28,12 +31,17 @@ import { cookieJar, get } from './helpers/server'
  * | KI 필터 선택지 다섯 (AQ-24) | **데이터 무관** — 선택지는 라벨 표에서 나온다 |
  * | 빈 상태 **두 갈래의 구분** | **데이터 무관** — 실재하지 않는 소유자는 언제나 0건이다 |
  * | 오타 id → 404 | **데이터 무관** — `getProduct`가 던지는 경로다 |
- * | 상세가 열리고 판정이 보인다 | **씨앗을 심는다** (`helpers/seed.ts`) |
+ * | 상세가 열리고 판정이 보인다 | **화면으로 상품을 만든다** (`helpers/register.ts`) |
  *
  * 마지막 줄을 「상품이 있으면 열린다」로 두었다가 **잔재 2건 덕분에 우연히 통과하는
  * 상태**를 만들었다. 조건부 단언은 데이터가 없을 때 아무것도 확인하지 않고 초록이
- * 되므로, 그 자리에는 씨앗이 들어가야 한다 — 「아무것도 증명하지 않은 초록색을
- * 만들지 않는다」의 적용이다.
+ * 되므로, 그 자리에는 만들어 넣는 절차가 들어가야 한다 — 「아무것도 증명하지 않은
+ * 초록색을 만들지 않는다」의 적용이다.
+ *
+ * > **컷 4b가 그 절차를 화면 왕복으로 바꿨다.** 컷 3의 씨앗은 PostgREST RPC였고
+ * > (계약과 같은 함수였으나 화면과 어댑터를 지나지 않았다) 지금은 SCR-302로 자산·시세를
+ * > 만들고 SCR-204의 네 단계를 지나 저장한다 — **이 파일이 보는 데이터가 앱이 만든
+ * > 것**이다. 계획 §4가 예고한 대체이며 `helpers/seed.ts`는 지웠다.
  *
  * ## 왜 상시 스위트로는 부족한가
  *
@@ -160,11 +168,12 @@ describe('SCR-201 목록', () => {
 
 describe('SCR-202 상세', () => {
   let jar: ReturnType<typeof cookieJar>
-  let seeded: SeededProduct
+  let seeded: RegisteredProduct
 
   beforeAll(async () => {
     jar = await authenticatedJar()
-    seeded = await seedProduct()
+    // ★ 컷 4b — **화면으로 만든다.** `helpers/seed.ts`(PostgREST RPC)를 지웠다.
+    seeded = await registerProduct(jar)
   })
 
   it('미존재는 404다 — 계약의 `null`을 화면이 변환한다', async () => {
@@ -195,7 +204,7 @@ describe('SCR-202 상세', () => {
      * **조건부로 두지 않는다.** 처음에는 「상품이 있으면 열린다」로 썼고 통과했는데,
      * 통과한 이유가 앞 스위트가 남긴 잔재 2건이었다(`resetFixtures()`가 자기 것을
      * 지우므로 순서에 따라 0건이 된다). 그 우연이 사라지는 실행에서는 아무것도
-     * 확인하지 않고 초록이 되므로 씨앗을 심는다(`helpers/seed.ts`).
+     * 확인하지 않고 초록이 되므로 화면으로 만들어 넣는다(`helpers/register.ts`).
      */
     const html = await (await get(PATHS.products, jar)).text()
     expect(html).toContain(`href="/products/${seeded.productId}"`)
@@ -221,10 +230,46 @@ describe('SCR-202 상세', () => {
     // 판정이 계약에서 와서 화면에 닿았다 — 워스트오브 120%, KI 배리어 50% → 안전
     expect(detail).toContain(percent(seeded.worstOfRatio))
     expect(detail).toContain(KI_STATUS_LABELS.SAFE)
-    // 적용 차수의 판정. 1.2 ≥ 0.9이므로 조기상환이고 **추정값**이다(ST-05).
+    // 적용 차수의 판정. 1.2 ≥ 0.85이므로 조기상환이고 **추정값**이다(ST-05).
     expect(visible(detail)).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
     // 상환 실적이 없으므로 그 절은 렌더되지 않는다.
     expect(detail).not.toContain('상환 실적')
+  })
+
+  it('일괄 입력한 배리어가 차수마다 저장되어 상세에 나온다 — SQ-04', async () => {
+    /*
+     * ★ 이 상품의 배리어는 `90-85-80` **한 줄로** 입력되었다(SQ-04의 일괄 입력).
+     * 그 문자열이 차수별 칸으로 펼쳐지고, 퍼센트가 소수로 정규화되어 저장되고,
+     * 다시 퍼센트로 표시되기까지가 세 계층을 지난다 — 한 계층만 봐도 옳아 보이는
+     * 경로다(`parseBarrierList` → `percentToRatio` → `ratioString` → `percent`).
+     */
+    const detail = await (await get(`/products/${seeded.productId}`, jar)).text()
+
+    for (const barrier of seeded.barriers) {
+      // 화면 표기는 포매터가 만든다 — 기대값을 손으로 적지 않는다.
+      expect(detail, `${barrier}% 배리어`).toContain(percent(percentToRatio(barrier)))
+    }
+    // 2차의 리자드 조건도 함께 저장되었다(차수표의 `<details>` 안이다).
+    expect(detail).toContain(percent(percentToRatio('60')))
+  })
+
+  it('기준가 18자리가 화면 왕복에서 보존된다 — AQ-30의 값 경로', async () => {
+    /*
+     * ★ **화면을 지나는 경로에서 처음 확인한다.** P3b 7단계의 실측은 계약 계층까지였다
+     * (`asset_prices.price`에 JSON 수치로 실으면 `99999999999.999999`가
+     * `100000000000.000000`으로 저장된다). 컷 4b가 그 앞에 두 계층을 더 붙였다 —
+     * 사용자가 적은 문자열이 폼을 지나고(`amountText`가 쉼표를 지운다) `jsonb`로
+     * 실려 `->>` + `::numeric`이 된다.
+     *
+     * `numeric(15,0)` 금액(원금)으로는 이 결함이 **영원히 드러나지 않는다** —
+     * 15자리까지 float64로 정확하기 때문이다. 그래서 픽스처가 `numeric(18,6)`인
+     * 기준가이고 유효숫자가 18자리다.
+     */
+    const detail = await (await get(`/products/${seeded.productId}`, jar)).text()
+    expect(detail).toContain(priceDisplay(seeded.basePrice))
+
+    // 원금도 왕복한다 — 쉼표를 적어 넣었고 15자리 그대로 저장되었다.
+    expect(detail).toContain(won('123456789012345'))
   })
 
   it('액션 버튼이 아직 없다 — 컷 5·6이 붙인다', async () => {

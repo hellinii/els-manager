@@ -1,3 +1,4 @@
+import { barrierNotice, parseBarrierList } from './barriers'
 import { parseFieldPath, path } from './fieldPath'
 
 /**
@@ -60,11 +61,7 @@ const STEP_IDS = PRODUCT_STEPS.map((step) => step.id)
  * 그래서 화면 **안의** 미완성을 여기서 센다. 조각이 서면 이 표에서 지우고,
  * `tests/app/steps.test.ts`가 표와 실제를 대조한다(지우지 않으면 빨간불).
  */
-export const PENDING_PARTS: Record<string, string> = {
-  CONDITIONS: '컷 4b — ③ 평가 조건(일괄 배리어 · SQ-04)',
-  CONFIRM: '컷 4b — ④ 확인(평가일정 미리보기)',
-  SUBMIT: '컷 4b — createProduct 결선',
-}
+export const PENDING_PARTS: Record<string, string> = {}
 
 export const STEP_FIELD = 'step'
 export const INTENT_FIELD = 'intent'
@@ -313,9 +310,21 @@ export function rowCountOf(values: Record<string, string>, field: string): numbe
  * 다르다」를 내고 원인이 화면에 없다. `parse.ts`가 같은 규칙을 쓴다.
  */
 export function roundCountOf(values: Record<string, string>): number {
-  const raw = (values.totalRounds ?? '').trim()
-  if (!/^\d+$/.test(raw)) return 0
-  return Math.min(Number.parseInt(raw, 10), MAX_ROUNDS)
+  const parsed = countOf(values.totalRounds)
+  return Number.isNaN(parsed) ? 0 : Math.min(parsed, MAX_ROUNDS)
+}
+
+/**
+ * 개수를 세는 정수의 단일 해석 — 차수·개월수. **금액이 아니다.**
+ *
+ * `parse.ts`(FormData)와 화면(값 맵)이 같은 함수를 쓴다. 갈리면 화면이 6행을 그리는데
+ * 파서가 다른 수를 읽는 상태가 되고, 그 어긋남은 저장 시점에야 V-03으로 드러난다.
+ *
+ * 형식이 아니면 `NaN`이다 — 오류 문구는 계약이 낸다(V-20).
+ */
+export function countOf(raw: string | undefined): number {
+  const trimmed = (raw ?? '').trim()
+  return /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : Number.NaN
 }
 
 /** 행 추가 — 빈 값으로 이름을 만든다. 상한을 넘으면 그대로 둔다 */
@@ -357,6 +366,46 @@ export function removeRow(
   }
   for (const sub of subs) delete next[path(field, count - 1, sub)]
   return next
+}
+
+/**
+ * 일괄 배리어를 차수별 칸에 **펼친다** — SQ-04 (P4 컷 4b)
+ *
+ * ## 왜 칸에 쓰는가 (일괄 입력을 그대로 파싱하지 않는가)
+ *
+ * 배리어의 정본을 일괄 칸으로 두면 계약이 돌려주는 `schedules[2].barrier` 오류가
+ * **어느 칸과도 짝지어지지 않는다** — 상단 요약으로 밀리고, 가장 흔한 오류가 가장
+ * 먼 자리에 표시된다. 차수별 칸에 펼치면 오류가 그 차수에 붙고 차수별 수정
+ * (스텝다운이 아닌 구조)도 같은 칸에서 된다. 일괄 입력은 **채우는 도구**다.
+ *
+ * ## 총 차수가 비어 있으면 채운다
+ *
+ * 비어 있을 때만 채운다 — 사용자가 적은 숫자를 우리가 바꾸지 않는다. 다르면
+ * 안내로 알린다(V-03이 저장 시점에 같은 사실을 오류로 말한다).
+ */
+export function applyBarriers(values: Record<string, string>): {
+  values: Record<string, string>
+  notice: string
+} {
+  const list = parseBarrierList(values[BARRIERS_FIELD] ?? '')
+  if (list.tokens.length === 0) {
+    return {
+      values,
+      notice: '배리어를 적고 「일괄 적용」을 누른다. 예: 90-85-80-75-70-65',
+    }
+  }
+
+  const next = { ...values }
+  if (roundCountOf(next) === 0) {
+    next.totalRounds = String(Math.min(list.tokens.length, MAX_ROUNDS))
+  }
+
+  const rounds = roundCountOf(next)
+  for (let index = 0; index < Math.min(rounds, list.tokens.length); index += 1) {
+    next[path('schedules', index, 'barrier')] = list.tokens[index]!
+  }
+
+  return { values: next, notice: barrierNotice(list, rounds) }
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +454,12 @@ export function transition(form: FormData): Transition {
         // 마지막 한 행은 지울 수 없다 — V-02가 0건을 거부한다.
         notice = '기초자산은 1종 이상 필요하다.'
       }
+      break
+    }
+    case 'APPLY_BARRIERS': {
+      const applied = applyBarriers(raw)
+      raw = applied.values
+      notice = applied.notice
       break
     }
     default:

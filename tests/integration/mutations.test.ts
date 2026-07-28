@@ -508,6 +508,73 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
     expect(duplicate.code).toBe('VALIDATION_FAILED')
     expect(duplicate.fields?.['underlyings[1].assetId']).toBeDefined()
   })
+
+  /**
+   * ★ **AQ-29의 공백을 케이스로 박는다 — 이 테스트가 실패하면 좋은 소식이다.**
+   *
+   * 함수는 I-07(하위 행 수)과 상태 충돌만 검사하고 §6의 나머지는 보지 않는다.
+   * DB 제약이 있는 규칙(I-02·I-03·I-04·I-10)은 그래도 막히지만 **V-04(차수 연속성)·
+   * V-07(평가일 증가)은 어느 층에도 없다** — 계약을 우회하면 차수 `1, 2, 99`인
+   * 상품이 실제로 만들어진다. 그것이 DQ-05가 총 차수 정본을 `max(round_no)`가 아니라
+   * **행 수**로 정한 이유와 같은 상태다.
+   *
+   * P4 컷 4b가 이 공백을 **그대로 두기로 결정했다**(선택 (a)). 근거는 화면이 유일한
+   * 소비자이고 우회는 자기 데이터에 대한 자해이며 RLS 경계를 넘지 않는다는 것이다.
+   * 그 결정을 문서에만 두면 다음 사람이 「막혀 있겠지」라고 읽으므로, **막히지 않음을
+   * 실행으로 고정한다.** 누군가 SQL 쪽에 검증을 더하면 여기가 빨간불이 되고 그때
+   * AQ-29를 다시 열어 「이제 두 층이다」로 갱신한다 — AQ-28의 `PUBLIC` 실행 권한
+   * 케이스와 같은 자리다.
+   */
+  it('⑦ 함수 직접 호출은 V-04·V-07을 통과한다 — AQ-29의 공백 (P4 컷 4b 결정)', async () => {
+    const bypassName = `${FX_NAME_PREFIX} 변경-AQ29우회`
+
+    // 차수 1, 2, 99 — 연속이 아니다(V-04). 평가일은 감소한다(V-07).
+    const { data, error } = await a.db.rpc('create_els_product', {
+      payload: rawPayload({
+        name: bypassName,
+        schedules: [
+          { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' },
+          { roundNo: 2, evaluationDate: '2027-01-02', barrier: '0.85' },
+          { roundNo: 99, evaluationDate: '2026-02-02', barrier: '0.8' },
+        ],
+      }) as never,
+    })
+
+    expect(error, '함수가 V-04·V-07을 막았다 — AQ-29를 갱신한다').toBeNull()
+    const bypassId = data as unknown as string
+
+    // 계약을 경유하면 같은 입력이 왕복 0으로 거부된다 — 두 층의 차이가 이것이다.
+    const rejected = errorOf(
+      await a.write.createProduct(
+        productInput({
+          assetId,
+          totalRounds: 3,
+          schedules: [
+            { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' },
+            { roundNo: 2, evaluationDate: '2027-01-02', barrier: '0.85' },
+            { roundNo: 99, evaluationDate: '2026-02-02', barrier: '0.8' },
+          ],
+        }),
+      ),
+    )
+    expect(rejected.code).toBe('VALIDATION_FAILED')
+    // V-04는 배열 전체를, V-07은 그 원소를 가리킨다.
+    expect(rejected.fields?.schedules).toBeDefined()
+    expect(rejected.fields?.['schedules[2].evaluationDate']).toBeDefined()
+
+    /*
+     * **만들어진 상품이 화면에서 어떻게 보이는가** — 조용히 틀리지 않는다는 것이
+     * (a)를 고른 근거의 나머지 절반이다. 총 차수는 행 수이므로 3이고(DQ-05),
+     * 무결성 결함은 아니다(하위 행이 있다). 즉 「차수 번호가 99인 3차수 상품」이며
+     * 조회 계층은 그것을 그대로 보여준다 — 값이 없어지거나 예외가 되지 않는다.
+     */
+    const view = await a.read.getProduct(bypassId)
+    expect(view!.product.totalRounds).toBe(3)
+    expect(view!.product.integrityIssue).toBeNull()
+    expect(view!.schedules.map((s) => s.roundNo)).toEqual([1, 2, 99])
+
+    await a.db.from('els_products').delete().eq('id', bypassId)
+  })
 })
 
 // ---------------------------------------------------------------------------

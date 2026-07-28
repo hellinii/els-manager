@@ -1,16 +1,49 @@
-import type { Json } from '@/types/database.types'
-
 import { parseProductInput, parseTouchedAt } from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V18_kiTouchedRequiresBarrier } from '../validate/rules'
 import { requireAffected, requireOwnedProduct, staleState } from './access'
 import type { MutationContext } from './context'
 import { failDb } from './errors'
-import { toUpdate } from './payload'
+import { toUpdate, type MoneyFieldsOf } from './payload'
 import { failWith, ok, okVoid, type ActionResult } from './result'
 import type { ProductInput } from './types'
 
 /** §5.1~§5.3·§5.9 — 상품 생성·수정·삭제·KI 터치 확정 */
+
+/**
+ * `jsonb` payload의 형태 — **금액 열을 세 테이블에서 파생시킨다** (AQ-30 잔여 ③ 해결)
+ *
+ * 종전에는 반환 타입이 `Json`이었고 그것은 아무것도 강제하지 않았다. 세 테이블에
+ * 새 금액 열이 생기면 이 함수와 SQL 함수를 손으로 고쳐야 하는데 **빠뜨려도 아무것도
+ * 실패하지 않았다** — `.rpc()` 경로는 `InsertPayload<T>`도 린트 셀렉터도 보지 못하기
+ * 때문이다(계약 11개 중 둘).
+ *
+ * `MoneyFieldsOf<T>`가 열 사양에서 이름을 뽑아 `string`을 요구하므로, 이제 새 금액
+ * 열은 **컴파일 오류**로 나타난다. 「단언이 아니라 파생」인 이유는 고칠 곳이 하나로
+ * 정해진다는 것이다(`payload.ts`의 각주).
+ *
+ * 나머지 필드는 여기 그대로 적는다 — 금액이 아닌 열은 이름이 계약 입력과 1:1이
+ * 아니고(`total_rounds`는 DQ-05로 삭제되어 payload에 없다) 그 대응은 §5가 정본이다.
+ */
+type ProductPayload = MoneyFieldsOf<'els_products'> & {
+  name: string
+  issuer: string | null
+  issueDate: string
+  evaluationPeriodMonths: number
+  kiObservation: string | null
+  accountType: string
+  note: string | null
+  underlyings: Array<
+    MoneyFieldsOf<'els_underlyings'> & { assetId: string; sequence: number }
+  >
+  schedules: Array<
+    MoneyFieldsOf<'redemption_schedules'> & {
+      roundNo: number
+      evaluationDate: string
+      lizardRequiresNoKi: boolean | null
+    }
+  >
+}
 
 /**
  * `jsonb` payload — DOC-011 §5.0 W-04.
@@ -26,7 +59,7 @@ import type { ProductInput } from './types'
  * 뜻하는지 "안 보냈다"를 뜻하는지가 페이로드에 드러나는 편이 낫다 — `updateProduct`는
  * 전체 교체이므로 **누락이 곧 비움**이고 그 사실이 여기서 읽혀야 한다.
  */
-function productPayload(input: ProductInput): Json {
+function productPayload(input: ProductInput): ProductPayload {
   return {
     name: input.name,
     issuer: input.issuer ?? null,

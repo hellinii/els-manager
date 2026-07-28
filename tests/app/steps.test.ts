@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
 import { narrowAssets } from '@/lib/forms/assets'
+import { barrierNotice, parseBarrierList } from '@/lib/forms/barriers'
 import { parseProductForm } from '@/lib/forms/parse'
 import { previewDates } from '@/lib/forms/schedules'
 import {
@@ -15,6 +16,7 @@ import {
   STEP_NAMES,
   UNDERLYING_SUBS,
   addRow,
+  applyBarriers,
   carryNames,
   moveStep,
   parseIntent,
@@ -71,12 +73,17 @@ describe('단계 표 — DOC-008 §5 SCR-204', () => {
     expect(PRODUCT_STEPS.map((step) => step.ordinal)).toEqual(['①', '②', '③', '④'])
   })
 
-  it('남은 조각 표가 실재하는 단계만 가리킨다', () => {
+  it('남은 조각이 없다 — 컷 4b가 표를 비웠다', () => {
     /*
-     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 오타 난 키가 있으면
-     * 화면의 「아직 없다」가 영원히 뜨지 않거나 영원히 뜬다 — 어느 쪽도 조각이
-     * 섰는지를 말해 주지 않는다.
+     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 컷 4a에는 세 조각이
+     * 있었고(③·④·저장) 컷 4b가 그것을 세우며 비웠다.
+     *
+     * **비었음을 직접 단언한다** — 「키가 전부 실재하는 단계다」만 두면 빈 표에서
+     * 순회가 0회이므로 아무것도 증명하지 않고 초록이 된다. 표가 다시 채워지는 컷이
+     * 오면 이 단언이 그 사실을 요구하고, 그때 아래 두 번째 단언이 오타를 잡는다.
      */
+    expect(PENDING_PARTS).toEqual({})
+
     const ids = new Set<string>([...PRODUCT_STEPS.map((step) => step.id), 'SUBMIT'])
     for (const key of Object.keys(PENDING_PARTS)) expect(ids).toContain(key)
   })
@@ -377,6 +384,153 @@ describe('transition', () => {
       entries[`underlyings[${i}].assetId`] = ''
     }
     expect(transition(formData(entries)).notice).toContain(`${MAX_UNDERLYINGS}종`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SQ-04 — 배리어 일괄 입력
+// ---------------------------------------------------------------------------
+
+describe('SQ-04 배리어 일괄 입력', () => {
+  it('구분자는 숫자·점이 아닌 모든 연속이다', () => {
+    /*
+     * 목록을 열거하지 않는 이유: 열거하면 목록 밖의 글자가 **숫자에 붙어 토큰이
+     * 된다.** `90 / 85`에서 슬래시만 허용하면 `90 `·` 85`가 되거나 한 토큰이 되고,
+     * 그 결과는 「배리어는 2 이하여야 한다」 같은 고칠 수 없는 오류로 나타난다.
+     */
+    for (const raw of [
+      '90-85-80',
+      '90 85 80',
+      '90/85/80',
+      '90, 85, 80',
+      '90 | 85 | 80',
+      '90\n85\n80',
+      '  90--85  ,, 80 ',
+      '90%-85%-80%',
+    ]) {
+      expect(parseBarrierList(raw).tokens, raw).toEqual(['90', '85', '80'])
+    }
+  })
+
+  it('음수 부호가 구분자로 흡수된다 — 문서의 예시가 그대로 동작한다', () => {
+    // `90-85`의 `-`가 뺄셈이나 음수로 읽히면 V-08 하한(`x > 0`)에 걸린다.
+    expect(parseBarrierList('90-85').tokens.every((t) => !t.startsWith('-'))).toBe(true)
+  })
+
+  it('토큰 하나라도 2를 넘으면 전부 퍼센트로 읽는다', () => {
+    const list = parseBarrierList('90-85-80')
+    expect(list.readAs).toBe('PERCENT')
+    expect(list.mixed).toBe(false)
+  })
+
+  it('전부 2 이하면 소수로 읽어 퍼센트로 바꾼다', () => {
+    const list = parseBarrierList('0.9-0.85-0.8')
+    expect(list.readAs).toBe('RATIO')
+    expect(list.tokens).toEqual(['90', '85', '80'])
+  })
+
+  it('경계는 2다 — V-08의 상한과 같은 값', () => {
+    /*
+     * `2`는 비율로 200%이고 V-08이 허용하는 최대다. 그 값까지는 소수로 읽고 넘으면
+     * 퍼센트로 읽는다 — 경계를 다른 값에 두면 V-08이 거부하는 비율을 우리가 만들거나
+     * (2.5 → 250%) 허용하는 비율을 퍼센트로 격하한다.
+     */
+    expect(parseBarrierList('2').readAs).toBe('RATIO')
+    expect(parseBarrierList('2').tokens).toEqual(['200'])
+    expect(parseBarrierList('2.0001').readAs).toBe('PERCENT')
+    expect(parseBarrierList('1-2').tokens).toEqual(['100', '200'])
+  })
+
+  it('소수점 곱셈이 정확하다 — float64를 경유하지 않는다', () => {
+    // `0.885 × 100`이 `88.50000000000001`이 되는 부류다. Decimal로 곱한다.
+    expect(parseBarrierList('0.885-0.8825').tokens).toEqual(['88.5', '88.25'])
+    // 사람이 적는 `.9`도 받는다.
+    expect(parseBarrierList('.9-.85').tokens).toEqual(['90', '85'])
+  })
+
+  it('혼합 입력을 신호로 남긴다 — 계약이 잡지 못하는 자리다', () => {
+    /*
+     * ★ `90-0.85-80`은 퍼센트로 읽히므로 둘째가 **0.85%**가 되고, 그 값은
+     * V-08(`0 < x ≤ 2`)을 통과한다 — 계약은 거부할 근거가 없고 표에는 값이 보이지만
+     * 「왜」가 없으면 오타로 읽히지 않는다. 그래서 화면이 경고한다.
+     */
+    const list = parseBarrierList('90-0.85-80')
+    expect(list.readAs).toBe('PERCENT')
+    expect(list.tokens).toEqual(['90', '0.85', '80'])
+    expect(list.mixed).toBe(true)
+    expect(barrierNotice(list, 3)).toContain('2 이하인 값이 섞여')
+  })
+
+  it('숫자를 품은 비-형식 토큰은 그대로 통과한다 — 차수가 밀리지 않는다', () => {
+    /*
+     * 버리면 뒤의 값이 앞 차수로 당겨져 **다른 차수의 배리어**가 된다. 남기면 그
+     * 칸에 형식 오류가 붙는다 — 문구는 계약이 낸다(`parse.ts` 머리글의 규칙).
+     */
+    const list = parseBarrierList('90-8.5.3-80')
+    expect(list.tokens).toEqual(['90', '8.5.3', '80'])
+    // 형식이 아닌 토큰은 해석 모드 투표에 참여하지 않는다.
+    expect(list.readAs).toBe('PERCENT')
+  })
+
+  it('숫자가 없는 글자는 사라진다 — 결정 ①의 대가이며 개수가 그것을 드러낸다', () => {
+    /*
+     * ★ **처음 쓴 케이스가 틀렸고 구현이 옳았다.** 「구분자는 숫자·점이 아닌 모든
+     * 연속」이므로 `팔십오`는 토큰이 아니라 **구분자**다. 즉 숫자 없는 오타는 조용히
+     * 사라지고 값이 밀리지도 않는다 — 남는 신호는 **개수**이며 그것을 세 곳이 본다:
+     * 안내 문구(`barrierNotice`)·차수표의 빈 칸·V-03(저장 시점).
+     *
+     * 이 대가를 감수하는 이유는 대안이 더 나쁘다는 것이다. 구분자를 열거하면 목록
+     * 밖의 글자가 숫자에 **붙어** `90팔십오`가 한 토큰이 되고, 그때는 값이 밀린다.
+     */
+    const list = parseBarrierList('90-팔십오-80')
+    expect(list.tokens).toEqual(['90', '80'])
+    expect(barrierNotice(list, 3)).toContain('총 차수 3과 개수가 다르다')
+  })
+
+  it('빈 입력은 토큰 0건이다', () => {
+    for (const raw of ['', '   ', '---', '%']) {
+      expect(parseBarrierList(raw).tokens, raw).toEqual([])
+    }
+  })
+
+  it('일괄 적용이 차수별 칸을 채운다 — 정본은 그 칸이다', () => {
+    const applied = applyBarriers({ totalRounds: '3', barriers: '90-85-80' })
+    expect(applied.values['schedules[0].barrier']).toBe('90')
+    expect(applied.values['schedules[2].barrier']).toBe('80')
+    expect(applied.notice).toContain('퍼센트로 읽었다')
+  })
+
+  it('총 차수가 비어 있으면 개수로 채운다 — 적은 값은 바꾸지 않는다', () => {
+    expect(applyBarriers({ barriers: '90-85-80' }).values.totalRounds).toBe('3')
+    // 이미 적혀 있으면 그대로 두고 다르다고 알린다(V-03이 저장 시점에 같은 사실을 낸다).
+    const kept = applyBarriers({ totalRounds: '6', barriers: '90-85-80' })
+    expect(kept.values.totalRounds).toBe('6')
+    expect(kept.notice).toContain('총 차수 6과 개수가 다르다')
+    // 넘치는 토큰은 없는 차수에 쓰지 않는다.
+    const over = applyBarriers({ totalRounds: '2', barriers: '90-85-80' })
+    expect(over.values['schedules[2].barrier']).toBeUndefined()
+  })
+
+  it('빈 입력에 적용하면 아무것도 바꾸지 않고 예시를 안내한다', () => {
+    const before = { totalRounds: '3', barriers: '' }
+    const after = applyBarriers(before)
+    expect(after.values).toEqual(before)
+    expect(after.notice).toContain('90-85-80')
+  })
+
+  it('전이가 일괄 적용을 같은 단계에서 처리한다', () => {
+    const next = transition(
+      formData({
+        [STEP_FIELD]: 'CONDITIONS',
+        [INTENT_FIELD]: 'APPLY_BARRIERS',
+        totalRounds: '',
+        barriers: '0.9/0.85',
+      }),
+    )
+    expect(next.step).toBe('CONDITIONS')
+    expect(next.counts.rounds).toBe(2)
+    expect(next.values['schedules[1].barrier']).toBe('85')
+    expect(next.notice).toContain('소수로 읽어')
   })
 })
 

@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { korDate, won } from '@/lib/format'
 import { productDefaults } from '@/lib/forms/defaults'
 import {
   PENDING_PARTS,
@@ -17,6 +18,7 @@ import {
   buttonField,
   formFieldsFor,
   formHtmlFor,
+  formValuesFor,
   inputNamesOf,
   submitAction,
 } from './helpers/actions'
@@ -24,7 +26,7 @@ import { authenticatedJar } from './helpers/auth'
 import { cookieJar, get } from './helpers/server'
 
 /**
- * SCR-204 ① ② — **단계 전이가 Next를 지나야 존재한다** (P4 컷 4a)
+ * SCR-204 — **단계 전이와 저장이 Next를 지나야 존재한다** (P4 컷 4a·4b)
  *
  * ## 여기서만 보이는 것
  *
@@ -71,6 +73,23 @@ describe('SCR-204 단계 폼', () => {
     jar = await authenticatedJar()
     actionId = actionIdOf('productFormAction')
   })
+
+  /** 한 단계 제출. 의도는 **렌더된 버튼에서** 읽는다 */
+  async function step(
+    html: string,
+    actionId2: string,
+    intent: string,
+    fields: Record<string, string>,
+  ): Promise<string> {
+    const res = await submitAction(PATHS.productNew, jar, [
+      // 브라우저가 보내는 것과 같다 — 히든만 보내면 그 단계의 값이 사라진다.
+      ...formValuesFor(html, actionId2),
+      ...Object.entries(fields),
+      buttonField(formHtmlFor(html, actionId2), intent),
+    ])
+    expect(res.status, `${intent} 제출`).toBe(200)
+    return res.text()
+  }
 
   it('①로 서고 네 단계가 보인다', async () => {
     const res = await get(PATHS.productNew, jar)
@@ -221,32 +240,109 @@ describe('SCR-204 단계 폼', () => {
     )
   })
 
-  it('③④는 아직 없다 — 원장이 그 사실을 들고 있다', async () => {
+  it('네 단계가 전부 서 있다 — 원장이 비었다 (컷 4b)', async () => {
     /*
-     * ★ **컷 4b가 이 단언을 빨간불로 만든다.** `PENDING_PARTS`에서 조각을 지우면
-     * 여기가 실패해 「이제 화면을 붙여라」고 말한다 — `NOT_YET_BUILT` 원장과 같은
-     * 형태이며, 문구를 테스트에 적지 않고 원장에서 읽으므로 사본이 생기지 않는다.
+     * ★ **컷 4a에서 이 케이스는 「③④는 아직 없다」였다.** `PENDING_PARTS`에서 조각을
+     * 지우자 빨간불이 되어 「이제 화면을 붙여라」고 말했고, 붙인 뒤 반대 방향으로
+     * 고쳤다 — 각 단계가 자기 칸을 렌더하고 ④에 저장 버튼이 있다.
+     *
+     * 원장을 참조하는 형태는 유지한다: 다음에 화면 안의 조각을 미루는 컷이 오면
+     * 표가 다시 채워지고 이 단언이 그 사실을 요구한다.
      */
+    expect(PENDING_PARTS).toEqual({})
+
     let html = await (await get(PATHS.productNew, jar)).text()
-    for (const step of ['UNDERLYINGS', 'CONDITIONS', 'CONFIRM'] as StepId[]) {
-      html = await (
-        await submitAction(PATHS.productNew, jar, [
-          ...formFieldsFor(html, actionId),
-          buttonField(formHtmlFor(html, actionId), 'NEXT'),
-        ])
-      ).text()
-
-      const pending = PENDING_PARTS[step]
-      if (pending == null) continue
-      expect(html, `${step}의 자리표시`).toContain(pending)
+    for (const id of ['UNDERLYINGS', 'CONDITIONS', 'CONFIRM'] as StepId[]) {
+      html = await step(html, actionId, 'NEXT', {})
+      const rendered = inputNamesOf(formHtmlFor(html, actionId))
+      // ④는 입력이 없다 — 그것도 선언된 성질이다(`STEP_NAMES.CONFIRM`이 빈 배열).
+      for (const name of STEP_NAMES[id]({ underlyings: 1, rounds: 0 })) {
+        expect(rendered, `${id}의 ${name}`).toContain(name)
+      }
     }
 
-    // ④에는 저장이 없다. 그 사실도 원장이 정한다.
     expect(html).toMatch(/aria-current="step"[^>]*>④/)
-    if (PENDING_PARTS.SUBMIT != null) {
-      expect(html).toContain(PENDING_PARTS.SUBMIT)
-      expect(html).not.toContain('value="SUBMIT"')
-    }
+    // 저장 버튼이 의도를 나른다 — 없으면 `buttonField`가 던진다.
+    expect(buttonField(formHtmlFor(html, actionId), 'SUBMIT')).toEqual(['intent', 'SUBMIT'])
+  })
+
+  it('④가 저장될 값을 보여준다 — 미리보기와 저장이 같은 함수에서 나온다', async () => {
+    /*
+     * DOC-008 ④는 「생성될 평가일정 미리보기 후 저장」이다. 화면과 파서가
+     * `previewDatesOf` 하나를 같은 값에 부르므로 「확인 화면에서 본 것과 다른 것이
+     * 저장된다」가 구조적으로 불가능하다 — 그 성질을 여기서 실행으로 본다.
+     */
+    const actionId2 = actionIdOf('productFormAction')
+    let html = await (await get(PATHS.productNew, jar)).text()
+
+    html = await step(html, actionId2, 'NEXT', {
+      name: `[E2E] 미리보기${STAMP}`,
+      issueDate: '2026-01-31', // 말일 — 클램핑이 보이는 날짜다
+      principal: '10,000,000',
+      accountType: 'GENERAL',
+    })
+    html = await step(html, actionId2, 'NEXT', {}) // ② 건너뛴다(자산은 저장 때 본다)
+    html = await step(html, actionId2, 'APPLY_BARRIERS', {
+      evaluationPeriodMonths: '1',
+      totalRounds: '',
+      annualCouponRate: '8',
+      barriers: '0.9/0.85',
+    })
+
+    // SQ-04 — 소수로 읽어 퍼센트로 바꿨고 총 차수를 개수로 채웠다.
+    expect(html).toContain('소수로 읽어')
+    const conditions = formHtmlFor(html, actionId2)
+    expect(/<input[^>]*name="totalRounds"[^>]*>/.exec(conditions)?.[0]).toContain(
+      'value="2"',
+    )
+    expect(
+      /<input[^>]*name="schedules\[0\]\.barrier"[^>]*>/.exec(conditions)?.[0],
+    ).toContain('value="90"')
+
+    html = await step(html, actionId2, 'NEXT', {})
+    expect(html).toMatch(/aria-current="step"[^>]*>④/)
+
+    // 말일 클램핑이 미리보기에 보인다 — 1/31 + 1개월 = 2/28 (2026년은 평년)
+    expect(html).toContain(korDate('2026-02-28'))
+    expect(html).toContain(korDate('2026-03-31'))
+    // 금액은 쉼표를 지운 뒤 표준 표기로 보인다.
+    expect(html).toContain(won('10000000'))
+  })
+
+  it('검증 실패는 그 오류가 있는 단계로 되돌린다', async () => {
+    /*
+     * ★ ④에서 저장했는데 오류가 ①에 있으면 사용자는 그 문구를 **볼 수 없다**(그 칸이
+     * 히든이다) — 「저장이 안 되는데 아무 표시도 없다」의 단계 폼 버전이다.
+     * `stepForErrors`가 가장 앞 단계를 고르고 어댑터가 그 단계로 값을 옮긴다.
+     *
+     * 픽스처는 **상품명을 비운다**(V-19). ①의 칸이며 ④에서 제출하므로 두 구현이
+     * 갈린다: 되돌리지 않으면 ④가 그대로 렌더되고 오류 문구가 어디에도 없다.
+     */
+    const actionId2 = actionIdOf('productFormAction')
+    let html = await (await get(PATHS.productNew, jar)).text()
+
+    html = await step(html, actionId2, 'NEXT', { name: '', accountType: 'GENERAL' })
+    html = await step(html, actionId2, 'NEXT', {})
+    html = await step(html, actionId2, 'APPLY_BARRIERS', {
+      evaluationPeriodMonths: '6',
+      totalRounds: '',
+      annualCouponRate: '8',
+      barriers: '90',
+    })
+    html = await step(html, actionId2, 'NEXT', {})
+
+    const saved = await submitAction(PATHS.productNew, jar, [
+      ...formValuesFor(html, actionId2),
+      buttonField(formHtmlFor(html, actionId2), 'SUBMIT'),
+    ])
+    expect(saved.status).toBe(200) // 오류는 결과 객체다 — 화면을 갈아치우지 않는다
+    const rendered = await saved.text()
+
+    // ①로 되돌아왔고 그 칸에 오류가 붙었다.
+    expect(rendered).toMatch(/aria-current="step"[^>]*>①/)
+    expect(rendered).toContain('id="name-error"')
+    // 입력값 보존 — 다른 단계의 값은 히든으로 남아 있다(W-03의 존재 이유).
+    expect(formHtmlFor(rendered, actionId2)).toContain('value="90"')
   })
 
   it('조작된 단계·의도가 폼을 막지 않는다', async () => {

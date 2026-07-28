@@ -7,6 +7,8 @@ import { AssetForm } from '@/components/prices/AssetForm'
 import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
+import { ConditionStep } from '@/components/products/ConditionStep'
+import { ConfirmStep } from '@/components/products/ConfirmStep'
 import { UnderlyingRow } from '@/components/products/UnderlyingRow'
 import type { AssetOption } from '@/lib/db/queries/prices'
 import { ACCOUNT_TYPE_LABELS } from '@/lib/format'
@@ -15,7 +17,6 @@ import { path } from '@/lib/forms/fieldPath'
 import { initialFormState, type FormState } from '@/lib/forms/state'
 import {
   MAX_UNDERLYINGS,
-  PENDING_PARTS,
   PRODUCT_STEPS,
   STEP_FIELD,
   UNDERLYING_SUBS,
@@ -28,7 +29,7 @@ import {
 } from '@/lib/forms/steps'
 
 /**
- * SCR-204 ELS 등록 — 단계형 폼 (DOC-008 §5·§7.1, P4 컷 4a)
+ * SCR-204 ELS 등록 — 단계형 폼 (DOC-008 §5·§7.1, P4 컷 4a·4b)
  *
  * ## 단계는 상태가 아니라 폼의 값이다
  *
@@ -90,8 +91,8 @@ export function ProductForm({ assets }: { assets: readonly AssetOption[] }) {
         {step === 'UNDERLYINGS' && (
           <UnderlyingStep assets={assets} state={state} count={counts.underlyings} />
         )}
-        {step === 'CONDITIONS' && <PendingPart id="CONDITIONS" />}
-        {step === 'CONFIRM' && <PendingPart id="CONFIRM" />}
+        {step === 'CONDITIONS' && <ConditionStep state={state} />}
+        {step === 'CONFIRM' && <ConfirmStep state={state} assets={assets} />}
 
         <StepButtons active={step} />
       </form>
@@ -143,12 +144,7 @@ function StepNav({ active }: { active: StepId }) {
   )
 }
 
-/**
- * 이전·다음. **④에서 저장으로 바뀐다** — 컷 4b가 그 버튼을 붙인다.
- *
- * 지금 ④에 저장이 없다는 사실은 `PENDING_PARTS`가 들고 있고
- * `tests/app/steps.test.ts`가 그 표를 실제와 대조한다.
- */
+/** 이전·다음, ④에서는 저장. 버튼의 `value`가 의도를 나른다 */
 function StepButtons({ active }: { active: StepId }) {
   const at = PRODUCT_STEPS.findIndex((step) => step.id === active)
   const last = at === PRODUCT_STEPS.length - 1
@@ -167,21 +163,14 @@ function StepButtons({ active }: { active: StepId }) {
       {!last && (
         <SubmitButton label="다음" pendingLabel="이동 중…" name="intent" value="NEXT" />
       )}
-      {last && 'SUBMIT' in PENDING_PARTS && (
-        <p className="text-sm text-neutral-600">저장은 {PENDING_PARTS.SUBMIT}에서 붙는다.</p>
+      {last && (
+        /*
+         * DOC-008 §6은 SCR-204의 로딩 상태를 「저장 중」으로 규정한다. `useFormStatus`가
+         * 폼의 자손에서만 동작하므로 `SubmitButton`이 별 컴포넌트다 — 두 번 누르면
+         * 상품이 둘 생긴다(§5.1에 멱등성이 없다).
+         */
+        <SubmitButton label="저장" pendingLabel="저장 중…" name="intent" value="SUBMIT" />
       )}
-    </div>
-  )
-}
-
-/** 아직 서지 않은 조각. 문구의 정본은 `PENDING_PARTS`다 */
-function PendingPart({ id }: { id: StepId }) {
-  const step = PRODUCT_STEPS.find((candidate) => candidate.id === id)!
-  return (
-    <div className="rounded-lg border border-dashed border-neutral-300 p-6 text-sm">
-      <p className="font-medium">{`${step.ordinal} ${step.title}`}</p>
-      <p className="mt-1 text-neutral-600">{step.summary}</p>
-      <p className="mt-3 text-neutral-500">{PENDING_PARTS[id] ?? '이 단계는 아직 없다.'}</p>
     </div>
   )
 }
