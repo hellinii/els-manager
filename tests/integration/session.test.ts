@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { EXPIRY_MARGIN_MS } from '@supabase/auth-js/dist/main/lib/constants.js'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createSessionClient, readOnlyCookieAdapter } from '@/lib/db/client'
 
@@ -112,21 +113,6 @@ describe('readOnlyCookieAdapter — 서버 컴포넌트 대응', () => {
     ).not.toThrow()
   })
 
-  it('두 번째 인자(응답 헤더)를 받아도 던지지 않는다', () => {
-    // setAll의 2번째 인자는 `Cache-Control: private, no-cache, no-store` 등
-    // **응답에 반드시 실려야 하는 헤더**다. 실리지 않으면 CDN·리버스 프록시가
-    // 인증 쿠키가 담긴 응답을 캐시해 **한 사용자의 세션 토큰이 다른 사용자에게
-    // 나갈 수 있다**(라이브러리 주석). 서버 컴포넌트 경로는 쿠키를 아예 쓰지
-    // 않으므로 헤더도 필요 없지만, **P4의 middleware는 반드시 적용해야 한다.**
-    const adapter = readOnlyCookieAdapter(() => [])
-    expect(() =>
-      adapter.setAll!(
-        [{ name: 'sb-x', value: 'y', options: {} }],
-        { 'Cache-Control': 'private, no-cache, no-store, must-revalidate, max-age=0' },
-      ),
-    ).not.toThrow()
-  })
-
   it('읽기는 주입된 함수를 그대로 쓴다', () => {
     const adapter = readOnlyCookieAdapter(() => [{ name: 'a', value: 'b' }])
     expect(adapter.getAll()).toEqual([{ name: 'a', value: 'b' }])
@@ -145,6 +131,132 @@ describe('readOnlyCookieAdapter — 서버 컴포넌트 대응', () => {
 
     expect(error).toBeNull()
     expect(data.user?.id).toBe(ITG_USER_A)
+  })
+})
+
+describe('토큰 갱신 — P4 선행 조건 ②·④', () => {
+  /**
+   * 만료 마진 안으로 시계를 옮겨 **실제 GoTrue 갱신을 일으킨다.**
+   *
+   * 종전 이 자리에는 "헤더 객체를 손으로 만들어 넘기고 `not.toThrow()`"가 있었다.
+   * 어댑터가 인자를 통째로 버려도 통과하는 항진명제였다 — P3a.5가 교체한 것과
+   * 같은 부류이므로 교체한다.
+   *
+   * `Date`만 가짜로 만든다. `fetch`와 `setTimeout`은 진짜여야 실제 왕복이 일어난다.
+   */
+  const JUMP_MS = 60_000
+
+  it('EXPIRY_MARGIN_MS가 점프 폭보다 크다 — 아래 테스트의 전제', () => {
+    /*
+     * **이 단언이 없으면 아래 테스트가 조용히 무의미해진다.**
+     *
+     * 라이브러리가 마진을 60초 이하로 낮추면 점프해도 갱신이 일어나지 않는데,
+     * jar에는 로그인 때 받은 유효한 쿠키가 이미 있으므로 "쿠키가 있다"·"세 번째
+     * 클라이언트가 인증된다"·"헤더가 왔다"가 **전부 그대로 통과한다.** 교체하려던
+     * 항진명제로 되돌아가는 것이다.
+     *
+     * 그래서 상수 자체를 본다. 값이 바뀌면 여기서 **먼저** 빨간불이 뜬다 —
+     * AQ-28이 "신규 함수가 PUBLIC 실행 가능임"을 케이스로 박고 "그 케이스가
+     * 실패하면 좋은 소식"이라고 한 것과 같은 자리다.
+     */
+    expect(EXPIRY_MARGIN_MS).toBeGreaterThan(JUMP_MS)
+  })
+
+  it('만료 직전이면 갱신되고, 갱신분이 jar에 저장되며, 헤더 세 개가 함께 온다', async () => {
+    const jar = memoryCookieJar()
+    const received: Record<string, string>[] = []
+
+    const writer = createSessionClient({
+      getAll: jar.getAll,
+      setAll: (cookies, headers) => {
+        received.push(headers)
+        jar.setAll(cookies)
+      },
+    })
+
+    const { data: signIn } = await writer.auth.signInWithPassword({
+      email: ITG_EMAIL[ITG_USER_A],
+      password: ITG_PASSWORD,
+    })
+    const before = signIn.session!
+    const beforeCookies = jar.getAll().map((c) => c.value).join('|')
+    received.length = 0
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(before.expires_at! * 1000 - JUMP_MS)
+
+      // 갱신은 getUser() 안에서 일어난다 — `_useSession` → `__loadSession`이
+      // `expires_at*1000 - Date.now() < EXPIRY_MARGIN_MS`를 보고 부른다
+      // (GoTrueClient.js:2490, 2517).
+      const refresher = createSessionClient({
+        getAll: jar.getAll,
+        setAll: (cookies, headers) => {
+          received.push(headers)
+          jar.setAll(cookies)
+        },
+      })
+      const { data: after, error } = await refresher.auth.getUser()
+      expect(error).toBeNull()
+      expect(after.user?.id).toBe(ITG_USER_A)
+
+      const { data: session } = await refresher.auth.getSession()
+
+      // ★ 나머지 단언의 전제다. 먼저 본다.
+      expect(
+        session.session?.access_token,
+        'access_token이 그대로다 — 갱신이 일어나지 않았다. ' +
+          `EXPIRY_MARGIN_MS(${EXPIRY_MARGIN_MS}ms) 전제가 깨졌을 수 있다. ` +
+          '어댑터의 결함이 아니라 점프 폭을 다시 정해야 한다는 뜻이다.',
+      ).not.toBe(before.access_token)
+
+      // 갱신분이 실제로 저장되었다 — ②가 막으려는 것이 정확히 이것의 부재다
+      expect(jar.getAll().map((c) => c.value).join('|')).not.toBe(beforeCookies)
+
+      // ④ — 라이브러리가 실제로 넘긴 헤더. 우리가 만든 객체가 아니다.
+      expect(received.length).toBeGreaterThan(0)
+      expect(received.at(-1)).toMatchObject({
+        'Cache-Control': 'private, no-cache, no-store, must-revalidate, max-age=0',
+        Expires: '0',
+        Pragma: 'no-cache',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // 갱신 후 jar **만으로** 새 클라이언트가 같은 사용자로 인증된다.
+    const fresh = createSessionClient(readOnlyCookieAdapter(jar.getAll))
+    const { data: reread } = await fresh.auth.getUser()
+    expect(reread.user?.id).toBe(ITG_USER_A)
+  })
+
+  it('무연산 어댑터로 갱신하면 갱신분이 유실된다 — ②의 대조군', async () => {
+    /*
+     * 서버 컴포넌트 경로가 지금 하는 일 그대로다. 갱신은 성공하지만 저장되지
+     * 않으므로 **jar가 로그인 직후 상태에 머문다** — 매 요청이 다시 갱신한다.
+     * 이 대조군이 초록이어야 위 테스트의 "저장되었다"가 의미를 갖는다.
+     */
+    const jar = memoryCookieJar()
+    const writer = createSessionClient({ getAll: jar.getAll, setAll: jar.setAll })
+    const { data: signIn } = await writer.auth.signInWithPassword({
+      email: ITG_EMAIL[ITG_USER_A],
+      password: ITG_PASSWORD,
+    })
+    const beforeCookies = jar.getAll().map((c) => c.value).join('|')
+
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(signIn.session!.expires_at! * 1000 - JUMP_MS)
+
+      const serverComponent = createSessionClient(readOnlyCookieAdapter(jar.getAll))
+      const { data } = await serverComponent.auth.getUser()
+      expect(data.user?.id).toBe(ITG_USER_A) // 갱신 자체는 성공한다
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // 그런데 저장되지 않았다.
+    expect(jar.getAll().map((c) => c.value).join('|')).toBe(beforeCookies)
   })
 })
 

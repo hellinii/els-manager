@@ -1,65 +1,38 @@
-import Image from "next/image";
+import { signOutAction } from './(auth)/actions'
 
-export default function Home() {
+/**
+ * 임시 랜딩 — SCR-101(홈)이 컷 9에서 대체한다.
+ *
+ * 지금 여기 있는 것은 **로그아웃뿐이다.** 화면을 만드는 컷이 아니라 인증 고리를
+ * 닫는 컷이므로 조회 계약을 부르지 않는다.
+ *
+ * ## 로그아웃이 왜 지금 있는가
+ *
+ * DOC-008은 로그아웃을 SCR-502에 두었지만 그것은 **버튼의 위치**에 대한 것이지
+ * 기능의 시점이 아니다. 없으면 미인증 상태로 가는 방법이 브라우저에서 쿠키를
+ * 지우는 것뿐이라 프록시 리다이렉트와 SCR-001을 P4 내내 확인할 수 없다.
+ * 그리고 **쿠키 삭제 경로의 유일한 소비자**다 — 갱신은 값을 덮어쓰지만 삭제는
+ * 빈 값을 싣는 다른 경로이고, 그것이 깨지면 브라우저가 죽은 쿠키를 계속 보낸다.
+ */
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-12">
+      <div className="text-center">
+        <h1 className="text-2xl font-semibold tracking-tight">언제들어오나</h1>
+        <p className="mt-2 text-sm text-neutral-600">
+          로그인되어 있다. 화면은 P4에서 차례로 선다.
+        </p>
+      </div>
+
+      <form action={signOutAction}>
+        <button
+          type="submit"
+          className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-100"
+        >
+          로그아웃
+        </button>
+      </form>
+    </main>
+  )
 }

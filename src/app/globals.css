@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/*
+ * v1은 라이트 모드로 고정한다 — DOC-008 §9 SQ-05 (P4에서 해결)
+ *
+ * 스캐폴드가 남긴 `@media (prefers-color-scheme: dark)` 블록을 제거했다.
+ * 근거는 취향이 아니라 **이 시스템에서 색이 의미를 나른다**는 것이다 — ST-05는
+ * 추정값과 확정값을 시각적으로 구분하라고 요구하고, §5 SCR-101은 `KI_BELOW`
+ * ("확인 필요")를 `KI_NEAR`("관찰")와 구분해 강조하라고 요구한다. 두 모드 중
+ * 한쪽에서만 검증하면 다른 쪽에서 그 대비가 무너져도 아무도 보지 않고, 조치가
+ * 관찰로 격하되는 것은 §5가 이미 거부한 결과다.
+ *
+ * 다크 모드는 디자인 시스템에서 두 모드를 함께 설계하고 함께 검증할 때 넣는다
+ * (DOC-001 §10 — 디자인 시스템은 구현 후 역작성).
+ */
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -12,15 +26,9 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* 스캐폴드의 Arial 하드코딩을 제거했다 — <html>의 Geist 변수를 덮고 있었다. */
+  font-family: var(--font-sans), system-ui, sans-serif;
 }

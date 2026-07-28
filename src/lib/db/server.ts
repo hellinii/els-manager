@@ -1,6 +1,9 @@
 import { cache } from 'react'
 
+import type { CookieMethodsServer } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+
+import { signIn, signOut } from '@/lib/auth/session'
 
 import {
   createSessionClient,
@@ -14,9 +17,13 @@ import {
   type Mutations,
 } from './mutations/context'
 import { createQueries, type Queries } from './queries/context'
+import type { ActionResult } from './mutations/result'
 
 /**
- * Next 결선 — **`next`를 import하는 유일한 파일이다**(린트로 강제).
+ * Next 결선 — `src/lib/db/**`에서 **`next`를 import하는 유일한 파일이다**(린트로 강제).
+ *
+ * 저장소 전체로는 `src/proxy.ts`가 둘째다(P4 ②). 그쪽은 이 글롭 밖이며
+ * `@/lib/db/client`의 어댑터만 가져다 쓴다 — 경계를 넓히는 대신 위치로 지킨다.
  *
  * 이 파일이 `tests/**`의 import 그래프에 들어가면 안 된다. `server-only`는
  * Vitest에서 해석되지 않으므로 그 패키지로는 막을 수 없고, 경계는 "테스트가
@@ -70,22 +77,49 @@ export function getQueries(): Promise<Queries> {
  *
  * 쿠키 어댑터도 조회와 다르다 — 서버 액션에서는 **쓸 수 있다**(`writableCookieAdapter`).
  */
-const requestMutations = cache(async (): Promise<Mutations> => {
+/**
+ * 서버 액션용 쿠키 어댑터 — 변경 계약과 인증이 공유한다.
+ *
+ * 두 곳이 각자 `cookies()` + `writableCookieAdapter` + `store.set` 루프를 쓰면
+ * 같은 코드가 두 벌이 되고, 한쪽만 고쳐지는 날이 온다. `DB_NEXT_BOUNDARY`가
+ * 한 파일인 것도 이 결선을 여기 모으기 때문이다.
+ */
+async function actionCookies(): Promise<CookieMethodsServer> {
   const store = await cookies()
-  const db = createSessionClient(
-    writableCookieAdapter(
-      () => store.getAll(),
-      // 캐시 금지 헤더(두 번째 인자)는 여기서 실을 수 없다 — 서버 액션은 응답
-      // 헤더에 접근하지 못한다. 허용되는 이유는 서버 액션 응답이 POST이고 Next가
-      // 캐시하지 않기 때문이다. **Route Handler·미들웨어를 붙일 때는 반드시
-      // 실어야 한다**(§7.1 배치, P4의 미들웨어 갱신).
-      (cookiesToSet) => {
-        for (const { name, value, options } of cookiesToSet) {
-          store.set(name, value, options)
-        }
-      },
-    ),
+  return writableCookieAdapter(
+    () => store.getAll(),
+    // 캐시 금지 헤더(두 번째 인자)는 여기서 실을 수 없다 — 서버 액션은 응답
+    // 헤더에 접근하지 못한다. 허용되는 이유는 서버 액션 응답이 POST이고 Next가
+    // 캐시하지 않기 때문이다. **Route Handler에서는 반드시 실어야 한다**
+    // (§7.1 배치). 프록시는 `responseCookieAdapter`로 이미 싣는다.
+    (cookiesToSet) => {
+      for (const { name, value, options } of cookiesToSet) {
+        store.set(name, value, options)
+      }
+    },
   )
+}
+
+/**
+ * 로그인·로그아웃의 결선 — SCR-001 (DOC-011 §8).
+ *
+ * `cache()`를 쓰지 않는다. 조회·변경과 달리 요청당 한 번이 아니라 **정확히 그
+ * 액션이 부를 때 한 번** 실행되어야 하고, 세션을 바꾸는 것이 목적이므로 결과를
+ * 메모이제이션하면 같은 요청 안에서 바뀐 세션이 보이지 않는다.
+ */
+export async function getAuth(): Promise<{
+  signIn: (params: { email: string; password: string }) => Promise<ActionResult<void>>
+  signOut: () => Promise<ActionResult<void>>
+}> {
+  const adapter = await actionCookies()
+  return {
+    signIn: (params) => signIn(params, adapter),
+    signOut: () => signOut(adapter),
+  }
+}
+
+const requestMutations = cache(async (): Promise<Mutations> => {
+  const db = createSessionClient(await actionCookies())
 
   // 조회와 같은 이유로 getSession()이 아니라 getUser()다 — 쿠키를 그대로 믿지 않는다.
   const { data, error } = await db.auth.getUser()
