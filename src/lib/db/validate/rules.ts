@@ -350,6 +350,9 @@ export function V18_kiTouchedRequiresBarrier(
   product: { kiBarrier: string | null },
 ): void {
   if (touchedAt != null && product.kiBarrier == null) {
-    p.add('V-18', 'touchedAt', '노낙인 상품에는 KI 터치를 설정할 수 없다.')
+    // ★ 키는 `kiTouchedAt`이다 — 파라미터 이름(`touchedAt`)이 아니다. 같은 규칙을
+    //   DB가 잡을 때(`els_products_ki_touched_check`)도 같은 키이며, 층에 따라
+    //   다른 칸을 가리키면 화면이 같은 위반에 두 곳을 표시한다(§5.9 v1.1 각주).
+    p.add('V-18', 'kiTouchedAt', '노낙인 상품에는 KI 터치를 설정할 수 없다.')
   }
 }

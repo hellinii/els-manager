@@ -452,10 +452,16 @@ export function parseAssetInput(p: Problems, raw: unknown): AssetInput | null {
   return input
 }
 
-/** §5.9 `setKiTouched`의 `touchedAt` — `null`은 해제이므로 정상 입력이다 */
+/**
+ * §5.9 `setKiTouched`의 `touchedAt` — `null`은 해제이므로 정상 입력이다.
+ *
+ * **`fields` 키는 파라미터 이름이 아니라 `kiTouchedAt`이다.** 이 계약의 입력은
+ * 위치 인자라 필드 이름이 없고, §3.1이 `fields`를 "계약 입력의 필드 이름"으로만
+ * 정의해 그 공백에서 계약 계층과 DB 매핑이 갈려 있었다(§5.9 v1.1 각주).
+ */
 export function parseTouchedAt(p: Problems, raw: unknown): string | null | undefined {
   if (raw === null) return null
-  const parsed = requireIsoDate(p, 'V-18', 'touchedAt', raw, 'KI 터치 확정일')
+  const parsed = requireIsoDate(p, 'V-18', 'kiTouchedAt', raw, 'KI 터치 확정일')
   return parsed ?? undefined
 }
 

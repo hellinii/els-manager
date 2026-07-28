@@ -634,7 +634,10 @@ describe('§5.9 setKiTouched', () => {
     // productRedeemed는 ki_barrier가 없다
     const error = errorOf(await a.write.setKiTouched(FX.productRedeemed, '2026-06-15'))
     expect(error.code).toBe('VALIDATION_FAILED')
-    expect(error.fields?.touchedAt).toBeDefined()
+    // 키는 파라미터 이름(`touchedAt`)이 아니라 `kiTouchedAt`이다 — DB가 같은
+    // 규칙을 잡을 때(`els_products_ki_touched_check`)와 같은 칸을 가리킨다
+    expect(error.fields?.kiTouchedAt).toBeDefined()
+    expect(error.fields?.touchedAt).toBeUndefined()
 
     // 이미 없는 것을 없애는 요청은 거부할 이유가 없다
     dataOf(await a.write.setKiTouched(FX.productRedeemed, null))
