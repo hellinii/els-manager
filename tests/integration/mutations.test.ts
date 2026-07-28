@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { createMutations, type Mutations } from '@/lib/db/mutations/context'
 import { toInsert } from '@/lib/db/mutations/payload'
 import type { ActionResult } from '@/lib/db/mutations/result'
 import type { ProductInput, RedemptionInput } from '@/lib/db/mutations/types'
@@ -35,6 +36,8 @@ const NAME = {
   created: `${FX_NAME_PREFIX} 변경-생성`,
   updated: `${FX_NAME_PREFIX} 변경-수정됨`,
   atomicity: `${FX_NAME_PREFIX} 변경-원자성`,
+  stale: `${FX_NAME_PREFIX} 변경-영향0행`,
+  staleRedeemed: `${FX_NAME_PREFIX} 변경-영향0행-상환`,
   asset1: `${FX_NAME_PREFIX} 변경자산1`,
   asset2: `${FX_NAME_PREFIX} 변경자산2`,
 } as const
@@ -458,6 +461,156 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
     // V-09가 인덱스까지 붙여 말한다. DB는 배열의 몇 번째인지 말하지 못한다
     expect(duplicate.code).toBe('VALIDATION_FAILED')
     expect(duplicate.fields?.['underlyings[1].assetId']).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ★ W-05 둘째 겹 — 사전 조회는 통과하고 RLS가 0행을 낸다
+// ---------------------------------------------------------------------------
+
+describe('★ W-05 둘째 겹 — 영향 행 0을 성공으로 넘기지 않는다', () => {
+  /**
+   * **세션과 `viewerId`가 어긋난 이 조합은 프로덕션에서 발생하지 않는다** —
+   * `server.ts`가 둘을 같은 `getUser()`에서 뽑는다. 경쟁 창(사전 조회와 변경
+   * 사이에 다른 요청이 상태를 바꾸는)의 **결과 상태를 결정적으로 만들기 위한
+   * 장치**이며, 경쟁 자체는 비결정적이라 그대로는 테스트할 수 없다.
+   *
+   * ```
+   * 사전 조회  loadProduct → els_products_select_all이 using(true) → A의 상품 보임
+   *            row.owner_id(A) === ctx.viewerId(A) → 통과
+   * 변경       DELETE/UPDATE ... auth.uid() = B → USING이 감춤 → 0행, 오류 없음
+   * 결과       requireAffected([]) → staleState() → CONFLICT
+   * ```
+   *
+   * **W-05 인용문이 말한 그 상태다** — "그 0행을 성공으로 넘기면 사용자는
+   * '저장됐다'는 화면을 보고 데이터는 그대로다." P3b.5 전까지 이 방어는 호출
+   * 지점 9곳에 테스트가 0건이었다.
+   *
+   * **`CONFLICT`만 보지 않고 메시지까지 본다.** 이 계약들은 다른 이유로도
+   * `CONFLICT`를 내므로("이미 상환 처리된 상품이다", "상환 실적이 있는 상품은
+   * 삭제할 수 없다") 코드만 단언하면 사전 조회가 낸 거부와 구분되지 않는다.
+   */
+  let mismatched: Mutations
+  let productId: string
+  let redeemedProductId: string
+  let redemptionId: string
+
+  /** 사전 조회를 통과한 뒤 RLS가 0행을 내는지 — 그 신호는 문구가 특정한다 */
+  function expectStale(result: ActionResult<unknown>, what: string): void {
+    const error = errorOf(result)
+    expect(error.code, what).toBe('CONFLICT')
+    expect(error.message, `${what}: 사전 조회의 CONFLICT와 구분되어야 한다`).toContain(
+      '상태가 그 사이에 바뀌었다',
+    )
+  }
+
+  beforeAll(async () => {
+    // B의 세션인데 자기가 A라고 주장하는 컨텍스트
+    mismatched = createMutations({ db: b.db, asOf: AS_OF, viewerId: ITG_USER_A })
+
+    productId = dataOf(
+      await a.write.createProduct(productInput({ assetId, name: NAME.stale })),
+    ).id
+
+    redeemedProductId = dataOf(
+      await a.write.createProduct(productInput({ assetId, name: NAME.staleRedeemed })),
+    ).id
+    redemptionId = dataOf(
+      await a.write.createRedemption(redeemedProductId, {
+        redemptionType: 'MATURITY_GAIN',
+        redemptionDate: '2027-07-02',
+        grossAmount: '110000000',
+        taxableIncome: '10000000',
+        withholdingTax: '1540000',
+        isConfirmed: true,
+      }),
+    ).id
+  })
+
+  afterAll(async () => {
+    await a.write.deleteRedemption(redemptionId)
+    await a.write.deleteProduct(redeemedProductId)
+    await a.write.deleteProduct(productId)
+  })
+
+  /**
+   * **양성 대조 — 이것이 없으면 아래 다섯이 공허하게 통과한다.**
+   *
+   * 조작 자체가 어떤 이유로든 늘 실패한다면 "0행이라 CONFLICT"라는 단언은
+   * 아무것도 증명하지 않는다. 같은 조작이 **일치하는** 컨텍스트에서 성공함을
+   * 먼저 고정한다.
+   */
+  it('⓪ 일치하는 컨텍스트로는 같은 조작이 성공한다 (양성 대조)', async () => {
+    dataOf(await a.write.setKiTouched(productId, null))
+    dataOf(await a.write.updateProduct(productId, productInput({ assetId, name: NAME.stale })))
+  })
+
+  it('① deleteProduct — 0행이 CONFLICT가 되고 상품은 그대로 남는다', async () => {
+    expectStale(await mismatched.deleteProduct(productId), 'deleteProduct')
+
+    // 0행은 "권한 없음"과 "행 없음"을 구분하지 못한다 — 원본을 재조회해
+    // 불변임을 함께 단언한다(tests/rls/helpers/expect.ts의 규약)
+    const view = await a.read.getProduct(productId)
+    expect(view, '거부됐는데 상품이 사라졌다면 0행의 원인이 다른 것이다').not.toBeNull()
+    expect(view!.product.name).toBe(NAME.stale)
+  })
+
+  it('② setKiTouched — UPDATE의 0행도 같은 형태다', async () => {
+    // `null`(해제)을 쓴다 — 이 상품은 노낙인이라 날짜를 넣으면 V-18이 앞에서
+    // 잡아 UPDATE에 닿지 못한다
+    expectStale(await mismatched.setKiTouched(productId, null), 'setKiTouched')
+  })
+
+  /**
+   * **rpc의 `NULL` 반환은 별개 경로다.** `requireAffected`가 아니라 §5.2 각주의
+   * `string | null` 복원이 그 0행을 잡는다 — 생성 타입이 `Returns: string`이라
+   * 복원하지 않으면 `null`이 성공한 id로 읽힌다.
+   */
+  it('③ updateProduct — 함수의 NULL이 staleState로 복원된다 (§5.2 각주)', async () => {
+    expectStale(
+      await mismatched.updateProduct(productId, productInput({ assetId, name: NAME.updated })),
+      'updateProduct',
+    )
+
+    // 하위 행 교체까지 진행되지 않았다 — 함수가 삭제 전에 NULL로 빠진다
+    const view = await a.read.getProduct(productId)
+    expect(view!.product.name).toBe(NAME.stale)
+    expect(view!.underlyings).toHaveLength(1)
+    expect(view!.schedules).toHaveLength(2)
+  })
+
+  it('④ updateRedemption — 부모를 경유한 소유자 판정을 통과한 뒤 0행이다', async () => {
+    expectStale(
+      await mismatched.updateRedemption(redemptionId, {
+        redemptionType: 'MATURITY_GAIN',
+        redemptionDate: '2027-07-02',
+        grossAmount: '999',
+        taxableIncome: '0',
+        withholdingTax: '0',
+        isConfirmed: false,
+      }),
+      'updateRedemption',
+    )
+
+    const view = await a.read.getProduct(redeemedProductId)
+    expect(view!.redemption!.grossAmount).toBe('110000000')
+  })
+
+  it('⑤ deleteRedemption — 상환이 그대로 남는다', async () => {
+    expectStale(await mismatched.deleteRedemption(redemptionId), 'deleteRedemption')
+
+    const view = await a.read.getProduct(redeemedProductId)
+    expect(view!.redemption).not.toBeNull()
+  })
+
+  /**
+   * **사전 조회가 먼저 잡는 거부와 섞이지 않는다.** 위 다섯이 전부 사전 조회를
+   * **통과한** 경우다. 통과하지 못하는 경우(진짜 타인)는 `FORBIDDEN`이며 그것이
+   * W-05 첫째 겹이다 — 두 겹이 서로 다른 코드를 낸다는 사실 자체를 고정한다.
+   */
+  it('⑥ 첫째 겹과 둘째 겹이 다른 코드를 낸다', async () => {
+    // viewerId까지 B인 정직한 컨텍스트 — 사전 조회에서 걸린다
+    expect(errorOf(await b.write.deleteProduct(productId)).code).toBe('FORBIDDEN')
   })
 })
 

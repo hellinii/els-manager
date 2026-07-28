@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { requireAffected, staleState } from '@/lib/db/mutations/access'
 import type { UserSessionClient } from '@/lib/db/client'
 import {
   createMutations,
@@ -101,6 +102,68 @@ describe('컨텍스트의 전제는 조립 시점에 걸린다', () => {
   it('기준일 형식이 깨지면 던진다 — V-17이 이 값을 쓴다', () => {
     expect(() => createMutations({ ...CONTEXT, asOf: '2026-6-30' })).toThrow(/기준일/)
     expect(() => createMutations({ ...CONTEXT, asOf: '' })).toThrow(/기준일/)
+  })
+})
+
+describe('W-05 둘째 겹 — 영향 행 0을 성공으로 넘기지 않는다', () => {
+  /**
+   * **여기서는 함수의 계약만 본다.** "계약 9곳이 실제로 이것을 부르는가"는
+   * `tests/integration/mutations.test.ts`가 RLS 0행을 만들어 확인한다 — 그쪽이
+   * 없으면 이 파일은 쓰이지 않는 함수를 검증하는 셈이 된다.
+   */
+  it('0행은 CONFLICT다 — null과 빈 배열 둘 다', () => {
+    // PostgREST는 `.select()`가 붙으면 배열을, 안 붙으면 null을 준다. 둘 다 0행이다
+    expect(requireAffected(null)?.code).toBe('CONFLICT')
+    expect(requireAffected([])?.code).toBe('CONFLICT')
+  })
+
+  it('1행 이상은 통과다', () => {
+    expect(requireAffected([{ id: 'x' }])).toBeNull()
+    expect(requireAffected([{ id: 'x' }, { id: 'y' }])).toBeNull()
+  })
+
+  /**
+   * **NOT_FOUND도 FORBIDDEN도 아닌 이유.** 사전 조회가 이미 존재와 소유를
+   * 확인했으므로 그 뒤의 0행은 **그 사이에 상태가 바뀌었다**는 뜻이다. 사용자가
+   * 할 일은 입력을 고치는 것도 권한을 얻는 것도 아니고 화면을 갱신하는 것이다.
+   */
+  it('메시지가 화면 갱신을 지시한다 — 고칠 필드를 주지 않는다', () => {
+    const error = staleState()
+    expect(error.code).toBe('CONFLICT')
+    expect(error.message).toContain('화면을 갱신')
+    expect(error.fields).toBeUndefined()
+  })
+
+  /**
+   * **쓰기 함수의 `NULL` 반환도 같은 사실이므로 같은 값을 쓴다** (§5.2 각주).
+   * 두 경로가 다른 문구를 내면 화면이 같은 상황을 두 가지로 설명한다.
+   */
+  it('rpc의 NULL 경로와 같은 오류를 쓴다', () => {
+    expect(requireAffected([])).toEqual(staleState())
+  })
+
+  /**
+   * **네 계약은 이 방어에 도달할 수 없다** — 등재해 둔다.
+   *
+   * `saveTaxProfile`·`saveManualPrice`는 UPSERT, `createRedemption`·`createAsset`은
+   * INSERT다. RLS가 그 둘을 막을 때는 `WITH CHECK` 위반이라 **`42501`을 던지지
+   * 0행을 내지 않는다**(`tests/rls/helpers/expect.ts`의 형태 표). 그래서 네 곳의
+   * `requireAffected`·`staleState` 호출은 방어라기보다 **전제가 깨졌을 때 없는
+   * id를 화면에 넘기지 않기 위한 것**이며, 통합 스위트가 재현할 수 있는 경로가
+   * 아니다. 도달 가능한 다섯(§5.2·§5.3·§5.5 둘·§5.9)은 그쪽에서 본다.
+   */
+  it('도달 가능한 계약은 UPDATE·DELETE를 하는 다섯이다', () => {
+    const reachable = [
+      'updateProduct',
+      'deleteProduct',
+      'updateRedemption',
+      'deleteRedemption',
+      'setKiTouched',
+    ]
+    const mutations = createMutations(CONTEXT) as Record<string, unknown>
+    for (const name of reachable) {
+      expect(typeof mutations[name], name).toBe('function')
+    }
   })
 })
 
