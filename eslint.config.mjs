@@ -130,6 +130,57 @@ const NO_RAW_WRITE_PAYLOAD = [
     message:
       "DOC-011 §5.0 W-04 (AQ-30): 쓰기 payload를 리터럴로 넘기지 않는다. 생성 타입은 금액·비율을 number로 요구하므로 그 경로에서는 float64가 통과한다 — toInsert()/toUpdate()로 감싸 InsertPayload<T>의 검사를 받는다.",
   },
+]
+
+/**
+ * ADR-003 결정성 — **셀렉터를 한 곳에서 파생시킨다.**
+ *
+ * 순수 모듈과 표시 모듈(`lib/format`)에 같은 세 형태를 금지하는데 사유 문장이
+ * 다르다. 셀렉터를 두 벌 적으면 한쪽만 고쳐지는 날이 오고, 그때 빠지는 쪽은
+ * "규칙이 있는 것처럼 보이는데 없는" 상태가 된다.
+ */
+function noClockSyntax({ clock, random }) {
+  return [
+    {
+      selector: "MemberExpression[object.name='Date'][property.name='now']",
+      message: clock,
+    },
+    {
+      selector: "NewExpression[callee.name='Date'][arguments.length=0]",
+      message: clock,
+    },
+    {
+      selector:
+        "MemberExpression[object.name='Math'][property.name='random']",
+      message: random,
+    },
+  ]
+}
+
+/**
+ * 컷 0d 규칙 3 — `src/components/**`에서 `@/lib/db/*`는 **타입만** 가져온다.
+ *
+ * 없으면 클라이언트 컴포넌트가 `queries/map.ts`를 값으로 끌어오고, 그것이
+ * `lib/domain` 전체(판정·일정·수령액)를 브라우저 번들에 싣는다. 화면은 뷰 타입만
+ * 필요하므로 `import type`으로 충분하며, 그 형태는 컴파일 후 사라진다.
+ *
+ * `no-restricted-imports`가 아니라 `no-restricted-syntax`인 이유: 코어 규칙에는
+ * `allowTypeImports`가 없다(그 옵션은 typescript-eslint 쪽 동명 규칙에 있다).
+ * 그리고 이 글롭은 `els/no-supabase-in-ui`가 이미 `no-restricted-imports`를
+ * 선언한 자리이므로, 같은 이름을 다시 선언하면 **@supabase 금지가 대체되어
+ * 사라진다** — 규칙 이름을 바꿔 그 충돌 자체를 없앤다.
+ *
+ * `import { type X }`(선언 수준 `importKind`가 `value`)도 걸린다. TS가 그런
+ * 형태를 지워 주기는 하지만 지우는 조건이 컴파일러 설정에 달려 있고, 값 하나가
+ * 섞이는 순간 조용히 번들에 들어온다 — 형태를 고정하는 편이 싸다.
+ */
+const COMPONENTS_DB_TYPE_ONLY = [
+  {
+    selector:
+      "ImportDeclaration[importKind!='type'][source.value=/(?:^@\\/|\\/)lib\\/db(?:\\/|$)/]",
+    message:
+      "src/components는 lib/db를 값으로 import하지 않는다 — `import type`만 쓴다. 값 import는 queries/map.ts를 통해 lib/domain 전체를 클라이언트 번들에 싣는다. 데이터는 서버 컴포넌트가 읽어 props로 내린다.",
+  },
 ];
 
 const eslintConfig = defineConfig([
@@ -193,21 +244,11 @@ const eslintConfig = defineConfig([
       ],
       "no-restricted-syntax": [
         "error",
-        {
-          selector: "MemberExpression[object.name='Date'][property.name='now']",
-          message:
+        ...noClockSyntax({
+          clock:
             "ADR-003: 순수 모듈은 현재 시각에 의존할 수 없다. 기준일을 인자로 받는다.",
-        },
-        {
-          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
-          message:
-            "ADR-003: 순수 모듈은 현재 시각에 의존할 수 없다. 기준일을 인자로 받는다.",
-        },
-        {
-          selector:
-            "MemberExpression[object.name='Math'][property.name='random']",
-          message: "ADR-003: 순수 모듈은 난수를 사용할 수 없다.",
-        },
+          random: "ADR-003: 순수 모듈은 난수를 사용할 수 없다.",
+        }),
       ],
     },
   },
@@ -294,6 +335,76 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
+    },
+  },
+
+  /**
+   * ★ 아래 넷은 **파일 집합이 서로 겹치지 않는다.** 플랫 설정에서 뒤에 오는
+   * 객체가 같은 이름의 규칙을 다시 선언하면 앞의 설정을 병합하지 않고
+   * **대체**하므로(`els/db-layer-values-and-env`의 주석과 같은 함정), 겹치면
+   * 강제 변환 금지가 한쪽에서 소리 없이 사라진다. 넷이 선언하는 규칙 이름은
+   * `no-restricted-globals`·`no-restricted-syntax` 둘뿐이고, 그 둘을 앞에서
+   * 선언한 글롭은 `PURE_MODULES`(lib/tax·lib/domain)와 `DB_MODULES`(lib/db)이며
+   * 아래 어느 집합과도 교집합이 없다.
+   *
+   * 컷 0d 규칙 1 — 강제 변환 금지를 **표시 경계로 확장한다.** Q-08이 DB 경계에서
+   * 막은 함정이 표시 경계에 그대로 있다: 금액 문자열을 `Number(x).toLocaleString()`
+   * 으로 찍는 것이 UI에서 가장 자연스러운 실수인데, `numeric(15,0)` 금액은
+   * 15자리까지 float64로 정확하므로 **값 단언으로는 영원히 드러나지 않는다.**
+   */
+  {
+    name: "els/app-values",
+    files: ["src/app/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": ["error", ...NO_COERCION_SYNTAX],
+    },
+  },
+
+  {
+    name: "els/component-boundaries",
+    files: ["src/components/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": [
+        "error",
+        ...NO_COERCION_SYNTAX,
+        ...COMPONENTS_DB_TYPE_ONLY,
+      ],
+    },
+  },
+
+  {
+    /*
+     * 컷 0d 규칙 2 — 표시 모듈에 ADR-003 결정성.
+     *
+     * Q-02가 기준일을 **요청당 하나**로 고정했는데(`server.ts`의 `cache()`)
+     * 포매터가 `new Date()`를 부르면 그 규약이 표시 계층에서 깨진다. D-Day 라벨과
+     * 목록의 D-Day가 다른 날을 가리키는 형태이며, 자정을 걸친 렌더에서만 나타나
+     * 재현되지 않는다.
+     */
+    name: "els/format-determinism",
+    files: ["src/lib/format/**/*.ts"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": [
+        "error",
+        ...NO_COERCION_SYNTAX,
+        ...noClockSyntax({
+          clock:
+            "ADR-003 · Q-02: 포매터는 오늘을 계산하지 않는다. 기준일(asOf)을 인자로 받는다 — 요청당 한 번 해석된 값이 정본이다.",
+          random: "ADR-003: 표시 계층은 난수를 사용할 수 없다.",
+        }),
+      ],
+    },
+  },
+
+  {
+    name: "els/form-values",
+    files: ["src/lib/forms/**/*.ts", "src/lib/routes/**/*.ts"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": ["error", ...NO_COERCION_SYNTAX],
     },
   },
 

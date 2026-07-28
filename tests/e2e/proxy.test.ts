@@ -1,12 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { signIn } from '@/lib/auth/session'
-
-import {
-  ITG_EMAIL,
-  ITG_PASSWORD,
-  ITG_USER_A,
-} from '../integration/helpers/fixtures'
+import { authenticatedJar } from './helpers/auth'
 import { BASE_URL, cookieJar, get, locationPath } from './helpers/server'
 
 /**
@@ -18,25 +12,6 @@ import { BASE_URL, cookieJar, get, locationPath } from './helpers/server'
  *    우리 코드가 옮기는 것까지만 보고 그 뒤 Next의 동작은 보지 못한다
  *  ③ 매처 예외(`api/cron`)가 실제로 동작하는지
  */
-
-/** 로그인해서 브라우저가 가질 쿠키를 만든다. `signIn`은 어댑터를 인자로 받는다. */
-async function authenticatedJar() {
-  const cookies = new Map<string, string>()
-  const result = await signIn(
-    { email: ITG_EMAIL[ITG_USER_A], password: ITG_PASSWORD },
-    {
-      getAll: () => [...cookies.entries()].map(([name, value]) => ({ name, value })),
-      setAll: (toSet) => {
-        for (const { name, value } of toSet) {
-          if (value === '') cookies.delete(name)
-          else cookies.set(name, value)
-        }
-      },
-    },
-  )
-  expect(result.ok, '시드 사용자 로그인이 실패했다').toBe(true)
-  return cookieJar(Object.fromEntries(cookies))
-}
 
 describe('미인증 게이트', () => {
   it('보호 경로는 /login으로 307한다', async () => {
