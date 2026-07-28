@@ -79,6 +79,23 @@ export function createUnauthenticatedMutations(): Mutations {
 }
 
 /**
+ * 세션 해석 결과 → 변경 계약 묶음. **`server.ts`에서 분리한 판단이다.**
+ *
+ * 조회의 `queriesFor`와 같은 이유로 옮겼다(AQ-23 — `next`를 import하는 파일은
+ * 테스트 그래프 밖이라 그 안의 분기가 한 번도 실행되지 않았다). 다만 이쪽이
+ * 더 중요하다: **분기의 결과가 다르다.** 조회는 던지고 변경은 값을 준다(W-03).
+ * 키 집합이 같은지는 `tests/db/mutations.test.ts`가 보았지만 **그 분기가 실제로
+ * 선택되는지는 아무도 실행하지 않았다** — AQ-23이 지목한 바로 그 공백이다.
+ */
+export function mutationsFor(
+  user: { id: string } | null,
+  ctx: Omit<MutationContext, 'viewerId'>,
+): Mutations {
+  if (user == null) return createUnauthenticatedMutations()
+  return createMutations({ ...ctx, viewerId: user.id })
+}
+
+/**
  * 컨텍스트 자체의 전제를 확인한다 — 조회의 `assertContext`와 같은 이유이며
  * 쓰기에서는 더 무겁다. 빈 `viewerId`로 조립되면 **모든 소유자 판정이 실패**해
  * 본인 상품에도 `FORBIDDEN`이 나오고, 기준일이 깨지면 V-17이 정상 시세를 거부한다.

@@ -49,6 +49,48 @@ export function createQueries(ctx: QueryContext): Queries {
 }
 
 /**
+ * 미인증 예외 — Q-04.
+ *
+ * **`app/error.tsx`에서 이 클래스를 판별할 수 없다.** 에러 경계는 클라이언트
+ * 컴포넌트이고 프로덕션에서 `Error`가 redact되어 메시지도 프로토타입도 남지
+ * 않는다(`digest`만 온다). 그러니 경계에서 `instanceof`를 시도하지 않는다 —
+ * 개발에서 동작하다가 운영에서 조용히 일반 오류로 격하된다.
+ *
+ * 그럼에도 타입을 두는 이유는 둘이다. ① 테스트가
+ * `toThrow(/인증되지 않은/)` 같은 문구 정규식 대신 클래스를 단언할 수 있다
+ * (P3b.5가 다른 곳에서 걷어낸 부류의 취약한 단언이다). ② 로그에서 grep된다.
+ *
+ * **미인증 요청은 정상적으로는 여기까지 오지 않는다** — `src/proxy.ts`가 먼저
+ * `/login`으로 보낸다. 여기 도달했다면 프록시가 놓쳤다는 신호이므로(예: 갱신
+ * 토큰 재사용이 렌더와 경합) 삼키지 않고 그대로 던진다.
+ */
+export class UnauthenticatedError extends Error {
+  override readonly name = 'UnauthenticatedError'
+
+  constructor() {
+    super(
+      '인증되지 않은 요청이다. 조회 계약은 로그인 세션을 요구한다 (DOC-011 §4.0 Q-04).',
+    )
+  }
+}
+
+/**
+ * 세션 해석 결과 → 조회 계약 묶음. **`server.ts`에서 분리한 판단이다.**
+ *
+ * 그 파일은 `next`를 import하므로 어떤 스위트도 import할 수 없고(AQ-23), 그
+ * 안에 있던 이 두 줄 — 미인증이면 던지고 아니면 결속한다 — 은 **한 번도
+ * 실행되지 않았다.** 결선(쿠키 해석·`getUser()` 왕복)만 그쪽에 남기고 판단을
+ * 여기로 옮기면 상시 스위트가 두 갈래를 전부 본다.
+ */
+export function queriesFor(
+  user: { id: string } | null,
+  ctx: Omit<QueryContext, 'viewerId'>,
+): Queries {
+  if (user == null) throw new UnauthenticatedError()
+  return createQueries({ ...ctx, viewerId: user.id })
+}
+
+/**
  * 컨텍스트 자체의 전제를 확인한다.
  *
  * Q-04(미인증 시 예외)는 `server.ts`가 세션을 해석하는 지점에서 이미 걸리지만,

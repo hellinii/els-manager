@@ -11,12 +11,8 @@ import {
   writableCookieAdapter,
 } from './client'
 import { today } from './today'
-import {
-  createMutations,
-  createUnauthenticatedMutations,
-  type Mutations,
-} from './mutations/context'
-import { createQueries, type Queries } from './queries/context'
+import { mutationsFor, type Mutations } from './mutations/context'
+import { queriesFor, type Queries } from './queries/context'
 import type { ActionResult } from './mutations/result'
 
 /**
@@ -51,14 +47,10 @@ const requestQueries = cache(async (): Promise<Queries> => {
   // getUser()는 토큰을 GoTrue에서 검증한다. getSession()은 쿠키를 그대로 믿으므로
   // 서버에서 신뢰 판단의 근거로 쓰지 않는다.
   const { data, error } = await db.auth.getUser()
-  if (error != null || data.user == null) {
-    // Q-04 — 미인증에서 조회 계약은 예외를 던진다. SCR-001 유도는 화면 층(P4)이다.
-    throw new Error(
-      '인증되지 않은 요청이다. 조회 계약은 로그인 세션을 요구한다 (DOC-011 §4.0 Q-04).',
-    )
-  }
 
-  return createQueries({ db, asOf: requestAsOf(), viewerId: data.user.id })
+  // 판단은 `queriesFor`에 있다 — 이 파일은 테스트 그래프 밖이므로(AQ-23) 여기에
+  // 분기를 두면 그것만 미검증으로 남는다. 남는 것은 결선뿐이다.
+  return queriesFor(error != null ? null : data.user, { db, asOf: requestAsOf() })
 })
 
 /** 서버 컴포넌트·라우트에서 조회 계약을 얻는 유일한 경로. */
@@ -123,11 +115,13 @@ const requestMutations = cache(async (): Promise<Mutations> => {
 
   // 조회와 같은 이유로 getSession()이 아니라 getUser()다 — 쿠키를 그대로 믿지 않는다.
   const { data, error } = await db.auth.getUser()
-  if (error != null || data.user == null) return createUnauthenticatedMutations()
 
   // 기준일은 조회와 **같은 값**이다(W-02). `requestAsOf`를 공유하므로 한 요청 안에서
   // 조회가 본 오늘과 V-17이 거부하는 미래가 갈릴 수 없다.
-  return createMutations({ db, asOf: requestAsOf(), viewerId: data.user.id })
+  return mutationsFor(error != null ? null : data.user, {
+    db,
+    asOf: requestAsOf(),
+  })
 })
 
 /** 서버 액션에서 변경 계약을 얻는 유일한 경로. */

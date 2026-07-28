@@ -58,7 +58,8 @@ Next.js (App Router) · TypeScript · Supabase (PostgreSQL + Auth + RLS) · Verc
 npm run dev
 npm run test          # TC-01~22 + AQ-05. DB 없이 돈다
 npm run test:rls      # RLS 정책 검증. 로컬 스택 필요 (db:start → db:reset)
-npm run test:integration  # 조회 계약 ↔ PostgREST. 로컬 스택 필요
+npm run test:integration  # 조회·변경 계약 ↔ PostgREST. 로컬 스택 필요
+npm run test:e2e      # 프록시·에러 경계 ↔ Next 서버. 로컬 스택 필요 (next build 포함)
 npm run lint          # 순수 모듈 의존 규칙 포함
 npm run typecheck     # @ts-expect-error 기반 타입 수준 테스트도 여기서 검증된다
 
@@ -69,10 +70,22 @@ npm run db:stop
 npx supabase migration new <name>
 ```
 
-`npm run test`는 DB에 접근하지 않는다(ADR-003). DB에 붙는 스위트는 **둘**이며 각각 전용
-설정을 갖는다 — `tests/rls/`(`vitest.rls.config.ts`, `pg` 직결)와 `tests/integration/`
-(`vitest.integration.config.ts`, PostgREST 경유). 둘 다 `vitest.config.ts`에서 제외되어
-있고, DB가 없으면 건너뛰지 않고 **실패한다** — 아무것도 증명하지 않은 초록색을 만들지 않는다.
+`npm run test`는 DB에 접근하지 않는다(ADR-003). 인프라를 요구하는 스위트는 **셋**이며 각각
+전용 설정을 갖는다.
+
+| 스위트 | 접속 대상 | 여기서만 보이는 것 |
+|---|---|---|
+| `tests/rls/` | `pg` 직결 + 롤 가장 | 정책·GRANT·카탈로그 |
+| `tests/integration/` | PostgREST + 실제 JWT | 계약 왕복, 뷰 직렬화, 세션 갱신 |
+| `tests/e2e/` | `next build` + `next start` | 리다이렉트·응답 헤더·404 — **Next를 지나야 존재한다** |
+
+셋 다 `vitest.config.ts`에서 제외되어 있다(**새 스위트를 추가할 때 가장 잊기 쉬운 줄이다** —
+빠뜨리면 `npm run test`가 인프라를 요구하게 되고 ADR-003의 전제가 조용히 깨진다).
+인프라가 없으면 건너뛰지 않고 **실패한다** — 아무것도 증명하지 않은 초록색을 만들지 않는다.
+
+`tests/e2e/`는 `next dev`가 아니라 **프로덕션 빌드**를 띄운다. 에러 경계의 동작이 두 모드에서
+다르기 때문이다 — 개발 모드는 오버레이를 띄우고 `Error`를 redact하지 않는다. 그래서
+`app/error.tsx`에서 **오류의 종류를 판별하려 하면 안 된다**(운영에서는 `digest`만 남는다).
 
 `tests/integration/`의 픽스처는 **커밋한다**(HTTP 클라이언트가 다른 커넥션이라 롤백 전제로는
 보이지 않는다). 자기 사용자·이름 대역을 쓰지만, 실행 후에는 `db:reset`으로 정리하는 편이 안전하다.
