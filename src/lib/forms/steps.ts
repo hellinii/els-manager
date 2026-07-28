@@ -1,5 +1,8 @@
+import type { ActionResult } from '@/lib/db/mutations/result'
+
 import { barrierNotice, parseBarrierList } from './barriers'
 import { parseFieldPath, path } from './fieldPath'
+import { initialFormState, toFormState, type FormState } from './state'
 
 /**
  * SCR-204의 단계 기계 — **순수**하다. `next`도 `react`도 모른다
@@ -60,11 +63,34 @@ const STEP_IDS = PRODUCT_STEPS.map((step) => step.id)
  *
  * 그래서 화면 **안의** 미완성을 여기서 센다. 조각이 서면 이 표에서 지우고,
  * `tests/app/steps.test.ts`가 표와 실제를 대조한다(지우지 않으면 빨간불).
+ *
+ * > **컷 4b가 비웠고 컷 5가 다시 채웠다** — 원장이 의도대로 살아 있다는 기록이다.
+ * > 컷 5는 SCR-202에 `삭제`를 붙였는데 그 실패 문구(「상환을 먼저 취소한다」)가
+ * > 가리키는 **취소 자체가 컷 6의 계약**이다. 즉 화면에 문구는 있고 누를 것이 없다.
+ * > 「미노출」이 ST-04의 적용인지 미구현인지 구분되어야 하므로 등재한다.
  */
-export const PENDING_PARTS: Record<string, string> = {}
+export const PENDING_PARTS: Record<string, string> = {
+  'SCR-202 상환 처리': '컷 6 — SCR-203으로 가는 링크. 라우트가 서면 붙인다',
+  'SCR-202 상환 취소': '컷 6 — 삭제 CONFLICT가 가리키는 다음 행동',
+  'SCR-202 KI 터치 확정': '컷 6 — §5.9. 지금은 확정일을 표시만 한다',
+}
 
 export const STEP_FIELD = 'step'
 export const INTENT_FIELD = 'intent'
+
+/**
+ * 수정 대상 상품 id — **폼의 이름이지만 계약 입력의 필드가 아니다** (P4 컷 5)
+ *
+ * `useActionState`의 서명은 `(prev, formData)`이므로 라우트 파라미터가 액션에 자동으로
+ * 오지 않는다. 히든으로 실으면 조작이 가능하지만 계약이 소유를 다시 확인하며(§5.2의
+ * 사전 조회 + RLS) 결과는 `FORBIDDEN`·`NOT_FOUND`다 — SCR-302가 줄마다 `assetId`를
+ * 히든으로 싣는 것과 같은 자리다.
+ *
+ * **`productFieldNames`에 넣지 않는다.** 그 목록은 「계약 입력의 이름」이고 `transition`이
+ * 그것으로 값을 좁히므로, 넣으면 상태가 id를 나르게 되고 그때 id의 정본이 둘이 된다
+ * (라우트와 상태). 폼은 이 칸을 **props의 값으로 매 렌더 다시 그린다.**
+ */
+export const PRODUCT_ID_FIELD = 'productId'
 
 /** 배열 필드의 행 상한 — 한 상품의 기초자산 수 (DOC-007 §3.1은 N종을 허용한다) */
 export const MAX_UNDERLYINGS = 10
@@ -479,6 +505,42 @@ export function transition(form: FormData): Transition {
   }
 
   return { intent, step, values, counts, notice }
+}
+
+// ---------------------------------------------------------------------------
+// 전이 → 폼 상태 — 어댑터 둘이 공유한다 (P4 컷 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * 제출이 아닌 전이의 결과 상태.
+ *
+ * `initialFormState`를 쓰는 이유는 이전 제출의 오류가 다음 단계까지 따라오면
+ * 「고쳤는데도 빨간 글씨가 남는」 상태가 되기 때문이다. 안내(`notice`)는 오류가
+ * 아니므로 `status`를 바꾸지 않는다 — 일괄 적용의 해석 모드가 그 자리다(SQ-04).
+ */
+export function stepState(next: Transition): FormState {
+  const state = initialFormState(next.values)
+  return next.notice == null ? state : { ...state, message: next.notice }
+}
+
+/**
+ * 제출 실패의 결과 상태 — **오류가 있는 단계로 되돌린다.**
+ *
+ * ④에서 저장했는데 오류가 ①에 있으면 사용자는 그 문구를 볼 수 없다(그 칸이 히든이다).
+ * `knownNames`가 **폼 전체**의 이름인 것도 같은 이유다 — 활성 단계의 것만 주면 다른
+ * 단계의 오류가 전부 미매칭으로 상단에 쌓이고 정작 칸에는 표시되지 않는다.
+ *
+ * **등록과 수정이 이 함수를 공유한다.** 어댑터마다 적으면 한쪽만 고쳐지는 날이 오고,
+ * 그때 그 화면에서만 오류가 보이지 않는다 — 두 어댑터는 어떤 스위트의 import 그래프에도
+ * 없으므로(AQ-23) 그 갈림을 아무도 보지 못한다.
+ */
+export function submitState<T>(result: ActionResult<T>, next: Transition): FormState {
+  const state = toFormState(result, next.values, productFieldNames(next.counts))
+  const failed = stepForErrors(state.fieldErrors)
+
+  return failed == null
+    ? state
+    : { ...state, values: { ...state.values, [STEP_FIELD]: failed } }
 }
 
 /**

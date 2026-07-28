@@ -2,6 +2,9 @@ import type { Metadata } from 'next'
 
 import { ProductForm } from '@/components/products/ProductForm'
 import { getQueries } from '@/lib/db/server'
+import { productDefaults } from '@/lib/forms/defaults'
+
+import { productFormAction } from './actions'
 
 /**
  * SCR-204 ELS 등록 — 골격 (P4 컷 4a, DOC-008 §5·§7.1)
@@ -46,7 +49,15 @@ export default async function ProductNewPage() {
         </p>
       </header>
 
-      <ProductForm assets={assets} />
+      {/*
+        같은 컴포넌트가 수정에도 쓰인다(컷 5). 다른 것은 초기값·대상 id·액션 셋뿐이며
+        등록은 id가 없다 — 그 부재가 곧 「새로 만든다」다.
+      */}
+      <ProductForm
+        assets={assets}
+        action={productFormAction}
+        initialValues={productDefaults()}
+      />
     </section>
   )
 }

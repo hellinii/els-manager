@@ -10,11 +10,23 @@ import {
 } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
 import { FILTER_KEYS } from '@/lib/forms/query'
+import { PRODUCT_ID_FIELD, productFieldNames } from '@/lib/forms/steps'
 import { PATHS } from '@/lib/routes/paths'
 
+import { ITG_USER_B } from '../integration/helpers/fixtures'
+
+import {
+  actionIdOf,
+  buttonField,
+  formFieldsFor,
+  formHtmlFor,
+  formValuesFor,
+  inputNamesOf,
+  submitAction,
+} from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
-import { cookieJar, get } from './helpers/server'
+import { cookieJar, get, locationPath } from './helpers/server'
 
 /**
  * SCR-201 목록 · SCR-202 상세 — **Next를 지나야 존재하는 것들** (P4 컷 2·3)
@@ -232,8 +244,15 @@ describe('SCR-202 상세', () => {
     expect(detail).toContain(KI_STATUS_LABELS.SAFE)
     // 적용 차수의 판정. 1.2 ≥ 0.85이므로 조기상환이고 **추정값**이다(ST-05).
     expect(visible(detail)).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
-    // 상환 실적이 없으므로 그 절은 렌더되지 않는다.
-    expect(detail).not.toContain('상환 실적')
+    /*
+     * 상환 실적이 없으므로 그 **절**이 렌더되지 않는다.
+     *
+     * ★ 컷 5에서 이 단언이 잘못된 이유로 빨간불이 되었다 — 삭제 공개의 안내 문구가
+     * 「상환 실적이 있으면 삭제되지 않는다」를 적으므로 문서에 그 문자열이 실재한다.
+     * 절의 부재는 **제목**으로 봐야 한다(`<h2>상환 실적</h2>`). 문서 전체에 대한
+     * `toContain`이 다른 자리에 맞는 부류이며 컷 4a의 「기초자산 1」과 같은 함정이다.
+     */
+    expect(detail).not.toContain('>상환 실적<')
   })
 
   it('일괄 입력한 배리어가 차수마다 저장되어 상세에 나온다 — SQ-04', async () => {
@@ -272,17 +291,201 @@ describe('SCR-202 상세', () => {
     expect(detail).toContain(won('123456789012345'))
   })
 
-  it('액션 버튼이 아직 없다 — 컷 5·6이 붙인다', async () => {
+  it('소유자에게 수정 링크와 삭제 폼이 있다 — `OwnerOnly`의 첫 소비자 (컷 5)', async () => {
     /*
-     * 「없음」을 단언하는 이유는 **없는 라우트로 가는 링크를 미리 두지 않았다**는
-     * 것을 고정하기 위해서다. 컷 5·6이 그 화면을 세우면 이 단언이 빨간불이 되어
-     * 「이제 버튼을 달아라」고 말한다 — `NOT_YET_BUILT` 원장과 같은 형태다.
+     * ★ 컷 4b까지 이 케이스는 「액션 버튼이 아직 없다」였다. 컷 5가 둘을 붙이자
+     * **빨간불이 되어 반대 방향으로 고치라고 말했다** — `NOT_YET_BUILT` 원장과 같은
+     * 형태이며, 「미노출」이 ST-04의 적용인지 미구현인지가 그 전환에서 구분된다.
      *
-     * ST-04(숨김 vs 비활성화)를 증명하는 것은 **아니다.** 요소의 부재는 HTML
-     * 문자열로 `hidden` 클래스와 구분되지 않는다(AQ-32).
+     * `상환 처리`(컷 6)는 여전히 없다. 그쪽 라우트가 서기 전에 링크를 두면 404다.
      */
     const detail = await (await get(`/products/${seeded.productId}`, jar)).text()
-    expect(detail).not.toContain(`/products/${seeded.productId}/edit`)
-    expect(detail).not.toContain(`/products/${seeded.productId}/redeem`)
+
+    expect(detail).toContain(`href="${PATHS.productEdit(seeded.productId)}"`)
+    // 삭제는 폼이다 — 링크로 두면 프리페치·크롤러가 상품을 지운다.
+    expect(detail).toContain('정말 삭제한다')
+    expect(detail).not.toContain(`href="${PATHS.productRedeem(seeded.productId)}"`)
+  })
+
+  it('타인에게는 그 둘이 없다 — 조회는 되고 액션만 사라진다 (ST-04)', async () => {
+    /*
+     * ST-04(숨김 vs 비활성화)를 **증명하지는 않는다** — 요소의 부재는 HTML 문자열로
+     * `hidden` 클래스와 구분되지 않는다(AQ-32). 여기서 고정하는 것은 `OwnerOnly`가
+     * 실제로 소유 판정을 받고 있다는 것이다: 같은 문서에서 조회는 200이고 액션만 없다.
+     *
+     * **음성 대조가 가능한 픽스처다** — `OwnerOnly`를 벗기면 이 케이스만 빨간불이 되고
+     * 위 케이스는 초록으로 남는다(둘의 차이가 소유자 여부 하나다).
+     */
+    const otherJar = await authenticatedJar(ITG_USER_B)
+    const res = await get(`/products/${seeded.productId}`, otherJar)
+
+    expect(res.status).toBe(200)
+    const detail = await res.text()
+    // 읽기는 허용이다 — 모든 SELECT 정책이 `using (true)`다(DOC-010 §7).
+    expect(detail).toContain(seeded.productName)
+    expect(detail).toContain('타인의 상품이다')
+
+    expect(detail).not.toContain(`href="${PATHS.productEdit(seeded.productId)}"`)
+    expect(detail).not.toContain('정말 삭제한다')
+  })
+})
+
+describe('SCR-204 수정 모드 (컷 5)', () => {
+  let jar: ReturnType<typeof cookieJar>
+  let seeded: RegisteredProduct
+
+  beforeAll(async () => {
+    jar = await authenticatedJar()
+    seeded = await registerProduct(jar)
+  })
+
+  it('★ 저장된 값이 폼의 **모든 칸**에 채워져 온다', async () => {
+    /*
+     * ★ **이 단언이 §5.2의 전체 교체를 화면에서 막는다.** 수정 저장은 폼이 보내지
+     * 않은 필드를 비우므로, 초기값이 닿지 않은 칸이 하나라도 있으면 그 값이 **조용히
+     * 사라진다** — 증상은 저장 후 상세 화면에서야 보인다.
+     *
+     * 상시 스위트가 보는 것은 `productValuesOf`가 `productFieldNames`를 덮는다는
+     * 것뿐이다(`tests/app/values.test.ts`). 그 값이 **DOM에 닿는지**는 렌더된 문서에만
+     * 있다 — 컴포넌트가 그리지 않으면 값 맵이 옳아도 사라진다. 두 층의 합집합이 방어다.
+     *
+     * 좌변을 순수 모듈에서 읽어 오므로 테스트에 이름 목록이 다시 적히지 않는다.
+     */
+    const res = await get(PATHS.productEdit(seeded.productId), jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+
+    const actionId = actionIdOf('productEditFormAction')
+    const form = formHtmlFor(html, actionId)
+    const rendered = inputNamesOf(form)
+
+    // `registerProduct`가 만드는 형태 — 기초자산 1종, 배리어 3개 = 차수 3
+    for (const name of productFieldNames({ underlyings: 1, rounds: 3 })) {
+      expect(rendered, `${name}이 렌더되지 않았다`).toContain(name)
+    }
+    // 대상 id도 폼에 있다 — 없으면 어댑터가 무엇을 고칠지 모른다.
+    expect(rendered).toContain(PRODUCT_ID_FIELD)
+
+    // 값이 비어 있지 않다. 「+ 등록 직후의 빈 폼」과 이 화면이 갈리는 지점이다.
+    expect(form).toContain(`value="${seeded.productName}"`)
+    expect(form).toContain('value="123456789012345"') // 원금 — 쉼표 없이 저장된 값
+    expect(form).toContain(`value="${seeded.basePrice}"`) // 18자리 기준가
+  })
+
+  it('비율이 퍼센트로 되돌아 온다 — 소수로 보이면 저장이 값을 100으로 나눈다', async () => {
+    /*
+     * 계약은 `0.9000`을 주고 폼의 칸은 퍼센트다. 옮기지 않으면 화면이 `0.9`를
+     * 보여주고 저장이 그것을 다시 나눠 **배리어가 0.009가 된다** — 오류가 나지 않고
+     * 값만 밀리는 부류다. ③의 차수표까지 가서 확인한다(그 칸은 히든으로 실려 있다).
+     */
+    const html = await (await get(PATHS.productEdit(seeded.productId), jar)).text()
+    const form = formHtmlFor(html, actionIdOf('productEditFormAction'))
+
+    for (const [index, barrier] of seeded.barriers.entries()) {
+      const tag =
+        new RegExp(`<input[^>]*name="schedules\\[${index}\\]\\.barrier"[^>]*>`).exec(
+          form,
+        )?.[0] ?? ''
+      expect(tag, `${index + 1}차 배리어`).toContain(`value="${barrier}"`)
+    }
+    expect(form).toContain('value="8"') // 연쿠폰율 8%
+    expect(form).toContain('value="50"') // KI 배리어 50%
+  })
+
+  it('★ 상품명만 고쳐 저장하면 나머지가 그대로 남는다', async () => {
+    /*
+     * ★ **전체 교체의 실측이다.** 한 칸만 고치고 저장한 뒤 상세에서 나머지를 확인한다 —
+     * 비고·배리어·기준가·리자드가 그대로면 초기값이 폼을 온전히 지났다는 뜻이다.
+     * 「값이 사라졌다」가 이 컷의 유일한 조용한 실패 형태이므로 여기서 실행으로 본다.
+     */
+    const actionId = actionIdOf('productEditFormAction')
+    const editPath = PATHS.productEdit(seeded.productId)
+    const html = await (await get(editPath, jar)).text()
+
+    const renamed = `${seeded.productName} 수정됨`
+    const saved = await submitAction(editPath, jar, [
+      // 브라우저가 보내는 것 전부 — 히든만 보내면 ①의 보이는 칸이 사라진다.
+      ...formValuesFor(html, actionId).filter(([name]) => name !== 'name'),
+      ['name', renamed],
+      buttonField(formHtmlFor(html, actionId), 'SUBMIT'),
+    ])
+
+    // 성공은 상세로 가는 리다이렉트다(§7.1) — 등록과 같은 도착지다.
+    expect([302, 303]).toContain(saved.status)
+    expect(locationPath(saved)).toBe(PATHS.product(seeded.productId))
+
+    const detail = await (await get(PATHS.product(seeded.productId), jar)).text()
+    expect(detail).toContain(renamed)
+    expect(detail).toContain('화면 왕복') // 비고 — ①에 칸이 있어 살아남았다
+    expect(detail).toContain(priceDisplay(seeded.basePrice))
+    expect(detail).toContain(won('123456789012345'))
+    for (const barrier of seeded.barriers) {
+      expect(detail, `${barrier}% 배리어`).toContain(percent(percentToRatio(barrier)))
+    }
+    // 2차의 리자드 조건도 남았다.
+    expect(detail).toContain(percent(percentToRatio('60')))
+  })
+
+  it('없는 상품·오타 id는 404다 — 상세와 같은 규칙이다', async () => {
+    expect((await get(`/products/${GHOST_PRODUCT}/edit`, jar)).status).toBe(404)
+    // 형식 가드가 없으면 500이다(컷 3의 음성 대조가 상세에서 확인한 것과 같은 경로).
+    expect((await get('/products/abc/edit', jar)).status).toBe(404)
+  })
+
+  it('★ 타인의 수정 주소는 SCR-902다 — 403 화면의 첫 도달 경로', async () => {
+    /*
+     * ★ 계획 §5는 「902에 도달하는 유일한 길은 소유자 전용 URL을 직접 타이핑하는
+     * 것」이라고 적었고 **그 라우트가 컷 5에 처음 생겼다.** 컷 0c가 만든 컴포넌트가
+     * 지금까지 소비자 없이 있었으므로 여기서 처음 실행된다.
+     *
+     * 404가 아니라 902인 것이 요점이다 — 상품은 실재하고 읽을 수도 있다(모든 SELECT
+     * 정책이 `using (true)`). 「없다」로 답하면 사용자가 주소를 의심한다.
+     */
+    const otherJar = await authenticatedJar(ITG_USER_B)
+    const res = await get(PATHS.productEdit(seeded.productId), otherJar)
+
+    // 상태 코드는 200이다 — `forbidden()`을 쓰지 않기로 한 결정의 관측 가능한 형태다
+    // (`experimental.authInterrupts` 없이는 403을 낼 수 없고, 그 속성은 측정 불가다).
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('권한이 없다')
+    expect(html).toContain('이 상품을 수정할')
+    // 폼이 렌더되지 않는다 — 채워진 폼을 보여 준 뒤 저장에서 막으면 입력이 버려진다.
+    expect(html).not.toContain(PRODUCT_ID_FIELD)
+  })
+})
+
+describe('SCR-202 삭제 (컷 5)', () => {
+  let jar: ReturnType<typeof cookieJar>
+
+  beforeAll(async () => {
+    jar = await authenticatedJar()
+  })
+
+  it('★ 삭제가 목록으로 보내고 상세가 404가 된다', async () => {
+    /*
+     * ★ **성공 뒤 상세에 머물면 안 된다.** 그 화면의 `getProduct`가 `null`을 주고
+     * `notFound()`가 404를 내므로, 사용자가 방금 한 일의 결과가 「페이지를 찾을 수
+     * 없다」로 보인다. DOC-008 §7.1이 삭제의 이탈을 SCR-201로 그린 이유다.
+     *
+     * 지울 상품을 **이 케이스가 직접 만든다** — 다른 케이스가 쓰는 상품을 지우면
+     * 실행 순서가 결과를 정한다.
+     *
+     * ★ 히든 id를 손으로 적지 않는다(`formFieldsFor`가 렌더된 폼에서 읽는다) — 컷 4a의
+     * 음성 대조가 드러낸 함정이 그것이다: 테스트가 값을 얹으면 **화면이 그 값을 어디서
+     * 얻는지**를 확인하지 않게 된다.
+     */
+    const doomed = await registerProduct(jar)
+    const detailPath = PATHS.product(doomed.productId)
+
+    const html = await (await get(detailPath, jar)).text()
+    const actionId = actionIdOf('deleteProductAction')
+    const res = await submitAction(detailPath, jar, formFieldsFor(html, actionId))
+
+    expect([302, 303]).toContain(res.status)
+    expect(locationPath(res)).toBe(PATHS.products)
+
+    expect((await get(detailPath, jar)).status).toBe(404)
+    expect(await (await get(PATHS.products, jar)).text()).not.toContain(doomed.productName)
   })
 })

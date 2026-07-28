@@ -24,7 +24,12 @@ export function SubmitButton({
 }: {
   label: string
   pendingLabel: string
-  variant?: 'primary' | 'secondary'
+  /**
+   * `danger`는 **되돌릴 수 없는 제출**에만 쓴다 — 상품 삭제·상환 취소(컷 5·6).
+   * 색이 의미를 나르므로(SQ-05의 근거) 저장 버튼과 같은 모습이면 사용자가 두
+   * 버튼을 구분하지 않는다.
+   */
+  variant?: 'primary' | 'secondary' | 'danger'
   fullWidth?: boolean
   /**
    * 제출 버튼도 값을 나른다 — SCR-204의 단계 전이가 그것으로 표현된다
@@ -42,7 +47,9 @@ export function SubmitButton({
   const styles =
     variant === 'primary'
       ? 'bg-neutral-900 text-white hover:bg-neutral-700 disabled:bg-neutral-400'
-      : 'border border-neutral-300 hover:bg-neutral-100 disabled:text-neutral-400'
+      : variant === 'danger'
+        ? 'bg-red-700 text-white hover:bg-red-600 disabled:bg-red-300'
+        : 'border border-neutral-300 hover:bg-neutral-100 disabled:text-neutral-400'
 
   return (
     <button

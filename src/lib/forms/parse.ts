@@ -83,6 +83,31 @@ export function percentToRatio(input: string): string {
 }
 
 /**
+ * 소수 비율 → 퍼센트 입력 — `percentToRatio`의 **역**이다 (P4 컷 5)
+ *
+ * 수정 모드가 이 방향을 요구한다. 계약은 비율을 소수 4자리로 주고(`ratioString`)
+ * 폼의 모든 비율 칸은 퍼센트다(DOC-008 §5 SCR-204 v0.5) — 그 사이를 옮기지 않으면
+ * 수정 화면이 `0.9`를 보여주고 사용자가 저장하는 순간 **배리어가 0.009가 된다.**
+ * 값이 밀리는 부류의 결함이며 오류가 나지 않는다.
+ *
+ * **뒤따르는 0을 지운다.** `'0.9000'` → `'90'`이지 `'90.00'`이 아니다 —
+ * 다시 `percentToRatio`를 지나면 같은 값이므로 왕복이 닫히고, 사용자가 적었을 형태와
+ * 같다. `percent()`(표시용)와 다른 함수인 이유는 이쪽 결과가 **입력 칸의 값**이므로
+ * `%` 기호가 붙으면 안 되기 때문이다.
+ *
+ * 형식이 아니면 원문을 그대로 돌려준다 — 계약이 준 값이 아닌 것이 오면 그것을
+ * 화면에 보여야 사용자가 무엇이 저장되어 있는지 안다.
+ */
+export function ratioToPercent(ratio: string): string {
+  const trimmed = ratio.trim()
+  if (trimmed === '') return ''
+  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return trimmed
+  // Decimal로 곱한다 — `Number(v) * 100`은 `0.0885 → 8.850000000000001`이 되는
+  // 부류이고 그 값이 다시 100으로 나뉘면 4자리에서 어긋난다(린트가 막는다).
+  return dec(trimmed).times(100).toString()
+}
+
+/**
  * §5.7 수동 시세 입력 — SCR-302.
  *
  * `price`는 **변환하지 않는다.** 시세는 비율이 아니라 그 자산의 가격이고

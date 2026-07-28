@@ -27,6 +27,8 @@ import {
   rowCountOf,
   stepForErrors,
   stepOfField,
+  stepState,
+  submitState,
   transition,
   type RowCounts,
   type StepId,
@@ -73,19 +75,32 @@ describe('단계 표 — DOC-008 §5 SCR-204', () => {
     expect(PRODUCT_STEPS.map((step) => step.ordinal)).toEqual(['①', '②', '③', '④'])
   })
 
-  it('남은 조각이 없다 — 컷 4b가 표를 비웠다', () => {
+  it('원장의 항목이 무엇을·언제인지 말한다', () => {
     /*
-     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 컷 4a에는 세 조각이
-     * 있었고(③·④·저장) 컷 4b가 그것을 세우며 비웠다.
+     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 컷 4a에 세 조각이
+     * 있었고(③·④·저장) 컷 4b가 세우며 비웠고, **컷 5가 다시 채웠다** — SCR-202의
+     * 삭제가 서면서 그 실패 문구가 가리키는 상환 취소가 컷 6에 남았다.
      *
-     * **비었음을 직접 단언한다** — 「키가 전부 실재하는 단계다」만 두면 빈 표에서
-     * 순회가 0회이므로 아무것도 증명하지 않고 초록이 된다. 표가 다시 채워지는 컷이
-     * 오면 이 단언이 그 사실을 요구하고, 그때 아래 두 번째 단언이 오타를 잡는다.
+     * ## 키 규약이 넓어졌다 (컷 5)
+     *
+     * 컷 4a의 키는 SCR-204의 **단계 id**였다(`CONDITIONS`·`CONFIRM`·`SUBMIT`). 컷 5의
+     * 조각은 다른 화면(SCR-202)의 것이므로 그 집합으로는 표현되지 않는다. 그래서
+     * 규약을 「화면 id 또는 단계 id로 시작한다」로 넓히고 **사유에 컷 번호를 요구한다** —
+     * 「무엇이 없는가」만 있고 「언제 서는가」가 없으면 다음 사람이 지울 시점을 모른다.
+     *
+     * **건수는 여기서 단언하지 않는다.** `tests/app/invalidation.test.ts`가 세 원장을
+     * 함께 세며 그 자리에서 한다 — 두 곳에 적으면 한쪽만 고쳐진다.
      */
-    expect(PENDING_PARTS).toEqual({})
+    const stepIds = new Set<string>([...PRODUCT_STEPS.map((step) => step.id), 'SUBMIT'])
 
-    const ids = new Set<string>([...PRODUCT_STEPS.map((step) => step.id), 'SUBMIT'])
-    for (const key of Object.keys(PENDING_PARTS)) expect(ids).toContain(key)
+    for (const [key, why] of Object.entries(PENDING_PARTS)) {
+      const head = key.split(' ')[0] ?? ''
+      expect(
+        /^SCR-\d{3}$/.test(head) || stepIds.has(head),
+        `${key}: 화면 id도 단계 id도 아니다`,
+      ).toBe(true)
+      expect(why, `${key}의 사유에 컷 번호가 없다`).toMatch(/컷 \d/)
+    }
   })
 })
 
@@ -287,6 +302,91 @@ describe('오류 단계 — 보이지 않는 칸의 오류로 되돌린다', () 
     // 어느 단계에도 속하지 않는 키만 있으면 단계를 옮기지 않는다(상단 요약이 받는다).
     expect(stepForErrors({ zzz: 'x' })).toBeNull()
     expect(stepForErrors(undefined)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 전이 → 폼 상태 — 어댑터 둘이 공유한다 (컷 5)
+// ---------------------------------------------------------------------------
+
+describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () => {
+  /**
+   * 이 둘이 순수 모듈에 있는 이유는 어댑터가 둘이 되었다는 것이다(컷 5). 어댑터는
+   * `server.ts`를 끌어오므로 어떤 스위트의 import 그래프에도 없고(AQ-23), 거기 있으면
+   * **두 화면의 오류 표시가 갈려도 아무도 보지 못한다.**
+   */
+  function submitting(values: Record<string, string>): FormData {
+    return formData({ ...values, [INTENT_FIELD]: 'SUBMIT' })
+  }
+
+  it('제출이 아닌 전이는 오류를 나르지 않는다', () => {
+    const state = stepState(transition(formData({ [STEP_FIELD]: 'BASIC', name: '상품' })))
+    expect(state.status).toBe('INITIAL')
+    expect(state.fieldErrors).toEqual({})
+    expect(state.message).toBeNull()
+    expect(state.values.name).toBe('상품')
+  })
+
+  it('안내는 오류가 아니다 — `status`를 바꾸지 않는다', () => {
+    const next = transition(
+      formData({ [STEP_FIELD]: 'CONDITIONS', [INTENT_FIELD]: 'APPLY_BARRIERS', barriers: '90-85' }),
+    )
+    const state = stepState(next)
+    expect(state.status).toBe('INITIAL')
+    expect(state.message).toBe(next.notice)
+    expect(state.message).not.toBeNull()
+  })
+
+  it('제출 실패는 오류가 있는 **가장 앞 단계**로 되돌린다', () => {
+    // `totalRounds`가 차수표의 행 수를 정한다 — 없으면 `schedules[0].*`가 폼의 이름이
+    // 아니고 그 오류는 미매칭으로 상단에 간다(아래 케이스가 그 경우다).
+    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM', name: '', totalRounds: '1' }))
+    const state = submitState(
+      {
+        ok: false,
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: '입력을 확인한다.',
+          fields: { name: '상품명을 입력한다.', 'schedules[0].barrier': '배리어를 입력한다.' },
+        },
+      },
+      next,
+    )
+
+    // ④에서 제출했는데 ①의 칸이 비었다 — 그 문구를 보려면 ①로 가야 한다.
+    expect(state.values[STEP_FIELD]).toBe('BASIC')
+    expect(state.fieldErrors.name).toBe('상품명을 입력한다.')
+    // 지금 보이지 않는 단계의 오류도 **칸에** 붙는다(`knownNames`가 폼 전체이므로).
+    expect(state.fieldErrors['schedules[0].barrier']).toBe('배리어를 입력한다.')
+    expect(state.unmatched).toEqual([])
+  })
+
+  it('어느 칸과도 짝지어지지 않은 오류는 단계를 옮기지 않고 상단으로 간다', () => {
+    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM' }))
+    const state = submitState(
+      {
+        ok: false,
+        error: { code: 'CONFLICT', message: '이미 상환 처리된 상품이다.', fields: { zzz: '?' } },
+      },
+      next,
+    )
+
+    expect(state.values[STEP_FIELD]).toBe('CONFIRM')
+    expect(state.unmatched).toEqual([{ key: 'zzz', message: '?' }])
+    expect(state.code).toBe('CONFLICT')
+  })
+
+  it('입력값이 실패 경로에서 보존된다 — W-03의 존재 이유', () => {
+    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM', name: '상품', principal: '1,000' }))
+    const state = submitState(
+      { ok: false, error: { code: 'UNAUTHENTICATED', message: '로그인이 필요하다.' } },
+      next,
+    )
+
+    expect(state.values.name).toBe('상품')
+    // 쉼표는 그대로 남는다 — 파서가 지우고 표시는 원문을 보존한다.
+    expect(state.values.principal).toBe('1,000')
+    expect(state.code).toBe('UNAUTHENTICATED')
   })
 })
 

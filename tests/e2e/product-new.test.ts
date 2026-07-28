@@ -240,16 +240,20 @@ describe('SCR-204 단계 폼', () => {
     )
   })
 
-  it('네 단계가 전부 서 있다 — 원장이 비었다 (컷 4b)', async () => {
+  it('네 단계가 전부 서 있다 — 이 화면의 조각이 원장에 없다 (컷 4b)', async () => {
     /*
      * ★ **컷 4a에서 이 케이스는 「③④는 아직 없다」였다.** `PENDING_PARTS`에서 조각을
      * 지우자 빨간불이 되어 「이제 화면을 붙여라」고 말했고, 붙인 뒤 반대 방향으로
      * 고쳤다 — 각 단계가 자기 칸을 렌더하고 ④에 저장 버튼이 있다.
      *
-     * 원장을 참조하는 형태는 유지한다: 다음에 화면 안의 조각을 미루는 컷이 오면
-     * 표가 다시 채워지고 이 단언이 그 사실을 요구한다.
+     * ★ **컷 5가 이 단언의 범위를 좁혔다.** 종전에는 표 전체가 비었음을 요구했는데,
+     * 컷 5가 **다른 화면**(SCR-202)의 조각을 등재하자 빨간불이 되었다 — 이 파일이
+     * 보는 것은 SCR-204이므로 그것은 잘못된 이유의 빨간불이다. 원장의 건수는
+     * `tests/app/invalidation.test.ts`가 세 원장을 함께 세며 지키고, 여기서는
+     * **이 화면의 조각이 없다**만 요구한다.
      */
-    expect(PENDING_PARTS).toEqual({})
+    const mine = Object.keys(PENDING_PARTS).filter((key) => key.startsWith('SCR-204'))
+    expect(mine).toEqual([])
 
     let html = await (await get(PATHS.productNew, jar)).text()
     for (const id of ['UNDERLYINGS', 'CONDITIONS', 'CONFIRM'] as StepId[]) {

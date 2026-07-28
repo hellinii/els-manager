@@ -3,8 +3,10 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import { Badge } from '@/components/display/Badge'
+import { DeleteProductForm } from '@/components/products/DeleteProductForm'
 import { ScheduleTable } from '@/components/products/ScheduleTable'
 import { UnderlyingTable } from '@/components/products/UnderlyingTable'
+import { OwnerOnly } from '@/components/state/OwnerOnly'
 import type { ProductDetailView } from '@/lib/db/queries/map'
 import { getQueries } from '@/lib/db/server'
 import {
@@ -28,16 +30,20 @@ import { isUuid } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
- * SCR-202 ELS 상세 — **읽기 전용** (P4 컷 3, DOC-008 §5·DOC-011 §4.3)
+ * SCR-202 ELS 상세 — 읽기 + **소유자 액션 둘** (P4 컷 3·5, DOC-008 §5·DOC-011 §4.3)
  *
- * ## 액션 버튼이 없다
+ * ## 액션은 그 액션을 만드는 컷에 붙는다
  *
- * DOC-008은 `수정`·`상환 처리`·`삭제`를 이 화면에 두지만, 계획은 **각 액션을 그
- * 액션을 만드는 컷에 붙인다**: 삭제는 컷 5, 상환 수정·취소·KI 확정은 컷 6.
- * 여기서 버튼만 먼저 두면 컷 5·6까지 없는 라우트로 가는 링크가 남고, 404는
- * 사용자에게 「이 화면은 아직 없다」가 아니라 「이 주소는 틀렸다」로 읽힌다.
+ * DOC-008은 `수정`·`상환 처리`·`삭제`를 이 화면에 둔다. 컷 3은 셋 다 없었고(라우트도
+ * 계약도 화면이 없었다) 컷 5가 `수정`·`삭제`를 붙인다 — `상환 처리`와 상환 수정·취소·
+ * KI 확정은 **컷 6**이다. 없는 라우트로 가는 링크를 미리 두지 않는 이유는 404가
+ * 사용자에게 「아직 없다」가 아니라 「주소가 틀렸다」로 읽히기 때문이다.
  *
- * 그러므로 `OwnerOnly`도 아직 소비자가 없다 — 컷 5가 첫 소비자다(ST-04).
+ * **`OwnerOnly`의 첫 소비자가 여기다**(ST-04). 비활성화가 아니라 숨김이며, 그
+ * 컴포넌트에는 `disabled`가 없다 — 선택지를 없앤 것이 방어다.
+ *
+ * `수정`은 링크이고 `삭제`는 폼이다. 삭제는 상태를 바꾸므로 GET일 수 없다 — 링크로
+ * 두면 프리페치·크롤러가 상품을 지운다.
  *
  * ## 미존재는 `notFound()`다 — 계약은 `null`을 준다
  *
@@ -111,6 +117,30 @@ export default async function ProductDetailPage({
         </p>
 
         <Summary display={display} product={product} />
+
+        {/*
+          ST-04 — 비소유자에게는 **아무것도 렌더되지 않는다.** 비활성화가 아니다:
+          비활성화는 타인 데이터에 대한 조작 가능성을 암시한다. 위 머리글이 「타인의
+          상품이다」를 적는 것이 그 부재의 설명이다.
+        */}
+        <OwnerOnly isOwner={product.isOwner}>
+          <div className="flex flex-col gap-3 rounded-lg border border-neutral-200 p-3">
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={PATHS.productEdit(product.id)}
+                className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium hover:bg-neutral-100"
+              >
+                수정
+              </Link>
+              {/*
+                `상환 처리`는 컷 6이다 — 그 라우트가 서기 전에 링크를 두면 404가 된다.
+                미구현은 `PENDING_PARTS`(화면 안의 원장)가 센다.
+              */}
+            </div>
+
+            <DeleteProductForm productId={product.id} productName={product.name} />
+          </div>
+        </OwnerOnly>
       </header>
 
       {/* ── ① 기본 정보 ────────────────────────────────────────────────── */}

@@ -18,6 +18,9 @@ export const ITG_EMAIL = {
   [ITG_USER_B]: 'itg-b@example.test',
 } as const
 
+/** 시드된 두 사용자. `ITG_EMAIL`의 키에서 파생시켜 목록이 갈릴 수 없게 한다 */
+export type ItgUser = keyof typeof ITG_EMAIL
+
 /**
  * 픽스처 UUID는 **고정**이다. "만들고 지우기"가 아니라 **선삭제 후 삽입**으로
  * 멱등하게 만든다 — 테스트가 중간에 던지면 역순 정리는 실행되지 않고, 다음
