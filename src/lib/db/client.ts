@@ -1,4 +1,8 @@
-import { createServerClient, type CookieMethodsServer } from '@supabase/ssr'
+import {
+  createServerClient,
+  type CookieMethodsServer,
+  type CookieOptions,
+} from '@supabase/ssr'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 import type { Database } from '@/types/database.types'
@@ -141,4 +145,116 @@ export function writableCookieAdapter(
       }
     },
   }
+}
+
+/**
+ * 쿠키와 헤더를 받아 두는 곳. 프레임워크 무관.
+ *
+ * `applyTo`가 받는 응답의 최소 형태이며, `NextResponse`가 구조적으로 만족한다.
+ * `next`를 import하지 않으려고 명목 타입 대신 이 형태를 쓴다.
+ */
+export type ResponseLike = {
+  cookies: { set(name: string, value: string, options: CookieOptions): unknown }
+  headers: { set(name: string, value: string): unknown }
+}
+
+export type CookieSink = {
+  setCookie(name: string, value: string, options: CookieOptions): void
+  setHeader(name: string, value: string): void
+}
+
+export type CookieAccumulator = {
+  sink: CookieSink
+  /** 모아 둔 쿠키·헤더를 응답에 옮기고 누산기를 봉인한다. 같은 응답을 돌려준다. */
+  applyTo<R extends ResponseLike>(response: R): R
+}
+
+/**
+ * 쿠키·헤더를 모아 두었다가 **한 지점에서** 응답으로 옮긴다.
+ *
+ * ## 왜 바로 응답에 쓰지 않는가
+ *
+ * `@supabase/ssr`의 `setAll`은 `await getUser()` **도중** 발화한다(갱신이
+ * 일어날 때). 프록시가 그때 응답 A에 쓰고 나서 판정 결과로 리다이렉트 응답 B를
+ * 만들면 **A의 쿠키와 헤더가 통째로 사라진다.** 미인증 경로에서 특히 나쁘다 —
+ * 갱신 실패는 삭제 쿠키(`value: ''`)를 내보내는데 그것을 잃으면 브라우저가
+ * 죽은 쿠키를 계속 보내고 매 요청이 실패할 갱신을 다시 시도한다.
+ *
+ * 순서를 기억하는 대신 **기억할 필요가 없게** 만든다. 발화 시점에는 누산기에
+ * 쌓이고, 어느 응답으로 끝날지 정해진 뒤에 `applyTo` 한 번이 옮긴다.
+ *
+ * ## 봉인
+ *
+ * `applyTo` 이후의 쓰기는 갈 곳이 없다. 조용히 버리면 이 클래스의 결함이 다시
+ * "쿠키가 가끔 사라진다"로 나타나므로 **남긴다.** 응답을 이미 보낸 뒤이므로
+ * 던지지는 않는다 — 던지면 이미 성공한 요청을 500으로 바꾼다.
+ */
+export function createCookieAccumulator(): CookieAccumulator {
+  const cookies: { name: string; value: string; options: CookieOptions }[] = []
+  const headers = new Map<string, string>()
+  let sealed = false
+
+  const warnIfSealed = (what: string): boolean => {
+    if (!sealed) return false
+    console.error(
+      `[auth] applyTo() 이후에 ${what} 쓰기가 도착했다 — 응답이 이미 확정되어 유실된다. ` +
+        'setAll이 발화하는 시점보다 applyTo가 앞서 불렸다는 뜻이다.',
+    )
+    return true
+  }
+
+  return {
+    sink: {
+      setCookie(name, value, options) {
+        if (warnIfSealed(`쿠키 '${name}'`)) return
+        cookies.push({ name, value, options })
+      },
+      setHeader(name, value) {
+        if (warnIfSealed(`헤더 '${name}'`)) return
+        headers.set(name, value)
+      },
+    },
+
+    applyTo(response) {
+      for (const { name, value, options } of cookies) {
+        response.cookies.set(name, value, options)
+      }
+      for (const [name, value] of headers) {
+        response.headers.set(name, value)
+      }
+      sealed = true
+      return response
+    },
+  }
+}
+
+/**
+ * 응답 객체를 들고 있는 곳(프록시·Route Handler)용 쿠키 어댑터.
+ *
+ * 세 어댑터 중 **헤더를 실제로 싣는 유일한 것**이다. 서버 컴포넌트는 응답
+ * 헤더가 이미 확정되었고(`readOnlyCookieAdapter`), 서버 액션은 응답 헤더에
+ * 접근하지 못한다(`writableCookieAdapter`의 주입부). 프록시만 둘 다 할 수 있고,
+ * 그래서 P4 선행 조건 ②와 ④가 같은 파일에서 닫힌다(DOC-000 §3).
+ *
+ * **`writableCookieAdapter`에 위임한다.** 삼키고-로그하는 규약이 두 벌이 되면
+ * 한쪽만 고쳐지는 날이 온다. 여기가 그 함수의 docblock이 말한 "주입하는 쪽"이며,
+ * 그쪽이 넘겨준 `headers`를 버리지 않는 것이 이 함수의 존재 이유다.
+ *
+ * 라이브러리는 **쓸 것이 있을 때만** 발화하고(`cookies.js:425`) 그때 세 헤더를
+ * 함께 준다 — `Cache-Control: private, no-cache, no-store, must-revalidate,
+ * max-age=0` · `Expires: 0` · `Pragma: no-cache`. 브라우저 저장소 경로의 두
+ * 호출부는 `{}`를 주므로(`:240`·`:293`) 헤더 루프가 0회 도는 것도 정상이다.
+ */
+export function responseCookieAdapter(
+  getAll: CookieMethodsServer['getAll'],
+  sink: CookieSink,
+): CookieMethodsServer {
+  return writableCookieAdapter(getAll, (cookiesToSet, headers) => {
+    for (const { name, value, options } of cookiesToSet) {
+      sink.setCookie(name, value, options)
+    }
+    for (const [name, value] of Object.entries(headers)) {
+      sink.setHeader(name, value)
+    }
+  })
 }
