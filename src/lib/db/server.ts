@@ -1,6 +1,7 @@
 import { cache } from 'react'
 
 import type { CookieMethodsServer } from '@supabase/ssr'
+import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 
 import { signIn, signOut } from '@/lib/auth/session'
@@ -56,6 +57,22 @@ const requestQueries = cache(async (): Promise<Queries> => {
 /** 서버 컴포넌트·라우트에서 조회 계약을 얻는 유일한 경로. */
 export function getQueries(): Promise<Queries> {
   return requestQueries()
+}
+
+/**
+ * 기준일 — 화면이 읽는다 (P4 컷 1b).
+ *
+ * **계약이 아니라 프레임워크 배선이다.** DOC-011은 변경되지 않는다 — `asOf`는
+ * 이미 두 컨텍스트에 있고(§4.0 Q-02, §5.0 W-02) 여기서 내보내는 것은 같은
+ * `cache()`의 값이다. 화면에 필요한 이유가 검증 규칙에 있다: V-17이
+ * `asOfDate ≤ 기준일`을 요구하므로 시세 입력의 `max`와 기본값이 **계약이 보는
+ * 것과 같은 날**이어야 하고, SCR-203의 상환일 기본값도 오늘이다.
+ *
+ * 화면이 `today()`를 직접 부르면 요청당 한 번이라는 규약이 깨진다 — KST
+ * 00:00~09:00에 화면이 내놓은 기본값이 계약에 거부되는 창이 생긴다(Q-02의 9시간).
+ */
+export function getAsOf(): string {
+  return requestAsOf()
 }
 
 /**
@@ -118,13 +135,70 @@ const requestMutations = cache(async (): Promise<Mutations> => {
 
   // 기준일은 조회와 **같은 값**이다(W-02). `requestAsOf`를 공유하므로 한 요청 안에서
   // 조회가 본 오늘과 V-17이 거부하는 미래가 갈릴 수 없다.
-  return mutationsFor(error != null ? null : data.user, {
-    db,
-    asOf: requestAsOf(),
-  })
+  return withInvalidation(
+    mutationsFor(error != null ? null : data.user, {
+      db,
+      asOf: requestAsOf(),
+    }),
+  )
 })
 
 /** 서버 액션에서 변경 계약을 얻는 유일한 경로. */
 export function getMutations(): Promise<Mutations> {
   return requestMutations()
+}
+
+/**
+ * 무효화 — **묶음을 감싼다. 계약마다 부르지 않는다** (계획 §8)
+ *
+ * 대안은 화면별 어댑터가 성공 뒤에 `revalidatePath`를 부르는 것인데, 그러면 호출
+ * 지점이 열한 곳으로 흩어지고 **빠뜨려도 아무것도 실패하지 않는다** — 증상은
+ * "저장했는데 화면이 그대로"이고 원인이 계약인지 캐시인지 구분되지 않는다.
+ * 여기서 감싸면 `getMutations()`를 지나는 모든 경로가 자동으로 지나며,
+ * `src/app/actions.ts`는 문자 그대로 위임만 남는다.
+ *
+ * **실패에는 무효화하지 않는다.** 검증 거부는 왕복이 0이므로(§5.0.1 실측) 바뀐
+ * 것이 없고, 지워야 할 것도 없다.
+ */
+function withInvalidation(mutations: Mutations): Mutations {
+  const wrapped = Object.fromEntries(
+    Object.entries(mutations).map(([name, fn]) => [
+      name,
+      async (...args: unknown[]) => {
+        const result = await (fn as (...a: unknown[]) => Promise<unknown>)(...args)
+        // `ActionResult`는 전 계약의 반환 형태다(§3.1). `ok`가 참일 때만 지운다.
+        if ((result as { ok?: boolean }).ok === true) invalidate()
+        return result
+      },
+    ]),
+  )
+
+  // 키 집합과 인자·반환은 그대로이므로 형태가 같다. `Object.entries`가 그 사실을
+  // 타입으로 보이지 못하는 것뿐이며, 키 전수는 `INVALIDATION`의 `Record`가 잡는다.
+  return wrapped as unknown as Mutations
+}
+
+/**
+ * **한 줄이다. 실측이 그렇게 정했다** (컷 1b — `lib/routes/invalidation.ts`의 표)
+ *
+ * 계획은 계약별 경로 목록을 여기서 순회하는 것이었다. 네 경우를 실측하니 **세
+ * 설정(무효화 없음 / 정확한 경로 / 무관한 경로만)의 관측이 전부 같았다** — 액션
+ * 응답도, 새 문서 GET도, RSC 페이로드도 늘 최신이다. 서버에 지울 것이 없기
+ * 때문이다(모든 데이터 화면이 `cookies()`를 지나 동적이고 Supabase 요청은
+ * `cache: 'no-store'`다).
+ *
+ * 대조군이 초록인 것이 실험 실패가 아님을 로그로 확인했다 — 정확한 설정은 일곱
+ * 경로를, 대조군은 `/tax` 하나를 실제로 불렀다. 인자는 달랐고 관측은 같았다.
+ *
+ * 남는 소비자는 **클라이언트 라우터 캐시**이고 그것은 브라우저 안이라 우리가 가진
+ * 어느 층도 보지 못한다(AQ-32). 세분화의 유일한 위험은 **부족하게 지우는 것**이며,
+ * 정확성을 확인할 방법이 없는 손으로 적은 목록에 그것을 의존하는 대신 구조적으로
+ * 부족할 수 없는 형태를 고른다 — 루트 레이아웃 하나면 그 아래 전부가 지워진다.
+ *
+ * 「무엇이 왜 낡는가」는 사라지지 않았다. `INVALIDATION.affects`와 `ROUTE_QUERIES`가
+ * 그 지식을 데이터로 들고 있고 상시 스위트가 문서와 대조한다. 어느 라우트가
+ * 캐시 가능해지는 날(`'use cache'`·정적 렌더) `staleRoutesFor()`가 그 입력이 된다.
+ */
+function invalidate(): void {
+  revalidatePath('/', 'layout')
 }

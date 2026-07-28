@@ -353,6 +353,31 @@ const eslintConfig = defineConfig([
    * 15자리까지 float64로 정확하므로 **값 단언으로는 영원히 드러나지 않는다.**
    */
   {
+    /*
+     * `_`로 시작하는 인자는 **쓰지 않겠다는 선언**이다. 서명이 프레임워크에 의해
+     * 정해지는 자리에서 필요하다 — `useActionState`의 액션은 `(prev, formData)`를
+     * 받아야 하고, 그 형태를 지키지 않으면 클라이언트 화살표로 감싸게 되어
+     * **JS 없이 동작하지 않는 폼**이 된다(컷 1b 실측). 인자를 지울 수 없으므로
+     * 이름으로 의도를 적고 린트가 그 관례를 인정하게 한다.
+     *
+     * `args: 'after-used'`(기본값)이라 마지막으로 쓰인 인자 **뒤**만 보고하므로
+     * `(_prev, formData)`는 원래 조용하다. 둘 다 쓰지 않는 경우에만 걸린다.
+     */
+    name: "els/unused-underscore",
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          args: "after-used",
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
+    },
+  },
+
+  {
     name: "els/app-values",
     files: ["src/app/**/*.{ts,tsx}"],
     rules: {

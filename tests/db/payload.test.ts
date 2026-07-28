@@ -28,11 +28,17 @@ import {
  * 15자리까지 float64로 정확하므로 어떤 값 비교도 영원히 통과한다.
  */
 
-/* eslint-disable @typescript-eslint/no-unused-vars --
-   아래 타입 별칭들은 **값으로 쓰이지 않는 것이 정상**이다. 게이트는 런타임이
-   아니라 `npm run typecheck`이며, `Expect<T extends true>`가 거짓을 받으면
-   컴파일이 실패한다. 참조를 만들어 경고를 없애면 그 참조가 단언의 일부인 것처럼
-   읽히므로 규칙을 끄고 이유를 남긴다. */
+/*
+ * 아래 타입 별칭들은 **값으로 쓰이지 않는 것이 정상**이다. 게이트는 런타임이
+ * 아니라 `npm run typecheck`이며, `Expect<T extends true>`가 거짓을 받으면
+ * 컴파일이 실패한다. 참조를 만들어 경고를 없애면 그 참조가 단언의 일부인 것처럼
+ * 읽힌다.
+ *
+ * 이름의 `_` 접두사가 그 뜻이며 **파일 단위 `eslint-disable`이 필요 없다**
+ * (P4 컷 1b) — `els/unused-underscore`가 `^_`를 관례로 인정하게 했으므로, 규칙을
+ * 끄지 않고도 의도가 표현된다. 규칙을 끄면 이 파일의 **진짜** 미사용 변수도
+ * 함께 보이지 않게 된다.
+ */
 
 type Expect<T extends true> = T
 type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false

@@ -105,6 +105,13 @@ npm run test:rls && npm run typecheck
 드리프트 대조 검사는 `test:integration`에만 있어 상시 실행되지 않으므로, 절차로 지킨다
 (DOC-010 AQ-19).
 
+**표본 데이터를 `supabase/seed/`에 두지 않는다.** `sql_paths = ["./seed/*.sql"]`가 **글롭**이므로
+새 파일이 자동으로 `db:reset`에 실리고, `tests/integration/`에는 **필터 없는 전역 건수 단언**이
+있다(모든 SELECT 정책이 `using (true)`라 남의 상품도 센다). 즉 시드에 상품을 하나 넣으면
+성장 불변 테스트가 **잘못된 이유로** 빨간불이 된다. 개발용 표본은 `supabase/dev/`(글롭 밖)에 두고
+`psql -f`로 수동 적용한다 — `db:reset`이 지우므로 격리가 규율이 아니라 구조다. 1차 입력 경로는
+**화면**이다(P4 컷 1b부터).
+
 `supabase/config.toml`의 `[auth]`를 바꾸면 `db:reset`으로는 반영되지 않는다 —
 `db:stop && db:start`가 필요하다.
 
