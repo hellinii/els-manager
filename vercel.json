@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/prices",
+      "schedule": "0 5 * * *"
+    }
+  ],
+  "regions": ["icn1"]
+}

@@ -339,10 +339,11 @@ const eslintConfig = defineConfig([
   },
 
   /**
-   * ★ 아래 넷은 **파일 집합이 서로 겹치지 않는다.** 플랫 설정에서 뒤에 오는
-   * 객체가 같은 이름의 규칙을 다시 선언하면 앞의 설정을 병합하지 않고
+   * ★ 아래 **다섯**(P5b 컷 1에서 `lib/cron`이 늘었다)은 **파일 집합이 서로 겹치지
+   * 않는다.** 플랫 설정에서 뒤에 오는 객체가 같은 이름의 규칙을 다시 선언하면 앞의
+   * 설정을 병합하지 않고
    * **대체**하므로(`els/db-layer-values-and-env`의 주석과 같은 함정), 겹치면
-   * 강제 변환 금지가 한쪽에서 소리 없이 사라진다. 넷이 선언하는 규칙 이름은
+   * 강제 변환 금지가 한쪽에서 소리 없이 사라진다. 다섯이 선언하는 규칙 이름은
    * `no-restricted-globals`·`no-restricted-syntax` 둘뿐이고, 그 둘을 앞에서
    * 선언한 글롭은 `PURE_MODULES`(lib/tax·lib/domain)와 `DB_MODULES`(lib/db)이며
    * 아래 어느 집합과도 교집합이 없다.
@@ -427,6 +428,26 @@ const eslintConfig = defineConfig([
   {
     name: "els/form-values",
     files: ["src/lib/forms/**/*.ts", "src/lib/routes/**/*.ts"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": ["error", ...NO_COERCION_SYNTAX],
+    },
+  },
+
+  {
+    /*
+     * P5b 컷 1 — `lib/cron`이 생기는 컷에서 글롭을 함께 넣는다.
+     *
+     * **디렉터리를 만들고 규칙을 나중에 붙이면 그 사이가 공백이고, 공백은 위반자가 0인
+     * 동안 보이지 않는다** — `src/lib/providers/**`가 세 제약 전부에서 `null`인 채로
+     * 남아 있는 것이 그 상태이며(P5b 컷 7이 메운다) 그쪽은 **외부 JSON을 파싱하는 자리**라
+     * 정확히 `Number(json.close)`가 쓰일 곳이다. 같은 일을 반복하지 않는다.
+     *
+     * 지금 `lib/cron`에 강제 변환이 필요한 코드는 없다. 규칙은 **다음 코드**를 위한 것이고
+     * 그 다음 코드가 P5a의 수집 판정이다.
+     */
+    name: "els/cron-values",
+    files: ["src/lib/cron/**/*.ts"],
     rules: {
       "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
       "no-restricted-syntax": ["error", ...NO_COERCION_SYNTAX],

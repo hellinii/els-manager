@@ -199,7 +199,16 @@ describe('전수', () => {
 // 축 2 — 실재하는 라우트
 // ---------------------------------------------------------------------------
 
-/** `src/app/**\/page.tsx`를 훑어 실제 라우트 경로를 만든다. 라우트 그룹은 URL에 없다. */
+/**
+ * `src/app/**\/page.tsx`를 훑어 실제 라우트 경로를 만든다. 라우트 그룹은 URL에 없다.
+ *
+ * ★ **`page.tsx`만 본다 — 그것이 이 함수의 범위이고, 아래 「축 2b」가 나머지를 본다.**
+ * P5b 컷 1까지 이 필터가 저장소의 라우트 전부와 같았다(`route.ts`가 0개였다). 첫 Route
+ * Handler가 서면서 그 등식이 깨졌고, 그러면 아래 「실재하는 라우트가 전부 등재되어
+ * 있다」가 **초록인 채로 거짓**이 된다 — 스캐너가 보지 않는 종류의 라우트는 등재되지
+ * 않아도 걸리지 않는다. CLAUDE.md 절대 규칙 #6이 열거하는 fail-open(테이블 · 뷰 · 함수)의
+ * **네 번째 사례**이며 함정도 같다: **객체 종류가 늘어날 때 기존 열거가 따라오지 않는다.**
+ */
 function actualRoutes(dir: string = APP, prefix = ''): string[] {
   const routes: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -356,6 +365,11 @@ describe('실재하는 라우트', () => {
      * 반대 방향이다 — 화면을 세우고 `ROUTE_QUERIES`에 적지 않으면 그 화면은
      * **어떤 변경에도 무효화되지 않는다.** 증상은 "저장했는데 그 화면만 그대로"다.
      * `/login`은 조회 계약이 없다(부르면 Q-04로 죽는다).
+     *
+     * ★ **여기서 「실재하는 라우트」는 `page.tsx` 라우트다**(`actualRoutes()`의 독블록).
+     * Route Handler는 조회 계약도 무효화도 갖지 않으므로 이 원장의 대상이 아니고,
+     * **축 2b의 `ROUTE_HANDLERS`가 센다.** 둘이 서로를 흡수하지 않는다는 것을 그쪽에서
+     * 단언한다 — 한쪽이 다른 쪽의 파일을 세면 「어딘가에 등재」가 다시 헐거워진다.
      */
     // `PENDING_ROUTES`는 컷 8에서 비었지만 **합집합에 남긴다** — 다음 자리표시가
     // 등재되는 날 그 라우트가 여기서 조용히 「미포함」으로 걸리지 않아야 한다.
@@ -365,6 +379,206 @@ describe('실재하는 라우트', () => {
       PATHS.login,
     ])
     expect(ROUTES.filter((route) => !covered.has(route))).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 축 2b — Route Handler 원장 (P5b 컷 1, B5)
+// ---------------------------------------------------------------------------
+
+const PROXY = join(process.cwd(), 'src', 'proxy.ts')
+const VERCEL_JSON = join(process.cwd(), 'vercel.json')
+const DOC_013 = join(process.cwd(), 'docs', '13_배포_및_운영.md')
+
+/** `src/app/**\/route.ts`를 훑어 실제 Route Handler 경로를 만든다. */
+function routeHandlers(dir: string = APP, prefix = ''): string[] {
+  const routes: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name === 'route.ts') {
+      routes.push(prefix === '' ? '/' : prefix)
+      continue
+    }
+    if (!entry.isDirectory()) continue
+    const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`
+    routes.push(...routeHandlers(join(dir, entry.name), `${prefix}${segment}`))
+  }
+  return routes
+}
+
+/**
+ * **Route Handler 원장** — `page.tsx` 원장들과 같은 규율을 `route.ts`에 적용한다.
+ *
+ * `proxied`는 취향이 아니라 **관측 가능한 사실**이다: 프록시 매처에 걸리는 핸들러는
+ * 미인증 요청에서 307을 받고 자기 코드가 실행되지 않는다. `/api/cron/prices`가 그것을
+ * 감당할 수 없는 이유는 **Vercel Cron이 리다이렉트를 따라가지 않고 3xx는 로그에도 남지
+ * 않는다**는 것(ADR-006 실측 ⑤)이며, 그 상태에서 CR-01은 영원히 실행되지 않는다.
+ *
+ * 반대로 세션이 필요한 핸들러라면 `proxied: true`가 옳다. 그래서 이 열은 **각 핸들러의
+ * 결정**이고, 아래 단언이 그 결정을 `src/proxy.ts`의 매처에서 파생시켜 대조한다 —
+ * 손으로 적은 기대와 실제 정규식이 갈리면 빨간불이다.
+ *
+ * `forcesDynamic`도 같은 형태다. ★ **이 열이 있는 이유는 실측이다** — `export const
+ * dynamic = 'force-dynamic'`을 지우고 e2e를 돌렸더니 **10건이 전부 초록이었다.** 핸들러가
+ * `request.headers`를 읽으면 Next가 그것만으로 동적 렌더로 판정하기 때문이다. 즉 e2e의
+ * 「같은 URL이 헤더에 따라 갈린다」는 **동적 렌더가 일어났음**을 증명하지만 **그 선언이
+ * 있음**은 증명하지 않는다. 요청을 읽지 않는 핸들러(상수를 돌려주는 헬스 체크 같은 것)가
+ * 오는 날 그 공백이 실재하는 위험이 되므로, 선언의 유무를 **소스에서** 본다.
+ */
+const ROUTE_HANDLERS: Record<
+  string,
+  { proxied: boolean; forcesDynamic: boolean; why: string }
+> = {
+  '/api/cron/prices': {
+    proxied: false,
+    forcesDynamic: true,
+    why: 'DOC-011 §7.1 — Vercel Cron이 GET으로 부른다. 프록시가 잡으면 307이고, Cron은 리다이렉트를 따라가지 않으며 로그에도 남지 않는다(CR-01이 죽는다)',
+  },
+}
+
+/**
+ * `src/proxy.ts`의 매처를 **파일에서 뽑아** 정규식으로 만든다.
+ *
+ * `import { config } from '@/proxy'`로 가져오지 않는 이유: 그 모듈은 `next/server`와
+ * `@supabase/ssr`을 끌어오므로 **상시 스위트의 import 그래프가 프레임워크로 넓어진다**
+ * (AQ-23이 그 경계를 그은 자리다). 여기 필요한 것은 문자열 하나다.
+ *
+ * 소스의 `\\.`는 문자열 리터럴의 이스케이프이므로 `\.`로 되돌린다 — **그 하나 말고 다른
+ * 이스케이프가 없다는 것을 함께 단언한다**(있으면 되돌림이 조용히 틀린다).
+ */
+function proxyMatcher(): RegExp {
+  const source = readFileSync(PROXY, 'utf8')
+  const matched = /^\s*'(\/\(\(\?!.+)',\s*$/m.exec(source)
+  expect(matched, 'src/proxy.ts에서 매처 리터럴을 찾지 못했다').not.toBeNull()
+
+  const raw = matched![1]!
+  // `\\`(리터럴 백슬래시) 외의 이스케이프가 섞이면 아래 치환이 뜻을 바꾼다.
+  expect(raw.replace(/\\\\/g, ''), '매처에 예상 밖의 이스케이프가 있다').not.toContain('\\')
+
+  return new RegExp(`^${raw.replace(/\\\\/g, '\\')}$`)
+}
+
+describe('Route Handler 원장 — 저장소의 첫 핸들러 (P5b 컷 1)', () => {
+  const HANDLERS = routeHandlers()
+
+  it('스캐너가 무엇을 찾았다 — 0건을 찾고 조용히 통과하는 것이 유일한 위험이다', () => {
+    /*
+     * ★ **이 케이스가 없으면 아래 양방향 단언이 항진명제다.** 원장이 비고 스캐너가 아무것도
+     * 못 찾으면 두 방향 모두 초록이다 — 그것이 「가드가 있는 것처럼 보이는데 없는」 상태이며,
+     * `actualRoutes()`의 「파서가 라우트를 찾았다」가 같은 자리에 있는 이유다.
+     */
+    expect(HANDLERS).toEqual(['/api/cron/prices'])
+  })
+
+  it('두 스캐너가 서로를 흡수하지 않는다 — 원장이 둘인 이유', () => {
+    // 한쪽이 다른 쪽의 파일을 세면 「어딘가에 등재되어 있다」가 다시 헐거워진다.
+    const pages = new Set(actualRoutes())
+    expect(HANDLERS.filter((route) => pages.has(route))).toEqual([])
+    expect(placeholderRoutes().filter((route) => HANDLERS.includes(route))).toEqual([])
+  })
+
+  it('실재하는 핸들러가 전부 등재되어 있다', () => {
+    expect(HANDLERS.filter((route) => !(route in ROUTE_HANDLERS))).toEqual([])
+  })
+
+  it('등재된 핸들러가 전부 실재한다 — 원장만 앞서가지 않는다', () => {
+    for (const route of Object.keys(ROUTE_HANDLERS)) {
+      expect(HANDLERS, `${route}가 원장에 있고 파일이 없다`).toContain(route)
+    }
+  })
+
+  it('프록시 매처가 원장의 `proxied`와 일치한다', () => {
+    /*
+     * ★ **이것이 「307이 아니다」의 상시 대조다.** e2e도 같은 사실을 보지만 그쪽은 인프라
+     * (Docker + `next build`)를 요구하므로 상시로 돌지 않는다. 매처는 문자열 하나이고
+     * 실수는 그 한 줄에서 일어나므로, 파생으로 여기서 잡는 편이 싸다.
+     */
+    const matcher = proxyMatcher()
+
+    // 파서·해석의 양성 대조 — 이 넷은 매처에 걸려야 한다(e2e가 307/200으로 실측했다).
+    for (const path of ['/', '/products', '/login', '/does-not-exist']) {
+      expect(matcher.test(path), `${path}가 매처 밖이다`).toBe(true)
+    }
+    // 음성 대조 — 정적 자산 제외가 실제로 동작한다(favicon은 e2e에서 200이다).
+    for (const path of ['/_next/static/chunk.js', '/favicon.ico', '/logo.svg']) {
+      expect(matcher.test(path), `${path}가 매처에 걸린다`).toBe(false)
+    }
+
+    for (const [route, { proxied, why }] of Object.entries(ROUTE_HANDLERS)) {
+      expect(matcher.test(route), `${route}: ${why}`).toBe(proxied)
+    }
+  })
+
+  it('`force-dynamic` 선언이 원장과 일치한다 — 행동으로는 관측되지 않는다', () => {
+    /*
+     * ★ **e2e가 이것을 보지 못한다는 것을 실측으로 확인하고 여기 넣었다**(위 독블록).
+     * 선언을 지우고 `tests/e2e/cron.test.ts`를 돌리면 10건이 전부 초록이다 — 그래서
+     * **소스를 본다.** 행동 단언으로 대체할 수 없는 자리이며, 이런 자리는 「있는 줄 알았던
+     * 가드가 0인」 상태가 되기 쉽다.
+     *
+     * 정적 최적화되면 401/503 본문이 빌드에 구워지고 cron이 영원히 캐시 응답을 받는다.
+     * 그리고 **캐시 응답은 Vercel 로그에도 남지 않으므로**(실측 ⑤) 그 사고는 자기 흔적을
+     * 지운다.
+     */
+    const DECLARATION = "export const dynamic = 'force-dynamic'"
+
+    for (const [route, { forcesDynamic }] of Object.entries(ROUTE_HANDLERS)) {
+      const file = join(APP, ...route.split('/').filter(Boolean), 'route.ts')
+      const source = readFileSync(file, 'utf8')
+      expect(source, `${route}의 파일이 비어 있다`).not.toBe('')
+      expect(source.includes(`\n${DECLARATION}`), `${route}`).toBe(forcesDynamic)
+    }
+
+    // 양성 대조 — 위 반복문이 0회 돌면 아무것도 증명하지 않는다.
+    expect(Object.values(ROUTE_HANDLERS).filter((h) => h.forcesDynamic).length).toBeGreaterThan(0)
+  })
+
+  it('`vercel.json`의 cron 경로가 실재하는 핸들러다', () => {
+    /*
+     * 경로가 틀리면 **배포는 성공하고 잡만 404를 받는다.** 그리고 404는 3xx·캐시와 달리
+     * 로그에 남지만, 남는 곳이 「1시간 보존」이므로 다음에 볼 때 사라져 있다(DOC-013 §7).
+     * 오타를 저장소에서 잡는 편이 싸다.
+     */
+    const config = JSON.parse(readFileSync(VERCEL_JSON, 'utf8')) as {
+      crons?: Array<{ path: string; schedule: string }>
+      regions?: string[]
+    }
+    expect(config.crons, 'vercel.json에 crons가 없다').toHaveLength(1)
+    expect(HANDLERS).toContain(config.crons![0]!.path)
+  })
+
+  it('스케줄과 리전이 DOC-013 §6.2와 같다 — `vercel.json`이 시각을 혼자 정하지 않는다', () => {
+    /*
+     * ★ **DOC-010 §6.2의 각주가 요구한 것이 이 단언이다** — v1.8까지 시각이 어느 문서에도
+     * 없어 `vercel.json`이 그것을 혼자 정하게 되어 있었고, 그러면 「왜 05:00 UTC인가」가
+     * 어디에도 없다. 문서가 근거를 갖고 있으므로(공급자의 T+1 13:00 KST 게시) **설정이
+     * 문서를 따라야 하며 그 방향을 여기서 고정한다.**
+     */
+    const lines = readFileSync(DOC_013, 'utf8').split('\n')
+    const heading = lines.findIndex((line) => line.startsWith('### 6.2 스케줄'))
+    expect(heading, 'DOC-013 §6.2를 찾지 못했다').toBeGreaterThan(-1)
+    expect(
+      lines.findIndex((line, i) => i > heading && line.startsWith('### 6.2 스케줄')),
+      '§6.2 제목이 둘 이상이다',
+    ).toBe(-1)
+
+    const table = lines.slice(heading, heading + 12)
+    const cell = (label: string): string => {
+      const row = table.find((line) => line.startsWith(`| ${label} |`))
+      expect(row, `§6.2에 「${label}」 행이 없다`).toBeDefined()
+      const value = /`([^`]+)`/.exec(row!)
+      expect(value, `「${label}」 행에 백틱 값이 없다`).not.toBeNull()
+      return value![1]!
+    }
+
+    const config = JSON.parse(readFileSync(VERCEL_JSON, 'utf8')) as {
+      crons: Array<{ path: string; schedule: string }>
+      regions: string[]
+    }
+
+    expect(config.crons[0]!.schedule).toBe(cell('표현식'))
+    expect(config.regions).toEqual([cell('리전')])
+    // 문서 쪽 값의 형태도 본다 — 빈 백틱이나 다른 셀을 잡았으면 여기서 드러난다.
+    expect(cell('표현식')).toMatch(/^[\d*]+ [\d*]+ [\d*]+ [\d*]+ [\d*]+$/)
   })
 })
 
