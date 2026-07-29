@@ -226,7 +226,7 @@ export function assertNotTruncated(rows: readonly unknown[], what: string): void
 //      추가되면 여기 등재되지 않아 `typecheck`가 아니라 아무 일도 안 일어난다
 // ---------------------------------------------------------------------------
 
-/** `email`을 담지 않는다 — 조회 계약 8개 어디도 쓰지 않는다(D9, DOC-010 §7) */
+/** `email`을 담지 않는다 — 조회 계약 9개 어디도 쓰지 않는다(D9, DOC-010 §7) */
 export const USER_COLUMNS = defineColumns('users', {
   id: 'raw',
   display_name: 'raw',

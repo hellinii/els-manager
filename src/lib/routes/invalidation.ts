@@ -71,9 +71,14 @@ export type InvalidationRule = {
 /**
  * 상품의 존재·조건·상태를 바꾸는 것들이 공유하는 축.
  *
- * `listUserSummaries`가 `getTaxSummary`와 **같은 자리에 있다** — 둘 다 상품 전량과
- * 본인 프로필을 읽는다(`tax.ts`의 `loadProducts`·`loadTaxProfile`). 화면이 없다는
+ * `listUserSummaries`·`getForecast`가 `getTaxSummary`와 **같은 자리에 있다** — 셋 다
+ * 상품 전량과 본인 프로필을 읽는다(`loadProducts`·`loadTaxProfile(s)`). 화면이 없다는
  * 것(SQ-01)은 값이 낡지 않는다는 뜻이 아니다.
+ *
+ * `getForecast`가 세 계약 중 가장 넓게 낡는다 — 한 해가 아니라 `years`개 연도이고
+ * `cumulativeNet`이 앞 연도의 누계에 의존하므로 어느 해의 상환이 바뀌어도 그 뒤 행이
+ * 전부 바뀐다. 그래도 **소속은 같다**: 판정 기준이 「어느 입력을 읽는가」이고 셋의
+ * 입력이 같기 때문이다(§4.2).
  */
 const PRODUCT_WIDE = [
   'getProduct',
@@ -83,6 +88,7 @@ const PRODUCT_WIDE = [
   'listAssetPrices',
   'getTaxSummary',
   'listUserSummaries',
+  'getForecast',
 ] as const satisfies readonly QueryName[]
 
 /** 시세를 바꾸는 것들이 공유하는 축. 세금이 없는 것이 요점이다. */
@@ -115,6 +121,7 @@ export const INVALIDATION = {
       'listAssetPrices',
       'getTaxSummary',
       'listUserSummaries',
+      'getForecast',
     ],
   },
 
@@ -136,8 +143,9 @@ export const INVALIDATION = {
 
   // §5.6 — 프로필은 세금 계산의 입력이다. 홈의 `currentYearTax`도 같은 집계를 쓴다.
   // §4.8의 본인 행도 그 프로필을 읽는다(`includesOtherFinancialIncome`이 참인 행).
+  // 전망은 **저장한 해 이후 전부**가 바뀐다 — 이월(LOCF)이 그 값을 뒤 연도로 나른다.
   saveTaxProfile: {
-    affects: ['getTaxSummary', 'getDashboard', 'listUserSummaries'],
+    affects: ['getTaxSummary', 'getDashboard', 'listUserSummaries', 'getForecast'],
   },
 
   // §5.7·§5.8 — **세금이 아니다**(위 표의 첫째 줄).

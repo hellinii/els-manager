@@ -9,17 +9,18 @@ import {
   seedProduct,
   seedRedemption,
   seedSchedule,
+  seedTaxProfile,
   seedUnderlying,
 } from './helpers/seed'
 import { AS_OF, YEAR, setupScenario, type Scenario } from './helpers/scenario'
 import { collect, type Coverage, type Spec } from './helpers/formats'
 
 /**
- * Q-07 형식 적합성 — 8계약 전 필드 (DOC-011 §4.0)
+ * Q-07 형식 적합성 — 9계약 전 필드 (DOC-011 §4.0)
  *
  * **이 파일이 따로 있는 이유가 둘이다.**
  *
- * ① 커버리지 단언(②③)은 8계약을 **누적한 뒤** 판정한다. `contracts.test.ts`의
+ * ① 커버리지 단언(②③)은 9계약을 **누적한 뒤** 판정한다. `contracts.test.ts`의
  *    §별 `it`에 끼워 넣으면 실행 순서에 의존하게 되어 `it.only` 한 번에 거짓
  *    실패가 난다. 여기서는 수집을 `beforeAll`에서 끝낸다.
  * ② 정본 시나리오가 닿지 않는 분기(원천징수 없음, 만기상환, KI 터치 확정,
@@ -242,6 +243,32 @@ const TAX_SUMMARY: Record<string, Spec> = {
   'contributingProducts[].integrityIssue': INTEGRITY_ISSUES,
 }
 
+/**
+ * §4.7 다년도 전망 — **행 하나가 열두 열이다** (P4b 컷 7)
+ *
+ * `thresholdGap`이 §4.6의 같은 이름과 **다른 값**임을 여기 적어 둔다: 그쪽은 절대값이고
+ * 이쪽은 부호를 남긴다(「양수면 초과」). 분류는 둘 다 `AMOUNT`이므로 형식 축에서는
+ * 갈리지 않는다 — `tests/db/forecast.test.ts`가 부호를 본다.
+ */
+const FORECAST_ROW: Record<string, Spec> = {
+  year: 'NUMBER',
+  taxLawYear: 'NUMBER',
+  // `null`이면 미입력. 아래 픽스처가 **이월** 상태(`< year`)를 만들어 비-null을 관측시킨다.
+  profileYear: 'NUMBER',
+  grossProceeds: 'AMOUNT',
+  financialIncome: 'AMOUNT',
+  thresholdGap: 'AMOUNT',
+  isComprehensive: 'BOOL',
+  effectiveRate: 'RATIO',
+  additionalTax: 'AMOUNT',
+  totalInsurance: 'AMOUNT',
+  netProceeds: 'AMOUNT',
+  cumulativeNet: 'AMOUNT',
+  remainingPrincipal: 'AMOUNT',
+  cumulativeAssets: 'AMOUNT',
+  hasEstimates: 'BOOL',
+}
+
 /** §4.8 사용자별 현황 */
 const USER_SUMMARY: Record<string, Spec> = {
   userId: 'UUID',
@@ -315,6 +342,27 @@ beforeAll(async () => {
     note: '만기 확정',
   })
 
+  /*
+   * ★ **`profileYear`를 비-null로 관측시키는 픽스처이며, 연도가 과거인 것이 요점이다.**
+   *
+   * 정본 시나리오는 과세 프로필을 세우지 않으므로 전망 여섯 행의 `profileYear`가 전부
+   * `null`이 되고 ③′(「비-null로 한 번 이상 관측된다」)가 죽는다 — 형식이 검증된 적 없는
+   * 열이 된다.
+   *
+   * `YEAR`가 아니라 `YEAR - 1`에 세우는 이유가 둘이다. ① §4.7의 **이월** 상태
+   * (`profileYear < year`)를 관측한다 — 세 상태 중 가장 판별하기 어려운 것이고, 이월이
+   * 없으면 `.lte()` 대신 `.in()`으로 구현해도 통과한다. ② `getTaxSummary({year: YEAR})`의
+   * 관측을 **한 칸도 바꾸지 않는다** — 그 계약은 그 해의 행만 읽으므로 `profile.isSaved`가
+   * 여전히 거짓이다. 같은 파일의 다른 계약을 인질로 잡지 않는 것이 이 파일 전용 픽스처의 규약이다.
+   */
+  await seedTaxProfile({
+    userId: ITG_USER_A,
+    taxYear: YEAR - 1,
+    otherIncomeBase: '20000000',
+    otherFinancialIncome: '3000000',
+    healthInsuranceType: 'REGIONAL',
+  })
+
   const [
     products,
     detailA,
@@ -330,6 +378,7 @@ beforeAll(async () => {
     // override 한 번으로 덮는다 — 저장되지 않으므로 다른 단언에 영향이 없다.
     taxComprehensive,
     users,
+    forecast,
     dashboardAll,
     dashboardMine,
   ] = await Promise.all([
@@ -349,6 +398,7 @@ beforeAll(async () => {
       override: { otherFinancialIncome: '30000000' },
     }),
     s.asA.listUserSummaries(),
+    s.asA.getForecast({ ownerId: ITG_USER_A }),
     s.asA.getDashboard({ scope: 'ALL' }),
     s.asA.getDashboard({ scope: 'MINE' }),
   ])
@@ -394,6 +444,10 @@ beforeAll(async () => {
       ]),
     },
     {
+      contract: '§4.7 getForecast',
+      coverage: collect(FORECAST_ROW, rows('getForecast', forecast)),
+    },
+    {
       contract: '§4.8 listUserSummaries',
       coverage: collect(USER_SUMMARY, rows('listUserSummaries', users)),
     },
@@ -409,9 +463,9 @@ afterAll(async () => {
   await closeSeedConnection()
 })
 
-describe('Q-07 형식 적합성 — 8계약 전 필드', () => {
-  it('계약 8개를 모두 수집했다', () => {
-    expect(coverages.map((c) => c.contract)).toHaveLength(8)
+describe('Q-07 형식 적합성 — 9계약 전 필드', () => {
+  it('계약 9개를 모두 수집했다', () => {
+    expect(coverages.map((c) => c.contract)).toHaveLength(9)
   })
 
   it('① 모든 값이 자기 분류의 형식을 지킨다', () => {

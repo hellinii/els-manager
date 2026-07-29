@@ -1,5 +1,6 @@
 import type { UserSessionClient } from '../client'
 import { makeDashboardQueries } from './dashboard'
+import { makeForecastQueries } from './forecast'
 import { makeAssetQueries } from './prices'
 import { makeProductQueries } from './products'
 import { makeScheduleQueries } from './schedule'
@@ -23,17 +24,30 @@ export type QueryContext = {
 }
 
 /**
- * 조회 계약 묶음 — 8개.
+ * 조회 계약 묶음 — 9개. §4.1~§4.9 전부다.
  *
- * §4.7 `getForecast`는 **의도적으로 없다** — `totalAssets`·`remainingPrincipal`의
- * 정의가 어느 문서에도 없다(DOC-011 §4.7). 부분 구현하면 화면이 빈 열을
- * 렌더링하게 되고, 두 값은 RD-02(기본 적용 차수, 미결)에 의존하므로 지금
- * 확정하면 그것이 닫힐 때 다시 손대게 된다. DOC-007 §7.5 신설이 선행 조건이다.
+ * ## §4.7 `getForecast`가 여기 있는 이유 (P4b 컷 7)
+ *
+ * v0.6~v2.3 동안 이 자리에는 **「의도적으로 없다」**가 적혀 있었고 근거가 셋이었다:
+ * `totalAssets`·`remainingPrincipal`의 산식이 어느 문서에도 없다 · 부분 구현하면
+ * 화면이 빈 열을 렌더한다 · 두 값이 RD-02(기본 적용 차수)에 의존하므로 지금 확정하면
+ * 그것이 닫힐 때 다시 손대게 된다.
+ *
+ * **셋이 전부 해소되었고 그 순서가 이 프로젝트의 규약이다.** DOC-007 §7.5가 산식을
+ * 신설했고(컷 4) RD-02가 「기본값 확정 유지 + 비영속 `scenario`는 P4c」로 해결되었으며,
+ * 그 다음에 순수 구현(컷 5) → 계약(컷 7)이 왔다. 「미구현」이 결정이었다는 기록을
+ * 지우지 않고 **해소의 근거로 남긴다** — `totalAssets`가 `cumulativeAssets`로 개명된
+ * 것도 그 미구현 기간에만 자유로웠던 일이다(DOC-011 §4.7 v2.4).
+ *
+ * **`QueryName = keyof Queries`가 여기서 파생된다.** 그래서 팩토리를 여기 더하는 것이
+ * `INVALIDATION`의 조회 축 witness(AQ-39, 컷 6)를 발화시킨다 — 계약을 추가하고 「무엇이
+ * 이것을 낡게 하는가」를 정하지 않는 경로가 컴파일에 막혀 있다.
  */
 export type Queries = ReturnType<typeof makeProductQueries> &
   ReturnType<typeof makeScheduleQueries> &
   ReturnType<typeof makeAssetQueries> &
   ReturnType<typeof makeTaxQueries> &
+  ReturnType<typeof makeForecastQueries> &
   ReturnType<typeof makeDashboardQueries>
 
 export function createQueries(ctx: QueryContext): Queries {
@@ -44,6 +58,7 @@ export function createQueries(ctx: QueryContext): Queries {
     ...makeScheduleQueries(ctx),
     ...makeAssetQueries(ctx),
     ...makeTaxQueries(ctx),
+    ...makeForecastQueries(ctx),
     ...makeDashboardQueries(ctx),
   }
 }

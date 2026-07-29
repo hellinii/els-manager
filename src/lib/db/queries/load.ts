@@ -517,6 +517,73 @@ export async function loadTaxProfile(
   return data
 }
 
+/**
+ * `throughYear` 이하의 과세 프로필 전체 — §4.7의 이월(LOCF)이 이것을 받는다.
+ *
+ * ## `.in('tax_year', years)`가 아니라 `.lte()`다
+ *
+ * 이월을 열거로 구현할 수 없다. `profileFor(profiles, Y)`가 「`Y` 이하의 가장 최근」을
+ * 고르므로 **전망 구간 밖의 과거 연도**가 후보에 들어가야 한다 — 2024년 프로필 하나만
+ * 저장한 사용자의 2026~2031년 행은 전부 그 값으로 계산된다. `.in()`으로 여섯 연도만
+ * 받으면 그 사용자의 여섯 행이 **전부 미입력 폴백**이 되어 「그럴싸한 숫자」가 된다
+ * (§4.7이 §4.6의 폴백을 그대로 쓰지 않는 이유와 같은 결함이다).
+ *
+ * ## 그래서 Q-06 가드가 **여기서는 의미가 있다**
+ *
+ * 단수 `loadTaxProfile`은 `(user_id, tax_year)` 유일성 때문에 최대 1행이고
+ * `.in()`이었다면 `years.length ≤ FORECAST_MAX_YEARS`로 구조적으로 묶였다. `.lte()`는
+ * **사용자가 저장한 연도 수만큼** 늘어나므로 상한에 닿는 경로가 실재한다 — 닿으면
+ * 그것이 AQ-09를 닫으라는 신호다.
+ *
+ * 단수 쪽을 **남긴다.** `maybeSingle()`이 그 유일성에 대한 DB 측 보장이고(§4.6은 한
+ * 연도만 필요하다) 여기서 파생시키면 그 보장이 애플리케이션의 `find`로 격하된다.
+ */
+export async function loadTaxProfiles(
+  ctx: QueryContext,
+  userId: string,
+  throughYear: number,
+): Promise<TaxProfileRow[]> {
+  const { data, error } = await ctx.db
+    .from('tax_profiles')
+    .select(selectList(TAX_PROFILE_COLUMNS))
+    .eq('user_id', userId)
+    .lte('tax_year', throughYear)
+    .order('tax_year', { ascending: true })
+    .limit(TRUNCATION_PROBE_LIMIT)
+    .overrideTypes<TaxProfileRow[], { merge: false }>()
+
+  if (error != null) fail('과세 프로필', error)
+
+  assertNotTruncated(data, '과세 프로필')
+  return data
+}
+
+/**
+ * 이월(LOCF) — `argmax { p.tax_year | p.tax_year ≤ year }`. **순수하다.**
+ *
+ * `resolveTaxYear`와 같은 이유로 I/O에서 뗀다 — 세 상태(그 해의 저장값 / 이월 /
+ * 미입력)를 상시 스위트가 DB 없이 전부 본다.
+ *
+ * `null`이면 미입력이며 §4.6의 폴백(`0`·`0`·`NONE`)을 호출부가 적용한다. 그 폴백을
+ * **여기서** 적용하지 않는 이유는 `profileYear`다 — 행을 돌려주면 호출부가 연도를 읽어
+ * 「2026년 프로필 적용」이라 말할 수 있고, 폴백된 값을 돌려주면 「이월」과 「미입력」이
+ * 구분되지 않아 §4.6의 `isSaved`가 저지른 실수를 반복한다(§4.7).
+ *
+ * 질의의 `order`에 기대지 않는다 — 기대면 이 함수가 그 성질을 잃고, 다른 호출부가
+ * 정렬 없이 넘기는 날 조용히 틀린 연도를 고른다.
+ */
+export function profileFor(
+  profiles: readonly TaxProfileRow[],
+  year: number,
+): TaxProfileRow | null {
+  let chosen: TaxProfileRow | null = null
+  for (const profile of profiles) {
+    if (profile.tax_year > year) continue
+    if (chosen == null || profile.tax_year > chosen.tax_year) chosen = profile
+  }
+  return chosen
+}
+
 export async function loadUsers(ctx: QueryContext): Promise<UserRow[]> {
   const { data, error } = await ctx.db
     .from('users')

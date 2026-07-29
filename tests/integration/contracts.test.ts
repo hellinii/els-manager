@@ -20,7 +20,7 @@ import {
 } from './helpers/scenario'
 
 /**
- * 계약 8개의 정상 경로 + 왕복 수 계수
+ * 계약 9개의 정상 경로 + 왕복 수 계수
  *
  * 여기서 확인하는 것은 **DOC-011 §4의 서명대로 값이 나오는가**다. 계산의 정확성은
  * 순수 모듈 테스트(TC-01~22)가, 매핑 분기는 `tests/db/map.test.ts`가 본다.
@@ -728,6 +728,8 @@ describe('왕복 수 계수 — 실측', () => {
         s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
       ),
       listUserSummaries: await tables(() => s.asA.listUserSummaries()),
+      // tax_profiles를 `.lte()` 한 번으로 받는다 — 연도 수에 비례하지 않는 것이 요점이다
+      getForecast: await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A })),
       getDashboard: await tables(() => s.asA.getDashboard({ scope: 'ALL' })),
     }
 
@@ -757,6 +759,23 @@ describe('왕복 수 계수 — 실측', () => {
       tax_profiles: 1,
     })
 
+    /**
+     * ★ **`getTaxSummary`와 같은 다중집합이다 — 연도가 여섯인데.**
+     *
+     * 세 테이블 각각 1이라는 것이 §4.7의 「연도 수에 비례하지 않는다」의 형태다.
+     * `tax_years: 1`은 `loadAllTaxYears`가 시드 전체를 한 번에 가져와 순수한
+     * `resolveTaxYear`를 연도마다 재사용하기 때문이고, `tax_profiles: 1`은 이월을
+     * `.in(연도들)`이 아니라 `.lte(마지막 연도)` 하나로 받기 때문이다.
+     *
+     * **연도마다 왕복하는 구현이 이 단언을 깨뜨린다** — 그 구현도 값은 옳으므로
+     * 다른 어느 케이스에도 걸리지 않는다. 왕복 표가 정본인 이유가 그것이다.
+     */
+    expect(budget.getForecast).toEqual({
+      tax_years: 1,
+      tax_profiles: 1,
+      els_products: 1,
+    })
+
     expect(budget.getDashboard).toEqual({
       els_products: 1,
       assets: 1,
@@ -764,8 +783,8 @@ describe('왕복 수 계수 — 실측', () => {
       tax_profiles: 1,
     })
 
-    // 계약 8개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다)
-    expect(Object.keys(budget)).toHaveLength(9)
+    // 계약 9개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다 → 10)
+    expect(Object.keys(budget)).toHaveLength(10)
   })
 
   it('DOC-011 §4.0의 왕복 수와 일치한다', async () => {
@@ -783,6 +802,18 @@ describe('왕복 수 계수 — 실측', () => {
       ),
     ).toBe(3)
     expect(total(await tables(() => s.asA.listUserSummaries()))).toBe(4)
+    /*
+     * ★ **연도 수에 비례하지 않는 것이 §4.7의 주장이다.** 기본 6년인데 왕복이 3이므로
+     * 연도마다 세율을 읽지 않는다는 뜻이다 — `loadAllTaxYears`가 시드된 연도를 한 번에
+     * 가져오고 순수한 `resolveTaxYear`를 연도마다 재사용한다. `years`를 늘려도 이 수가
+     * 그대로임을 아래에서 함께 단언한다.
+     */
+    expect(
+      total(await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A }))),
+    ).toBe(3)
+    expect(
+      total(await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A, years: 20 }))),
+    ).toBe(3)
     expect(total(await tables(() => s.asA.getDashboard({ scope: 'ALL' })))).toBe(4)
   })
 

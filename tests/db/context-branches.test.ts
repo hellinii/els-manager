@@ -44,9 +44,10 @@ describe('queriesFor — 조회는 던진다 (Q-04)', () => {
   it('인증되면 계약 묶음을 주고 viewerId가 결속된다', () => {
     const queries = queriesFor(USER, CTX)
 
-    // §4.1~§4.9 여덟 개. §4.7 getForecast는 의도적으로 없다(P4b).
+    // §4.1~§4.9 아홉 개 — 전부다. §4.7 `getForecast`가 P4b 컷 7에서 들어왔다.
     expect(Object.keys(queries).sort()).toEqual([
       'getDashboard',
+      'getForecast',
       'getProduct',
       'getTaxSummary',
       'listAssetPrices',

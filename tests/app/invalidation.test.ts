@@ -126,7 +126,14 @@ describe('전수', () => {
      * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 11개가 모두 항목을 갖는다」가
      * `Record`와 나란히 있는 것과 같은 이유로 실제 조립된 묶음의 키로 대조한다.
      */
-    const covered = new Set(
+    /*
+     * ★ **`Set<string>`으로 넓혀 받는다.** 좁게 두면 `covered`가 `affects` 리터럴의
+     * 유니온이 되어 **빠진 계약이 이 케이스의 실패가 아니라 `covered.has()`의 컴파일
+     * 오류**로 나타난다. 그러면 이 케이스는 타입 층이 이미 잡은 것만 다시 잡는 셈이고,
+     * 존재 이유(「`keyof`가 실제 조립과 갈렸을 때」)를 잃는다 — 그 갈림은 타입 오류가
+     * 아니라 **런타임 값의 차이**로만 나타난다.
+     */
+    const covered = new Set<string>(
       Object.values(INVALIDATION).flatMap((rule) => [...rule.affects]),
     )
     const uncovered = QUERY_NAMES.filter((query) => !covered.has(query))
@@ -159,6 +166,23 @@ describe('전수', () => {
       'updateProduct',
       'updateRedemption',
     ])
+  })
+
+  it('`getForecast`가 낡는 자리도 `getTaxSummary`와 정확히 같다 — 컷 8의 근거', () => {
+    /*
+     * ★ **이 단언이 컷 8의 원장 이전을 검산한다.** `/forecast`는 컷 7까지
+     * `PENDING_ROUTES`에서 `getTaxSummary`를 **대리 기준**으로 썼다. 컷 8이 그것을
+     * `ROUTE_QUERIES`의 실명 계약으로 옮기는데, 결과가 달라지지 않는 근거가 「소속이
+     * 같다」다 — 여기서 그것을 값으로 확인한다. 갈리면 컷 8의 이전이 조용히 무효화 결과를
+     * 바꾼다.
+     *
+     * 전망이 세금 요약보다 **넓게** 낡는 것(한 해가 아니라 `years`개 연도, 이월이 뒤
+     * 연도로 나른다)은 소속과 별개다 — `affects`의 판정 기준은 「어느 입력을 읽는가」이고
+     * 셋의 입력이 같다(§4.2).
+     */
+    expect(mutationsAffecting('getForecast')).toEqual(
+      mutationsAffecting('getTaxSummary'),
+    )
   })
 
   it('아무것도 바꾸지 않는 계약이 없다', () => {
@@ -613,6 +637,19 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
      * 없다 — 화면 단위로 두면 「시세를 저장했으니 등록 화면도 지운다」는 잘못된
      * 합성이 나온다. 그래서 대조는 **합집합**으로 한다: 한 화면의 라우트들이 읽는
      * 계약을 합치면 문서가 그 화면에 적은 집합과 같아야 한다.
+     *
+     * ## 코드 측 원장은 **둘**이다 — `PENDING_ROUTES`도 읽는다 (P4b 컷 7)
+     *
+     * ★ **이 줄이 컷 7에서 필요해졌고 컷 8에서 무해해진다.** `getForecast`가 실재하는
+     * 계약이 되는 순간 `fromDoc`에 그것이 들어오는데(그 전에는 `QUERY_NAMES` 필터가
+     * 조용히 버렸다) `/forecast`는 아직 `PENDING_ROUTES`에 있으므로 `fromCode`가 비어
+     * 「SCR-402가 읽는 계약: [] ≠ ['getForecast']」로 빨간불이 됐다.
+     *
+     * 답은 예외를 두는 것이 아니라 **원장을 온전히 읽는 것**이다. `PENDING_ROUTES`의
+     * 존재 이유가 정확히 「이 라우트가 그 계약을 읽을 것이다」이므로, 그것을 세지 않는
+     * 대조는 코드가 아는 것보다 좁게 본다. 컷 8이 그 항목을 `ROUTE_QUERIES`로 옮기면
+     * 이 `??`의 오른쪽이 빈 집합이 되어 **같은 답이 남는다** — `PENDING_ROUTES` 독블록이
+     * 적은 「합성 대조가 자동으로 검산한다」가 그렇게 성립한다.
      */
     const routesOfScreen = screenRoutes()
 
@@ -623,7 +660,20 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
       const routes = routesOfScreen[id]
       if (routes == null) continue // 경로가 없는 화면(SCR-901·902)
 
-      const fromCode = new Set(routes.flatMap((route) => ROUTE_QUERIES[route] ?? []))
+      const fromCode = new Set(
+        routes.flatMap((route) => {
+          const planned = PENDING_ROUTES[route]?.plannedQuery
+          return [
+            ...(ROUTE_QUERIES[route] ?? []),
+            // 미구현 등재의 `plannedQuery`가 실재하는 계약이 된 뒤에만 센다 — 계약이
+            // 없는 동안은 `QUERY_NAMES` 필터가 `fromDoc`에서도 그것을 버리므로 양쪽이
+            // 함께 비어 균형이 맞는다.
+            ...(planned != null && QUERY_NAMES.includes(planned as QueryName)
+              ? [planned as QueryName]
+              : []),
+          ]
+        }),
+      )
       const fromDoc = new Set(
         identifiers(queries).filter((q) => QUERY_NAMES.includes(q as QueryName)),
       )
