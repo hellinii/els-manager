@@ -109,6 +109,20 @@ export function aggregateFinancialIncome<Owner extends string, Year extends numb
  *
  * 반환 순서는 `(귀속연도, 소유자)` 오름차순으로 고정한다. 입력 순서에 따라
  * 결과가 흔들리면 서버·클라이언트 재계산이 어긋난다(ADR-003).
+ *
+ * ## 다년도 전망은 이 함수를 쓰지 않는다 (§7.5, P4b)
+ *
+ * 이름으로는 맞아 보이지만 두 가지가 어긋난다.
+ *
+ * 1. **섞인 입력을 거부하지 않고 나눈다.** 그것이 이 함수의 역할이므로 분할은
+ *    구조적으로 옳아지지만 **귀속연도 산출의 버그를 잡지 못한다.** 전망은
+ *    `attributionYear`를 판정으로 얻으므로 그 오프바이원이 조용히 통과하면 안 되고,
+ *    그래서 연도마다 `aggregateFinancialIncome`을 키와 함께 부른다(위 두 겹 방어).
+ * 2. **항목 없는 연도의 행을 만들지 않는다.** 전망은 상환이 없는 해에도 잔여 원금과
+ *    누적 행이 필요하므로 연도 목록이 항목이 아니라 **구간**에서 와야 한다.
+ *
+ * 즉 이 함수는 **§7.1의 `groupByOwnerYear`를 그대로 옮긴 것**이고 그 자리의 정본으로
+ * 남는다(단위 시험이 그 성질을 고정한다). 프로덕션 호출부가 아직 없다.
  */
 export function aggregateFinancialIncomeByOwnerYear(params: {
   items: readonly TaxableIncomeItem[]

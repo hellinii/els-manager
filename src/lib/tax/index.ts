@@ -36,6 +36,13 @@ export {
 } from './marginalRate'
 
 export {
+  forecastYears,
+  type ForecastItem,
+  type ForecastYear,
+  type ForecastYearInput,
+} from './forecast'
+
+export {
   aggregateFinancialIncome,
   aggregateFinancialIncomeByOwnerYear,
   netProceeds,
