@@ -212,7 +212,31 @@ export function overdueEvaluations<
  * 상환 완료: year( redemptions.redemption_date )
  * 미상환   : year( 적용 차수의 evaluation_date )
  * ```
+ *
+ * ## 근거가 하나라도 있으면 `null`이 아니다 — 오버로드로 그것을 말한다 (AQ-25)
+ *
+ * 반환 타입이 `number | null`이라 호출부마다 「그럴 수 없는 `null`」을 방어했고,
+ * 그 방어가 **어느 스위트도 실행하지 않는 죽은 분기**로 남았다(DOC-011 §9 AQ-25 —
+ * `projectionOf`의 넷째 분기, `mutations/redemptions.ts`의 `console.error`). 원인은
+ * 함수가 아니라 **서명**이다: 두 근거가 모두 없을 때만 `null`인데 타입이 그 조건을
+ * 말하지 않았다.
+ *
+ * 그래서 셋째 오버로드만 `| null`을 갖는다 — 날짜를 하나라도 **확실히** 넘기면
+ * `number`이고, 방어를 쓸 자리가 아예 없어진다. 함수 본문은 바뀌지 않았다
+ * (동작 불변이며, `redemptionDate`가 이긴다는 우선순위도 그대로다).
  */
+export function attributionYear(params: {
+  redemptionDate: string
+  evaluationDate?: string | null
+}): number
+export function attributionYear(params: {
+  redemptionDate?: string | null
+  evaluationDate: string
+}): number
+export function attributionYear(params: {
+  redemptionDate?: string | null
+  evaluationDate?: string | null
+}): number | null
 export function attributionYear(params: {
   redemptionDate?: string | null
   evaluationDate?: string | null

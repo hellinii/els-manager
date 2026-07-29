@@ -5,14 +5,12 @@ import {
 } from '@/lib/decimal'
 import {
   asActive,
-  attributionYear,
   dDay,
   evaluateCondition,
   grossExpected,
   isPast,
   isRedeemed,
   kiStatus,
-  nextEvaluation,
   overdueEvaluations,
   realizedPnl,
   taxableIncome,
@@ -25,6 +23,7 @@ import {
 
 import { koreanAmount } from '@/lib/format/money'
 
+import { attributionOf, type Attribution } from './attribution'
 import type { LatestPrice, ProductRow, ScheduleRow } from './load'
 
 /**
@@ -227,6 +226,13 @@ export type Judgment = {
   /** 결함이 파괴한 입력. 소비자가 결함 이름으로 억제 여부를 다시 유도하지 않게 한다 */
   destroyed: DestroyedInput | null
   worstOf: DecimalValue | null
+  /**
+   * 적용 차수와 귀속연도 — `./attribution`이 낸다. **`next`가 이 값에서 파생된다.**
+   *
+   * 둘을 따로 계산하면 같은 상품에 두 적용 차수가 생길 수 있고, 그 갈림은 화면 두
+   * 곳의 숫자 차이로만 드러난다(§4.3의 `projection`과 §4.6의 과세 기여).
+   */
+  attribution: Attribution
   next: ScheduleRow | null
   conditionResult: ConditionResult | null
   ki: KiStatus | null
@@ -271,10 +277,11 @@ export function judge(
   // 결과를 준다 — 억제가 아니라 자연 결과이며, 둘을 구분해야 차수가 생겼을 때
   // 무엇이 되살아나는지 알 수 있다.
   const schedules = row.redemption_schedules.map(forJudgment)
-  const next =
-    status === 'REDEEMED'
-      ? null
-      : (nextEvaluation({ schedules, asOf })?.row ?? null)
+  // **적용 차수를 여기서 다시 고르지 않는다.** `attributionOf`가 상환 완료를 먼저
+  // 잡으므로 `REDEEMED`에서 `next`가 `null`인 성질이 그 함수 안에 있다 —
+  // 종전의 `status === 'REDEEMED' ? null : …` 삼항이 그 사실의 사본이었다.
+  const attribution = attributionOf(row, asOf)
+  const next = attribution.kind === 'ESTIMATED' ? attribution.round : null
   const overdue = overdueEvaluations({ schedules, asOf, redemption: mark }).map(
     (entry) => entry.schedule.row,
   )
@@ -289,6 +296,7 @@ export function judge(
       integrityIssue,
       destroyed,
       worstOf: null,
+      attribution,
       next,
       conditionResult: null,
       ki: null,
@@ -328,6 +336,7 @@ export function judge(
     integrityIssue,
     destroyed,
     worstOf: w,
+    attribution,
     next,
     conditionResult,
     ki,
@@ -623,20 +632,28 @@ export function toProductDetailView(
  *
  * v0.6의 "② `integrityIssue ≠ null`"은 원인의 범위를 넘어 억제했고, 그 결과 같은
  * 상품이 §4.6에서는 과세에 기여하면서 여기서만 값을 잃어 두 화면이 모순되게 보였다.
+ *
+ * ## 넷째 분기가 사라졌다 — 삭제가 아니라 표현 불가다 (AQ-25 종결)
+ *
+ * 종전 구현에는 `attributionYear`가 `null`을 줄 때의 넷째 `null` 반환이 있었다.
+ * P4.5가 그것을 **죽은 코드로 판별**했으나(`evaluation_date`가 널 불가임을 타입 탐침으로
+ * 확정) 제거하지 않았다 — 순수 모듈의 반환 타입을 좁히는 일이라 다른 호출부와 함께
+ * 보아야 했기 때문이다. 이제 `j.attribution`이 `kind`로 그 경우를 판별하므로 **그
+ * 분기를 쓸 수 있는 자리가 없다.** 한 줄을 지운 것이 아니라 위 ①②가 곧 `kind` 둘이 된
+ * 것이며, 그래서 이 각주의 「두 경우」와 코드의 분기 수가 처음으로 일치한다.
  */
 function projectionOf(
   row: ProductRow,
   j: Judgment,
 ): ProductDetailView['projection'] {
-  if (j.status === 'REDEEMED') return null
-  if (j.next == null) return null
+  // ① 상환 완료 ② 적용 차수 없음 — 그 둘이 `ESTIMATED`의 여집합이다.
+  if (j.attribution.kind !== 'ESTIMATED') return null
 
-  const gross = expectedGrossOf(row, j.next.round_no)
-  const year = attributionYear({ evaluationDate: j.next.evaluation_date })
-  if (year == null) return null
+  const round = j.attribution.round
+  const gross = expectedGrossOf(row, round.round_no)
 
   return {
-    appliedRoundNo: j.next.round_no,
+    appliedRoundNo: round.round_no,
     expectedGross: amountString(gross),
     expectedTaxableIncome: amountString(
       taxableIncome({
@@ -646,7 +663,7 @@ function projectionOf(
         expectedGross: gross,
       }),
     ),
-    attributionYear: year,
+    attributionYear: j.attribution.year,
   }
 }
 

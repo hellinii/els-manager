@@ -102,10 +102,11 @@ async function withholdingFor(
     message: '상환일을 YYYY-MM-DD 형식으로 입력한다.',
   })
   if (!year.ok) return { ok: false, error: year.error }
-  if (year.value == null) {
-    console.error('[순수 모듈] attributionYear가 상환일을 받고도 null을 반환했다.')
-    return { ok: false, error: { code: 'INTERNAL', message: '처리 중 오류가 발생했다.' } }
-  }
+  // **`null` 방어가 없다 — 타입이 그것을 표현할 수 없다** (AQ-25).
+  // `attributionYear`는 근거를 하나라도 확실히 받으면 `number`를 준다(오버로드 셋 중
+  // 첫째). 종전에는 여기에 `console.error` + `INTERNAL` 반환이 있었고 **어느 스위트도
+  // 그 분기를 실행하지 않았다** — `input.redemptionDate`가 `string`이므로 도달할 수
+  // 없었기 때문이다. 형식 오류는 위 `guardInput`이 `RangeError`로 잡는다.
   const attributionTo = year.value
 
   // 예외 두 종이 다른 코드로 간다 — 위 함수의 각주(§5.4 v1.7).

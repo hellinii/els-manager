@@ -1,10 +1,5 @@
 import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
-import {
-  attributionYear,
-  grossExpected,
-  nextEvaluation,
-  taxableIncome,
-} from '@/lib/domain'
+import { grossExpected, taxableIncome } from '@/lib/domain'
 import {
   aggregateFinancialIncome,
   calculateFinancialIncomeTax,
@@ -18,6 +13,7 @@ import {
 
 import { toTaxConstants } from '../taxConstants'
 import { currentYear } from '../today'
+import { attributionOf } from './attribution'
 import type { QueryContext } from './context'
 import {
   loadProducts,
@@ -133,6 +129,10 @@ export function toConstants(ctx: TaxYearContext): TaxConstants {
  *
  * **미상환 상품은 추정이다.** 적용 차수(다음 도래 평가일, RD-02)의 예상 수령액에서
  * 원금을 뺀 값이며, 전 차수가 경과했으면 적용 차수가 없으므로 기여하지 않는다.
+ *
+ * **적용 차수를 여기서 고르지 않는다** — `./attribution`의 `attributionOf`가 낸다. 종전
+ * 구현은 상환·일정 0건·전 차수 경과를 이 함수 안에서 각각 끊었고, 같은 규칙이
+ * `queries/map.ts`에도 따로 있었다.
  */
 export function contributionOf(
   row: ProductRow,
@@ -140,6 +140,14 @@ export function contributionOf(
   asOf: string,
 ): {
   amount: DecimalValue
+  /**
+   * 세전 실수령액 — 원금 반환분을 **포함한다**(`grossExpected`의 정의).
+   *
+   * DOC-007 §7.4의 `netProceeds`가 `Σ gross`를 요구하고 §7.5의 `cumulativeAssets`가
+   * 「한 상품은 누적과 잔여 원금 중 정확히 하나에만 들어간다」를 그 포함 관계에
+   * 의존해 성립시킨다 — 원금이 빠지면 상환된 상품의 원금이 화면에서 증발한다.
+   */
+  gross: DecimalValue
   isEstimated: boolean
   /**
    * 결함 표식 — **금액에 영향을 주지 않는다.** 과세 기여는 계약 조건에서만
@@ -156,48 +164,32 @@ export function contributionOf(
   integrityIssue: IntegrityIssue | null
 } | null {
   const integrityIssue = integrityIssueOf(row)
+  const attribution = attributionOf(row, asOf)
+
+  // 적용 차수를 정할 수 없으면 어느 연도에도 기여하지 않는다 — E-07(전 차수 경과)과
+  // 일정 0건이 그 하나로 묶인다(`attribution.ts`의 각주).
+  if (attribution.kind === 'NO_ROUND') return null
+  if (attribution.year !== year) return null
 
   // 상환 완료 — 증권사 확정값을 쓴다(A-04). 시스템 추정으로 대체하지 않는다.
-  if (row.redemptions != null) {
-    const attributed = attributionYear({
-      redemptionDate: row.redemptions.redemption_date,
-    })
-    if (attributed !== year) return null
-
+  if (attribution.kind === 'REDEEMED') {
     return {
       amount: taxableIncome({
         accountType: row.account_type,
         principal: row.principal,
-        redemption: { taxableIncome: row.redemptions.taxable_income },
+        redemption: { taxableIncome: attribution.redemption.taxable_income },
       }),
+      gross: dec(attribution.redemption.gross_amount),
       isEstimated: false,
       integrityIssue,
     }
   }
 
-  // 일정이 0건이면 아래 nextEvaluation이 null을 주므로 여기서 끊지 않아도 결과는
-  // 같다. **결함이라서 빼는 것이 아니다** — 차수 입력이 없어 적용 차수를 정할 수
-  // 없을 뿐이며, 그 구분이 §4.2 입력 기준의 요점이다.
-  if (row.redemption_schedules.length === 0) return null
-
-  const next = nextEvaluation({
-    schedules: row.redemption_schedules.map((s) => ({
-      roundNo: s.round_no,
-      evaluationDate: s.evaluation_date,
-    })),
-    asOf,
-  })
-  // 전 차수 경과 미상환 — DOC-007 §9.2가 적용 차수를 결정할 수 없다고 규정한다
-  if (next == null) return null
-
-  const attributed = attributionYear({ evaluationDate: next.evaluationDate })
-  if (attributed !== year) return null
-
   const gross = grossExpected({
     principal: row.principal,
     couponRate: row.annual_coupon_rate,
     evaluationPeriodMonths: row.evaluation_period_months,
-    roundNo: next.roundNo,
+    roundNo: attribution.round.round_no,
   })
 
   return {
@@ -207,6 +199,7 @@ export function contributionOf(
       redemption: null,
       expectedGross: gross,
     }),
+    gross,
     isEstimated: true,
     integrityIssue,
   }
