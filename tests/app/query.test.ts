@@ -402,4 +402,124 @@ describe('세금 필터 (SCR-401)', () => {
     )
     expect(filter).toEqual({ year: null, override: null })
   })
+
+  /**
+   * ★ **금액 축도 인식할 때만 담는다** — P4.5.
+   *
+   * v1.1까지 금액 두 축은 쉼표·공백만 지우고 **그대로** 계약으로 갔다. 그 칸이
+   * `type="text" inputMode="numeric"`이고 폼이 GET이므로, 글자를 적고 「조정 적용」을
+   * 누르면 값이 `dec()`에 닿아 **오류 화면**이 됐다. 형식은 저장 축(V-19)과 같은
+   * `/^\d+$/`이며 DOC-011 §4.6이 정본이다.
+   *
+   * ## 음성 대조 — 넓히는 방향으로 셋, 각각 다른 케이스가 갈린다
+   *
+   * `amountOr`의 정규식을 넓혀 실행하고 되돌렸다. **지우지 않고 넓힌다** — 통째로
+   * 지우면(`return digits`) 9건이 깨지는데 그중 5건은 빈 칸 처리가 함께 무너져서이고
+   * (이 리팩터가 빈 칸 검사를 `amountOr` 안으로 옮겼다) 그러면 「형식 검사가 무게를
+   * 지는가」를 묻지 못한다. **대조가 빨간불이어도 넓으면 정밀하지 않다.**
+   *
+   * | 넓힌 것 | 실패한 케이스 |
+   * |---|---|
+   * | `/^-?\d+$/` — 부호 허용 | **2건** — 「형식이 아닌 금액」(부호 단언) · 「세 축이 전부 버려지면」 |
+   * | `/^\d+(\.\d+)?$/` — 소수 허용 | **2건** — 「형식이 아닌 금액」(소수 단언) · 「세 축이 전부 버려지면」 |
+   * | `/^[0-9a-fxe+.]+$/i` — 16진·지수 통과 | **4건** — 위 둘 + 「`dec()`를 통과하지만…」 + 「한 축이 형식 위반이어도…」 |
+   *
+   * 셋이 각각 다른 집합을 내므로 이 케이스들은 항진명제가 아니다. 셋째 줄이 넷을
+   * 잡는 이유는 `'abc'`가 16진 문자로만 이루어져 그 변형에서 통과한다는 것이다 —
+   * **비숫자 단언의 무게를 실제로 지는 것은 그 변형 하나다.**
+   *
+   * > **무효 대조 둘을 먼저 지났다는 것도 적는다.** ① `perl` 치환이 적용되지 않아
+   * > 전부 초록이었다 — 초록을 결과로 읽었다면 「대조했다」는 거짓 기록이 남는다.
+   * > `grep`으로 치환 결과를 눈으로 확인해 잡았다. ② 스크립트의 `argv` 인덱스를 틀려
+   * > 정규식 자리에 미정의 식별자가 들어가 12건이 깨졌다 — **빨간불이지만 무효다**
+   * > (측정한 것이 「넓혔을 때」가 아니라 `ReferenceError`다). 음성 대조는 빨간불의
+   * > **유무가 아니라 원인**을 확인해야 한다.
+   *
+   * ## 무효 대조 세 유형을 순서대로 배제한다
+   *
+   * 이 프로젝트가 세 번 걸린 형태이므로 각각을 명시적으로 배제한다.
+   *
+   * ① **픽스처가 두 구현에서 일치한다** (`tests/integration/`의 상환 1건이 오름·내림을
+   *    같게 만든 부류). 여기서는 **입력이 통과/거부를 가르는 값들**이다 — `'1000'`은
+   *    두 구현에서 담기고 `'abc'`는 갈린다. 두 결과를 **같은 케이스 안에서** 대조하므로
+   *    픽스처가 대조를 무효화할 수 없다.
+   * ② **테스트가 값을 얹는다** (`intent=NEXT`를 손으로 붙였던 부류). 여기서는
+   *    `TAX_KEYS`를 **모듈에서 가져온다** — 키 문자열을 손으로 적으면 화면·파서가
+   *    합의한 키가 아니라 테스트가 지어낸 키를 검사하게 된다.
+   * ③ **단언이 깨뜨림에 불변인 대리 지표를 본다** (`forms.length === 2`가 폼 병합에
+   *    갈리지 않았던 부류). `override`의 **키 집합과 값**을 `toEqual`로 보고
+   *    `toBeNull()`과 짝지운다 — 「담기지 않았다」와 「담겼는데 값이 다르다」가 다른
+   *    단언이며, 개수만 보는 대리 지표를 쓰지 않는다.
+   */
+  it('★ 형식이 아닌 금액은 그 축을 조정하지 않는다 — 오류 화면이 아니다', () => {
+    // 비숫자 — v1.1에서는 이 문자열이 계약의 `dec()`까지 갔다
+    expect(parseTaxFilter({ [TAX_KEYS.otherIncomeBase]: 'abc' }, HEALTH_TYPES).override)
+      .toBeNull()
+
+    // 부호·소수 — 저장 축(V-19 `/^\d+$/`)이 거부하므로 조정 축도 거부한다.
+    // 넓으면 「화면이 저장할 수 없는 숫자를 정상 결과로 렌더」하는 상태가 된다.
+    expect(
+      parseTaxFilter({ [TAX_KEYS.otherFinancialIncome]: '-5000000' }, HEALTH_TYPES)
+        .override,
+    ).toBeNull()
+    expect(
+      parseTaxFilter({ [TAX_KEYS.otherFinancialIncome]: '1.5' }, HEALTH_TYPES).override,
+    ).toBeNull()
+  })
+
+  it('★ `dec()`를 통과하지만 틀린 값이 되는 둘도 거부한다', () => {
+    /*
+     * ★ **이 둘이 비숫자보다 나쁘다** — 오류 화면은 보이고 이것들은 보이지 않는다.
+     * 실측(`node`): `new Decimal('0x1f')` → **31**, `new Decimal('1e999')` → `1e+999`
+     * 이고 `isFinite()`가 참이므로 `dec()`의 검사를 통과한다. 즉 형식 검사가 없으면
+     * 사용자가 적지 않은 금액이 조용히 정상 결과가 된다.
+     */
+    expect(parseTaxFilter({ [TAX_KEYS.otherIncomeBase]: '0x1f' }, HEALTH_TYPES).override)
+      .toBeNull()
+    expect(
+      parseTaxFilter({ [TAX_KEYS.otherFinancialIncome]: '1e999' }, HEALTH_TYPES).override,
+    ).toBeNull()
+  })
+
+  it('★ 한 축이 형식 위반이어도 나머지 축은 조정된다', () => {
+    /*
+     * ★ **버림이 축 단위임을 고정한다.** 계약의 `override`가 필드별 선택이므로
+     * (§4.6 부분 지정) 한 축의 실패가 다른 축을 죽이면 안 된다. 열거 축이 이미
+     * 같은 규약이며(바로 위 케이스) 이 단언이 금액 축을 그 규약에 붙인다.
+     *
+     * 이 케이스가 음성 대조에서 **셋째로** 갈린 자리다 — 형식 검사를 지우면
+     * `otherIncomeBase`에 `'abc'`가 실려 `toEqual`이 깨진다.
+     */
+    const filter = parseTaxFilter(
+      {
+        [TAX_KEYS.otherIncomeBase]: 'abc',
+        [TAX_KEYS.otherFinancialIncome]: '3,000,000',
+        [TAX_KEYS.healthInsuranceType]: 'REGIONAL',
+      },
+      HEALTH_TYPES,
+    )
+    expect(filter.override).toEqual({
+      otherFinancialIncome: '3000000',
+      healthInsuranceType: 'REGIONAL',
+    })
+  })
+
+  it('★ 세 축이 전부 버려지면 「조정하지 않은 상태」와 같아진다', () => {
+    /*
+     * ★ 정의된 결과다(DOC-011 §4.6). `override`가 `null`이므로 화면은
+     * 「시뮬레이션 중」을 표시하지 않는다 — `isSaved`의 두 원인을 가르는 값이
+     * **잘못 켜지지 않는다**는 것이 이 단언의 뜻이다. 빈 칸 케이스와 같은 결과이며
+     * 그것이 옳다: 인식할 수 없는 값과 적지 않은 값은 둘 다 「조정하지 않음」이다.
+     */
+    const filter = parseTaxFilter(
+      {
+        [TAX_KEYS.otherIncomeBase]: '1.5',
+        [TAX_KEYS.otherFinancialIncome]: '-1',
+        [TAX_KEYS.healthInsuranceType]: 'GOLD_MEMBER',
+        year: '2026',
+      },
+      HEALTH_TYPES,
+    )
+    expect(filter).toEqual({ year: 2026, override: null })
+  })
 })

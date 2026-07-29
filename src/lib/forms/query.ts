@@ -336,12 +336,12 @@ export function parseTaxFilter(
 ): TaxFilter {
   const override: TaxOverrideValues = {}
 
-  // 금액은 **비어 있지 않을 때만** 담는다. 빈 칸은 「조정하지 않음」이고 `'0'`이
-  // 아니다 — `'0'`으로 읽으면 사용자가 적지 않은 값을 우리가 지어내는 것이 된다.
-  const base = one(values[TAX_KEYS.otherIncomeBase])
-  if (base !== '') override.otherIncomeBase = amountDigits(base)
-  const other = one(values[TAX_KEYS.otherFinancialIncome])
-  if (other !== '') override.otherFinancialIncome = amountDigits(other)
+  // 금액도 **인식할 때만** 담는다 — 빈 칸이든 형식 위반이든 「조정하지 않음」이다.
+  // `'0'`으로 읽으면 사용자가 적지 않은 값을 우리가 지어내는 것이 된다.
+  const base = amountOr(one(values[TAX_KEYS.otherIncomeBase]))
+  if (base != null) override.otherIncomeBase = base
+  const other = amountOr(one(values[TAX_KEYS.otherFinancialIncome]))
+  if (other != null) override.otherFinancialIncome = other
 
   // 열거값은 인식할 때만 담는다. 조작된 값은 그 축을 조정하지 않은 것이 된다.
   const health = oneOf(one(values[TAX_KEYS.healthInsuranceType]), healthTypes)
@@ -363,16 +363,54 @@ function yearOr(raw: string): number | null {
 }
 
 /**
- * 주소에 실린 금액에서 쉼표·공백을 지운다.
+ * **저장 축과 같은 형식만 낸다** — `/^\d+$/`. 아니면 `null`(그 축을 조정하지 않음).
+ *
+ * 「받는다」가 아니라 「낸다」다. 쉼표·공백을 **먼저 지우므로** 받는 집합은 저장 축보다
+ * 넓다(`1,000`·`1 000`을 받아 `1000`을 낸다). 그 넓음이 안전한 이유는 두 폼이 원시
+ * 질의가 아니라 **계약의 출력**을 다시 렌더한다는 것이다 — `getTaxSummary`가
+ * `profile.otherFinancialIncome`을 `amountString(dec(...))`으로 정규화해 돌려주고
+ * 조정 폼의 `defaultValue`와 저장 폼의 히든이 그 값을 읽는다. 즉 사용자가 `1,000`을
+ * 적어도 저장 계약에 실리는 값은 `1000`이다. **보장은 단방향(출력)이며 그것으로 충분하다.**
+ *
+ * ## 쉼표·공백을 먼저 지운다
  *
  * 조정 폼은 GET이므로 **직전 값이 그대로 주소에 실려 다시 입력란으로 돌아온다.**
  * 화면이 천단위 쉼표를 붙여 렌더하면(사용자가 그렇게 적기도 한다) 그 문자열이
  * 계약으로 가는데, `requireAmount`가 「정수로 입력한다」를 내고 사용자에게는 자기가
  * 적은 것이 정수다 — `parse.ts`의 `amountText`가 폼 경로에서 막는 것과 같은 함정이며
  * 주소 경로에도 있다. **값은 바뀌지 않는다**(문자열 연산이고 float64를 경유하지 않는다).
+ *
+ * ## 그다음 형식을 본다 — v1.1까지 이 검사가 없었다 (P4.5)
+ *
+ * 이 칸은 `type="text" inputMode="numeric"`이므로 **글자를 적을 수 있고**, GET이라
+ * 그 문자열이 주소를 지나 조회 계약의 `dec()`에 닿는다. 검사가 없으면 「조정 적용」이
+ * **오류 화면**이 됐다. 변경 계약이라면 `ActionResult`로 필드 오류를 돌려줄 수 있지만
+ * 조회 계약에는 그 통로가 없으므로 **버리는 것이 유일하게 조용하지 않은 선택**이다 —
+ * 같은 파일이 열거 축에 대해 이미 그 규약을 선언했다(「조작된 값은 그 축을 조정하지
+ * 않은 것이 된다」).
+ *
+ * ## 왜 `/^\d+$/`인가 — 저장 축의 **구현**이 그 패턴이다
+ *
+ * §5.6 `saveTaxProfile`이 두 금액에 `requireAmount(min: 'zero', integer: true)`를 걸고
+ * 그 조합의 패턴이 정확히 이것이다(`validate/primitives.ts`의 `INTEGER`). 조정 축이 더
+ * 넓으면 **화면이 저장할 수 없는 숫자를 정상 결과로 렌더한다** — 사용자가 `-5000000`으로
+ * 계산된 세액을 보고 저장을 눌렀다가 거부당하며 그 거부의 원인이 방금 본 화면에 없다.
+ *
+ * **DOC-011 §6의 V-19를 근거로 인용하지 않는다.** 그 규칙은 「문자열 필드 — 열 선언 길이
+ * 이내」이고 이 형식과 다르다. 저장 축의 위반이 `V-19`로 **기록되는** 것은 §6 각주의
+ * ID 재사용 규약(「셰이프 파싱은 필드가 속한 규칙의 ID를 재사용한다」) 때문이며, 그
+ * 규약 자체가 「이 검사에 대응하는 §6 규칙이 없다」는 뜻이다. 즉 조정 축 형식의 정본은
+ * **DOC-011 §4.6의 「`override` 각 축의 형식과 범위」**이고 두 축이 같은 값을 쓰는
+ * 근거는 §6이 아니라 구현의 대칭이다.
+ *
+ * **`dec()`만으로는 부족하다** — 실측: `new Decimal('0x1f')`는 **31**이고
+ * `new Decimal('1e999')`는 `isFinite()`가 참이라 `dec()`를 통과한다. 즉 형식 검사가
+ * 없으면 「비숫자 → 오류 화면」보다 나쁜 경로가 둘 있다(틀린 값이 조용히 정상이 된다).
+ * 정규식이 셋을 함께 닫는다.
  */
-function amountDigits(raw: string): string {
-  return raw.replace(/[,\s]/g, '')
+function amountOr(raw: string): string | null {
+  const digits = raw.replace(/[,\s]/g, '')
+  return /^\d+$/.test(digits) ? digits : null
 }
 
 // ---------------------------------------------------------------------------
