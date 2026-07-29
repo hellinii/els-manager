@@ -10,7 +10,7 @@ import {
 import { ScopeSwitch } from '@/components/home/ScopeSwitch'
 import { EmptyState } from '@/components/state/EmptyState'
 import { getAsOf, getQueries } from '@/lib/db/server'
-import { korDate } from '@/lib/format'
+import { hasFinancialIncomeToReport, korDate } from '@/lib/format'
 import { parseDashboardScope, type QueryValues } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -82,7 +82,23 @@ export default async function HomePage({
       </header>
 
       {noProducts ? (
-        <HomeEmpty scope={scope} />
+        <>
+          <HomeEmpty scope={scope} />
+          {/*
+            ★ **빈 상태가 ③을 함께 지우지 않는다** (P4.5).
+
+            ③의 값은 상품에 의존하지 않는다 — 계약이 본인 과세 프로필의
+            `other_financial_income`을 함께 읽으므로 **상품 0건에서도 남는다.**
+            지우면 §5가 「스크롤이나 클릭 없이 알아야 한다」고 못 박은 세 물음 중
+            **둘째(올해 종합과세 대상인가)**가 그 상태에서 답되지 않는다.
+
+            지우는 조건은 「상품이 없다」가 아니라 **「말할 금융소득이 없다」**다 —
+            판정은 순수 모듈에 있다(`hasFinancialIncomeToReport`).
+          */}
+          {hasFinancialIncomeToReport(view.currentYearTax) && (
+            <YearTaxSection tax={view.currentYearTax} />
+          )}
+        </>
       ) : (
         <>
           {/* 세 물음의 순서 — ① 평가일 ③ 종합과세 ④ 조치 */}

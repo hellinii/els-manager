@@ -18,7 +18,7 @@ import { TaxSeedRangeError } from '@/lib/db/queries/load'
 import type { TaxOverride, TaxSummaryView } from '@/lib/db/queries/tax'
 import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
 import { currentYear } from '@/lib/db/today'
-import { HEALTH_INSURANCE_TYPE_LABELS } from '@/lib/format'
+import { HEALTH_INSURANCE_TYPE_LABELS, selectableYears } from '@/lib/format'
 import { TAX_KEYS, parseTaxFilter, type QueryValues } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -123,7 +123,13 @@ export default async function TaxPage({
           </p>
         </div>
 
-        <TaxYearForm year={summary.year} years={selectableYears(summary, asOf)} />
+        {/*
+          연도 선택지의 산출은 **순수 모듈에 있다**(P4.5). 화면 안에 두면 어떤 스위트도
+          보지 못하고(AQ-23), 실제로 그 동안 `?year=9999`가 `<option>` 7,974개를 렌더하는
+          상태가 관측되지 않았다. 기준일 연도는 인자로 넘긴다 — 그 모듈이 `lib/db/today`를
+          끌어오면 표시 계층이 조회 계층에 의존하게 된다.
+        */}
+        <TaxYearForm year={summary.year} years={selectableYears(summary, currentYear(asOf))} />
       </header>
 
       {/*
@@ -179,26 +185,6 @@ export default async function TaxPage({
       </p>
     </section>
   )
-}
-
-/**
- * 고를 수 있는 연도 — **하한은 계약이 주고 상한은 화면이 정한다** (§4.6 v1.9).
- *
- * 하한(`seededYears[0]`)보다 과거는 계약이 거부하므로 제시하면 **오류 화면으로 가는
- * 선택지**가 된다. 상한은 계약이 정하지 않는다(미래는 근사로 허용된다) — 그 이후
- * 연도의 추정은 SCR-402의 일이므로 `max(기준일 연도, 마지막 시드 연도)`로 자른다.
- *
- * **지금 보고 있는 연도를 반드시 포함한다.** 주소로 들어온 연도가 상한을 넘으면
- * 선택 상자가 그 값을 잃고, 그러면 「조회」를 누르는 순간 다른 연도로 이동한다.
- */
-function selectableYears(view: TaxSummaryView, asOf: string): number[] {
-  const seeded = view.seededYears
-  const first = Math.min(seeded[0] ?? view.taxLawYear, view.year)
-  const last = Math.max(currentYear(asOf), seeded[seeded.length - 1] ?? first, view.year)
-
-  const years: number[] = []
-  for (let candidate = first; candidate <= last; candidate += 1) years.push(candidate)
-  return years
 }
 
 /**
