@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import type { UserSessionClient } from '@/lib/db/client'
-import { SERVER_MAX_ROWS } from '@/lib/db/select'
+import { POSTGREST_MAX_ROWS, TRUNCATION_PROBE_LIMIT } from '@/lib/db/select'
 
 import { clientFor } from './helpers/auth'
 import { FX, ITG_USER_A } from './helpers/fixtures'
@@ -264,18 +264,40 @@ describe('④ 임베드 안쪽 캐스팅 — 중첩 깊이별', () => {
   })
 })
 
-describe('⑤ max_rows가 임베드 배열에도 적용되는가 — 절단 감지의 전제', () => {
-  it('상한 값을 확인한다', async () => {
-    // config.toml의 [api].max_rows와 select.ts의 상수가 일치해야 한다.
-    // 어긋나면 감지가 상한보다 늦게 걸려 잘린 목록이 통과한다.
+/**
+ * ⑤ 절단 감지의 전제 — **요청 상한이 거부되지 않는다** (AQ-40 ③으로 제목을 좁혔다)
+ *
+ * 종전 제목은 「`max_rows`가 **임베드 배열에도** 적용되는가」였는데 질의는 임베드 없는
+ * **평면 select**였고, 단언(`length <= 상한`)은 감지 조건의 **정확한 부정**이라 어떤
+ * 구현에서도 통과했다(행수와 무관하게 서버 상한의 정의상 참이다). 이름을 본문에 맞춘다.
+ *
+ * **임베드 배열에 `max_rows`가 적용되는지는 여전히 측정되지 않았다** — 확인에는 부모
+ * 하나에 1,000행을 넘는 자식이 필요하고 P4.5의 1,201행 픽스처는 측정 후 삭제했다
+ * (잔여 0). DOC-011 §9 AQ-22의 잔여 ④로 등재했다. `assertNotTruncated`는 최상위
+ * 행수만 보므로 그 축은 지금 어떤 가드도 덮지 않는다.
+ *
+ * **상수와 `[api].max_rows`의 관계는 여기서 보지 않는다.** DB 없이 도는
+ * `tests/db/select.test.ts`가 `config.toml`을 파싱해 부등호 사슬을 단언한다 — Docker를
+ * 요구하는 스위트에 두면 CI에서 조용히 건너뛰는 자리가 생긴다.
+ */
+describe('⑤ 요청 상한이 거부되지 않는다 — 절단 감지의 전제', () => {
+  it('limit = TRUNCATION_PROBE_LIMIT 요청이 오류가 아니다', async () => {
+    // 로더 7개가 실제로 보내는 값 그대로다. 이 값은 서버 상한과 같으므로 서버가
+    // 깎을 것이 없다.
     const { data, error } = await db
       .from('asset_prices')
       .select('id')
-      .limit(SERVER_MAX_ROWS + 1)
+      .limit(TRUNCATION_PROBE_LIMIT)
 
     expect(error).toBeNull()
-    // 픽스처 규모에서는 도달하지 않는다 — 여기서 확인하는 것은 요청이
-    // 거부되지 않는다는 사실이다(limit > max_rows가 오류가 아님)
-    expect(data!.length).toBeLessThanOrEqual(SERVER_MAX_ROWS)
+    // 여기서 확인하는 것은 행수가 아니라 **요청이 400이 되지 않는다는 사실**이다.
+    // `length <= 상한`은 서버 상한의 정의상 항상 참이므로 단언하지 않는다.
+    expect(data).not.toBeNull()
+  })
+
+  it('요청 상한이 서버 상한을 넘지 않는다 — 넘겨 봐야 깎인다', () => {
+    // 실측(P4.5): 1,201행에 limit=1001·1200 → 둘 다 1000행, 200, 0-999/*.
+    // 그래서 「하나 더 요청한다」는 상한 **안쪽**에서 해야 한다(DOC-011 §4.0 Q-06).
+    expect(TRUNCATION_PROBE_LIMIT).toBe(POSTGREST_MAX_ROWS)
   })
 })
