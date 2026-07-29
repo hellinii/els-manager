@@ -41,6 +41,7 @@ export {
 export { deriveDisplay, PRICE_MISSING_LABEL, type DisplayState } from './derived'
 export { groupByMonth, splitByPast, type MonthGroup } from './schedule'
 export { selectableYears } from './tax'
+export { isForecastEmpty } from './forecast'
 export {
   groupAttention,
   hasFinancialIncomeToReport,

@@ -162,8 +162,16 @@ describe('자리표시 화면이 404가 아니다', () => {
   })
 
   it('SCR-402는 라우트가 있으나 네비게이션에 없다', async () => {
-    // 무효화 맵이 `/forecast`를 가리키므로 라우트를 미리 둔다(컷 1b 대조 테스트).
-    // 화면은 P4b이며, 그 사실이 탭 목록에 새지 않아야 한다.
+    /*
+     * ★ **단언은 그대로 참이고 근거가 바뀌었다** (P4b 컷 8). 이 케이스가 처음 섰을 때
+     * `/forecast`는 자리표시였고 200인 근거가 「무효화 맵이 그 경로를 가리키므로 라우트를
+     * 미리 둔다」였다. 컷 8이 실화면을 세웠으므로 이제 200은 **화면이 실제로 렌더된다**는
+     * 뜻이다 — 화면의 내용은 `tests/e2e/forecast.test.ts`가 본다.
+     *
+     * 탭에 없다는 단언은 **결정이 유지되는지**를 지킨다: 진입은 SCR-401 본문의 링크
+     * 하나이며 주 네비게이션 넷은 정본이다(DOC-008 §3). 화면이 섰다는 사실이 탭 목록에
+     * 새는 것이 이 컷에서 가장 하기 쉬운 실수이므로 여기 남긴다.
+     */
     expect((await get(PATHS.forecast, jar)).status).toBe(200)
     expect(NAV_ITEMS.some((i) => i.href === PATHS.forecast)).toBe(false)
     expect(MORE_ITEMS.some((i) => i.href === PATHS.forecast)).toBe(false)

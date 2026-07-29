@@ -357,6 +357,8 @@ describe('실재하는 라우트', () => {
      * **어떤 변경에도 무효화되지 않는다.** 증상은 "저장했는데 그 화면만 그대로"다.
      * `/login`은 조회 계약이 없다(부르면 Q-04로 죽는다).
      */
+    // `PENDING_ROUTES`는 컷 8에서 비었지만 **합집합에 남긴다** — 다음 자리표시가
+    // 등재되는 날 그 라우트가 여기서 조용히 「미포함」으로 걸리지 않아야 한다.
     const covered = new Set([
       ...Object.keys(ROUTE_QUERIES),
       ...Object.keys(PENDING_ROUTES),
@@ -552,9 +554,19 @@ describe('합성 — affects × ROUTE_QUERIES', () => {
     expect(empty).toEqual([PATHS.settings])
   })
 
-  it('`/forecast`는 세금 요약과 함께 낡는다 — P4b의 대리 기준', () => {
-    // 계약이 없으므로 `getTaxSummary`를 대리로 쓴다(`PENDING_ROUTES`의 근거).
-    expect(Object.keys(PENDING_ROUTES)).toEqual([PATHS.forecast])
+  it('`/forecast`는 세금 요약과 함께 낡는다 — 대리 기준이 옳았다', () => {
+    /*
+     * ★ **제목이 「P4b의 대리 기준」에서 「대리 기준이 옳았다」로 바뀌었다.** 컷 8이
+     * `/forecast`를 `PENDING_ROUTES`에서 `ROUTE_QUERIES`로 옮겼으므로 첫 줄의 단언이
+     * 뒤집힌다 — 원장이 비었다.
+     *
+     * **본문은 살린다.** 그것이 대리가 옳았다는 **사후 증거**이기 때문이다: 대리
+     * 기준이었을 때 이 반복문이 참이었고, 실명 계약으로 옮긴 뒤에도 같은 반복문이
+     * 참이다. `getForecast`의 소속이 `getTaxSummary`와 정확히 같은 일곱이라는 것이 그
+     * 근거이며 위 「낡는 자리도 같다」가 그 집합을 직접 단언한다. `PENDING_ROUTES`
+     * 독블록이 적은 「지금 여섯 줄이 옳았다면 그대로 통과한다」가 여기서 검산된다.
+     */
+    expect(Object.keys(PENDING_ROUTES)).toEqual([])
     for (const name of MUTATION_NAMES) {
       // `INVALIDATION`이 `as const`이므로 리터럴 튜플의 유니온이고 `.includes`의
       // 파라미터가 `never`로 좁혀진다 — `staleRoutesFor`와 같은 이유로 넓혀 받는다.
@@ -616,6 +628,13 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
   })
 
   it('문서가 배정한 조회 계약이 전부 실재하거나 미구현으로 등재되어 있다', () => {
+    /*
+     * **`planned`가 컷 8부터 빈 집합이다** — `PENDING_ROUTES`가 비었으므로 이 케이스는
+     * 지금 「문서가 배정한 조회 계약이 전부 실재한다」와 같다. 그 갈래를 지우지 않는
+     * 이유는 §4.7이 미구현이던 동안 이 단언을 통과시킨 것이 정확히 그 갈래였다는 것이다
+     * — 다음 계약이 문서에 먼저 적히는 날(문서 선행이 이 프로젝트의 규약이다) 같은
+     * 상태가 재현된다.
+     */
     const documented = new Set(rows.flatMap(([, queries]) => identifiers(queries ?? '')))
     const planned = new Set(Object.values(PENDING_ROUTES).map((p) => p.plannedQuery))
 
@@ -740,12 +759,14 @@ describe('DOC-008 §4 ↔ 라우트', () => {
      */
     expect(noFile.sort()).toEqual([])
     /*
-     * **P4b(전망) 하나만 남았다** — 컷 9가 홈을 세우며 화면 12개가 완결되었다.
-     * `/forecast`가 화면이 아니라 **계약 신설**이므로(RD-02 + DOC-007 §7.5 +
-     * `getForecast` + 3스위트) 여기 남는 것이 정상이고, `PENDING_ROUTES`가 그
-     * 라우트의 무효화 대리 기준을 함께 들고 있다.
+     * **자리표시가 없다** — P4b 컷 8이 마지막 하나(`/forecast`)를 세웠다. 그것이
+     * 화면이 아니라 **계약 신설**이었으므로(RD-02 + DOC-007 §7.5 + `getForecast`)
+     * P4의 범위 밖에서 여기 남아 있었고, 컷 7이 계약을 세운 뒤 컷 8이 화면을 세웠다.
+     *
+     * **두 원장이 함께 비었다.** 위 `noFile`은 컷 6에서, 이쪽은 여기서 비었다 —
+     * 합계가 0이라는 것이 「P4의 화면이 전부 실화면이다」의 형태다.
      */
-    expect(placeholders.sort()).toEqual(['/forecast'])
+    expect(placeholders.sort()).toEqual([])
   })
 
   it('P4가 세우는 화면 12개가 전부 섰다 — 컷 10의 종료 조건', () => {
@@ -756,21 +777,25 @@ describe('DOC-008 §4 ↔ 라우트', () => {
      *
      * 여기서 세는 것은 **라우트**이므로 12와 같지 않다: SCR-202·203·204가 라우트
      * 다섯이고(상세·상환·등록·수정) SCR-901·902는 라우트가 아니다. 그래서 개수 대신
-     * **자리표시 원장이 하나로 줄었다**는 사실을 종료 조건으로 쓴다 — 그 하나가
-     * `/forecast`이고 화면이 아니라 계약 신설이다(P4b).
+     * **자리표시 원장이 비었다**는 사실을 종료 조건으로 쓴다.
+     *
+     * ★ **P4b 컷 8에서 `[PATHS.forecast]` → `[]`가 되었다.** 컷 10 시점에는 그 하나가
+     * 남는 것이 정상이었다 — 화면이 아니라 계약 신설이었기 때문이다. 컷 7이 계약을
+     * 세우고 컷 8이 화면을 세웠으므로 그 예외가 사라졌고, **아래 반복문의 예외도 함께
+     * 지웠다** — `/forecast`가 나머지와 같은 규칙으로 단언된다.
      */
     const placeholders = placeholderRoutes()
-    expect(placeholders).toEqual([PATHS.forecast])
+    expect(placeholders).toEqual([])
 
     /*
      * 나머지 라우트는 전부 실화면이다 — 문서가 정의한 경로 중 파일 없는 것도,
-     * 자리표시로 남은 것도 없다. `/forecast`만 건너뛴다(위 단언이 그 하나를 이미
-     * 고정했고, 그것이 P4의 범위 밖이라는 것이 §4의 결정이다).
+     * 자리표시로 남은 것도 없다. **`/forecast`의 예외가 사라졌다**(컷 8): 이제 그
+     * 경로도 「파일이 있고 자리표시가 아니다」를 나머지와 같이 통과해야 한다.
      */
     const routes = new Set(actualRoutes())
     for (const [screen, paths] of Object.entries(screenRoutes())) {
       for (const path of paths) {
-        if (path in NOT_YET_BUILT || path === PATHS.forecast) continue
+        if (path in NOT_YET_BUILT) continue
         expect(routes.has(path), `${screen} ${path}`).toBe(true)
         expect(placeholders, `${screen} ${path}는 아직 자리표시다`).not.toContain(path)
       }
@@ -791,5 +816,32 @@ describe('DOC-008 §4 ↔ 라우트', () => {
      */
     expect(actualRoutes()).toContain(PATHS.productNew)
     expect(PENDING_PARTS).toEqual({})
+  })
+
+  it('원장 셋이 전부 비었다 — 뒤의 둘은 **같은 사실의 두 관측**이다 (P4b 컷 8)', () => {
+    /*
+     * ★ **셋으로 세고 넷으로 세지 않는다.** `PENDING_ROUTES`와 `placeholderRoutes()`는
+     * 서로 다른 원장처럼 보이지만 컷 8 이후로는 **한 사실의 두 관측**이다: 전자는 손으로
+     * 적은 선언이고 후자는 `page.tsx`를 실제로 훑은 결과이며, 마지막 자리표시가
+     * `/forecast` 하나였으므로 둘이 함께 비거나 함께 차 있다.
+     *
+     * 그래서 이 케이스의 값은 「셋이 비었다」가 아니라 **「선언과 실측이 일치한다」**다.
+     * 갈리는 경우가 둘 있고 그것이 이 단언이 잡는 것이다 — ① `PENDING_ROUTES`에서 항목을
+     * 지웠는데 `page.tsx`가 여전히 자리표시다(원장만 앞서갔다) ② 자리표시를 세웠는데
+     * 원장에서 지우지 않았다(원장이 뒤처졌다). **①이 더 위험하다**: 그쪽은 화면이 섰다고
+     * 말하면서 실제로는 서지 않은 상태이고, 다른 어느 케이스도 그것을 보지 않는다.
+     *
+     * `NOT_YET_BUILT`(`/users` 제외)는 위 「두 원장이 함께 센다」가 이미 비었음을 단언하고
+     * `PENDING_PARTS`는 그 위 케이스가 단언한다 — 여기서 다시 세지 않는다.
+     */
+    expect(Object.keys(PENDING_ROUTES)).toEqual([])
+    expect(placeholderRoutes()).toEqual([])
+
+    /*
+     * 두 관측이 **같은 라우트 집합**임을 함께 박는다. 위 두 줄만으로는 둘이 각각 비었다는
+     * 것뿐이고, 다음에 자리표시가 하나 생겼을 때 한쪽만 채워도 둘 다 「비지 않았다」로
+     * 통과한다 — 그때 갈림을 잡는 것이 이 줄이다.
+     */
+    expect(placeholderRoutes().sort()).toEqual(Object.keys(PENDING_ROUTES).sort())
   })
 })

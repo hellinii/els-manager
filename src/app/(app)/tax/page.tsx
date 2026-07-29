@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { unstable_rethrow } from 'next/navigation'
 
 import { SaveProfileForm } from '@/components/tax/SaveProfileForm'
@@ -177,6 +178,35 @@ export default async function TaxPage({
       <HealthSection view={summary} />
       <MarginalRateSection view={summary} />
       <ContributingSection view={summary} />
+
+      {/*
+        SCR-402로 가는 진입 링크 — DOC-008 §3의 `SCR-401 --> SCR-402`를 실선으로 만든
+        것이 이 링크다(P4b 컷 8). 그 각주가 조건을 **먼저** 명문화해 두었다: 「점선을
+        실선으로 바꾸는 조건은 SCR-401에 진입 링크가 서는 것이다.」 그 전까지 `/forecast`는
+        **UI 링크가 하나도 없어** 주소를 직접 적을 때만 도달했고, 그 상태로 실선을 그리면
+        사용자 경로가 있다는 거짓을 말하게 된다.
+
+        **네비게이션 탭은 늘리지 않는다** — 주 네비게이션 넷이 정본이고 코드 원장이 그
+        수를 단언한다(`tests/app/routes.test.ts`). 진입이 이 링크 하나인 것이 이 전이가
+        「세금을 본 다음에 여러 해를 본다」는 순서를 갖는다는 뜻이다.
+
+        `<Link>`다 — 다른 라우트이므로 프리페치가 의미가 있다(`OutOfRange`의 `<a>`와
+        갈리는 이유가 그것이다: 그쪽은 같은 라우트의 질의만 바꾼다).
+      */}
+      <Link
+        href={PATHS.forecast}
+        className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200 px-4 py-3 text-sm transition-colors hover:bg-neutral-50"
+      >
+        <span>
+          <strong className="font-medium">다년도 전망</strong>
+          <span className="ml-2 text-neutral-600">
+            앞으로 여섯 해의 회수·세금·누적 자산을 한 표로 본다
+          </span>
+        </span>
+        <span aria-hidden className="text-neutral-400">
+          →
+        </span>
+      </Link>
 
       {/* DOC-008 §5의 「표시 주의」 셋째 줄 — C-04 */}
       <p className="rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600">

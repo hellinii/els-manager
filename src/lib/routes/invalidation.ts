@@ -216,7 +216,8 @@ const _queryAxisIsExhaustive: QueryAxisExhaustive<typeof INVALIDATION> = true
  * 그 둘의 입력이 다르다 — 등록은 `searchAssets`만 읽고 수정은 `getProduct`도 읽는다.
  * 화면 단위로 두면 「시세를 저장했으니 등록 화면도 낡았다」는 잘못된 합성이 나온다.
  *
- * `/forecast`는 계약이 아직 없다(§4.7 미구현) — `PENDING_ROUTES`에 있다.
+ * `/forecast`가 P4b 컷 8에서 여기로 옮겨 왔다 — `PENDING_ROUTES`의 대리 기준이 실명
+ * 계약이 되었고, 그 이전이 무효화 결과를 바꾸지 않았다(아래 `PENDING_ROUTES`의 각주).
  */
 export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   [PATHS.home]: ['getDashboard'],
@@ -228,30 +229,37 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   [PATHS.schedule]: ['listSchedule'],
   [PATHS.prices]: ['listAssetPrices'],
   [PATHS.tax]: ['getTaxSummary'],
+  [PATHS.forecast]: ['getForecast'],
   [PATHS.settings]: [],
 }
 
 /**
- * 계약이 아직 없는 라우트 — **`/forecast` 하나다** (§4.7 미구현, P4b)
+ * 계약이 아직 없는 라우트 — **비었다** (P4b 컷 8에서 `/forecast`가 떠났다)
  *
- * `ROUTE_QUERIES`에 적을 수 없다. `getForecast`가 `QueryName`에 없으므로(계약이
- * 없다) 적으면 컴파일이 깨지고, 빈 배열로 두면 **아무 변경에도 낡지 않는 화면**이
- * 되어 계획 §8이 그 경로를 여섯 줄에 넣은 근거가 사라진다.
+ * ## 원장의 역사를 지우지 않고 「비었다」로 적는다
  *
- * 그래서 대리 기준을 데이터로 적는다. `getForecast`의 입력(상품 + 과세 프로필 +
- * 세율 시드)은 `getTaxSummary`의 입력을 **포함하므로**, 세금 요약이 낡는 변경은
- * 전망도 낡게 한다. 반대로 KI 터치·시세는 둘 다 낡게 하지 않는다 — 같은 기준이 두
- * 경로에 같은 답을 준다는 것이 대리가 성립하는 근거다.
+ * 이 항목은 `/forecast` 하나를 담고 있었다. `getForecast`가 `QueryName`에 없어
+ * `ROUTE_QUERIES`에 적을 수 없었고, 빈 배열로 두면 **아무 변경에도 낡지 않는 화면**이
+ * 되어 그 경로를 무효화 대상으로 넣은 근거가 사라졌기 때문이다. 그래서 **대리 기준**을
+ * 데이터로 적었다: `getForecast`의 입력(상품 + 과세 프로필 + 세율 시드)이
+ * `getTaxSummary`의 입력을 포함하므로 세금 요약이 낡는 변경은 전망도 낡게 하고, KI
+ * 터치·시세는 둘 다 낡게 하지 않는다.
  *
- * P4b가 `getForecast`를 만들면 이 항목을 지우고 `ROUTE_QUERIES`에 실명으로 넣는다.
- * 그때 합성 대조가 **자동으로 검산한다** — 지금 여섯 줄이 옳았다면 그대로 통과한다.
+ * ## **그 대리가 옳았음이 사후 검산되었다**
+ *
+ * 컷 7이 `getForecast`를 세우고 `affects`에 등재했을 때 그 소속이 `getTaxSummary`와
+ * **정확히 같은 일곱**으로 나왔다(`tests/app/invalidation.test.ts`가 두 집합의 동일성을
+ * 단언한다). 그래서 이 항목을 지우고 `ROUTE_QUERIES`에 실명으로 넣어도
+ * `staleRoutesFor('...')`의 결과가 한 줄도 달라지지 않는다 — 손으로 적은 `STALE_ROUTES`
+ * 표가 불변인 것이 그 관측이다. 「지금 여섯 줄이 옳았다면 그대로 통과한다」가 그렇게 성립했다.
+ *
+ * 타입을 남기는 이유는 다음 자리표시다. 빈 객체는 **「자리표시가 없다」는 단언의 대상**이며
+ * (`PENDING_PARTS`가 같은 형태로 비어 있다) 지우면 다음 사람이 같은 판단을 처음부터 한다.
  */
 export const PENDING_ROUTES: Record<
   string,
   { plannedQuery: string; invalidatedWith: QueryName }
-> = {
-  [PATHS.forecast]: { plannedQuery: 'getForecast', invalidatedWith: 'getTaxSummary' },
-}
+> = {}
 
 /**
  * 그 변경으로 **낡는 라우트** — `affects` × `ROUTE_QUERIES`.
