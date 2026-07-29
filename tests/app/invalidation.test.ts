@@ -12,6 +12,7 @@ import {
   ROUTE_QUERIES,
   staleRoutesFor,
   type MutationName,
+  type QueryAxisExhaustive,
   type QueryName,
 } from '@/lib/routes/invalidation'
 import { PATHS } from '@/lib/routes/paths'
@@ -48,6 +49,56 @@ const CTX = { db: STUB, asOf: '2026-07-28', viewerId: '00000000-0000-4000-8000-0
 const MUTATION_NAMES = Object.keys(createMutations(CTX)) as MutationName[]
 const QUERY_NAMES = Object.keys(createQueries(CTX)) as QueryName[]
 
+/** 그 조회를 낡게 하는 변경 계약 — `affects`의 역 인덱스를 **읽는 쪽에서** 만든다. */
+function mutationsAffecting(query: QueryName): MutationName[] {
+  return (Object.entries(INVALIDATION) as [MutationName, { affects: readonly QueryName[] }][])
+    .filter(([, rule]) => rule.affects.includes(query))
+    .map(([name]) => name)
+    .sort()
+}
+
+// ---------------------------------------------------------------------------
+// 축 0 — 조회 축의 파생이 항진명제가 아님을 고정한다 (AQ-39, 컷 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * **음성 대조** — `typecheck`가 검증한다(런타임 케이스가 아니다).
+ *
+ * `_queryAxisIsExhaustive`가 초록인 것은 두 가지 중 하나를 뜻한다: 조회 축이 실제로
+ * 전수이거나, **파생이 아무것도 판별하지 못하거나.** 둘을 갈라야 그 초록이 값을
+ * 갖는다. 그래서 결함 있는 맵으로 같은 파생을 다시 계산해 발화를 고정한다.
+ *
+ * `Without<Q>`는 목록을 손으로 베끼지 않는다 — 실제 `INVALIDATION`에서 `Q`만 기계적으로
+ * 빼므로 맵이 바뀌어도 따라온다. 튜플이 `readonly …[]`로 넓어지지만 파생이 읽는 것은
+ * `[number]`이므로 판별력은 같다.
+ */
+type Without<Q extends QueryName> = {
+  [K in MutationName]: {
+    affects: readonly Exclude<(typeof INVALIDATION)[K]['affects'][number], Q>[]
+  }
+}
+
+/*
+ * ★ **양성 대조가 먼저다.** 이 줄이 빨간불이면 아래 둘의 발화는 「빠진 계약을
+ * 판별했다」가 아니라 `Without`의 변환 자체가 만든 거짓 양성이다 — 그 경우 음성 대조의
+ * 탐지력이 0인데도 `@ts-expect-error`가 만족되어 초록으로 보인다.
+ */
+const _transformIsInnocent: QueryAxisExhaustive<Without<never>> = true
+
+/*
+ * 컷 6 이전의 실제 상태 — `listUserSummaries`가 어느 `affects`에도 없었다.
+ * 이 파생이 그때 있었다면 그 결함이 컴파일에서 잡혔음을 보인다.
+ */
+// @ts-expect-error — ['조회 축에 빠진 계약', 'listUserSummaries']에 true를 할당할 수 없다
+const _witnessCatchesTheRealDefect: QueryAxisExhaustive<Without<'listUserSummaries'>> = true
+
+/*
+ * 한 자리에만 등재된 계약도 잡는다 — `searchAssets`는 `createAsset`에만 있으므로
+ * 위 경우(일곱 자리)와 판별 난이도가 다르다.
+ */
+// @ts-expect-error — ['조회 축에 빠진 계약', 'searchAssets']에 true를 할당할 수 없다
+const _witnessCatchesSingleSite: QueryAxisExhaustive<Without<'searchAssets'>> = true
+
 // ---------------------------------------------------------------------------
 // 축 1 — 전수
 // ---------------------------------------------------------------------------
@@ -66,6 +117,48 @@ describe('전수', () => {
         expect(QUERY_NAMES, `${name}의 affects`).toContain(query)
       }
     }
+  })
+
+  it('조회 계약 전수가 어느 `affects`에든 있다 — 파생의 런타임 짝 (AQ-39)', () => {
+    /*
+     * 위 케이스의 **역방향**이며, 그 부재가 AQ-39의 fail-open이었다. 타입 수준
+     * 파생(`_queryAxisIsExhaustive`)이 이미 이것을 강제하지만 그쪽은 `keyof`가
+     * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 11개가 모두 항목을 갖는다」가
+     * `Record`와 나란히 있는 것과 같은 이유로 실제 조립된 묶음의 키로 대조한다.
+     */
+    const covered = new Set(
+      Object.values(INVALIDATION).flatMap((rule) => [...rule.affects]),
+    )
+    const uncovered = QUERY_NAMES.filter((query) => !covered.has(query))
+    expect(uncovered, '어느 affects에도 없는 조회 계약').toEqual([])
+  })
+
+  it('`listUserSummaries`가 낡는 자리는 `getTaxSummary`와 정확히 같다', () => {
+    /*
+     * ★ **비어 있던 것이 결정이 아니라 결함이었다.** 컷 6까지 이 계약은 어느
+     * `affects`에도 없었다 — 읽는 라우트가 없어(SQ-01) `staleRoutesFor`가 달라지지
+     * 않았으므로 무해했지만, 그 무해함이 기록된 적이 없다. §4.8이 상품 전량
+     * (`loadProducts`)과 본인 프로필(`loadTaxProfile`)을 읽으므로 입력 기준으로는
+     * `getTaxSummary`와 같은 자리다.
+     *
+     * 두 집합의 **동일성**을 단언하는 이유는 컷 8이 이 사실에 기댄다는 것이다 —
+     * `/forecast`가 `PENDING_ROUTES`의 대리(`getTaxSummary`)에서 실명 계약으로
+     * 옮겨도 결과가 같아야 하고, 그 근거가 「소속이 같다」다. 개수(일곱)로 적으면
+     * 어느 일곱인지 갈려도 통과한다.
+     */
+    expect(mutationsAffecting('listUserSummaries')).toEqual(
+      mutationsAffecting('getTaxSummary'),
+    )
+    // 그 집합이 무엇인지도 박는다 — 위 단언만으로는 둘이 함께 비어도 통과한다.
+    expect(mutationsAffecting('listUserSummaries')).toEqual([
+      'createProduct',
+      'createRedemption',
+      'deleteProduct',
+      'deleteRedemption',
+      'saveTaxProfile',
+      'updateProduct',
+      'updateRedemption',
+    ])
   })
 
   it('아무것도 바꾸지 않는 계약이 없다', () => {
@@ -439,7 +532,10 @@ describe('합성 — affects × ROUTE_QUERIES', () => {
     // 계약이 없으므로 `getTaxSummary`를 대리로 쓴다(`PENDING_ROUTES`의 근거).
     expect(Object.keys(PENDING_ROUTES)).toEqual([PATHS.forecast])
     for (const name of MUTATION_NAMES) {
-      const withTax = INVALIDATION[name].affects.includes('getTaxSummary')
+      // `INVALIDATION`이 `as const`이므로 리터럴 튜플의 유니온이고 `.includes`의
+      // 파라미터가 `never`로 좁혀진다 — `staleRoutesFor`와 같은 이유로 넓혀 받는다.
+      const affects: readonly QueryName[] = INVALIDATION[name].affects
+      const withTax = affects.includes('getTaxSummary')
       expect(staleRoutesFor(name).includes(PATHS.forecast), name).toBe(withTax)
     }
   })

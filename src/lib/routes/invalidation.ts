@@ -68,7 +68,13 @@ export type InvalidationRule = {
   affects: readonly QueryName[]
 }
 
-/** 상품의 존재·조건·상태를 바꾸는 것들이 공유하는 축. */
+/**
+ * 상품의 존재·조건·상태를 바꾸는 것들이 공유하는 축.
+ *
+ * `listUserSummaries`가 `getTaxSummary`와 **같은 자리에 있다** — 둘 다 상품 전량과
+ * 본인 프로필을 읽는다(`tax.ts`의 `loadProducts`·`loadTaxProfile`). 화면이 없다는
+ * 것(SQ-01)은 값이 낡지 않는다는 뜻이 아니다.
+ */
 const PRODUCT_WIDE = [
   'getProduct',
   'listProducts',
@@ -76,6 +82,7 @@ const PRODUCT_WIDE = [
   'getDashboard',
   'listAssetPrices',
   'getTaxSummary',
+  'listUserSummaries',
 ] as const satisfies readonly QueryName[]
 
 /** 시세를 바꾸는 것들이 공유하는 축. 세금이 없는 것이 요점이다. */
@@ -88,11 +95,16 @@ const PRICE_WIDE = [
 ] as const satisfies readonly QueryName[]
 
 /**
- * **`Record<MutationName, …>`이다.** 계약이 열둘째로 늘면 여기서 컴파일이 깨지므로
- * 「무엇이 낡는가」를 정하지 않고 계약을 추가할 수 없다. `RULE_IDS` 전수 열거와
- * 같은 자리다.
+ * **`satisfies Record<MutationName, …>`이다.** 계약이 열둘째로 늘면 여기서 컴파일이
+ * 깨지므로 「무엇이 낡는가」를 정하지 않고 변경 계약을 추가할 수 없다. `RULE_IDS`
+ * 전수 열거와 같은 자리다.
+ *
+ * **`as const`인 이유는 조회 축이다** — 주석이 아니라 아래 `_queryAxisIsExhaustive`가
+ * 리터럴을 읽어야 「어느 `affects`에도 없는 조회」를 컴파일에서 잡는다. 그래서 형태를
+ * 타입 표기에서 `satisfies`로 옮겼다: 표기는 리터럴을 지워 witness를 항진명제로
+ * 만들고, `satisfies`는 지우지 않으면서 같은 전수를 강제한다.
  */
-export const INVALIDATION: Record<MutationName, InvalidationRule> = {
+export const INVALIDATION = {
   // §5.1 — 새 상품이 목록·일정·홈에 나타나고 시세 화면의 `usedByActiveProducts`가
   // 올라가고 세금·전망의 추정 기여가 생긴다. **기존 상품의 상세는 바뀌지 않는다.**
   createProduct: {
@@ -102,6 +114,7 @@ export const INVALIDATION: Record<MutationName, InvalidationRule> = {
       'getDashboard',
       'listAssetPrices',
       'getTaxSummary',
+      'listUserSummaries',
     ],
   },
 
@@ -122,7 +135,10 @@ export const INVALIDATION: Record<MutationName, InvalidationRule> = {
   deleteRedemption: { affects: [...PRODUCT_WIDE] },
 
   // §5.6 — 프로필은 세금 계산의 입력이다. 홈의 `currentYearTax`도 같은 집계를 쓴다.
-  saveTaxProfile: { affects: ['getTaxSummary', 'getDashboard'] },
+  // §4.8의 본인 행도 그 프로필을 읽는다(`includesOtherFinancialIncome`이 참인 행).
+  saveTaxProfile: {
+    affects: ['getTaxSummary', 'getDashboard', 'listUserSummaries'],
+  },
 
   // §5.7·§5.8 — **세금이 아니다**(위 표의 첫째 줄).
   saveManualPrice: { affects: [...PRICE_WIDE] },
@@ -130,7 +146,60 @@ export const INVALIDATION: Record<MutationName, InvalidationRule> = {
 
   // §5.10 — 자산 목록을 읽는 곳만. 시세 목록과 등록·수정 화면의 자동완성이다.
   createAsset: { affects: ['listAssetPrices', 'searchAssets'] },
-}
+} as const satisfies Record<MutationName, InvalidationRule>
+
+/**
+ * 어느 `affects`에도 없는 조회 계약 — **AQ-39의 fail-open을 파생으로 닫는다**
+ *
+ * ## 왜 단언이 아니라 파생인가
+ *
+ * 변경 축은 위 `satisfies Record<MutationName, …>`가 이미 닫았다 — 변경 계약이 늘면
+ * 컴파일이 깨진다. **조회 축에는 그 대칭이 없었다.** `tests/app/invalidation.test.ts`가
+ * 「`affects`가 실재하는 계약만 가리킨다」를 단언하지만 그것은 한 방향이고, 새 조회
+ * 계약을 어느 `affects`에도 넣지 않아도 **아무것도 실패하지 않았다.** CLAUDE.md 절대
+ * 규칙 #6이 열거하는 형태 그대로다 — 「객체 종류가 늘어날 때 기존 카탈로그 단언이
+ * 따라오지 않는다」.
+ *
+ * 실제로 하나가 그 구멍에 있었다. `listUserSummaries`는 상품 전량과 본인 프로필을
+ * 읽는데(§4.8) 어느 `affects`에도 없었다 — 읽는 라우트가 없어 `staleRoutesFor`의
+ * 결과가 달라지지 않았으므로 **무해했지만 기록된 무해함이 아니었다.** 이 파생을
+ * 세우자 그 계약이 즉시 빨간불이 되었고, 답은 화이트리스트가 아니라 **등재**였다
+ * (위 일곱 자리). 「비어 있던 것이 결정이 아니라 결함」임이 그렇게 판별된다.
+ *
+ * ## 왜 역 인덱스(`Record<QueryName, …>`)가 아닌가
+ *
+ * DOC-010의 권고 (b)는 조회 축의 역 인덱스를 함께 두는 것이었다. 쓰지 않는다 —
+ * `Record<QueryName, …>`는 항목의 **존재**만 강제하고 `[]`가 합법이므로 「어느
+ * `affects`에도 없는 조회」를 「빈 항목」으로 **옮겨 놓을 뿐이다.** 그리고 같은 지식이
+ * 두 표에 손으로 적혀, 그 항목 자신의 근거인 「단언이 아니라 파생」을 위반한다.
+ *
+ * ## 형태
+ *
+ * `[T] extends [never]`의 튜플 감싸기가 필요하다 — 맨 `T extends never`는 분배
+ * 조건부이므로 `T`가 `never`일 때 조건부 전체가 `never`로 붕괴해 어느 쪽 가지도
+ * 고르지 않는다. 실패 가지가 `true`가 아니라 **튜플**인 이유는 오류 메시지다 —
+ * 빠진 계약명이 「`['조회 축에 빠진 계약', 'getForecast']` 형식에 `true`를 할당할 수
+ * 없다」로 그대로 나온다.
+ *
+ * 제네릭인 이유는 **음성 대조**다. `tests/app/invalidation.test.ts`가 결함 있는 맵으로
+ * 이 파생을 다시 계산해 `@ts-expect-error`가 발화함을 고정한다 — 그 줄이 조용해지면
+ * witness가 항진명제라는 뜻이다. 제약(`Record<MutationName, InvalidationRule>`)이
+ * `affects`를 넓히지 **않는다**: 제약은 타입 인자를 검사할 뿐 대체하지 않으므로
+ * `T[MutationName]['affects'][number]`는 넘긴 리터럴을 그대로 읽는다.
+ */
+export type UncoveredQueries<T extends Record<MutationName, InvalidationRule>> = Exclude<
+  QueryName,
+  T[MutationName]['affects'][number]
+>
+
+export type QueryAxisExhaustive<T extends Record<MutationName, InvalidationRule>> = [
+  UncoveredQueries<T>,
+] extends [never]
+  ? true
+  : ['조회 축에 빠진 계약', UncoveredQueries<T>]
+
+/** 이 줄이 빨간불이면 새 조회 계약을 어느 `affects`에도 넣지 않았다는 뜻이다. */
+const _queryAxisIsExhaustive: QueryAxisExhaustive<typeof INVALIDATION> = true
 
 /**
  * 라우트별로 **무엇을 읽는가** — DOC-011 §8을 **라우트 단위로** 쪼갠 것
@@ -185,7 +254,14 @@ export const PENDING_ROUTES: Record<
  * 무효화의 입력이 된다.
  */
 export function staleRoutesFor(name: MutationName): string[] {
-  const { affects } = INVALIDATION[name]
+  /*
+   * **넓은 타입으로 한 번 받는다.** `INVALIDATION`이 `as const`이므로
+   * `INVALIDATION[name].affects`는 리터럴 튜플 열하나의 **유니온**이고, 유니온에
+   * 메서드를 부르면 파라미터가 교집합으로 좁혀진다 — 원소가 서로 다른 문자열
+   * 리터럴이므로 `.includes`의 인자 타입이 `never`가 되어 아래 두 줄이 컴파일되지
+   * 않는다. 값은 그대로이고 표기만 넓힌다.
+   */
+  const affects: readonly QueryName[] = INVALIDATION[name].affects
 
   const fromQueries = Object.entries(ROUTE_QUERIES)
     .filter(([, queries]) => queries.some((query) => affects.includes(query)))
