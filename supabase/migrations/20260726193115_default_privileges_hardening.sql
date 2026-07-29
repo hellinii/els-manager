@@ -38,11 +38,21 @@ alter default privileges in schema public revoke all on tables    from authentic
 alter default privileges in schema public revoke all on sequences from authenticated;
 
 -- ---------------------------------------------------------------------------
--- service_role 은 이 회수의 대상이 아니다.
+-- service_role 은 이 회수의 대상이 아니다 — 였다.
 --
 -- 실측: 회수 후에도 service_role 은 신규 테이블에 Dxtm 을 유지한다. 즉 DML 이
 -- 없으므로 시세 배치(§6.2)가 신규 테이블에 접근하면 42501 로 막힌다. 조용히
 -- 열리는 방향이 아니라 시끄럽게 막히는 방향이므로 지금 위험은 낮으나,
 -- 20260726171035 의 grant all 도 일회성이라는 점은 같다.
 -- DOC-010 AQ-11 로 등재했다 — P5 에서 권한 축소와 함께 정한다.
+--
+-- ★ 20260729155440 이 이 판단을 철회하고 service_role 에도 기본 권한을
+--   회수한다. 위 서술이 틀린 자리는 "위험이 낮다"의 근거다 — **Dxtm 에는
+--   D(DELETE)가 들어 있고** 그것은 DML 이다. asset_prices 의 DELETE 는
+--   AQ-11 이 지목한 CASCADE 경로(시세 이력 전체 소실)이며, 신규 시퀀스에는
+--   w(UPDATE = setval)가 부여된다. 즉 "DML 이 없으므로 42501 로 막힌다"가
+--   신규 객체에 대해 성립하지 않았다.
+--
+--   판단이 뒤집힌 방향도 기록한다: 이 주석은 service_role 에 무엇을
+--   **부여**할지를 걱정했고, 필요한 것은 **회수**였다.
 -- ---------------------------------------------------------------------------

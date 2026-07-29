@@ -1,0 +1,93 @@
+-- ============================================================================
+-- service_role 0 DML — DOC-010 v2.2 §7.1, AQ-11
+--
+-- 20260726171035:78-79 가 `grant all on all tables/sequences ... to service_role`
+-- 로 전 권한을 부여했다. 근거는 "시세 배치(§6.2)가 사용자 세션 없이 도는 유일한
+-- 경로"였는데 **그 배치가 저장소에 없다.** 즉 실제 필요 권한은 0인데 12개 테이블에
+-- 8종 권한이 열려 있었고, 배포하면 그 상태로 운영에 시크릿 키가 생긴다.
+--
+-- ★ service_role 은 `rolbypassrls = t` 다(실측). 정책 32개가 이 롤에는 통째로
+--   적용되지 않으므로 **권한 층이 유일한 방어선이다.** 다른 롤에서는 GRANT 가
+--   넓어도 정책이 2차 필터로 남지만 여기는 남는 것이 없다.
+--
+-- ---------------------------------------------------------------------------
+-- 무엇이 열려 있었는가 (회수 전 실측)
+--
+--   12개 테이블 전부: DELETE, INSERT, MAINTAIN, REFERENCES, SELECT, TRIGGER,
+--                     TRUNCATE, UPDATE   ← 8종
+--
+-- AQ-11 이 지목한 위험이 이 목록 안에 둘 있다.
+--   ① DELETE on asset_prices → 시세 이력 전체 소실. 과거 종가로 조건 판정을
+--      재현할 수 없게 되므로 과세 근거가 사라진다
+--   ② TRUNCATE → RLS 적용 대상이 아니다. 권한 층에서만 막힌다
+--
+-- ---------------------------------------------------------------------------
+-- ★ 롤 목록에 service_role 만 쓴다. anon·authenticated 를 함께 적지 않는다.
+--
+--   `revoke all` 은 테이블 단위 권한만이 아니라 **열 단위 GRANT 도 함께 지운다**
+--   (20260726171035:58-64 의 ★ 블록이 그 사실과 결과를 기록한다). 지금 열 단위
+--   GRANT 는 users.id `{authenticated=r/postgres}` 와 users.display_name
+--   `{authenticated=rw/postgres}` 둘이고, 그것이 사라지면 SCR-502 의 표시명
+--   수정이 42501 로 막힌다 — **원인에서 멀리 떨어진 곳에서 터진다.**
+--
+--   그래서 이 파일은 회수 대상 롤을 하나로 좁힌다. anon·authenticated 의 권한은
+--   이미 20260726171035 · 20260726193115 가 정리했으므로 다시 지날 이유가 없다.
+--
+-- ---------------------------------------------------------------------------
+-- ★ 기본 권한도 회수한다 — 초안의 반대 결정을 철회한다 (U-03)
+--
+--   20260726193115:41-47 은 "service_role 은 이 회수의 대상이 아니다"로 두었다.
+--   그 판단은 **부여를 걱정한 서술이었고 필요한 것은 회수였다.** 실측:
+--
+--     pg_default_acl (defaclrole = postgres, defaclnamespace = public)
+--       r = {postgres=arwdDxtm/postgres, service_role=Dxtm/postgres}
+--       S = {postgres=rwU/postgres,      service_role=w/postgres}
+--
+--   즉 신규 테이블은 service_role 에게 DELETE·TRUNCATE·REFERENCES·TRIGGER 를,
+--   신규 시퀀스는 UPDATE(= setval)를 **자동으로** 준다. 아래 첫 두 줄만 쓰면
+--   「0 DML」이 **미래 객체에는 거짓**이고 ①의 CASCADE 위험이 그쪽에 살아 있다.
+--   기존 테이블만 정리하는 회수는 일회성이라는 것이 20260726193115 가 이미
+--   기록한 구조적 문제다.
+--
+--   회수 후 실측: 신규 테이블·시퀀스의 relacl 이 **null** 이 된다. 병합 결과가
+--   내장 기본값(소유자 전권)과 같아져 Postgres 가 null 로 저장하는 것이며,
+--   pg_default_acl 행 자체는 `{postgres=arwdDxtm/postgres}` 로 남는다.
+--   **테이블의 내장 기본값에는 PUBLIC 부여가 없으므로 여기서 null 은 안전하다** —
+--   함수에서는 정반대다(아래).
+--
+-- ★ 함수에는 두지 않는다 — 그 방향은 작동하지 않는다.
+--
+--   `alter default privileges ... revoke execute on functions from ...` 는
+--   함수에서 무력하다. 함수의 내장 기본값이 `EXECUTE TO PUBLIC` 을 포함하고
+--   pg_default_acl 항목은 내장 기본값을 **대체하지 않고 그 위에 얹히므로**,
+--   저장 목록에서 PUBLIC 을 빼도 뺄 것이 애초에 없고 내장 기본값이 다시
+--   부여한다(DOC-010 §7.1 케이스 A~E 로 측정). 작동하지 않는 방어를 남기면
+--   다음 사람이 그것이 지켜 준다고 믿는다. 함수는 개별 `revoke execute ... from
+--   public` 만이 실제로 닫는 수단이다.
+--
+-- ---------------------------------------------------------------------------
+-- 이 회수가 무엇을 깨지 않는가 (전수 확인)
+--
+--   tests/ · src/ · supabase/seed/ · supabase/dev/ · vitest 설정 넷 ·
+--   global-setup 을 전수 확인한 결과 **아무것도 service_role 권한에 의존하지
+--   않는다.** 모든 픽스처 경로가 postgres 로 접속하고, 읽기는 실제 사용자 JWT 로
+--   PostgREST 를 지난다. service_role 은 주석과 테스트 이름 문자열로만 등장한다.
+--
+-- 배치가 생기는 날 (P5a 컷 4) 필요한 권한을 그때 명시 부여한다. 그 시점의 판단
+-- 하나가 아직 열려 있다 — **배치가 이 롤로 도는지 자체가 미결이다**(DOC-010
+-- AQ-11 ⓒ). 전용 GoTrue 서비스 계정으로 authenticated 안에서 도는 대안이
+-- 있으며 그 경로는 이 롤에 권한을 되돌리지 않는다. 어느 답이든 「0」이 옳은
+-- 바닥이므로 이 마이그레이션은 그 결정을 앞당기지 않는다.
+--
+-- 지속적인 방어는 이 파일이 아니라 tests/rls/ 다. pg_default_acl 에는
+-- defaclrole = supabase_admin 행이 따로 있고 거기에는 세 롤이 여전히 전 권한으로
+-- 남아 있으므로(실측), 플랫폼이 기본값을 재시딩하면 아래 회수가 신호 없이
+-- 무효가 된다. catalog.test.ts 가 §7 표를 롤 차원으로 박고 실제 GRANT 와
+-- 대조하며, functions.test.ts 가 신규 테이블·시퀀스를 실물로 만들어 확인한다.
+-- ============================================================================
+
+revoke all on all tables    in schema public from service_role;
+revoke all on all sequences in schema public from service_role;
+
+alter default privileges in schema public revoke all on tables    from service_role;
+alter default privileges in schema public revoke all on sequences from service_role;

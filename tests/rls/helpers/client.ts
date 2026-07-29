@@ -77,7 +77,7 @@ export type Actor = {
 }
 
 /**
- * 지정 사용자로 문장 하나를 실행한다.
+ * 지정 롤 + claims로 문장 하나를 실행한다.
  *
  * **SAVEPOINT로 감싸는 것이 이 하네스의 핵심이다.** RLS 거부는 42501을
  * 던지고, Postgres에서 오류가 나면 트랜잭션 전체가 abort 상태가 되어 이후
@@ -88,8 +88,12 @@ export type Actor = {
  *
  * 에서 ②를 같은 테스트 안에서 할 수 없다. 서브트랜잭션을 되감으면
  * `set local role`과 `set_config(..., true)`도 함께 복원된다.
+ *
+ * **롤과 claims는 두 개의 절반이며 둘 다 필요하다.** `auth.uid()`는 롤이 아니라
+ * GUC를 읽고(`request.jwt.claims ->> 'sub'`), 권한과 RLS 적용 대상은 롤이
+ * 정한다. 한쪽만 세우면 실패가 아니라 **다른 이유로 실패**한다.
  */
-export function actingAs(userId: string | null): Actor {
+function actor(role: string, claims: Record<string, unknown>): Actor {
   return {
     async query<T extends QueryResultRow = QueryResultRow>(
       sql: string,
@@ -100,15 +104,10 @@ export function actingAs(userId: string | null): Actor {
       await raw('reset role')
       await raw(`savepoint ${savepoint}`)
 
-      const claims = JSON.stringify(
-        userId === null
-          ? { role: 'anon', aud: 'authenticated' }
-          : { sub: userId, role: 'authenticated', aud: 'authenticated' },
-      )
-      await raw(`select set_config('request.jwt.claims', $1, true)`, [claims])
-      await raw(
-        userId === null ? 'set local role anon' : 'set local role authenticated',
-      )
+      await raw(`select set_config('request.jwt.claims', $1, true)`, [
+        JSON.stringify(claims),
+      ])
+      await raw(`set local role ${role}`)
 
       try {
         const result = await raw<T>(sql, params)
@@ -121,6 +120,35 @@ export function actingAs(userId: string | null): Actor {
       }
     },
   }
+}
+
+/** 지정 사용자로 문장 하나를 실행한다. `null`이면 미인증(`anon`)이다. */
+export function actingAs(userId: string | null): Actor {
+  return userId === null
+    ? actor('anon', { role: 'anon', aud: 'authenticated' })
+    : actor('authenticated', {
+        sub: userId,
+        role: 'authenticated',
+        aud: 'authenticated',
+      })
+}
+
+/**
+ * 수집 배치의 롤(`service_role`)로 문장 하나를 실행한다 — DOC-010 §7.1
+ *
+ * **이 롤에서 관측되는 것은 권한 층뿐이다.** `service_role`은
+ * `rolbypassrls = t`이므로(실측) 정책 32개가 통째로 적용되지 않는다. 즉
+ * 거부의 유일한 형태는 `permission denied`이며 단언은 `expectPermissionDenied`
+ * 하나다 — `expectRlsViolation`을 쓰면 **영원히 실패한다**, 그리고
+ * `expectNoRowsAffected`는 **아무것도 증명하지 않는다**(USING 필터가 없으므로
+ * 0행은 행이 없다는 뜻일 뿐이다).
+ *
+ * `sub`을 담지 않는다. 배치에는 사용자가 없고 `auth.uid()`는 null이다 —
+ * 그것이 이 롤에서 정책이 방어가 될 수 없는 두 번째 이유다(설령 RLS가
+ * 적용된다 해도 `owner_id = null`은 NULL로 평가된다).
+ */
+export function actingAsServiceRole(): Actor {
+  return actor('service_role', { role: 'service_role', aud: 'authenticated' })
 }
 
 /** 미인증 접근 (`anon` 롤) — SEC-03 검증용 */

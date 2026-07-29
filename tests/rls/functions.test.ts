@@ -17,15 +17,25 @@ import { expectConstraintViolation, expectRlsViolation } from './helpers/expect'
  * 테이블은 `alter default privileges`가 신규 객체를 미리 막지만(§7.1), 함수에서는
  * 그 수단이 작동하지 않는다.
  *
- * | 신규 객체 | ACL | 결과 |
- * |---|---|---|
- * | 테이블 | `{postgres=…,service_role=Dxtm/…}` | `authenticated`에 TRUNCATE 없음 |
- * | 함수 | `(null)` | **`anon`이 EXECUTE 가능** |
+ * | 신규 객체 | ACL | 내장 기본값의 `PUBLIC` | 결과 |
+ * |---|---|---|---|
+ * | 테이블·시퀀스 | `(null)` | 없다 | 소유자 외 **아무도** 접근 못 함 |
+ * | 함수 | `(null)` | **있다** | **`anon`이 EXECUTE 가능** |
  *
- * `pg_default_acl`에 PUBLIC을 제외한 항목이 이미 있는데도 그렇다. 그래서
- * **이 파일이 방어의 전부다** — 테이블에서는 백스톱이었던 것이 여기서는 유일한
- * 수단이다. 아래 마지막 describe가 그 사실 자체를 단언한다: 전제가 바뀌면(플랫폼이
- * 동작을 고치면) 그 케이스가 실패하고 이 주석을 다시 읽게 된다.
+ * **두 줄의 ACL이 같은데 결과가 반대다.** `null`은 "권한 없음"이 아니라 "내장
+ * 기본값 그대로"이며, 그 기본값이 객체 종류마다 갈린다. `pg_default_acl`에
+ * PUBLIC을 제외한 항목을 넣어도 함수에서는 내장 기본값이 다시 부여하므로
+ * 음의 부여를 기록할 수단이 없다(DOC-010 §7.1 케이스 A~E).
+ *
+ * 그래서 **이 파일이 함수 방어의 전부다** — 테이블에서는 백스톱이었던 것이
+ * 여기서는 유일한 수단이다. 아래 마지막 describe가 그 사실 자체를 단언한다:
+ * 전제가 바뀌면(플랫폼이 동작을 고치면) 그 케이스가 실패하고 이 주석을 다시
+ * 읽게 된다.
+ *
+ * **테이블 쪽 `(null)`은 P5b 컷 2에서 그렇게 됐다.** 그전에는
+ * `{postgres=arwdDxtm/postgres,service_role=Dxtm/postgres}`였고, non-null인
+ * 이유가 `service_role`의 잔여 권한이었다 — 즉 위 표의 첫 줄이 그때는 「회수가
+ * 적용됐다」를 서술하지 못했다.
  */
 
 /** `SECURITY DEFINER`가 정당한 함수 — DOC-010 §7 함수 권한 표 */
@@ -497,17 +507,89 @@ describe('함수의 예방적 방어가 없다는 사실 자체를 고정한다'
     // 트랜잭션 롤백으로 사라진다 — 이 스위트에 커밋 경로가 없다
   })
 
+  /**
+   * **`null`의 의미가 객체 종류마다 반대다** — 위 케이스와 짝으로 읽는다.
+   *
+   * | 신규 객체 | `relacl`/`proacl` | 내장 기본값에 `PUBLIC`이 | 결과 |
+   * |---|---|---|---|
+   * | 함수 | `null` | **있다** | `anon`이 `EXECUTE` 가능 — 전면 개방 |
+   * | 테이블 | `null` | 없다 | 소유자 외 **아무도** 접근 못 함 |
+   *
+   * `null`은 "권한 없음"이 아니라 **"내장 기본값 그대로"**이며, 그 기본값이
+   * 무엇인지가 두 객체 종류에서 갈린다(DOC-010 §7.1 케이스 A ↔ E). 그래서
+   * 같은 `null`이 함수에서는 사고이고 테이블에서는 목표다.
+   *
+   * ## `not.toBeNull()`에서 `toBeNull()`로 뒤집혔다 (P5b 컷 2 — 실측)
+   *
+   * v2.1까지 이 케이스는 `acl`이 **non-null**임을 단언했다. 그때 신규 테이블의
+   * ACL은 `{postgres=arwdDxtm/postgres,service_role=Dxtm/postgres}`였고,
+   * non-null인 **이유가 `service_role` 항목의 존재**였다 — 즉 그 단언은 회수가
+   * 적용됐다는 증거가 아니라 **회수가 덜 됐다는 증거**를 초록으로 읽고 있었다.
+   *
+   * `service_role`의 기본 권한까지 회수하자 병합 결과가 내장 기본값과 같아져
+   * Postgres가 `relacl`을 `null`로 저장한다(실측). 그래서 뒤집는다.
+   * **`pg_default_acl` 행 자체는 `{postgres=arwdDxtm/postgres}`로 남는다** —
+   * 행이 사라져서 `null`이 된 것이 아니다.
+   */
   it('신규 테이블은 반대다 — 기본 권한 회수가 적용된다 (§7.1)', async () => {
     await asOwner('create table public.probe_default_table (id int)')
 
-    const row = await asOwner<{ acl: string | null; trunc: boolean }>(
+    const row = await asOwner<{
+      acl: string | null
+      owner_select: boolean
+      auth_truncate: boolean
+      service_delete: boolean
+      service_truncate: boolean
+    }>(
       `select c.relacl::text as acl,
-              has_table_privilege('authenticated', c.oid, 'TRUNCATE') as trunc
+              has_table_privilege('postgres',      c.oid, 'SELECT')   as owner_select,
+              has_table_privilege('authenticated', c.oid, 'TRUNCATE') as auth_truncate,
+              has_table_privilege('service_role',  c.oid, 'DELETE')   as service_delete,
+              has_table_privilege('service_role',  c.oid, 'TRUNCATE') as service_truncate
          from pg_class c
         where c.relnamespace = 'public'::regnamespace and c.relname = 'probe_default_table'`,
     )
 
-    expect(row.rows[0].acl).not.toBeNull()
-    expect(row.rows[0].trunc).toBe(false)
+    expect(row.rows[0].acl).toBeNull()
+    // 양성 대조 — 질의 형태가 틀려서 전부 false 가 되는 경로를 배제한다
+    expect(row.rows[0].owner_select).toBe(true)
+    expect(row.rows[0].auth_truncate).toBe(false)
+    // ★ `service_role` 축이 v2.2에서 닫혔다. 이 둘이 회수 전에는 **true**였고
+    //   AQ-11이 지목한 위험(DELETE → asset_prices CASCADE)이 미래 테이블에
+    //   살아 있었다 — 「0 DML」이 신규 객체에는 거짓이던 자리다
+    expect(row.rows[0].service_delete).toBe(false)
+    expect(row.rows[0].service_truncate).toBe(false)
+  })
+
+  it('신규 시퀀스도 같다 — 카탈로그가 항진명제인 축을 실물로 본다', async () => {
+    // **스키마에 시퀀스가 0개이므로 카탈로그 축은 항진명제다**(전부
+    // gen_random_uuid()). 그래서 시퀀스 방어는 카탈로그 열거로 관측할 수 없고
+    // 기본 ACL 단언이 유일한 수단이었다 — 그것은 `pg_default_acl`의 **내용**을
+    // 보는 것이지 신규 객체가 실제로 무엇을 받는지가 아니다.
+    //
+    // 여기서 시퀀스를 하나 만들어 그 간극을 없앤다. 회수 전 실측
+    // `postgres/S = {postgres=rwU/postgres, service_role=w/postgres}`가
+    // 신규 시퀀스에 `service_role`에게 UPDATE(= setval)를 부여했다
+    await asOwner('create sequence public.probe_default_sequence')
+
+    const row = await asOwner<{
+      acl: string | null
+      owner_usage: boolean
+      service_update: boolean
+      auth_update: boolean
+    }>(
+      `select c.relacl::text as acl,
+              has_sequence_privilege('postgres',      c.oid, 'USAGE')  as owner_usage,
+              has_sequence_privilege('service_role',  c.oid, 'UPDATE') as service_update,
+              has_sequence_privilege('authenticated', c.oid, 'UPDATE') as auth_update
+         from pg_class c
+        where c.relnamespace = 'public'::regnamespace
+          and c.relname = 'probe_default_sequence'`,
+    )
+
+    expect(row.rows[0].acl).toBeNull()
+    expect(row.rows[0].owner_usage).toBe(true)
+    expect(row.rows[0].service_update).toBe(false)
+    expect(row.rows[0].auth_update).toBe(false)
   })
 })
