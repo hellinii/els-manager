@@ -240,11 +240,14 @@ export default async function ProductDetailPage({
 }
 
 /**
- * 상단 요약 — **`deriveDisplay()`의 두 번째 소비자다**
+ * 상단 요약 — **`deriveDisplay()`의 소비자 셋 중 하나다**
  *
  * §4.2 우선순위(무결성 결함 > E-05 > E-01)를 여기서 다시 정하지 않는다. 목록과
  * 같은 함수에 **같은 세 필드**를 넘기므로(v1.4가 뷰에 담았다) 두 화면의 판정이
  * 갈릴 수 없고, 그 동일성은 `tests/db/map.test.ts`가 대조한다.
+ *
+ * > 종전 머리글은 「두 번째 소비자」였고 `ProductRow`도 **같은 커밋에서** 자기를
+ * > 「두 번째」로 적었다. 정본 목록은 `lib/format/derived.ts`의 표다(P4.5 정정).
  */
 function Summary({
   display,
