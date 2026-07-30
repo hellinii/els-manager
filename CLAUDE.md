@@ -38,7 +38,7 @@ Next.js (App Router) · TypeScript · Supabase (PostgreSQL + Auth + RLS) · Verc
 3. **`lib/tax`·`lib/domain`은 순수 모듈이다.** `lib/db`, `lib/providers`, `app`을 import할 수 없다. 프레임워크 API를 쓰지 않는다. 상수는 인자로 주입받는다.
 4. **`els_products`에 `status` 컬럼을 만들지 않는다.** 상태는 `redemptions` 레코드 존재로 유도한다.
 5. **세율·요율을 코드에 하드코딩하지 않는다.** `tax_brackets`·`tax_constants`에서 조회한다.
-6. **권한은 RLS로 강제한다.** 애플리케이션 검증으로 대체하지 않는다. 계약 계층 검증은 UX 목적의 보조 수단이다. **테이블을 추가하면 `enable row level security`를 함께 쓴다** — 빠뜨리면 정책·GRANT와 무관하게 전면 개방된다(fail-open). RLS는 GRANT 위에 얹히는 필터이므로 권한은 회수 후 명시 부여한다. **뷰를 추가하면 `security_invoker = true`를 함께 쓴다** — 기본값은 소유자 권한 실행이므로 RLS가 통째로 우회되며, 카탈로그 테스트는 실테이블만 열거해 이를 잡지 못한다(같은 부류의 fail-open, AQ-20). **함수를 추가하면 `revoke execute … from public`을 함께 쓰고 `security invoker`(기본값)를 유지한다** — `EXECUTE`는 테이블 권한과 달리 기본으로 `PUBLIC`에 부여되며, `security definer`는 정책을 통째로 우회한다(AQ-28). **Route Handler(`src/app/**/route.ts`)를 추가하면 `tests/app/invalidation.test.ts`의 `ROUTE_HANDLERS`에 함께 등재한다** — 라우트 원장의 스캐너가 `page.tsx`만 걷기 때문에 등재하지 않아도 「실재하는 라우트가 전부 등재되어 있다」가 **초록인 채로 거짓**이 되고, 다음 핸들러는 가드 0으로 들어온다. 원장은 프록시 매처와의 관계(`proxied`)를 함께 적는다 — 매처에 걸리는 핸들러는 미인증 요청에서 307을 받고 자기 코드가 실행되지 않는다(P5b 컷 1). **넷 다 같은 함정이다: 객체 종류가 늘어날 때 기존 열거가 따라오지 않는다.** 앞의 셋은 DB 카탈로그 단언이고 넷째는 라우트 원장이다. `10_아키텍처_및_기술결정.md` §7.1.
+6. **권한은 RLS로 강제한다.** 애플리케이션 검증으로 대체하지 않는다. 계약 계층 검증은 UX 목적의 보조 수단이다. **테이블을 추가하면 `enable row level security`를 함께 쓴다** — 빠뜨리면 정책·GRANT와 무관하게 전면 개방된다(fail-open). RLS는 GRANT 위에 얹히는 필터이므로 권한은 회수 후 명시 부여한다. **뷰를 추가하면 `security_invoker = true`를 함께 쓴다** — 기본값은 소유자 권한 실행이므로 RLS가 통째로 우회되며, 카탈로그 테스트는 실테이블만 열거해 이를 잡지 못한다(같은 부류의 fail-open, AQ-20). **함수를 추가하면 `revoke execute … from public`을 함께 쓰고 `security invoker`(기본값)를 유지한다** — `EXECUTE`는 테이블 권한과 달리 기본으로 `PUBLIC`에 부여되며, `security definer`는 정책을 통째로 우회한다(AQ-28). **Route Handler(`src/app/**/route.ts`)를 추가하면 `tests/app/invalidation.test.ts`의 `ROUTE_HANDLERS`에 함께 등재한다** — 라우트 원장의 스캐너가 `page.tsx`만 걷기 때문에 등재하지 않아도 「실재하는 라우트가 전부 등재되어 있다」가 **초록인 채로 거짓**이 되고, 다음 핸들러는 가드 0으로 들어온다. 원장은 프록시 매처와의 관계(`proxied`)를 함께 적는다 — 매처에 걸리는 핸들러는 미인증 요청에서 307을 받고 자기 코드가 실행되지 않는다(P5b 컷 1). **`src/` 아래 디렉터리를 추가하면 `eslint.config.mjs`에 `els/*` 규칙을 붙이거나 `tests/app/lint-coverage.test.ts`의 `EXEMPT`에 사유와 함께 등재한다** — 붙이지 않으면 그 디렉터리가 강제 변환 금지 **밖**에 있게 되는데 **위반자가 0인 동안 보이지 않는다**. 실제로 `src/lib/providers/**`가 그 상태였고(137개 중 5개가 밖) 그곳이 하필 **어댑터가 외부 JSON을 파싱하는 자리**다 — `Number(json.close)`는 형식이 정상이고 값만 거짓이며 `AUTO`로 저장되어 판정에 들어간다(P5b 컷 7). **다섯 다 같은 함정이다: 객체 종류가 늘어날 때 기존 열거가 따라오지 않는다.** 앞의 셋은 DB 카탈로그 단언이고 넷째는 라우트 원장, 다섯째는 **린트 글롭**이다 — 그리고 다섯째의 교훈은 **「겹치지 않는가」를 세는 열거는 「빠지지 않았는가」에 답하지 못한다**는 것이다. `10_아키텍처_및_기술결정.md` §7.1 · `13_배포_및_운영.md` §3.3.2.
 7. **사용자 간 금융소득을 합산하지 않는다.** 종합과세는 개인 단위다. 집계 키는 항상 `(owner_id, year)`.
 8. **손실 상환의 과세 금융소득은 0이다.** 음수가 될 수 없다. ELS 손실은 다른 금융소득과 통산되지 않는다. DB `CHECK`가 최종 보장이며(I-08) 계약 계층 검증(V-12)은 필드별 오류 표시용이다. **이 제약에 걸리는 상환이 나오면 제약을 푸는 것이 아니라 모델을 고쳐야 한다는 신호다** — `02_데이터_모델.md` §8.
 9. **용어와 식별자는 `05_용어_사전.md`를 따른다.** 동의어를 임의로 만들지 않는다.
@@ -68,6 +68,10 @@ npm run db:reset      # 마이그레이션 + seed/ 재적용
 npm run db:types      # 스키마 → src/types/database.types.ts 재생성
 npm run db:stop
 npx supabase migration new <name>
+
+npm run db:dump          # 운영 백업 3종 → ~/els-manager-backups/YYYY-MM-DD/
+npm run db:dump:check    # 최근 성공이 8일 안인가. CI에 없다 — 사람이 부른다
+npm run db:restore:drill -- <덤프디렉터리>   # 복구 대조. Docker 필요
 ```
 
 `npm run test`는 DB에 접근하지 않는다(ADR-003). 인프라를 요구하는 스위트는 **셋**이며 각각

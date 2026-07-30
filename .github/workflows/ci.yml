@@ -1,0 +1,48 @@
+# CI — DOC-013 §3.3
+#
+# `npm ci` → lint → typecheck → test. **인프라 스위트 셋(rls·integration·e2e)은 넣지
+# 않으며 그 이유와 잔여가 §3.3에 등재되어 있다.**
+#
+# 이 워크플로가 «가능한» 것 자체가 ADR-003의 배당금이다 — 「`npm run test`는 DB에
+# 접근하지 않는다」를 지킨 덕에 러너에 Docker를 세우지 않고 845건이 돈다.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# 같은 브랜치에서 연속 푸시하면 앞의 실행을 취소한다. 러너 시간이 무료 한도이므로
+# (C-01) 이미 낡은 커밋을 계속 돌릴 이유가 없다.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# ★ 저장소가 공개다(DOC-013 §5.3). 기본값을 명시적으로 좁힌다 — 이 워크플로는
+#   저장소를 읽기만 하면 되고, 토큰 권한을 적어 두지 않으면 조직 기본값이 바뀌는 날
+#   따라간다.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # `package.json`의 `engines`가 없으므로 여기가 유일한 선언 자리다.
+          # 로컬은 Node 22(`.nvmrc`가 없다 — 그 사실을 §3.3에 적었다).
+          node-version: '22'
+          cache: npm
+
+      # `npm ci`는 `package-lock.json`을 정본으로 삼고 어긋나면 실패한다.
+      # `npm install`이면 락파일을 «고쳐» 버려서 CI가 로컬과 다른 트리를 돈다.
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      # 845건. 인프라 스위트 셋은 여기 없다 — §3.3의 등재된 잔여다.
+      - run: npm run test

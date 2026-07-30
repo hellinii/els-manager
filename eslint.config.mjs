@@ -454,6 +454,36 @@ const eslintConfig = defineConfig([
     },
   },
 
+  {
+    /*
+     * 공급자 어댑터 — **위 주석이 예고한 빈칸을 메운다** (P5b 컷 7).
+     *
+     * `src/lib/providers/**`는 지금까지 `els/*` 어느 규칙에도 걸리지 않았다
+     * (실측: `src/`의 137개 중 5개가 밖이었고 이것이 그중 하나다). **위반자가
+     * 0인 동안 공백은 보이지 않는다** — 오늘 이 디렉터리에는 빈 레지스트리와 타입뿐이다.
+     *
+     * **그런데 여기가 이 저장소에서 강제 변환이 가장 자연스러운 자리다.** 어댑터는
+     * 외부 JSON을 파싱하고 `fetchDailyClose`는 `DecimalValue`를 반환한다 — 그 사이에
+     * `Number(json.close)`를 쓰면 **형식은 정상이고 값만 거짓**이 된다. 그리고 그 값은
+     * `asset_prices`에 `source = 'AUTO'`로 저장되어 워스트오브·배리어 판정에 들어가므로
+     * (ADR-004 v0.7의 스텁 각주와 같은 경로) **화면에 드러나지 않는다.**
+     *
+     * 규칙은 **다음 코드**를 위한 것이고 그 다음 코드가 P5a 컷 1~3의 어댑터다.
+     * 디렉터리를 만들고 규칙을 나중에 붙이면 그 사이가 공백이라는 것이 위 주석의
+     * 논지였고, 여기서 그 논지를 자기 자신에게 적용한다.
+     *
+     * 겹치지 않음: 위 다섯 + 이것 = **여섯**이며 `src/lib/providers/**`는 앞의 어느
+     * 집합과도 교집합이 없다. **그 사실을 이제 사람이 세지 않는다** —
+     * `tests/app/lint-coverage.test.ts`가 파일 단위로 대조한다.
+     */
+    name: "els/provider-values",
+    files: ["src/lib/providers/**/*.ts"],
+    rules: {
+      "no-restricted-globals": ["error", ...NO_COERCION_GLOBALS],
+      "no-restricted-syntax": ["error", ...NO_COERCION_SYNTAX],
+    },
+  },
+
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  주 1회 백업 — DOC-013 §8.2
+
+  설치는 `docs/13_배포_및_운영.md` §8.2.4의 절차를 따른다. 이 파일은 **템플릿이며
+  `~/Library/LaunchAgents/`에 복사해서 쓴다** — 저장소 안의 파일을 launchd가 직접
+  읽게 하면 브랜치를 바꾸는 것만으로 스케줄이 바뀐다.
+
+  ★ `<key>UserName</key>`을 쓰지 않는다 — LaunchAgent는 로그인한 사용자로 돈다.
+  ★ 경로에 `$HOME`을 쓸 수 없다(launchd는 셸이 아니다). 설치 절차가 `sed`로 치환한다.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.minseo.els-manager.backup</string>
+
+  <!--
+    로그인 셸이 아니므로 PATH가 최소다. `npx`·`docker`가 그 PATH에 없으면
+    `db-dump.sh`가 「docker가 없다」로 죽고 그것이 LAST_FAILURE에 남는다 —
+    조용히 실패하지 않는다는 뜻이며, 그래도 미리 넓혀 둔다.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/scripts/db-dump.sh</string>
+  </array>
+
+  <!--
+    매주 일요일 04:00. 사람이 기계를 쓰지 않는 시각이되 **잠들어 있을 수 있는** 시각이다 —
+    그래서 아래 두 키가 함께 필요하다.
+  -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>0</integer>
+    <key>Hour</key><integer>4</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <!--
+    `false`다 — 로그인할 때마다 덤프하지 않는다.
+
+    ★ **놓친 실행의 처리는 이 키가 아니라 `StartCalendarInterval` 자신의 동작이다.**
+    예정 시각에 기계가 «잠들어» 있었으면 launchd가 깨어난 뒤 한 번 돌린다. 그러나
+    기계가 «꺼져» 있었으면 그 실행은 사라진다 — 그것이 §8.4 잔여 ⓐ이고 plist로 닫히지
+    않는다. **닫는 것이 아니라 `db:dump:check`가 감지한다**(§8.2.2).
+
+    04:00 일요일을 고른 이유도 그것과 짝이다 — 사람이 안 쓰는 시각이되 노트북이 «잠든»
+    상태일 가능성이 높은 시각이며, 잠든 것은 launchd가 복구하고 꺼진 것은 검사가 잡는다.
+  -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!--
+    표준 출력·오류를 남긴다. `LAST_SUCCESS`/`LAST_FAILURE`가 요약이고 이쪽이 원문이다 —
+    실패 사유를 나중에 읽으려면 둘 다 필요하다.
+  -->
+  <key>StandardOutPath</key>
+  <string>__BACKUP_ROOT__/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__BACKUP_ROOT__/launchd.err.log</string>
+</dict>
+</plist>
