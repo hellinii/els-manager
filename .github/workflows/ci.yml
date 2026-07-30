@@ -27,9 +27,13 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 핀은 메이저다. v4는 Node 20 타깃이라 러너가 Node 24로 강제 실행하며 deprecation
+      # 경고를 낸다 — 무해하지만 **경고가 일상이 되면 진짜 경고가 묻힌다**(§3.3.1의
+      # 「항상 빨간 검사」와 같은 형태다). 실측 2026-07-31: checkout 최신 v7.0.1.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      # 실측 2026-07-31: setup-node 최신 v7.0.0(ESM 이전 + cache 출력 추가).
+      - uses: actions/setup-node@v7
         with:
           # `package.json`의 `engines`가 없으므로 여기가 유일한 선언 자리다.
           # 로컬은 Node 22(`.nvmrc`가 없다 — 그 사실을 §3.3에 적었다).
