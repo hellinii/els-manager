@@ -17,7 +17,10 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:status": "supabase status",
-    "db:types": "supabase gen types typescript --local --schema public > src/types/database.types.ts"
+    "db:types": "supabase gen types typescript --local --schema public > src/types/database.types.ts",
+    "db:dump": "bash scripts/db-dump.sh",
+    "db:dump:check": "bash scripts/db-dump-check.sh",
+    "db:restore:drill": "bash scripts/db-restore-drill.sh"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.3",
