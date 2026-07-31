@@ -30,6 +30,22 @@ import { UNDERLYING_SUBS } from '@/lib/forms/steps'
  * 행 삭제는 뒤의 행을 앞으로 당기므로(`removeRow`) 같은 인덱스에 다른 자산이 온다.
  * `useState`는 prop이 바뀌어도 초기값을 다시 읽지 않으므로, 부모가 `key`에 기본값을
  * 함께 넣어 그때 다시 마운트되게 한다(`ProductForm`의 각주).
+ *
+ * ## 자산 `<select>`는 **비제어**다 — 값에 묶으면 표시가 「선택」으로 떨어진다
+ *
+ * 이 칸은 `value={selected}`로 묶여 있었고 그것이 결함이었다(AQ-64). React는
+ * `<form action>` 제출마다 폼을 자동 초기화하는데(`requestFormReset` → 커밋 말미의
+ * 실제 `form.reset()`), 제어 경로는 `updateOptions(…, setDefaultSelected = false)`로
+ * 호출되어 **어떤 `<option>`도 `selected` 속성을 받지 못한다.** 마운트 경로도
+ * 제어일 때 같으므로 remount로도 낫지 않는다 — 그래서 초기화가 일치하는 옵션을
+ * 찾지 못하고 **첫 옵션(「선택」)으로 떨어진다.** 실사용에서 「행 추가를 누르면
+ * 자산이 「선택」으로 돌아간다」로 관측됐다.
+ *
+ * 그래서 DOM 값은 `defaultValue`가 정하고 `key`가 서버 값과 같은 식이다(값이 바뀌면
+ * remount → 마운트 경로가 `selected` 속성을 씀 → 초기화가 무연산). `useState`는
+ * 남는다 — **DOM을 몰지 않고 파생 표시만 먹인다**(목록 좁힘 · 통화 힌트). 즉
+ * 「값의 정본은 DOM이고 상태는 그 사본」이며, 서버 왕복 때는 `key`가 둘을 함께
+ * 맞춘다(remount가 `useState`의 초기값도 다시 읽는다).
  */
 
 export function UnderlyingRow({
@@ -101,7 +117,8 @@ export function UnderlyingRow({
         {(props) => (
           <select
             {...props}
-            value={selected}
+            key={values[assetName] ?? ''}
+            defaultValue={values[assetName] ?? ''}
             onChange={(event) => setSelected(event.target.value)}
             className={INPUT_CLASS}
           >

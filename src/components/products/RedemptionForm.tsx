@@ -35,8 +35,14 @@ import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
  * 즉 JS 없는 경로에서 잃는 것은 「미리 알려 주는 것」이고 잘못된 저장은 계약이
  * 막는다(I-08의 DB `CHECK`가 최종 보장이다 — 절대 규칙 #8).
  *
- * `<select>`를 제어 컴포넌트로 두어도 JS 없는 제출은 그대로다 — React가 서버 렌더에
- * `selected`를 넣으므로 브라우저가 그 값을 보낸다.
+ * ~~`<select>`를 제어 컴포넌트로 두어도 JS 없는 제출은 그대로다~~ — 그 문장은 참이지만
+ * **JS 있는 경로의 결함을 가렸다**(AQ-64). 서버 렌더가 `selected`를 넣는 것은 맞고
+ * 그래서 JS 없는 제출은 무사하다. 그러나 하이드레이션 이후에는 제어 경로가
+ * `updateOptions(…, setDefaultSelected = false)`로 호출되어 **어떤 옵션도 `selected`
+ * 속성을 갖지 않게 되고**, 제출마다 도는 자동 폼 초기화가 일치하는 옵션을 찾지 못해
+ * **첫 옵션으로 떨어진다.** 그래서 두 `<select>` 모두 `defaultValue` + 서버 값과 같은
+ * 식의 `key`로 두고, `useState`는 DOM을 몰지 않고 **파생 표시(만기손실 고정)만**
+ * 먹인다. 값의 정본은 DOM이고 서버 왕복 때 `key`가 둘을 함께 맞춘다.
  *
  * ## 증권사 용어를 인라인으로 안내한다
  *
@@ -95,7 +101,8 @@ export function RedemptionForm({
           {(props) => (
             <select
               {...props}
-              value={type}
+              key={values.redemptionType ?? ''}
+              defaultValue={values.redemptionType ?? ''}
               onChange={(event) => setType(event.target.value)}
               className={INPUT_CLASS}
             >
@@ -122,6 +129,7 @@ export function RedemptionForm({
           {(props) => (
             <select
               {...props}
+              key={values.roundNo ?? ''}
               defaultValue={values.roundNo ?? ''}
               className={INPUT_CLASS}
             >

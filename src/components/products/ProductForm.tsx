@@ -314,6 +314,11 @@ function BasicStep({ state }: StepProps) {
           {(props) => (
             <select
               {...props}
+              // `key`가 `defaultValue`와 같은 식이다 — AQ-64. 비제어 `<select>`는
+              // 마운트 때만 `selected` 속성을 얻으므로 서버 값이 바뀌어도 표시가
+              // 따라오지 않고, 제출마다 도는 자동 폼 초기화가 그 낡은 속성으로
+              // 되돌린다(표시는 「선택」이 되고 내부 값만 남는다).
+              key={values.accountType ?? ''}
               defaultValue={values.accountType ?? ''}
               className={INPUT_CLASS}
             >

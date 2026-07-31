@@ -49,6 +49,18 @@ export function AssetForm() {
           {(props) => (
             <select
               {...props}
+              /*
+               * `key`가 `defaultValue`와 같은 식이다 — AQ-64. 이 칸이 「연속으로
+               * 자산을 등록하면 조용히 실패한다」의 원인이었다: 실패 응답은
+               * `valuesOf(form)`으로 유형을 보존하는데 비제어 `<select>`가
+               * remount되지 않아 자동 폼 초기화가 마운트 시점의 빈 값으로
+               * 되돌렸고, 다음 제출이 `assetType=''`로 나가 같은
+               * `VALIDATION_FAILED`(「입력값을 확인한다」)를 반복했다.
+               *
+               * 성공 응답은 값을 비우므로(`prices/actions.ts`) `key`가 그대로
+               * 빈 값이고 초기화가 유형까지 비운다 — 그것이 의도된 동작이다.
+               */
+              key={state.values.assetType ?? ''}
               defaultValue={state.values.assetType ?? ''}
               className={INPUT_CLASS}
             >

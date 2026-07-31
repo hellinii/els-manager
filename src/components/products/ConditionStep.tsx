@@ -124,6 +124,14 @@ export function ConditionStep({ state }: { state: FormState }) {
           {(props) => (
             <select
               {...props}
+              /*
+               * `key`가 `defaultValue`와 같은 식이다 — AQ-64. 이 칸이 실사용에서
+               * 관측된 자리다: 「일괄 적용」은 같은 폼에 머무는 제출이므로 비제어
+               * `<select>`가 remount되지 않고, 자동 폼 초기화가 마운트 시점의
+               * 낡은 속성(빈 값 = 「선택」)으로 표시를 되돌렸다. 내부 값은 남아
+               * 있으므로 사용자는 안 들어간 줄 알고 다시 고르게 된다.
+               */
+              key={values.kiObservation ?? ''}
               defaultValue={values.kiObservation ?? ''}
               className={INPUT_CLASS}
             >
