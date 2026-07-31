@@ -1,4 +1,7 @@
-import { generateEvaluationDates } from '@/lib/domain'
+import {
+  EVALUATION_DATE_OFFSET_DAYS,
+  generateEvaluationDates,
+} from '@/lib/domain'
 
 import { MAX_ROUNDS, countOf, roundCountOf } from './steps'
 
@@ -44,6 +47,9 @@ export function previewDates(input: {
       issueDate: input.issueDate.trim(),
       evaluationPeriodMonths: input.evaluationPeriodMonths,
       totalRounds: Math.min(input.totalRounds, MAX_ROUNDS),
+      // 기산 규약을 여기서 다시 정하지 않는다 — 상수가 `lib/domain`에 있고
+      // 인자가 필수이므로 새 호출부가 조용히 규약을 빠뜨릴 수 없다.
+      offsetDays: EVALUATION_DATE_OFFSET_DAYS,
     })
   } catch {
     /*

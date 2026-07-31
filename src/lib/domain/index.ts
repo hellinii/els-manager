@@ -29,10 +29,12 @@ export { evaluateCondition, type ConditionParams } from './condition'
 export {
   attributionYear,
   dDay,
+  EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
   isPast,
   nextEvaluation,
   overdueEvaluations,
+  shiftDays,
   type OverdueEvaluation,
 } from './schedule'
 

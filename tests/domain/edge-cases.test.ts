@@ -13,10 +13,12 @@ import {
 import {
   attributionYear,
   dDay,
+  EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
   isPast,
   nextEvaluation,
   overdueEvaluations,
+  shiftDays,
 } from '@/lib/domain/schedule'
 import { active } from '../fixtures/active'
 import { expectAmount } from '../fixtures/assert'
@@ -473,6 +475,11 @@ describe('포트폴리오 손익 (DOC-005 §8.5)', () => {
   })
 })
 
+/*
+ * 아래 다섯은 **순수 달력 사실**이므로 `offsetDays: 0`으로 고정한다 — 월말 클램프·
+ * 윤년·타임존은 기산 규약과 무관하고, 규약을 섞으면 그 사실을 확인하는 케이스가
+ * 규약이 바뀔 때마다 함께 흔들린다. 규약 자체는 다음 describe가 본다.
+ */
 describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
   it('발행일 + 평가주기 × 차수로 생성한다', () => {
     expect(
@@ -480,6 +487,7 @@ describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
         issueDate: '2026-01-15',
         evaluationPeriodMonths: 6,
         totalRounds: 6,
+        offsetDays: 0,
       }),
     ).toEqual([
       '2026-07-15',
@@ -498,6 +506,7 @@ describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
         issueDate: '2026-08-31',
         evaluationPeriodMonths: 6,
         totalRounds: 2,
+        offsetDays: 0,
       }),
     ).toEqual(['2027-02-28', '2027-08-31'])
   })
@@ -509,6 +518,7 @@ describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
         issueDate: '2027-08-31',
         evaluationPeriodMonths: 6,
         totalRounds: 1,
+        offsetDays: 0,
       }),
     ).toEqual(['2028-02-29'])
   })
@@ -521,6 +531,7 @@ describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
         issueDate: '2026-01-31',
         evaluationPeriodMonths: 1,
         totalRounds: 3,
+        offsetDays: 0,
       }),
     ).toEqual(['2026-02-28', '2026-03-31', '2026-04-30'])
   })
@@ -532,8 +543,129 @@ describe('평가일정 생성 (S-02, DOC-007 §7.2)', () => {
         issueDate: '2026-01-01',
         evaluationPeriodMonths: 12,
         totalRounds: 1,
+        offsetDays: 0,
       }),
     ).toEqual(['2027-01-01'])
+  })
+})
+
+describe('평가일 기산 규약 — −1일 (DOC-007 §11 RD-03, DOC-002 §4.8)', () => {
+  it('전 차수가 산식보다 하루 앞이다', () => {
+    // 실보유 11건의 형태다. 발행일 2026-06-26이 3건에 있었다
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-06-26',
+        evaluationPeriodMonths: 6,
+        totalRounds: 6,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual([
+      '2026-12-25',
+      '2027-06-25',
+      '2027-12-25',
+      '2028-06-25',
+      '2028-12-25',
+      '2029-06-25',
+    ])
+  })
+
+  it('음성 대조 — offsetDays 0이면 옛 값이 그대로 나온다', () => {
+    const params = {
+      issueDate: '2026-06-26',
+      evaluationPeriodMonths: 6,
+      totalRounds: 2,
+    }
+    expect(generateEvaluationDates({ ...params, offsetDays: 0 })).toEqual([
+      '2026-12-26',
+      '2027-06-26',
+    ])
+    expect(
+      generateEvaluationDates({
+        ...params,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual(['2026-12-25', '2027-06-25'])
+  })
+
+  it('★ 월 이동 → 클램프 → 일 이동 순서다 — 월말에서 둘이 갈린다', () => {
+    /*
+     * 2026-08-31 + 6개월:
+     *   채택 — 클램프(2027-02-28) 후 −1일 → 2027-02-27
+     *   기각 — −1일(2026-08-30) 후 월 이동 → 2027-02-28
+     * 기각안이 우연히 클램프 없는 값과 같아지므로, 이 케이스가 순서를 고정한다.
+     */
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-08-31',
+        evaluationPeriodMonths: 6,
+        totalRounds: 1,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual(['2027-02-27'])
+  })
+
+  it('월·연·윤년 경계를 넘는다', () => {
+    // 1일에서 하루 빼면 전월 말일이고, 1월 1일이면 전년 12월 31일이다
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-03-01',
+        evaluationPeriodMonths: 12,
+        totalRounds: 1,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual(['2027-02-28'])
+
+    expect(
+      generateEvaluationDates({
+        issueDate: '2027-03-01',
+        evaluationPeriodMonths: 12,
+        totalRounds: 1,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual(['2028-02-29'])
+
+    expect(
+      generateEvaluationDates({
+        issueDate: '2026-01-01',
+        evaluationPeriodMonths: 12,
+        totalRounds: 1,
+        offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+      }),
+    ).toEqual(['2026-12-31'])
+  })
+
+  it('정수가 아닌 보정을 거부한다', () => {
+    expect(() =>
+      generateEvaluationDates({
+        issueDate: '2026-01-15',
+        evaluationPeriodMonths: 6,
+        totalRounds: 1,
+        offsetDays: 1.5,
+      }),
+    ).toThrow(RangeError)
+  })
+})
+
+describe('shiftDays — 일 가산 (DOC-002 §4.8)', () => {
+  it('월·연·윤년 경계를 넘는다', () => {
+    expect(shiftDays('2026-03-01', -1)).toBe('2026-02-28')
+    expect(shiftDays('2028-03-01', -1)).toBe('2028-02-29')
+    expect(shiftDays('2026-01-01', -1)).toBe('2025-12-31')
+    expect(shiftDays('2026-12-31', 1)).toBe('2027-01-01')
+    expect(shiftDays('2026-02-28', 1)).toBe('2026-03-01')
+  })
+
+  it('0은 항등이다 — 왕복이 값을 바꾸지 않는다', () => {
+    // 에포크 왕복에 타임존이 개입하면 여기서 하루가 밀린다
+    for (const iso of ['2026-01-01', '2026-06-26', '2026-12-31', '2028-02-29']) {
+      expect(shiftDays(iso, 0)).toBe(iso)
+    }
+  })
+
+  it('형식·값 위반과 비정수 가산을 거부한다', () => {
+    expect(() => shiftDays('2026-1-1', -1)).toThrow(RangeError)
+    expect(() => shiftDays('2026-02-30', -1)).toThrow(RangeError)
+    expect(() => shiftDays('2026-01-01', 0.5)).toThrow(RangeError)
   })
 })
 

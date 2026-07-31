@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { today } from '@/lib/db/today'
-import { dDay, generateEvaluationDates } from '@/lib/domain'
+import {
+  dDay,
+  EVALUATION_DATE_OFFSET_DAYS,
+  generateEvaluationDates,
+  shiftDays,
+} from '@/lib/domain'
 import {
   ATTENTION_REASON_LABELS,
   IMMINENT_DAYS,
@@ -130,11 +135,8 @@ function rowOf(html: string, productName: string): string {
 // 발행일을 기준일에서 거꾸로 만든다
 // ---------------------------------------------------------------------------
 
-function shiftDays(iso: string, days: number): string {
-  const t = new Date(`${iso}T00:00:00Z`)
-  t.setUTCDate(t.getUTCDate() + days)
-  return t.toISOString().slice(0, 10)
-}
+// `shiftDays`는 `lib/domain`에서 온다 — 사본을 두면 앱과 갈릴 수 있고,
+// 이 파일의 전제가 「앱이 저장할 때 쓴 함수와 같은 것으로 검산한다」다.
 
 function monthsBefore(iso: string, months: number): string {
   const t = new Date(`${iso}T00:00:00Z`)
@@ -161,6 +163,7 @@ function issueDateForFirstRound(
       issueDate: candidate,
       evaluationPeriodMonths: 6,
       totalRounds: 3,
+      offsetDays: EVALUATION_DATE_OFFSET_DAYS,
     })
     const d = dDay({ from: asOf, evaluationDate: first! })
     if (d >= window.min && d <= window.max) return candidate
@@ -175,6 +178,7 @@ function firstRoundOf(product: RegisteredProduct): string {
     issueDate: product.issueDate,
     evaluationPeriodMonths: 6,
     totalRounds: product.barriers.length,
+    offsetDays: EVALUATION_DATE_OFFSET_DAYS,
   })[0]!
 }
 

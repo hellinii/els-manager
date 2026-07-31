@@ -8,8 +8,13 @@ import type { RedemptionMark } from './redemption'
  * 파싱되고 로컬 타임존에서 읽으면 하루가 밀린다. 서버·클라이언트에서 동일
  * 결과를 보장해야 하므로(ADR-003) 타임존이 개입할 여지를 두지 않는다.
  *
- * 평가일 영업일 조정은 수행하지 않는다(RD-03 보류). 생성값은 계약 조건의
- * 초기값이며 사용자가 수정한다(DOC-002 §4.8).
+ * **기산 규약은 적용하고 영업일 조정은 하지 않는다** — 둘은 다른 것이다(RD-03).
+ * 규약은 `발행일 + n × 주기 − 1일`이며 실보유 11건 65차수 전부에서 일정하게
+ * 그 형태였다. 휴장일 단위의 조정은 여전히 수단이 없다(자료원이 없다).
+ *
+ * **평가일에는 화면 입력 칸이 없고 만들지 않는다.** 규약이 전역이므로 재생성이
+ * 멱등이고(저장값이 이미 이 산식의 결과다) 그래서 DOC-011 §5.2의 전체 교체와
+ * 충돌하지 않는다 — DOC-002 §4.8이 그 판단과 뒤집힐 조건을 적는다.
  */
 
 type YearMonthDay = { year: number; month: number; day: number }
@@ -86,22 +91,89 @@ function toEpochDay({ year, month, day }: YearMonthDay): number {
 }
 
 /**
- * 차수별 평가일을 생성한다 — `issue_date + evaluation_period_months × n`
+ * `toEpochDay`의 역. **UTC 게터만 쓴다** — `getMonth()`·`getDate()`는 로컬
+ * 타임존에서 읽어 하루가 밀린다(이 파일 머리글의 그 함정이다). 정방향이
+ * `Date.UTC`이므로 역방향도 UTC여야 왕복이 항등이다.
+ */
+function fromEpochDay(epochDay: number): YearMonthDay {
+  const at = new Date(epochDay * 86_400_000)
+  return {
+    year: at.getUTCFullYear(),
+    month: at.getUTCMonth() + 1,
+    day: at.getUTCDate(),
+  }
+}
+
+/**
+ * 일 가산 — 월·연 넘김과 윤년을 에포크 일 수로 흡수한다.
+ *
+ * 월 가산(`addMonths`)과 달리 클램핑이 없다. 「3월 32일」이 만들어질 여지가
+ * 없으므로 보정할 것이 없다.
+ */
+export function shiftDays(iso: string, days: number): string {
+  if (!Number.isInteger(days)) {
+    throw new RangeError(`일 가산은 정수여야 한다: ${days}`)
+  }
+  return formatIsoDate(fromEpochDay(toEpochDay(parseIsoDate(iso)) + days))
+}
+
+/**
+ * 평가일 기산 규약 — `발행일 + n × 주기` **에서 하루 앞**이다 (DOC-007 §11 RD-03)
+ *
+ * 증권사 통지서의 평가일이 그 형태였다. 실보유 ELS 11건 65차수 전부에서
+ * **일정하게** −1일이며, 그 균일성이 이것을 영업일 조정과 가르는 근거다 —
+ * 휴장일 조정이면 휴일에 걸린 일부 차수만 움직이고 방향도 통상 `+`다.
+ *
+ * **전역 규약이므로 상품별 차이를 표현하지 못한다.** 다른 규약의 상품이 오면
+ * 그 상품의 전 차수가 하루씩 틀리고 화면에 그 사실을 말할 자리가 없다 —
+ * RD-03의 잔여 ⓑ로 등재되어 있다.
+ */
+export const EVALUATION_DATE_OFFSET_DAYS = -1
+
+/**
+ * 차수별 평가일을 생성한다 — `issue_date + evaluation_period_months × n + offsetDays`
  *
  * 반환 배열의 인덱스 `i`가 차수 `i + 1`에 대응한다.
+ *
+ * ## 순서가 월말에서 갈린다 — 월 이동 → 클램프 → 일 이동이다
+ *
+ * `발행일 2026-08-31`, 주기 6개월, `offsetDays = -1`:
+ *
+ * - **채택** — `+6개월 → 2027-02-28`(클램프) `→ −1일 → 2027-02-27`
+ * - 기각 — `−1일 → 2026-08-30 → +6개월 → 2027-02-28`
+ *
+ * 「n개월 후의 전일」의 자연스러운 읽기가 앞쪽이고, **클램프가 먼저인 것이
+ * `addMonths`의 성질을 보존한다**(항상 발행일 기준 가산으로 클램프 전파를 막는
+ * 것 — 일 이동을 먼저 하면 기준 자체가 바뀌어 그 성질이 깨진다).
+ *
+ * ## `offsetDays`가 필수 인자인 이유
+ *
+ * 기본값을 주면 새 호출부가 **조용히 규약을 안 따를 수 있다.** 필수면
+ * 컴파일러가 잡고, 기존 호출부 전부가 무엇을 쓰는지 명시하게 된다. 상수는
+ * `EVALUATION_DATE_OFFSET_DAYS`이며 달력 사실만 원하는 호출부는 `0`을 넘긴다.
  */
 export function generateEvaluationDates(params: {
   issueDate: string
   evaluationPeriodMonths: number
   totalRounds: number
+  offsetDays: number
 }): string[] {
   assertPositiveInteger(params.evaluationPeriodMonths, '평가주기(개월)')
   assertPositiveInteger(params.totalRounds, '총 평가 차수')
+  if (!Number.isInteger(params.offsetDays)) {
+    throw new RangeError(`평가일 기산 보정은 정수여야 한다: ${params.offsetDays}`)
+  }
 
   const issue = parseIsoDate(params.issueDate)
 
   return Array.from({ length: params.totalRounds }, (_, index) =>
-    formatIsoDate(addMonths(issue, params.evaluationPeriodMonths * (index + 1))),
+    formatIsoDate(
+      fromEpochDay(
+        toEpochDay(
+          addMonths(issue, params.evaluationPeriodMonths * (index + 1)),
+        ) + params.offsetDays,
+      ),
+    ),
   )
 }
 

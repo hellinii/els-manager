@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
+import {
+  EVALUATION_DATE_OFFSET_DAYS,
+  generateEvaluationDates,
+} from '@/lib/domain'
 import { narrowAssets } from '@/lib/forms/assets'
 import { barrierNotice, parseBarrierList } from '@/lib/forms/barriers'
 import { parseProductForm } from '@/lib/forms/parse'
@@ -677,16 +681,34 @@ describe('자산 좁힘', () => {
 // ---------------------------------------------------------------------------
 
 describe('평가일 미리보기', () => {
-  it('발행일 + 주기 × n이다', () => {
+  it('발행일 + 주기 × n − 1일이다 — 기산 규약이 실려 있다', () => {
     expect(
       previewDates({ issueDate: '2026-01-02', evaluationPeriodMonths: 6, totalRounds: 3 }),
-    ).toEqual(['2026-07-02', '2027-01-02', '2027-07-02'])
+    ).toEqual(['2026-07-01', '2027-01-01', '2027-07-01'])
   })
 
-  it('말일은 클램핑된다 — `lib/domain`의 규칙 하나를 쓴다', () => {
+  it('★ 규약을 이 계층에서 다시 정하지 않는다 — 상수를 그대로 쓴다', () => {
+    /*
+     * 기대값을 손으로 적으면 규약이 바뀔 때 이 파일이 조용히 낡는다. 상수에서
+     * 파생시키면 「폼이 도메인의 규약을 그대로 나른다」가 명제가 된다 — 화면과
+     * 파서가 같은 함수를 부르는 성질(`schedules.ts` 머리글)의 테스트 판이다.
+     */
+    const input = { issueDate: '2026-06-26', evaluationPeriodMonths: 6, totalRounds: 6 }
+    expect(previewDates(input)).toEqual(
+      generateEvaluationDates({ ...input, offsetDays: EVALUATION_DATE_OFFSET_DAYS }),
+    )
+    // 음성 대조 — 규약이 실리지 않았다면 이 단언이 통과한다
+    expect(previewDates(input)).not.toEqual(
+      generateEvaluationDates({ ...input, offsetDays: 0 }),
+    )
+  })
+
+  it('말일 클램핑 뒤에 일 이동이 온다 — `lib/domain`의 규칙 하나를 쓴다', () => {
+    // 1/31 + 1개월 → 2/28(클램프) → −1일 → 2/27.
+    // 일 이동이 먼저면 1/30 + 1개월 = 2/28이 되어 갈린다
     expect(
       previewDates({ issueDate: '2026-01-31', evaluationPeriodMonths: 1, totalRounds: 2 }),
-    ).toEqual(['2026-02-28', '2026-03-31'])
+    ).toEqual(['2026-02-27', '2026-03-30'])
   })
 
   it('덜 채운 폼에서 던지지 않는다', () => {
@@ -775,16 +797,17 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
         },
       ],
       schedules: [
-        { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' },
+        // 발행일 2026-01-02 + 6n − 1일 (기산 규약)
+        { roundNo: 1, evaluationDate: '2026-07-01', barrier: '0.9000' },
         {
           roundNo: 2,
-          evaluationDate: '2027-01-02',
+          evaluationDate: '2027-01-01',
           barrier: '0.8500',
           lizardBarrier: '0.6000',
           lizardCouponRate: '0.0300',
           lizardRequiresNoKi: true,
         },
-        { roundNo: 3, evaluationDate: '2027-07-02', barrier: '0.8000' },
+        { roundNo: 3, evaluationDate: '2027-07-01', barrier: '0.8000' },
       ],
     })
   })
@@ -827,7 +850,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
     expect('note' in input).toBe(false)
     expect(input.schedules[0]).toEqual({
       roundNo: 1,
-      evaluationDate: '2026-04-02',
+      evaluationDate: '2026-04-01',
       barrier: '0.9500',
     })
   })
@@ -836,7 +859,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
     /*
      * DB에 그 조합을 막는 제약이 없다(I-10은 반대 방향만 본다). 보내면 **아무
      * 판정도 읽지 않는 값**이 저장되고, 그 사실은 어디에도 나타나지 않는다.
-     * ④ 미리보기가 「리자드 없음」을 보여주므로 이 누락은 저장 전에 확인된다.
+     * 차수표가 「리자드 없음」을 보여주므로 이 누락은 저장 전에 확인된다.
      */
     const input = parseProductForm(
       formData({
@@ -851,7 +874,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
     )
     expect(input.schedules[0]).toEqual({
       roundNo: 1,
-      evaluationDate: '2026-07-02',
+      evaluationDate: '2026-07-01',
       barrier: '0.9000',
     })
   })

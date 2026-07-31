@@ -1,6 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
-import { generateEvaluationDates } from '@/lib/domain'
+import {
+  EVALUATION_DATE_OFFSET_DAYS,
+  generateEvaluationDates,
+} from '@/lib/domain'
 import { STATUS_LABELS, korMonth, percent, ymd } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
 import { SCHEDULE_KEYS } from '@/lib/forms/query'
@@ -112,6 +115,7 @@ function evaluationDatesOf(product: RegisteredProduct): string[] {
     issueDate: product.issueDate,
     evaluationPeriodMonths: 6,
     totalRounds: product.barriers.length,
+    offsetDays: EVALUATION_DATE_OFFSET_DAYS,
   })
 }
 
