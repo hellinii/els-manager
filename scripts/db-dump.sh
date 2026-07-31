@@ -66,8 +66,20 @@ set -a; . "$ENV_FILE"; set +a
 command -v docker >/dev/null 2>&1 || fail "docker가 없다 — supabase db dump가 컨테이너를 요구한다"
 docker info >/dev/null 2>&1 || fail "docker가 돌지 않는다"
 
-mkdir -p "$DEST" || fail "목적지를 만들 수 없다: $DEST"
-note "목적지 $DEST"
+# ---------------------------------------------------------------------------
+# ★ 임시 디렉터리에 쓰고 «성공한 뒤에만» 옮긴다 *(실측이 요구한 것, 2026-07-31)*
+#
+# 종전에는 목적지에 바로 썼다. 그러다 캠퍼스 네트워크에서 roles 덤프가 실패했더니
+# **어제 성공분(`schema.sql`·`data.sql`)과 오늘 실패분(0바이트 `roles.sql`)이 한
+# 디렉터리에 섞였다.** 그 디렉터리는 **그럴듯해 보이고**, 복구 훈련이 실제로 그것을
+# 「✓ 통과」로 읽었다 — 부분 실패가 남긴 잔해가 유효한 백업으로 위장한다.
+#
+# 임시로 쓰면 실패한 실행이 **직전 성공분을 건드리지 않는다.**
+# ---------------------------------------------------------------------------
+STAGE="$ROOT/.staging-$$"
+rm -rf "$STAGE"
+mkdir -p "$STAGE" || fail "임시 디렉터리를 만들 수 없다: $STAGE"
+note "목적지 $DEST (임시 $STAGE)"
 
 # ---------------------------------------------------------------------------
 # 3종 — 순서가 복구 순서다 (roles → schema → data)
@@ -76,8 +88,9 @@ dump() {
   local name="$1"; shift
   note "덤프 $name …"
   if ! npx --no-install supabase db dump --db-url "$BACKUP_DB_URL" "$@" \
-        -f "$DEST/$name.sql" >"$DEST/$name.log" 2>&1; then
-    fail "$name 덤프가 실패했다 (로그: $DEST/$name.log)"
+        -f "$STAGE/$name.sql" >"$STAGE/$name.log" 2>&1; then
+    cp "$STAGE/$name.log" "$ROOT/last-$name.log" 2>/dev/null || true
+    fail "$name 덤프가 실패했다 (로그: $ROOT/last-$name.log). 직전 성공분은 건드리지 않았다"
   fi
 }
 
@@ -88,13 +101,19 @@ dump data   -s public --data-only --use-copy
 # ---------------------------------------------------------------------------
 # 비공허성 검사 — 「0으로 끝났다」와 「내용이 있다」는 다른 명제다
 # ---------------------------------------------------------------------------
-[[ -s "$DEST/roles.sql" ]] || fail "roles.sql이 비어 있다"
-grep -q '^CREATE TABLE' "$DEST/schema.sql" || fail "schema.sql에 CREATE TABLE이 없다"
-grep -q '^COPY '        "$DEST/data.sql"   || fail "data.sql에 COPY 블록이 없다"
+[[ -s "$STAGE/roles.sql" ]] || fail "roles.sql이 비어 있다"
+grep -q '^CREATE TABLE' "$STAGE/schema.sql" || fail "schema.sql에 CREATE TABLE이 없다"
+grep -q '^COPY '        "$STAGE/data.sql"   || fail "data.sql에 COPY 블록이 없다"
 
-tables=$(grep -c '^CREATE TABLE' "$DEST/schema.sql")
-copies=$(grep -c '^COPY '        "$DEST/data.sql")
+tables=$(grep -c '^CREATE TABLE' "$STAGE/schema.sql")
+copies=$(grep -c '^COPY '        "$STAGE/data.sql")
 note "검사 통과 — CREATE TABLE ${tables}건 · COPY ${copies}블록"
+
+# ---------------------------------------------------------------------------
+# 검사를 통과한 뒤에만 «옮긴다» — 이 한 줄이 부분 실패의 잔해를 막는다
+# ---------------------------------------------------------------------------
+rm -rf "$DEST"
+mv "$STAGE" "$DEST" || fail "임시 디렉터리를 옮길 수 없다"
 
 # ---------------------------------------------------------------------------
 # 성공 기록 — db-dump-check.sh가 이 파일의 나이를 본다

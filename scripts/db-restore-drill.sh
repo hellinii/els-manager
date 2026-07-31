@@ -32,9 +32,33 @@ SOURCE_URL=""
 CONTAINER="${LOCAL_DB_CONTAINER:-supabase_db_els-manager}"
 DRILL_DB="${DRILL_DB:-restore_drill}"
 
-for f in schema data; do
-  [[ -s "$DUMP_DIR/$f.sql" ]] || { echo "✗ $DUMP_DIR/$f.sql 이 없거나 비어 있다" >&2; exit 1; }
+# ---------------------------------------------------------------------------
+# ★ 덤프의 «완전성»과 «동시성»을 먼저 본다 *(실측이 요구한 것, 2026-07-31)*
+#
+# 캠퍼스 네트워크에서 roles 덤프만 실패했더니 어제 성공분과 오늘 0바이트 파일이 한
+# 디렉터리에 섞였고, **이 스크립트가 그것을 「✓ 통과」로 읽었다.** 셋이 «같은 실행»에서
+# 나왔는지 보지 않으면 훈련이 잔해를 검증하고 초록을 낸다 — 검증하려던 것과 다른 명제다.
+# (덤프 쪽도 임시 디렉터리 → 이동으로 고쳤다. 여기는 «두 번째» 방어다 — 손으로 만든
+#  디렉터리나 옛 백업을 넘기는 경로가 여전히 있기 때문이다.)
+# ---------------------------------------------------------------------------
+for f in roles schema data; do
+  [[ -s "$DUMP_DIR/$f.sql" ]] || {
+    echo "✗ $DUMP_DIR/$f.sql 이 없거나 «비어 있다» — 부분 실패의 잔해일 수 있다" >&2
+    echo "  셋이 한 실행에서 나와야 한다. 다시 덤프한다: npm run db:dump" >&2
+    exit 1; }
 done
+SPREAD=$(python3 -c "
+import os, sys
+d = sys.argv[1]
+ts = [os.path.getmtime(os.path.join(d, f + '.sql')) for f in ('roles', 'schema', 'data')]
+print(int(max(ts) - min(ts)))
+" "$DUMP_DIR")
+if [[ "$SPREAD" -gt 600 ]]; then
+  echo "✗ 세 파일의 시각이 ${SPREAD}초 벌어져 있다 — «같은 실행»의 산출물이 아니다" >&2
+  echo "  부분 실패가 직전 성공분과 섞인 상태다. 다시 덤프한다: npm run db:dump" >&2
+  exit 1
+fi
+echo "▶ 0단계 — 덤프 셋이 한 실행의 것이다 (시각 차 ${SPREAD}초)"
 
 psql_drill() { docker exec -i "$CONTAINER" psql -U postgres -d "$DRILL_DB" "$@"; }
 
