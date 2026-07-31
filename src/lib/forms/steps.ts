@@ -403,9 +403,26 @@ export function removeRow(
  * ## 총 차수가 비어 있으면 채운다
  *
  * 비어 있을 때만 채운다 — 사용자가 적은 숫자를 우리가 바꾸지 않는다. 다르면
- * 안내로 알린다(V-03이 저장 시점에 같은 사실을 오류로 말한다).
+ * 안내로 알린다. **저장 시점의 backstop은 없다** — V-03이 그 사실을 말한다고
+ * 적었던 것은 거짓이었다(양쪽이 같은 칸에서 파생되어 항등이다). DOC-011 §9 AQ-63.
+ *
+ * ## 두 모드가 있다 — 누가 부르는가가 다르다
+ *
+ * | 모드 | 부르는 곳 | 이미 적힌 칸 |
+ * |---|---|---|
+ * | `OVERWRITE` | 「일괄 적용」 버튼 | **덮는다.** 사용자가 그 버튼을 누른 뜻이다 |
+ * | `FILL_EMPTY` | 저장 제출 | **건드리지 않는다.** 차수별로 적은 값을 지우면 조용한 손실이다 |
+ *
+ * `FILL_EMPTY`가 있는 이유는 차수표가 **마지막으로 제출된** 총 차수를 보고 그려지기
+ * 때문이다. 단계형에서는 ③→④ 이동이 제출이라 저장 전에 표가 반드시 한 번 그려졌고
+ * 그 함정이 가려져 있었다. 단일 페이지에는 강제되는 제출이 없으므로, 총 차수와 일괄
+ * 칸을 채운 뒤 곧바로 저장하면 **DOM에 없던 칸에 배리어 필수 오류 N개**가 뜬다 —
+ * 값을 다 맞게 넣었는데도. 그래서 저장이 펼침을 먼저 수행한다.
  */
-export function applyBarriers(values: Record<string, string>): {
+export function applyBarriers(
+  values: Record<string, string>,
+  mode: 'OVERWRITE' | 'FILL_EMPTY' = 'OVERWRITE',
+): {
   values: Record<string, string>
   notice: string
 } {
@@ -424,7 +441,9 @@ export function applyBarriers(values: Record<string, string>): {
 
   const rounds = roundCountOf(next)
   for (let index = 0; index < Math.min(rounds, list.tokens.length); index += 1) {
-    next[path('schedules', index, 'barrier')] = list.tokens[index]!
+    const name = path('schedules', index, 'barrier')
+    if (mode === 'FILL_EMPTY' && (next[name] ?? '').trim() !== '') continue
+    next[name] = list.tokens[index]!
   }
 
   return { values: next, notice: barrierNotice(list, rounds) }
@@ -479,7 +498,22 @@ export function transition(form: FormData): Transition {
       break
     }
     case 'APPLY_BARRIERS': {
-      const applied = applyBarriers(raw)
+      const applied = applyBarriers(raw, 'OVERWRITE')
+      raw = applied.values
+      notice = applied.notice
+      break
+    }
+    case 'SUBMIT': {
+      /*
+       * 저장도 일괄 칸을 펼친다 — 다만 **빈 칸에만**. 근거는 `applyBarriers`의
+       * 각주에 있다(차수표는 마지막으로 제출된 총 차수를 보고 그려지므로, 강제되는
+       * 제출이 없으면 「전부 타이핑 → 저장」이 보이지 않는 칸의 오류가 된다).
+       *
+       * 안내는 버리지 않고 담아 둔다 — 저장이 성공하면 리다이렉트로 사라지고,
+       * 실패하면 `submitState`가 필드 오류를 우선하므로 실제로 쓰이지 않지만,
+       * 여기서 `null`로 두면 「왜 이 분기만 안내가 없는가」가 설명되지 않는다.
+       */
+      const applied = applyBarriers(raw, 'FILL_EMPTY')
       raw = applied.values
       notice = applied.notice
       break

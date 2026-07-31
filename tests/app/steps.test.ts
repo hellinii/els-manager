@@ -7,7 +7,7 @@ import {
 } from '@/lib/domain'
 import { narrowAssets } from '@/lib/forms/assets'
 import { barrierNotice, parseBarrierList } from '@/lib/forms/barriers'
-import { parseProductForm } from '@/lib/forms/parse'
+import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { previewDates } from '@/lib/forms/schedules'
 import {
   INTENT_FIELD,
@@ -635,6 +635,99 @@ describe('SQ-04 배리어 일괄 입력', () => {
     expect(next.counts.rounds).toBe(2)
     expect(next.values['schedules[1].barrier']).toBe('85')
     expect(next.notice).toContain('소수로 읽어')
+  })
+
+  it('★ FILL_EMPTY는 이미 적힌 칸을 건드리지 않는다 — OVERWRITE는 덮는다', () => {
+    const before = {
+      totalRounds: '3',
+      barriers: '90-85-80',
+      'schedules[0].barrier': '',
+      // 차수별로 직접 적은 값. 스텝다운이 아닌 구조가 이렇게 들어온다
+      'schedules[1].barrier': '77',
+      'schedules[2].barrier': '  ',
+    }
+
+    const filled = applyBarriers(before, 'FILL_EMPTY').values
+    expect(filled['schedules[0].barrier']).toBe('90')
+    expect(filled['schedules[1].barrier']).toBe('77')
+    // 공백만 있는 칸은 「적히지 않은 것」이다 — 사용자가 지운 흔적이다
+    expect(filled['schedules[2].barrier']).toBe('80')
+
+    const overwritten = applyBarriers(before, 'OVERWRITE').values
+    expect(overwritten['schedules[1].barrier']).toBe('85')
+  })
+
+  it('★ 저장 제출이 빈 배리어 칸을 일괄 칸에서 채운다', () => {
+    /*
+     * 차수표는 **마지막으로 제출된** 총 차수를 보고 그려지므로 타이핑만으로는
+     * 생기지 않는다. 즉 「총 차수와 일괄 칸을 채우고 곧바로 저장」은 차수 칸이
+     * DOM에 없는 상태의 제출이며, 채우지 않으면 보이지 않던 칸에 배리어 필수
+     * 오류 N개가 뜬다 — 값을 다 맞게 넣었는데도.
+     */
+    const next = transition(
+      formData({
+        [STEP_FIELD]: 'CONFIRM',
+        [INTENT_FIELD]: 'SUBMIT',
+        totalRounds: '3',
+        barriers: '90-85-80',
+        // 차수 칸이 하나도 없다 — 차수표가 렌더된 적이 없다
+      }),
+    )
+    expect(next.counts.rounds).toBe(3)
+    expect(next.values['schedules[0].barrier']).toBe('90')
+    expect(next.values['schedules[1].barrier']).toBe('85')
+    expect(next.values['schedules[2].barrier']).toBe('80')
+  })
+
+  it('저장 제출은 차수별로 적은 배리어를 덮지 않는다', () => {
+    const next = transition(
+      formData({
+        [STEP_FIELD]: 'CONFIRM',
+        [INTENT_FIELD]: 'SUBMIT',
+        totalRounds: '3',
+        barriers: '90-85-80',
+        'schedules[0].barrier': '95',
+        'schedules[1].barrier': '',
+        'schedules[2].barrier': '70',
+      }),
+    )
+    expect(next.values['schedules[0].barrier']).toBe('95')
+    expect(next.values['schedules[1].barrier']).toBe('85')
+    expect(next.values['schedules[2].barrier']).toBe('70')
+  })
+
+  it('★ 계약 입력의 정본이 하나다 — 전이가 채운 값이 파서까지 간다', () => {
+    /*
+     * 어댑터가 `parseProductForm(formOfValues(next.values))`를 부르는 이유다.
+     * 원본 `FormData`를 읽으면 화면이 렌더하는 것과 저장되는 것의 출처가 둘이
+     * 되고, 위 두 케이스가 만든 채움이 계약에 도달하지 않는다.
+     */
+    const form = formData({
+      [STEP_FIELD]: 'CONFIRM',
+      [INTENT_FIELD]: 'SUBMIT',
+      name: '테스트 ELS',
+      issueDate: '2026-01-02',
+      principal: '10,000,000',
+      accountType: 'GENERAL',
+      evaluationPeriodMonths: '6',
+      annualCouponRate: '8',
+      totalRounds: '2',
+      barriers: '90-85',
+      'underlyings[0].assetId': '00000000-0000-4000-8000-0000000000a1',
+      'underlyings[0].basePrice': '2489.55',
+    })
+
+    const next = transition(form)
+
+    // 원본 폼으로 파싱하면 채움이 없다 — 음성 대조
+    expect(parseProductForm(form).schedules.map((s) => s.barrier)).toEqual([
+      '',
+      '',
+    ])
+    // 전이의 값으로 파싱하면 있다
+    expect(
+      parseProductForm(formOfValues(next.values)).schedules.map((s) => s.barrier),
+    ).toEqual(['0.9000', '0.8500'])
   })
 })
 

@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation'
 
 import { updateProduct } from '@/app/actions'
-import { parseProductForm, text } from '@/lib/forms/parse'
+import { formOfValues, parseProductForm, text } from '@/lib/forms/parse'
 import { PRODUCT_ID_FIELD, stepState, submitState, transition } from '@/lib/forms/steps'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
@@ -37,7 +37,13 @@ export async function productEditFormAction(
   if (next.intent.kind !== 'SUBMIT') return stepState(next)
 
   const id = text(form, PRODUCT_ID_FIELD)
-  const result = await updateProduct(id, parseProductForm(form))
+  // 계약 입력은 `next.values`에서 나온다 — 등록 어댑터의 각주와 같은 이유다.
+  // id만 원본 폼에서 읽는다(`PRODUCT_ID_FIELD`는 계약 필드가 아니라 라우트 파라미터의
+  // 대체물이므로 `productFieldNames`에 없고 따라서 `next.values`에도 없다).
+  const result = await updateProduct(
+    id,
+    parseProductForm(formOfValues(next.values)),
+  )
 
   // 성공하면 상세로 — 등록과 같은 도착지다(§7.1). 수정한 값을 확인하는 화면이 그곳이다.
   if (result.ok) redirect(PATHS.product(result.data.id))

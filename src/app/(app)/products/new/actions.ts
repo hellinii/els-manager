@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation'
 
 import { createProduct } from '@/app/actions'
-import { parseProductForm } from '@/lib/forms/parse'
+import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { stepState, submitState, transition } from '@/lib/forms/steps'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
@@ -34,7 +34,13 @@ export async function productFormAction(
   const next = transition(form)
   if (next.intent.kind !== 'SUBMIT') return stepState(next)
 
-  const result = await createProduct(parseProductForm(form))
+  /*
+   * 계약 입력은 **`next.values`에서 나온다** — 원본 `FormData`가 아니다. 화면은
+   * `next.values`를 렌더하므로, 계약이 다른 것을 읽으면 「저장된 값」과 「화면에
+   * 보이는 값」의 출처가 둘이 된다. 저장 제출이 배리어 일괄 칸을 펼치는 것이
+   * 그 갈림이 실제로 생기는 자리다(`transition`의 SUBMIT 분기).
+   */
+  const result = await createProduct(parseProductForm(formOfValues(next.values)))
 
   /*
    * 성공하면 **상세로 보낸다** — DOC-008 §7.1의 「[저장] → SCR-202 상세」다.

@@ -37,6 +37,23 @@ import {
  * 빈 칸은 계약이 거부하도록 그대로 넘긴다 — 그래야 오류 문구가 한 곳에서 나온다.
  */
 
+/**
+ * 값 맵 → `FormData`. **전이가 채운 값이 계약까지 가야 한다.**
+ *
+ * 이것이 없던 동안 SCR-204에는 출처가 둘이었다 — 화면은 `transition`이 돌려준
+ * `values`를 렌더하고 계약은 원본 `FormData`를 읽었다. 그 둘이 갈릴 수 있는 경로가
+ * 실재했다: `transition`이 값을 채우거나 좁히면 **저장되는 것과 화면에 보이는 것이
+ * 달라진다.** 어댑터가 이 함수를 지나면 정본이 하나가 된다.
+ *
+ * 체크박스는 부재가 아니라 `''`로 온다 — `checkbox()`가 둘 다 `false`로 읽으므로
+ * 브라우저 제출과 결과가 같다(그 함수의 각주가 그 이유를 적는다).
+ */
+export function formOfValues(values: Record<string, string>): FormData {
+  const form = new FormData()
+  for (const [name, value] of Object.entries(values)) form.set(name, value)
+  return form
+}
+
 /** `FormData.get`은 `string | File | null`을 준다. 파일은 우리 폼에 없다. */
 export function text(form: FormData, name: string): string {
   const value = form.get(name)
