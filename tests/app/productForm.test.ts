@@ -14,45 +14,43 @@ import {
   MAX_ROUNDS,
   MAX_UNDERLYINGS,
   PENDING_PARTS,
-  PRODUCT_STEPS,
   SCHEDULE_SUBS,
-  STEP_FIELD,
-  STEP_NAMES,
   UNDERLYING_SUBS,
   addRow,
   applyBarriers,
-  carryNames,
-  moveStep,
+  intentState,
   parseIntent,
-  parseStep,
   productFieldNames,
   removeRow,
   roundCountOf,
   rowCountOf,
-  stepForErrors,
-  stepOfField,
-  stepState,
   submitState,
   transition,
   type RowCounts,
-  type StepId,
-} from '@/lib/forms/steps'
+} from '@/lib/forms/productForm'
 import { productDefaults } from '@/lib/forms/defaults'
 
 /**
- * SCR-204의 단계 기계 — **화면 안에 두면 아무도 보지 못하는 것들** (P4 컷 4a)
+ * SCR-204의 폼 기계 — **화면 안에 두면 아무도 보지 못하는 것들** (P4 컷 4a, P6 컷 1)
  *
- * 단계 전이를 `useState`로 두면 브라우저 없이 확인할 수 없고(AQ-32) JS 없는 제출이
- * 조용히 죽는다(컷 1b 실측). 그래서 전이·행 연산·값 이송이 전부 순수 모듈에 있고
- * 이 파일이 그 회수 지점이다.
+ * 행 추가·삭제·배리어 일괄 적용은 제출이고 그 규칙이 순수 모듈에 있다. `useState`로
+ * 두면 브라우저 없이 확인할 수 없고(AQ-32) JS 없는 제출이 조용히 죽는다(컷 1b 실측).
  *
- * 축은 넷이다.
+ * ## 단계 축이 사라졌다 (P6 컷 1)
+ *
+ * v0.5의 단계 기계를 철회했으므로(DOC-008 v1.8) 축 둘이 없어졌다 —
+ *
+ * | 없어진 축 | 왜 |
+ * |---|---|
+ * | 이송 | 모든 칸이 동시에 렌더된다. 이송할 것이 없다 |
+ * | 오류 단계 | 보이지 않는 칸이 없다. 되돌릴 단계가 없다 |
+ *
+ * 남는 축은 셋이다.
  *
  * | 축 | 무엇이 틀렸을 때 실패하는가 |
  * |---|---|
- * | 이송 | 비활성 단계의 값이 사라진다(저장할 때까지 증상이 없다) |
  * | 행 | 삭제가 구멍을 남겨 오류가 다른 행에 붙는다 |
- * | 오류 단계 | 보이지 않는 칸의 오류를 사용자가 영원히 못 본다 |
+ * | 배리어 | 일괄 칸이 차수별 칸을 잘못 채우거나 적은 값을 덮는다 |
  * | 왕복 | 이름 생성기와 파서가 갈린다 |
  */
 
@@ -65,71 +63,33 @@ function formData(entries: Record<string, string>): FormData {
 const COUNTS: RowCounts = { underlyings: 2, rounds: 3 }
 
 // ---------------------------------------------------------------------------
-// 단계 표와 원장
+// 폼의 이름과 원장
 // ---------------------------------------------------------------------------
 
-describe('단계 표 — DOC-008 §5 SCR-204', () => {
-  it('네 단계이고 순서가 문서와 같다', () => {
-    expect(PRODUCT_STEPS.map((step) => step.id)).toEqual([
-      'BASIC',
-      'UNDERLYINGS',
-      'CONDITIONS',
-      'CONFIRM',
-    ])
-    expect(PRODUCT_STEPS.map((step) => step.ordinal)).toEqual(['①', '②', '③', '④'])
-  })
-
-  it('원장의 항목이 무엇을·언제인지 말한다', () => {
-    /*
-     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 컷 4a에 세 조각이
-     * 있었고(③·④·저장) 컷 4b가 세우며 비웠고, **컷 5가 다시 채웠다** — SCR-202의
-     * 삭제가 서면서 그 실패 문구가 가리키는 상환 취소가 컷 6에 남았다.
-     *
-     * ## 키 규약이 넓어졌다 (컷 5)
-     *
-     * 컷 4a의 키는 SCR-204의 **단계 id**였다(`CONDITIONS`·`CONFIRM`·`SUBMIT`). 컷 5의
-     * 조각은 다른 화면(SCR-202)의 것이므로 그 집합으로는 표현되지 않는다. 그래서
-     * 규약을 「화면 id 또는 단계 id로 시작한다」로 넓히고 **사유에 컷 번호를 요구한다** —
-     * 「무엇이 없는가」만 있고 「언제 서는가」가 없으면 다음 사람이 지울 시점을 모른다.
-     *
-     * **건수는 여기서 단언하지 않는다.** `tests/app/invalidation.test.ts`가 세 원장을
-     * 함께 세며 그 자리에서 한다 — 두 곳에 적으면 한쪽만 고쳐진다.
-     */
-    const stepIds = new Set<string>([...PRODUCT_STEPS.map((step) => step.id), 'SUBMIT'])
-
-    for (const [key, why] of Object.entries(PENDING_PARTS)) {
-      const head = key.split(' ')[0] ?? ''
-      expect(
-        /^SCR-\d{3}$/.test(head) || stepIds.has(head),
-        `${key}: 화면 id도 단계 id도 아니다`,
-      ).toBe(true)
-      expect(why, `${key}의 사유에 컷 번호가 없다`).toMatch(/컷 \d/)
-    }
-  })
-})
-
-// ---------------------------------------------------------------------------
-// 축 1 — 이송
-// ---------------------------------------------------------------------------
-
-describe('이송 — 비활성 단계의 값이 히든으로 실린다', () => {
-  it('전체 이름 = 각 단계의 이름 + `step`, 중복 없음', () => {
+describe('폼의 이름 — DOC-008 §5 SCR-204 v1.8', () => {
+  it('중복이 없고 구획 순서대로다', () => {
     const all = productFieldNames(COUNTS)
     expect(new Set(all).size).toBe(all.length)
 
-    const fromSteps = PRODUCT_STEPS.flatMap((step) => STEP_NAMES[step.id](COUNTS))
-    expect(all).toEqual([STEP_FIELD, ...fromSteps])
+    // 구획 순서 = 화면의 `<section>` 순서다: 기본 정보 → 기초자산 → 평가 조건
+    expect(all.slice(0, 6)).toEqual([
+      'name',
+      'issuer',
+      'issueDate',
+      'principal',
+      'accountType',
+      'note',
+    ])
+    expect(all[6]).toBe('underlyings[0].assetId')
   })
 
-  it('활성 단계의 이름은 이송하지 않고 나머지는 전부 이송한다', () => {
-    for (const step of PRODUCT_STEPS) {
-      const own = STEP_NAMES[step.id](COUNTS)
-      const carried = carryNames(COUNTS, step.id)
-
-      for (const name of own) expect(carried, `${step.id}가 ${name}을 이송한다`).not.toContain(name)
-      // 합집합이 전체다 — 어느 이름도 「렌더도 이송도 되지 않는」 상태가 없다.
-      expect([...own, ...carried].sort()).toEqual([...productFieldNames(COUNTS)].sort())
-    }
+  it('★ `step` 필드가 없다 — 단계 분리를 철회했다', () => {
+    /*
+     * 이 단언이 없으면 `step`이 되살아나도 아무도 보지 못한다. 그 이름이 폼에
+     * 남아 있으면 `transition`이 그것을 값에 담고 계약 입력에도 실리며(어댑터가
+     * `next.values`에서 파싱한다) 계약이 「모르는 필드」로 무시한다 — 조용하다.
+     */
+    expect(productFieldNames(COUNTS)).not.toContain('step')
   })
 
   it('배열 이름이 행·차수 수에 따라 늘어난다', () => {
@@ -140,19 +100,38 @@ describe('이송 — 비활성 단계의 값이 히든으로 실린다', () => {
     expect(names).not.toContain('schedules[2].barrier')
   })
 
-  it('④는 입력이 없다 — 전부 이송이다', () => {
-    expect(STEP_NAMES.CONFIRM(COUNTS)).toEqual([])
-    expect(carryNames(COUNTS, 'CONFIRM')).toEqual(productFieldNames(COUNTS))
+  it('원장의 항목이 무엇을·언제인지 말한다', () => {
+    /*
+     * `PENDING_PARTS`는 원장이다(`NOT_YET_BUILT`와 같은 형태). 컷 4a에 세 조각이
+     * 있었고(③·④·저장) 컷 4b가 세우며 비웠고, 컷 5가 다시 채웠고 컷 6이 비웠다.
+     *
+     * ## 키 규약이 좁아졌다 (P6 컷 1)
+     *
+     * 컷 5는 「화면 id 또는 **단계 id**로 시작한다」였다. 단계가 없어졌으므로 화면
+     * id 하나다 — 남겨 두면 실재하지 않는 집합을 허용하는 규약이 된다. 사유에
+     * 컷 번호를 요구하는 것은 그대로다(「무엇이 없는가」만 있고 「언제 서는가」가
+     * 없으면 다음 사람이 지울 시점을 모른다).
+     *
+     * **건수는 여기서 단언하지 않는다.** `tests/app/invalidation.test.ts`가 세 원장을
+     * 함께 세며 그 자리에서 한다 — 두 곳에 적으면 한쪽만 고쳐진다.
+     */
+    for (const [key, why] of Object.entries(PENDING_PARTS)) {
+      const head = key.split(' ')[0] ?? ''
+      expect(/^SCR-\d{3}$/.test(head), `${key}: 화면 id로 시작하지 않는다`).toBe(true)
+      expect(why, `${key}의 사유에 컷 번호가 없다`).toMatch(/컷 \d/)
+    }
   })
 })
 
 // ---------------------------------------------------------------------------
-// 축 2 — 전이
+// 의도 — 페이지 안의 조작 셋
 // ---------------------------------------------------------------------------
 
-describe('전이', () => {
-  it('의도를 읽는다 — 인식하지 못한 값은 NONE이다', () => {
-    expect(parseIntent('NEXT')).toEqual({ kind: 'NEXT' })
+describe('의도', () => {
+  it('읽는다 — 인식하지 못한 값은 NONE이다', () => {
+    expect(parseIntent('SUBMIT')).toEqual({ kind: 'SUBMIT' })
+    expect(parseIntent('ADD_UNDERLYING')).toEqual({ kind: 'ADD_UNDERLYING' })
+    expect(parseIntent('APPLY_BARRIERS')).toEqual({ kind: 'APPLY_BARRIERS' })
     expect(parseIntent('REMOVE_UNDERLYING:2')).toEqual({
       kind: 'REMOVE_UNDERLYING',
       index: 2,
@@ -164,29 +143,14 @@ describe('전이', () => {
     expect(parseIntent(null)).toEqual({ kind: 'NONE' })
   })
 
-  it('인식하지 못한 단계는 첫 단계다', () => {
-    expect(parseStep('CONDITIONS')).toBe('CONDITIONS')
-    expect(parseStep('zzz')).toBe('BASIC')
-    expect(parseStep(undefined)).toBe('BASIC')
-  })
-
-  it('양 끝에서 넘어가지 않는다', () => {
-    expect(moveStep('BASIC', { kind: 'BACK' })).toBe('BASIC')
-    expect(moveStep('CONFIRM', { kind: 'NEXT' })).toBe('CONFIRM')
-    expect(moveStep('BASIC', { kind: 'NEXT' })).toBe('UNDERLYINGS')
-    expect(moveStep('CONDITIONS', { kind: 'BACK' })).toBe('UNDERLYINGS')
-  })
-
-  it('행 연산과 제출은 같은 단계에 머문다', () => {
-    for (const intent of [
-      { kind: 'ADD_UNDERLYING' } as const,
-      { kind: 'REMOVE_UNDERLYING', index: 0 } as const,
-      { kind: 'APPLY_BARRIERS' } as const,
-      { kind: 'SUBMIT' } as const,
-      { kind: 'NONE' } as const,
-    ]) {
-      expect(moveStep('UNDERLYINGS', intent), intent.kind).toBe('UNDERLYINGS')
-    }
+  it('★ 단계 이동 의도가 없다 — 철회된 이름은 NONE으로 떨어진다', () => {
+    /*
+     * 낡은 링크나 캐시된 문서가 `NEXT`를 보낼 수 있다. `NONE`이 되면 값만 좁혀
+     * 다시 렌더하므로 아무 해가 없다 — 인식하지 못한 의도를 오류로 만들지 않는
+     * 규약(`parseIntent`의 각주)이 그 경로를 이미 덮는다.
+     */
+    expect(parseIntent('NEXT')).toEqual({ kind: 'NONE' })
+    expect(parseIntent('BACK')).toEqual({ kind: 'NONE' })
   })
 })
 
@@ -280,36 +244,6 @@ describe('행 — 값에서 개수를 파생시킨다', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 축 4 — 오류가 있는 단계
-// ---------------------------------------------------------------------------
-
-describe('오류 단계 — 보이지 않는 칸의 오류로 되돌린다', () => {
-  it('필드가 어느 단계에 속하는가', () => {
-    const expected: Array<[string, StepId | null]> = [
-      ['name', 'BASIC'],
-      ['note', 'BASIC'],
-      ['underlyings', 'UNDERLYINGS'],
-      ['underlyings[1].assetId', 'UNDERLYINGS'],
-      ['totalRounds', 'CONDITIONS'],
-      ['schedules[2].lizardBarrier', 'CONDITIONS'],
-      ['kiTouchedAt', null],
-      ['zzz', null],
-    ]
-    for (const [key, step] of expected) expect(stepOfField(key), key).toBe(step)
-  })
-
-  it('가장 앞 단계로 간다 — ④에서 제출했는데 오류가 ①에 있으면 ①이다', () => {
-    expect(
-      stepForErrors({ 'schedules[0].barrier': 'x', name: 'y' }),
-    ).toBe('BASIC')
-    expect(stepForErrors({ 'underlyings[0].basePrice': 'x' })).toBe('UNDERLYINGS')
-    // 어느 단계에도 속하지 않는 키만 있으면 단계를 옮기지 않는다(상단 요약이 받는다).
-    expect(stepForErrors({ zzz: 'x' })).toBeNull()
-    expect(stepForErrors(undefined)).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
 // 전이 → 폼 상태 — 어댑터 둘이 공유한다 (컷 5)
 // ---------------------------------------------------------------------------
 
@@ -323,8 +257,8 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
     return formData({ ...values, [INTENT_FIELD]: 'SUBMIT' })
   }
 
-  it('제출이 아닌 전이는 오류를 나르지 않는다', () => {
-    const state = stepState(transition(formData({ [STEP_FIELD]: 'BASIC', name: '상품' })))
+  it('제출이 아닌 의도는 오류를 나르지 않는다', () => {
+    const state = intentState(transition(formData({ name: '상품' })))
     expect(state.status).toBe('INITIAL')
     expect(state.fieldErrors).toEqual({})
     expect(state.message).toBeNull()
@@ -333,18 +267,24 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
 
   it('안내는 오류가 아니다 — `status`를 바꾸지 않는다', () => {
     const next = transition(
-      formData({ [STEP_FIELD]: 'CONDITIONS', [INTENT_FIELD]: 'APPLY_BARRIERS', barriers: '90-85' }),
+      formData({ [INTENT_FIELD]: 'APPLY_BARRIERS', barriers: '90-85' }),
     )
-    const state = stepState(next)
+    const state = intentState(next)
     expect(state.status).toBe('INITIAL')
     expect(state.message).toBe(next.notice)
     expect(state.message).not.toBeNull()
   })
 
-  it('제출 실패는 오류가 있는 **가장 앞 단계**로 되돌린다', () => {
-    // `totalRounds`가 차수표의 행 수를 정한다 — 없으면 `schedules[0].*`가 폼의 이름이
-    // 아니고 그 오류는 미매칭으로 상단에 간다(아래 케이스가 그 경우다).
-    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM', name: '', totalRounds: '1' }))
+  it('★ 오류가 전부 그 칸에 붙는다 — 되돌릴 단계가 없다', () => {
+    /*
+     * 종전에는 「오류가 있는 가장 앞 단계로 되돌린다」였다(`stepForErrors`). 그
+     * 장치는 **보이지 않는 칸의 오류를 화면에 가져오는** 수단이었고, 모든 칸이
+     * 동시에 렌더되므로 보이지 않는 칸이 없다.
+     *
+     * `totalRounds`가 차수표의 행 수를 정한다 — 없으면 `schedules[0].*`가 폼의
+     * 이름이 아니고 그 오류는 미매칭으로 상단에 간다(다음 케이스가 그 경우다).
+     */
+    const next = transition(submitting({ name: '', totalRounds: '1' }))
     const state = submitState(
       {
         ok: false,
@@ -357,16 +297,15 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
       next,
     )
 
-    // ④에서 제출했는데 ①의 칸이 비었다 — 그 문구를 보려면 ①로 가야 한다.
-    expect(state.values[STEP_FIELD]).toBe('BASIC')
     expect(state.fieldErrors.name).toBe('상품명을 입력한다.')
-    // 지금 보이지 않는 단계의 오류도 **칸에** 붙는다(`knownNames`가 폼 전체이므로).
     expect(state.fieldErrors['schedules[0].barrier']).toBe('배리어를 입력한다.')
     expect(state.unmatched).toEqual([])
+    // 단계를 나르는 값이 상태에 없다 — 있으면 폼이 그것을 다시 제출한다
+    expect(state.values.step).toBeUndefined()
   })
 
-  it('어느 칸과도 짝지어지지 않은 오류는 단계를 옮기지 않고 상단으로 간다', () => {
-    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM' }))
+  it('어느 칸과도 짝지어지지 않은 오류는 상단으로 간다', () => {
+    const next = transition(submitting({}))
     const state = submitState(
       {
         ok: false,
@@ -375,13 +314,12 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
       next,
     )
 
-    expect(state.values[STEP_FIELD]).toBe('CONFIRM')
     expect(state.unmatched).toEqual([{ key: 'zzz', message: '?' }])
     expect(state.code).toBe('CONFLICT')
   })
 
   it('입력값이 실패 경로에서 보존된다 — W-03의 존재 이유', () => {
-    const next = transition(submitting({ [STEP_FIELD]: 'CONFIRM', name: '상품', principal: '1,000' }))
+    const next = transition(submitting({ name: '상품', principal: '1,000' }))
     const state = submitState(
       { ok: false, error: { code: 'UNAUTHENTICATED', message: '로그인이 필요하다.' } },
       next,
@@ -399,11 +337,9 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
 // ---------------------------------------------------------------------------
 
 describe('transition', () => {
-  it('다음 단계로 가면서 값을 보존한다', () => {
+  it('값을 원문 그대로 보존한다', () => {
     const next = transition(
       formData({
-        [STEP_FIELD]: 'BASIC',
-        [INTENT_FIELD]: 'NEXT',
         name: '상품',
         principal: '100,000,000',
         'underlyings[0].assetId': '',
@@ -411,23 +347,24 @@ describe('transition', () => {
       }),
     )
 
-    expect(next.step).toBe('UNDERLYINGS')
-    expect(next.values[STEP_FIELD]).toBe('UNDERLYINGS')
     expect(next.values.name).toBe('상품')
     // 원문 그대로 보존한다 — 쉼표 제거는 파싱의 일이고 표시의 일이 아니다.
     expect(next.values.principal).toBe('100,000,000')
   })
 
-  it('폼의 이름만 남긴다 — `$ACTION_*`·`intent`는 상태에 담지 않는다', () => {
+  it('폼의 이름만 남긴다 — `$ACTION_*`·`intent`·`step`은 상태에 담지 않는다', () => {
     /*
      * 상태는 다음 제출을 위해 **폼에 다시 직렬화된다**(컷 1b에서 `$ACTION_*`가
      * 히든 필드로 렌더되는 것을 실측했다). 액션 필드가 상태에 들어오면 그 왕복이
      * 커지고 무엇보다 상태에 무엇이 있는지가 흐려진다.
+     *
+     * `step`을 함께 보는 이유는 그것이 **낡은 문서에서 올 수 있다**는 것이다 —
+     * 단계 분리를 철회했으므로 폼의 이름이 아니고, 좁힘이 그것을 버린다.
      */
     const next = transition(
       formData({
-        [STEP_FIELD]: 'BASIC',
-        [INTENT_FIELD]: 'NEXT',
+        step: 'BASIC',
+        [INTENT_FIELD]: 'ADD_UNDERLYING',
         $ACTION_REF_1: '',
         'user-search-box': '코스피',
         name: '상품',
@@ -437,28 +374,26 @@ describe('transition', () => {
     expect(next.values.$ACTION_REF_1).toBeUndefined()
     expect(next.values[INTENT_FIELD]).toBeUndefined()
     expect(next.values['user-search-box']).toBeUndefined()
+    expect(next.values.step).toBeUndefined()
     expect(Object.keys(next.values).sort()).toEqual(
       [...productFieldNames(next.counts)].sort(),
     )
   })
 
-  it('행 추가·삭제가 같은 단계에서 계수를 바꾼다', () => {
+  it('행 추가·삭제가 계수를 바꾼다', () => {
     const added = transition(
       formData({
-        [STEP_FIELD]: 'UNDERLYINGS',
         [INTENT_FIELD]: 'ADD_UNDERLYING',
         'underlyings[0].assetId': 'a',
         'underlyings[0].basePrice': '1',
       }),
     )
-    expect(added.step).toBe('UNDERLYINGS')
     expect(added.counts.underlyings).toBe(2)
     expect(added.values['underlyings[1].assetId']).toBe('')
     expect(added.notice).toBeNull()
 
     const removed = transition(
       formData({
-        [STEP_FIELD]: 'UNDERLYINGS',
         [INTENT_FIELD]: 'REMOVE_UNDERLYING:0',
         'underlyings[0].assetId': 'a',
         'underlyings[0].basePrice': '1',
@@ -473,17 +408,13 @@ describe('transition', () => {
   it('상한과 하한에서 안내를 낸다 — 오류가 아니다', () => {
     const single = transition(
       formData({
-        [STEP_FIELD]: 'UNDERLYINGS',
         [INTENT_FIELD]: 'REMOVE_UNDERLYING:0',
         'underlyings[0].assetId': 'a',
       }),
     )
     expect(single.notice).toContain('1종 이상')
 
-    const entries: Record<string, string> = {
-      [STEP_FIELD]: 'UNDERLYINGS',
-      [INTENT_FIELD]: 'ADD_UNDERLYING',
-    }
+    const entries: Record<string, string> = { [INTENT_FIELD]: 'ADD_UNDERLYING' }
     for (let i = 0; i < MAX_UNDERLYINGS; i += 1) {
       entries[`underlyings[${i}].assetId`] = ''
     }
@@ -622,16 +553,14 @@ describe('SQ-04 배리어 일괄 입력', () => {
     expect(after.notice).toContain('90-85-80')
   })
 
-  it('전이가 일괄 적용을 같은 단계에서 처리한다', () => {
+  it('전이가 일괄 적용을 처리한다 — 화면을 옮기지 않는다', () => {
     const next = transition(
       formData({
-        [STEP_FIELD]: 'CONDITIONS',
         [INTENT_FIELD]: 'APPLY_BARRIERS',
         totalRounds: '',
         barriers: '0.9/0.85',
       }),
     )
-    expect(next.step).toBe('CONDITIONS')
     expect(next.counts.rounds).toBe(2)
     expect(next.values['schedules[1].barrier']).toBe('85')
     expect(next.notice).toContain('소수로 읽어')
@@ -666,7 +595,6 @@ describe('SQ-04 배리어 일괄 입력', () => {
      */
     const next = transition(
       formData({
-        [STEP_FIELD]: 'CONFIRM',
         [INTENT_FIELD]: 'SUBMIT',
         totalRounds: '3',
         barriers: '90-85-80',
@@ -682,7 +610,6 @@ describe('SQ-04 배리어 일괄 입력', () => {
   it('저장 제출은 차수별로 적은 배리어를 덮지 않는다', () => {
     const next = transition(
       formData({
-        [STEP_FIELD]: 'CONFIRM',
         [INTENT_FIELD]: 'SUBMIT',
         totalRounds: '3',
         barriers: '90-85-80',
@@ -703,7 +630,6 @@ describe('SQ-04 배리어 일괄 입력', () => {
      * 되고, 위 두 케이스가 만든 채움이 계약에 도달하지 않는다.
      */
     const form = formData({
-      [STEP_FIELD]: 'CONFIRM',
       [INTENT_FIELD]: 'SUBMIT',
       name: '테스트 ELS',
       issueDate: '2026-01-02',
@@ -838,7 +764,6 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
   /** 화면이 그리는 그대로의 폼. 값은 **퍼센트**이고 금액에는 쉼표가 있다 */
   function filled(): FormData {
     return formData({
-      [STEP_FIELD]: 'CONFIRM',
       name: 'OO증권 ELS 1234회',
       issuer: 'OO증권',
       issueDate: '2026-01-02',
@@ -989,12 +914,13 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
     expect(input.schedules[0].lizardRequiresNoKi).toBe(false)
   })
 
-  it('이송된 빈 체크박스는 `false`다 — 부재만 보면 켜진다', () => {
+  it('값 없는 빈 체크박스는 `false`다 — 부재만 보면 켜진다', () => {
     /*
-     * ★ **이 케이스가 없으면 `checkbox`의 방어가 미검증이다.** 히든 이송은 값 없는
-     * 이름을 `value=""`로 싣는데(`carryNames`), `form.get(name) != null`만 보면 그것이
-     * `true`가 된다 — 「체크를 풀었는데 다음 단계를 지나 돌아오면 켜져 있다」가 되고
-     * 원인이 폼이 아니라 이송이라 재현 조건을 찾기 어렵다.
+     * ★ **이 케이스가 없으면 `checkbox`의 방어가 미검증이다.** 값 없는 이름을
+     * `''`로 싣는 경로가 있으면 `form.get(name) != null`만 보는 구현이 그것을
+     * `true`로 읽는다 — 「체크를 풀었는데 저장하면 켜져 있다」가 되고 원인이 폼이
+     * 아니라 직렬화라 재현 조건을 찾기 어렵다. 종전 서식지는 히든 이송이었고
+     * 지금은 `formOfValues`다(어댑터가 그 폼으로 계약 입력을 만든다).
      *
      * 음성 대조로 확인했다: `checkbox`를 `form.get(name) != null`로 되돌리면 이
      * 케이스만 실패하고 나머지 왕복 단언은 전부 통과한다(다른 픽스처는 키가 아예

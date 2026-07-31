@@ -6,7 +6,7 @@ import { createRedemption } from '@/app/actions'
 import { parseRedemptionForm, text } from '@/lib/forms/parse'
 import { REDEMPTION_FIELDS } from '@/lib/forms/redemption'
 import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
-import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 import { PATHS } from '@/lib/routes/paths'
 
 /**

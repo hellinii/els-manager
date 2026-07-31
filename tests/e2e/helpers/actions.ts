@@ -210,9 +210,12 @@ export function formValuesFor(html: string, actionId: string): Field[] {
 /**
  * 그 폼이 렌더한 **모든** 입력의 `name` — 히든·보임 구분 없이.
  *
- * 단계 폼의 불변식이 「선언된 이름은 렌더되거나 이송된다」이고(`STEP_NAMES` +
- * `carryNames`), 그 합집합이 실제 DOM과 같은지는 **렌더된 문서에만** 있다.
- * 빠진 이름은 저장 버튼을 누를 때까지 증상이 없으므로 여기서 센다.
+ * 폼의 불변식이 「선언된 이름은 전부 렌더된다」이고(`productFieldNames`), 그것이
+ * 실제 DOM과 같은지는 **렌더된 문서에만** 있다. 빠진 이름은 계약의 오류가 그 칸에
+ * 붙지 않는 결과가 되고, 그 증상은 저장 버튼을 누를 때까지 없으므로 여기서 센다.
+ *
+ * > 종전 불변식은 「렌더되거나 **이송된다**」였다(`STEP_NAMES` + `carryNames`의
+ * > 합집합). 단계 분리를 철회하며 이송이 사라져 합집합이 한 항이 됐다.
  */
 export function inputNamesOf(form: string): Set<string> {
   const names = new Set<string>()

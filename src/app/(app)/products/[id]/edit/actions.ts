@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 
 import { updateProduct } from '@/app/actions'
 import { formOfValues, parseProductForm, text } from '@/lib/forms/parse'
-import { PRODUCT_ID_FIELD, stepState, submitState, transition } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD, intentState, submitState, transition } from '@/lib/forms/productForm'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -12,9 +12,9 @@ import { PATHS } from '@/lib/routes/paths'
  * SCR-204 수정의 어댑터 — 등록과 **한 줄만 다르다** (P4 컷 5)
  *
  * 다른 줄은 계약 호출이다: `createProduct(input)` → `updateProduct(id, input)`.
- * 단계 전이·값 좁힘·오류 단계 판정은 `lib/forms/steps.ts`의 같은 함수를 부른다 —
- * 여기 복제하면 두 화면의 오류 표시가 갈릴 수 있고, 두 어댑터는 어떤 스위트의 import
- * 그래프에도 없으므로(AQ-23) 그 갈림을 아무도 보지 못한다.
+ * 의도 해석·행 연산·배리어 펼침·값 좁힘은 `lib/forms/productForm.ts`의 같은 함수를
+ * 부른다 — 여기 복제하면 두 화면의 오류 표시가 갈릴 수 있고, 두 어댑터는 어떤
+ * 스위트의 import 그래프에도 없으므로(AQ-23) 그 갈림을 아무도 보지 못한다.
  *
  * ## 대상 id는 폼에서 읽는다
  *
@@ -34,7 +34,7 @@ export async function productEditFormAction(
   form: FormData,
 ): Promise<FormState> {
   const next = transition(form)
-  if (next.intent.kind !== 'SUBMIT') return stepState(next)
+  if (next.intent.kind !== 'SUBMIT') return intentState(next)
 
   const id = text(form, PRODUCT_ID_FIELD)
   // 계약 입력은 `next.values`에서 나온다 — 등록 어댑터의 각주와 같은 이유다.

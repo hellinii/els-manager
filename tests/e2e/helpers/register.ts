@@ -25,17 +25,28 @@ import { cookieJar, get, locationPath } from './server'
  *
  * | 무엇이 | 왜 여기뿐인가 |
  * |---|---|
- * | 단계 폼의 값이 저장까지 살아 있다 | 히든 이송이 빠진 칸은 저장할 때까지 증상이 없다 |
+ * | 폼의 값이 저장까지 살아 있다 | 선언만 하고 렌더하지 않은 칸은 저장할 때까지 증상이 없다 |
  * | 일괄 배리어가 차수표를 채운다 (SQ-04) | `applyBarriers`는 순수하지만 그 결과가 칸에 닿는지는 렌더에만 있다 |
  * | 금액·비율의 18자리가 보존된다 (AQ-30) | 화면이 쉼표를 지우고 `jsonb`를 지나 `::numeric`이 되는 경로다 |
  * | 성공이 상세로 리다이렉트한다 | `redirect()`의 303은 실 HTTP 응답에만 있다 |
  *
- * ## 크래프트된 POST를 쓰지 않는다
+ * ## 크래프트된 POST를 쓰지 않는다 — **제출이 다섯에서 둘로 줄었다** (P6 컷 1)
  *
- * 단계를 건너뛰고 모든 필드를 한 번에 보내면 요청 수가 줄지만 **JS 없는 브라우저가
- * 만들 수 없는 요청**이 된다 — 그러면 사용자가 실제로 지나는 경로를 확인하지 못하고,
- * 컷 4a의 음성 대조가 드러낸 것과 같은 부류의 공백이 생긴다(테스트가 브라우저를
- * 흉내내며 브라우저가 그 값을 어디서 얻는지는 보지 않는다). 그래서 다섯 번 제출한다.
+ * 단계 분리를 철회했으므로(DOC-008 v1.8) ①→②·②→③·③→④의 세 제출이 사라졌다.
+ * 남는 둘은 **줄일 수 없다**:
+ *
+ * | 제출 | 왜 필요한가 |
+ * |---|---|
+ * | ① 일괄 배리어 적용 | 차수표가 **마지막으로 제출된 총 차수**를 보고 그려지므로, 리자드 칸은 그 뒤에만 DOM에 있다 |
+ * | ② 저장 | |
+ *
+ * 리자드까지 한 번에 보내면 요청 수가 하나 줄지만 **JS 없는 브라우저가 만들 수 없는
+ * 요청**이 된다(그 칸이 아직 화면에 없다). 그러면 사용자가 실제로 지나는 경로를
+ * 확인하지 못하고, 컷 4a의 음성 대조가 드러낸 것과 같은 부류의 공백이 생긴다 —
+ * 테스트가 브라우저를 흉내내며 브라우저가 그 값을 **어디서 얻는지**는 보지 않는다.
+ *
+ * > 리자드가 없는 상품이라면 제출은 **한 번**이다(저장이 일괄 칸을 스스로 펼친다 —
+ * > `applyBarriers`의 `FILL_EMPTY`). `product-new.test.ts`가 그 경로를 따로 본다.
  *
  * ## 정리하지 않는다
  *
@@ -126,9 +137,14 @@ export async function registerProduct(
   const actionId = actionIdOf('productFormAction')
   const issueDate = options.issueDate ?? `${issueYear()}-01-02`
 
-  // ① 기본 정보 → ②
-  let html = await (await get(PATHS.productNew, jar)).text()
-  html = await advance(jar, html, actionId, 'NEXT', {
+  const first = await (await get(PATHS.productNew, jar)).text()
+
+  /*
+   * ① 전 구획을 채우고 「일괄 적용」을 누른다. **총 차수를 비워 개수로 채우게 한다**
+   * (auto-fill 경로를 지난다). 이 제출이 차수표를 만들고, 그래야 리자드 칸이 DOM에
+   * 생긴다 — 위 각주의 「줄일 수 없는 둘」 중 첫째다.
+   */
+  const applied = await submit(jar, first, actionId, 'APPLY_BARRIERS', {
     name: productName,
     issuer: 'E2E증권',
     issueDate,
@@ -136,16 +152,8 @@ export async function registerProduct(
     principal,
     accountType: options.accountType ?? 'GENERAL',
     note: '화면 왕복',
-  })
-
-  // ② 기초자산 → ③
-  html = await advance(jar, html, actionId, 'NEXT', {
     'underlyings[0].assetId': assetId,
     'underlyings[0].basePrice': BASE_PRICE,
-  })
-
-  // ③ 평가 조건 — 일괄 배리어를 적용한다. **총 차수를 비워 개수로 채우게 한다**
-  html = await advance(jar, html, actionId, 'APPLY_BARRIERS', {
     evaluationPeriodMonths: '6',
     totalRounds: '',
     annualCouponRate: '8',
@@ -154,17 +162,15 @@ export async function registerProduct(
     barriers: barriers.join('-'),
   })
 
-  // 2차에 리자드 조건을 붙인다 — 차수표가 생긴 뒤에만 그 칸이 있다
-  html = await advance(jar, html, actionId, 'NEXT', {
-    'schedules[1].lizardBarrier': '60',
-    'schedules[1].lizardCouponRate': '3',
-    'schedules[1].lizardRequiresNoKi': 'on',
-  })
-
-  // ④ 확인 → 저장. 성공은 **상세로 가는 리다이렉트**다(DOC-008 §7.1)
+  // ② 2차에 리자드를 붙이고 저장한다. 성공은 **상세로 가는 리다이렉트**다(§7.1)
   const saved = await submitAction(PATHS.productNew, jar, [
-    ...formValuesFor(html, actionId),
-    buttonField(formHtmlFor(html, actionId), 'SUBMIT'),
+    ...formValuesFor(applied, actionId),
+    ...Object.entries({
+      'schedules[1].lizardBarrier': '60',
+      'schedules[1].lizardCouponRate': '3',
+      'schedules[1].lizardRequiresNoKi': 'on',
+    }),
+    buttonField(formHtmlFor(applied, actionId), 'SUBMIT'),
   ])
 
   if (saved.status !== 303 && saved.status !== 302) {
@@ -210,19 +216,21 @@ export async function saveAssetPrice(
   await savePriceViaScreen(jar, assetId, price)
 }
 
-/** 한 단계 제출. 의도는 **렌더된 버튼에서** 읽는다(컷 4a의 음성 대조 참조) */
-async function advance(
+/**
+ * 한 번 제출하고 다음 문서를 돌려준다. 의도는 **렌더된 버튼에서** 읽는다
+ * (컷 4a의 음성 대조 참조).
+ *
+ * **보이는 칸까지 함께 보낸다.** 히든만 복제하면 사용자가 적은 값이 버튼을 누르는
+ * 순간 사라진다 — 실측으로 걸렸고 원인은 앱이 아니라 헬퍼였다(`formValuesFor`의
+ * 각주). 뒤에 온 항목이 이긴다(`transition`의 `readAll`이 마지막 값을 담는다).
+ */
+async function submit(
   jar: ReturnType<typeof cookieJar>,
   html: string,
   actionId: string,
   intent: string,
   fields: Record<string, string>,
 ): Promise<string> {
-  /*
-   * **보이는 칸까지 함께 보낸다.** 히든만 복제하면 그 단계에서 사용자가 적은 값이
-   * `다음`을 누르는 순간 사라진다 — 실측으로 걸렸고 원인은 앱이 아니라 헬퍼였다
-   * (`formValuesFor`의 각주).
-   */
   const res = await submitAction(PATHS.productNew, jar, [
     ...formValuesFor(html, actionId),
     ...Object.entries(fields),

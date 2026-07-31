@@ -3,12 +3,12 @@ import {
   generateEvaluationDates,
 } from '@/lib/domain'
 
-import { MAX_ROUNDS, countOf, roundCountOf } from './steps'
+import { MAX_ROUNDS, countOf, roundCountOf } from './productForm'
 
 /**
- * 차수표의 파생값 — **평가일은 입력이 아니라 생성값이다** (DOC-008 §5 SCR-204 ④)
+ * 차수표의 파생값 — **평가일은 입력이 아니라 생성값이다** (DOC-008 §5 SCR-204)
  *
- * 「생성될 평가일정 미리보기 후 저장」이므로 사용자는 발행일·평가주기·총 차수를
+ * 차수표가 그 값을 보여주므로 사용자는 발행일·평가주기·총 차수를
  * 적고 평가일은 보기만 한다. 생성 규칙은 `lib/domain`의 `generateEvaluationDates`
  * 하나이며(`issue_date + evaluation_period_months × n`, 말일 클램핑) 여기서 다시
  * 구현하지 않는다 — 화면이 자기 방식으로 날짜를 더하면 2월 클램핑에서 계약과

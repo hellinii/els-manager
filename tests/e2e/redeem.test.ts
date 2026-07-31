@@ -8,7 +8,7 @@ import {
   won,
 } from '@/lib/format'
 import { REDEMPTION_FIELDS, REDEMPTION_ID_FIELD } from '@/lib/forms/redemption'
-import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 import { PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'

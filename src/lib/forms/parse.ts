@@ -17,7 +17,7 @@ import {
   countOf,
   roundCountOf,
   rowCountOf,
-} from './steps'
+} from './productForm'
 
 /**
  * FormData → 계약 입력 — **순수**하다. `next`도 `react`도 모른다
@@ -69,10 +69,10 @@ export function optionalText(form: FormData, name: string): string | undefined {
 /**
  * 체크박스는 체크될 때만 전송된다. 부재가 곧 `false`다.
  *
- * **빈 문자열도 `false`다.** 부재만 보면 히든 이송(`carryNames`)이 값 없는 키를
- * 실었을 때 그것이 `true`가 된다 — 단계 폼에서 「체크를 풀었는데 다음 단계를
- * 지나 돌아오면 켜져 있다」가 되는 형태이며, 원인이 폼이 아니라 이송이라
- * 재현 조건을 찾기 어렵다.
+ * **빈 문자열도 `false`다.** 값 없는 키를 싣는 경로가 있으면 부재만 보는 구현이
+ * 그것을 `true`로 읽는다. 종전 서식지는 히든 이송(`carryNames`)이었고 P6 컷 1에서
+ * 사라졌지만, **`formOfValues`가 새 서식지다** — 값 맵을 폼으로 만들 때 체크 안 된
+ * 칸을 `''`로 싣고 어댑터가 그 폼으로 계약 입력을 만든다. 규약을 그대로 둔다.
  */
 export function checkbox(form: FormData, name: string): boolean {
   return text(form, name) !== ''

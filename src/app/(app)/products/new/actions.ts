@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 
 import { createProduct } from '@/app/actions'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
-import { stepState, submitState, transition } from '@/lib/forms/steps'
+import { intentState, submitState, transition } from '@/lib/forms/productForm'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -23,7 +23,7 @@ import { PATHS } from '@/lib/routes/paths'
  * (`server.ts`의 `withInvalidation`). 여기서 또 부르면 두 곳이 되고, 한쪽이 빠져도
  * 아무것도 실패하지 않는다.
  *
- * > **수정 어댑터와 세 줄이 같다** (컷 5). 그 세 줄(`stepState`·`submitState`·
+ * > **수정 어댑터와 세 줄이 같다** (컷 5). 그 세 줄(`intentState`·`submitState`·
  * > `transition`)은 순수 모듈에 있고 여기 남은 차이는 **어느 계약을 부르는가**와
  * > 성공 뒤 어디로 가는가뿐이다.
  */
@@ -32,7 +32,7 @@ export async function productFormAction(
   form: FormData,
 ): Promise<FormState> {
   const next = transition(form)
-  if (next.intent.kind !== 'SUBMIT') return stepState(next)
+  if (next.intent.kind !== 'SUBMIT') return intentState(next)
 
   /*
    * 계약 입력은 **`next.values`에서 나온다** — 원본 `FormData`가 아니다. 화면은

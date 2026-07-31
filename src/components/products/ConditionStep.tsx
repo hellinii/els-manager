@@ -5,10 +5,10 @@ import { KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import { previewDatesOf } from '@/lib/forms/schedules'
 import type { FormState } from '@/lib/forms/state'
-import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/steps'
+import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productForm'
 
 /**
- * ③ 평가 조건 — 일괄 배리어와 차수표 (SCR-204, DOC-008 §5·§9 SQ-04)
+ * 평가 조건 구획 — 일괄 배리어와 차수표 (SCR-204, DOC-008 §5·§9 SQ-04)
  *
  * ## 일괄 입력은 **채우는 도구**이고 정본은 차수별 칸이다
  *
@@ -19,9 +19,12 @@ import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/steps'
  *
  * ## 평가일은 여기 입력이 없다
  *
- * 생성값이며(DOC-008 ④) 표에 **표시만** 한다. 히든으로 나르지 않는 이유는 발행일을
- * 고친 뒤 이 단계를 지나지 않고 저장하는 경로에서 고치기 전 날짜가 저장되기
- * 때문이다 — 화면과 파서가 `previewDatesOf` 하나를 같은 값에 부른다.
+ * 생성값이며(DOC-008 §5 SCR-204) 표에 **표시만** 한다. 화면과 파서가
+ * `previewDatesOf` 하나를 같은 값에 부르므로 「본 것과 다른 것이 저장된다」가
+ * 구조적으로 불가능하다. 산식은 `발행일 + n × 주기 − 1일`이며 기산 규약을 포함한다
+ * (`EVALUATION_DATE_OFFSET_DAYS`). 히든으로 나르지 않는 이유였던 「발행일을 고친 뒤
+ * 이 단계를 지나지 않고 저장하는」 경로는 P6 컷 1에서 **존재할 수 없게 됐다** —
+ * 단계가 없으므로 지나지 않을 단계도 없다.
  *
  * ## 모든 비율 칸이 퍼센트다
  *
@@ -301,9 +304,10 @@ function RoundTable({
 
                   <label className="flex items-center gap-2 self-end text-sm">
                     {/*
-                      체크박스는 체크될 때만 전송된다. 히든 이송이 값 없는 이름을
-                      실을 수 있으므로 `checkbox()`가 빈 문자열도 거짓으로 읽는다 —
-                      그러지 않으면 「풀었는데 단계를 지나면 켜져 있다」가 된다.
+                      체크박스는 체크될 때만 전송된다. `formOfValues`가 값 맵을
+                      폼으로 만들 때 체크 안 된 칸을 `''`로 싣으므로 `checkbox()`가
+                      빈 문자열도 거짓으로 읽는다 — 부재만 보면 「풀었는데 켜져
+                      있다」가 된다.
                     */}
                     <input
                       type="checkbox"

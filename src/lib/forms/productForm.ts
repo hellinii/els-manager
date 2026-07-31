@@ -5,53 +5,35 @@ import { parseFieldPath, path } from './fieldPath'
 import { initialFormState, toFormState, type FormState } from './state'
 
 /**
- * SCR-204의 단계 기계 — **순수**하다. `next`도 `react`도 모른다
+ * SCR-204의 폼 기계 — **순수**하다. `next`도 `react`도 모른다
  *
- * ## 왜 클라이언트 상태가 아닌가
+ * ## 단계 분리를 철회했다 (P6 컷 1, DOC-008 v1.8)
  *
- * 단계 전환을 `useState`로 하면 두 가지를 잃는다.
+ * v0.5는 현재 단계를 `step` 히든 필드에 두고 전환을 제출로 했다. 실사용 11건이
+ * 그 설계를 뒤집었다 — §5.1 K-01(1건 90초)이 어긋났고 반복이 측정값으로 있다
+ * (기초자산 조합 5회 · 발행일 3회 · 배리어 세트 4회 재입력). 단계형은 **1건을
+ * 겨냥한 설계**였고 11건에서는 「어느 칸이 어느 단계에 있는가」를 기억하게 만들어
+ * 왕복을 늘렸다.
  *
- * ① **JS 없이 동작하지 않는다.** 컷 1b가 실측한 함정과 같은 자리다 — 전체 갱신
- *    버튼이 클라이언트 화살표에 감싸여 JS 없이는 아무 일도 하지 않았고 e2e가
- *    그것을 잡았다. 단계 폼은 그 함정이 **네 배**다(단계마다 하나씩).
- * ② **어느 스위트도 보지 못한다.** 화면 안의 상태 전이는 브라우저가 있어야
- *    확인되고 우리는 브라우저를 도입하지 않았다(AQ-32). 여기 있으면 상시
- *    스위트가 전수로 본다.
+ * **그 결정의 근거 중 하나는 철회되지 않았다.** 「`useState`로 하면 JS 없이 동작
+ * 하지 않는다」(컷 1b 실측)는 여전히 참이고, 단일 페이지는 폼 하나·제출 하나이므로
+ * 그 요구를 **더 쉽게** 만족한다. 둘째 근거(「전이를 순수 모듈로 빼야 상시 스위트가
+ * 본다」, AQ-32)는 **애초에 단계를 가진 비용**이었다 — 전이가 없으면 뺄 전이도 없다.
  *
- * 그래서 현재 단계는 **폼의 값**이고(`step` 히든 필드) 전환은 **제출**이다.
- * `useActionState`가 붙으면 같은 POST가 클라이언트 내비게이션이 되므로 두 경로가
- * 하나다 — 「JS는 향상이고 요구가 아니다」.
+ * ## 남는 것은 페이지 안의 조작 셋이다
  *
- * ## 비활성 단계의 값은 히든으로 실린다
+ * 행 추가 · 행 삭제 · 배리어 일괄 적용. 단계 이동이 아니지만 같은 이유로 **제출**
+ * 이며 버튼의 `name`·`value`가 의도를 나른다. 그래서 `Intent`와 `transition`은
+ * 남고 `moveStep`·`carryNames`·`stepForErrors`는 사라졌다.
  *
- * 다음 단계로 가면 앞 단계의 입력은 DOM에서 사라지고, 사라진 입력은 제출되지
- * 않는다. 그래서 활성 단계가 렌더하지 않는 **모든 이름**을 히든으로 다시 싣는다
- * (`carryNames`). 이름 목록을 손으로 적지 않고 `productFieldNames()`에서 파생시키는
- * 이유는 배열 필드가 동적이라는 것이다 — 행이 늘면 이름도 늘어야 하고, 두 곳에
- * 적으면 한쪽이 뒤처져 **조용히 값이 사라지는 행**이 생긴다.
+ * ## 히든 이송이 사라졌다
+ *
+ * 모든 칸이 동시에 렌더되므로 전부 진짜 컨트롤이고 전부 제출된다. 이 설계에서
+ * 가장 미묘했던 부분(`carryNames`가 「전체 이름 − 활성 단계의 이름」을 파생시켜야
+ * 했고, 빠뜨리면 **증상이 저장 버튼을 누를 때까지 나타나지 않았다**)이 통째로
+ * 없어졌다. `productFieldNames`는 남는다 — 계약이 돌려주는 오류 키를 칸과 짝지을
+ * 때 「폼의 이름」 목록이 여전히 필요하다(`toFormState`의 `knownNames`).
  */
-
-export type StepId = 'BASIC' | 'UNDERLYINGS' | 'CONDITIONS' | 'CONFIRM'
-
-export type Step = {
-  id: StepId
-  /** DOC-008 §5 SCR-204의 단계 기호. 문서 표기를 그대로 쓴다 */
-  ordinal: string
-  /** DOC-008 §5의 단계 이름 */
-  title: string
-  /** 그 단계가 무엇을 묻는가 — DOC-008 §5의 「입력 항목」 요약 */
-  summary: string
-}
-
-/** DOC-008 §5 SCR-204의 단계 표. 순서가 곧 전이 순서다 */
-export const PRODUCT_STEPS: readonly Step[] = [
-  { id: 'BASIC', ordinal: '①', title: '기본 정보', summary: '상품명 · 발행사 · 발행일 · 투자원금 · 계좌유형' },
-  { id: 'UNDERLYINGS', ordinal: '②', title: '기초자산', summary: '자산 선택 + 기준가격 (N종)' },
-  { id: 'CONDITIONS', ordinal: '③', title: '평가 조건', summary: '평가주기 · 총 차수 · 연쿠폰율 · 배리어 스케줄 · KI' },
-  { id: 'CONFIRM', ordinal: '④', title: '확인', summary: '생성될 평가일정 미리보기 후 저장' },
-] as const
-
-const STEP_IDS = PRODUCT_STEPS.map((step) => step.id)
 
 /**
  * 아직 서지 않은 조각 — **원장이다** (컷 2·3의 `NOT_YET_BUILT`와 같은 형태)
@@ -68,10 +50,12 @@ const STEP_IDS = PRODUCT_STEPS.map((step) => step.id)
  * > 컷 5가 SCR-202의 셋(상환 처리·상환 취소·KI 터치 확정)을 등재하고 **컷 6이
  * > 비웠다.** 채워짐과 비워짐이 번갈아 일어나는 것이 이 표가 살아 있다는 증거다 —
  * > 비었음을 단언으로 남기므로 다음에 조각을 미루는 컷이 오면 다시 채워진다.
+ *
+ * > **키 규약이 좁아졌다 (P6 컷 1).** 종전에는 「화면 id 또는 **단계 id**」였는데
+ * > 단계가 없어졌으므로 화면 id 하나다. 사유에 컷 번호를 요구하는 것은 그대로다.
  */
 export const PENDING_PARTS: Record<string, string> = {}
 
-export const STEP_FIELD = 'step'
 export const INTENT_FIELD = 'intent'
 
 /**
@@ -106,8 +90,6 @@ export const MAX_ROUNDS = 60
 // ---------------------------------------------------------------------------
 
 export type Intent =
-  | { kind: 'NEXT' }
-  | { kind: 'BACK' }
   | { kind: 'SUBMIT' }
   | { kind: 'ADD_UNDERLYING' }
   | { kind: 'REMOVE_UNDERLYING'; index: number }
@@ -127,10 +109,6 @@ export function parseIntent(raw: string | null | undefined): Intent {
   const [kind = '', arg = ''] = (raw ?? '').split(':')
 
   switch (kind) {
-    case 'NEXT':
-      return { kind: 'NEXT' }
-    case 'BACK':
-      return { kind: 'BACK' }
     case 'SUBMIT':
       return { kind: 'SUBMIT' }
     case 'ADD_UNDERLYING':
@@ -146,44 +124,11 @@ export function parseIntent(raw: string | null | undefined): Intent {
   }
 }
 
-/** 인식하지 못한 단계는 첫 단계다 — 조작된 값이 폼을 막지 않는다 */
-export function parseStep(raw: string | null | undefined): StepId {
-  const found = STEP_IDS.find((id) => id === raw)
-  return found ?? 'BASIC'
-}
-
-/** 전이. 양 끝에서 넘어가지 않는다 */
-export function moveStep(current: StepId, intent: Intent): StepId {
-  const at = STEP_IDS.indexOf(current)
-  if (intent.kind === 'NEXT') return STEP_IDS[Math.min(at + 1, STEP_IDS.length - 1)]!
-  if (intent.kind === 'BACK') return STEP_IDS[Math.max(at - 1, 0)]!
-  // 행 추가·삭제·일괄 적용은 같은 단계에 머문다 — 제출도 마찬가지다(성공하면
-  // 화면이 바뀌고, 실패하면 오류가 있는 단계로 간다: `stepForErrors`).
-  return current
-}
-
-/**
- * 오류가 있는 첫 단계 — 제출이 거부되면 그 단계로 되돌린다.
- *
- * ④에서 제출했는데 오류가 ①에 있으면 사용자는 오류 문구를 **볼 수 없다**(그 칸이
- * 히든이므로). 「저장이 안 되는데 아무 표시도 없다」의 단계 폼 버전이며,
- * `splitFieldErrors`가 미매칭 키를 버리지 않는 것과 같은 이유로 여기서 단계를
- * 고른다. 어느 단계에도 속하지 않는 키(미매칭)는 상단 요약이 받는다.
- */
-export function stepForErrors(fields: Record<string, string> | undefined): StepId | null {
-  const owners = new Set(
-    Object.keys(fields ?? {})
-      .map((key) => stepOfField(key))
-      .filter((id): id is StepId => id != null),
-  )
-  return STEP_IDS.find((id) => owners.has(id)) ?? null
-}
-
 // ---------------------------------------------------------------------------
-// 필드 소유 — 어느 단계가 어느 이름을 렌더하는가
+// 폼의 이름 — 계약 오류 키를 칸과 짝지을 때 쓴다
 // ---------------------------------------------------------------------------
 
-/** ① 기본 정보. `note`는 문서의 단계 표에 없다 — 아래 각주 참조 */
+/** 기본 정보 구획. `note`는 문서의 구획 표에 없다 — 아래 각주 참조 */
 const BASIC_NAMES = [
   'name',
   'issuer',
@@ -193,7 +138,7 @@ const BASIC_NAMES = [
   'note',
 ] as const
 
-/** ③ 평가 조건의 스칼라. `barriers`는 일괄 입력 칸이며 계약 필드가 아니다 */
+/** 평가 조건 구획의 스칼라. `barriers`는 일괄 입력 칸이며 계약 필드가 아니다 */
 const CONDITION_NAMES = [
   'evaluationPeriodMonths',
   'totalRounds',
@@ -215,35 +160,6 @@ export const SCHEDULE_SUBS = [
 /** 일괄 배리어 입력 칸의 이름 — 계약의 필드가 아니라 화면의 도구다 */
 export const BARRIERS_FIELD = 'barriers'
 
-const FIELD_STEP: Record<string, StepId> = {
-  name: 'BASIC',
-  issuer: 'BASIC',
-  issueDate: 'BASIC',
-  principal: 'BASIC',
-  accountType: 'BASIC',
-  note: 'BASIC',
-  underlyings: 'UNDERLYINGS',
-  evaluationPeriodMonths: 'CONDITIONS',
-  totalRounds: 'CONDITIONS',
-  annualCouponRate: 'CONDITIONS',
-  kiBarrier: 'CONDITIONS',
-  kiObservation: 'CONDITIONS',
-  barriers: 'CONDITIONS',
-  schedules: 'CONDITIONS',
-}
-
-/**
- * 오류 키 → 그 칸을 렌더하는 단계.
- *
- * 배열 키는 뿌리로 판정한다(`underlyings[1].assetId` → `underlyings`) — 인덱스가
- * 어디에 속하는가는 단계와 무관하다.
- */
-export function stepOfField(key: string): StepId | null {
-  const parsed = parseFieldPath(key)
-  if (parsed == null) return null
-  return FIELD_STEP[parsed.field] ?? null
-}
-
 export type RowCounts = {
   underlyings: number
   /** 차수표의 행 수. `totalRounds` 입력에서 나오며 0은 「아직 정하지 않았다」다 */
@@ -260,44 +176,27 @@ function rowNames(field: string, count: number, subs: readonly string[]): string
 }
 
 /**
- * **단계가 렌더하는 이름의 정본.** 컴포넌트는 이 목록의 칸을 그리고, 히든 이송은
- * 나머지를 싣는다 — 두 목록이 같은 함수에서 나오므로 갈릴 수 없다.
+ * 폼의 **모든** 이름 — 화면이 그리는 칸의 정본이다.
  *
- * 목록을 컴포넌트에 두면 새 칸이 한쪽에만 생기는 날이 오고, 그때 그 값은
- * **다음 단계로 가면 사라진다** — 저장을 누를 때까지 아무 증상이 없다.
- * `tests/e2e/`가 단계마다 「선언된 이름이 전부 DOM에 있다」를 확인한다.
- */
-export const STEP_NAMES: Record<StepId, (counts: RowCounts) => string[]> = {
-  BASIC: () => [...BASIC_NAMES],
-  UNDERLYINGS: (counts) =>
-    rowNames('underlyings', counts.underlyings, UNDERLYING_SUBS),
-  CONDITIONS: (counts) => [
-    ...CONDITION_NAMES,
-    ...rowNames('schedules', counts.rounds, SCHEDULE_SUBS),
-  ],
-  // ④는 입력이 없다 — 전부 히든이며 저장 버튼만 있다.
-  CONFIRM: () => [],
-}
-
-/**
- * 폼의 **모든** 이름 — 히든 이송과 미매칭 판정이 함께 쓴다.
+ * 쓰이는 곳 둘:
  *
- * `toFormState`의 `knownNames`가 이 값이어야 하는 이유: 폼은 단계에 걸쳐 있고
- * 오류는 지금 보이지 않는 단계의 칸을 가리킬 수 있다. 활성 단계의 이름만 주면
- * 그 오류들이 전부 「미매칭」으로 상단에 쌓이고, 정작 칸에는 표시되지 않는다.
+ * ① `toFormState`의 `knownNames` — 계약이 돌려주는 오류 키를 칸과 짝짓는다.
+ *    여기 없는 키는 「미매칭」으로 상단 요약에 남으며 **버려지지 않는다**
+ *    (`splitFieldErrors`).
+ * ② `transition`의 값 좁힘 — `$ACTION_*`·`intent` 같은 폼 밖의 것을 상태에서
+ *    걸러낸다. 그리고 저장 제출의 계약 입력이 그 값에서 나오므로(어댑터) 이
+ *    목록이 곧 **저장될 수 있는 것의 집합**이다.
+ *
+ * 목록을 컴포넌트에 두면 새 칸이 한쪽에만 생기는 날이 오고, 그때 계약의 오류가
+ * 그 칸에 붙지 않는다. `tests/e2e/`가 「선언된 이름이 전부 DOM에 있다」를 확인한다.
  */
 export function productFieldNames(counts: RowCounts): string[] {
-  return [STEP_FIELD, ...STEP_IDS.flatMap((id) => STEP_NAMES[id](counts))]
-}
-
-/**
- * 히든으로 실을 이름 — 전체에서 활성 단계의 것을 뺀다.
- *
- * `step`은 히든에 남는다(활성 단계 자신을 나르는 값이다).
- */
-export function carryNames(counts: RowCounts, active: StepId): string[] {
-  const shown = new Set(STEP_NAMES[active](counts))
-  return productFieldNames(counts).filter((name) => !shown.has(name))
+  return [
+    ...BASIC_NAMES,
+    ...rowNames('underlyings', counts.underlyings, UNDERLYING_SUBS),
+    ...CONDITION_NAMES,
+    ...rowNames('schedules', counts.rounds, SCHEDULE_SUBS),
+  ]
 }
 
 // ---------------------------------------------------------------------------
@@ -455,8 +354,6 @@ export function applyBarriers(
 
 export type Transition = {
   intent: Intent
-  /** 이 제출 뒤에 렌더할 단계 */
-  step: StepId
   /** 다음 렌더의 값. 폼의 모든 이름으로 **좁혀져** 있다 */
   values: Record<string, string>
   counts: RowCounts
@@ -468,13 +365,16 @@ export type Transition = {
  * `FormData` → 다음 렌더 상태. **액션에 남는 것은 이 호출과 계약 호출뿐이다.**
  *
  * 어댑터(`app/<route>/actions.ts`)는 `server.ts`를 끌어오므로 어떤 스위트의 import
- * 그래프에도 들어갈 수 없다(AQ-23). 단계 전이·행 연산·값 좁힘이 거기 있으면
+ * 그래프에도 들어갈 수 없다(AQ-23). 행 연산·배리어 펼침·값 좁힘이 거기 있으면
  * 그만큼이 영구 미검증이므로 전부 여기 있다 — `FormData`는 Node 전역이고 이
  * 파일은 `next`도 `react`도 모른다.
+ *
+ * **돌려주는 `values`가 계약 입력의 정본이기도 하다.** 어댑터가
+ * `parseProductForm(formOfValues(next.values))`를 부르므로 화면이 렌더하는 것과
+ * 저장되는 것의 출처가 하나다.
  */
 export function transition(form: FormData): Transition {
   const intent = parseIntent(readText(form, INTENT_FIELD))
-  const current = parseStep(readText(form, STEP_FIELD))
 
   let raw = readAll(form)
   let notice: string | null = null
@@ -526,15 +426,13 @@ export function transition(form: FormData): Transition {
     underlyings: rowCountOf(raw, 'underlyings'),
     rounds: roundCountOf(raw),
   }
-  const step = moveStep(current, intent)
 
-  const values: Record<string, string> = { [STEP_FIELD]: step }
+  const values: Record<string, string> = {}
   for (const name of productFieldNames(counts)) {
-    if (name === STEP_FIELD) continue
     values[name] = raw[name] ?? ''
   }
 
-  return { intent, step, values, counts, notice }
+  return { intent, values, counts, notice }
 }
 
 // ---------------------------------------------------------------------------
@@ -542,35 +440,33 @@ export function transition(form: FormData): Transition {
 // ---------------------------------------------------------------------------
 
 /**
- * 제출이 아닌 전이의 결과 상태.
+ * 제출이 아닌 의도(행 추가·삭제·일괄 적용)의 결과 상태.
  *
- * `initialFormState`를 쓰는 이유는 이전 제출의 오류가 다음 단계까지 따라오면
- * 「고쳤는데도 빨간 글씨가 남는」 상태가 되기 때문이다. 안내(`notice`)는 오류가
- * 아니므로 `status`를 바꾸지 않는다 — 일괄 적용의 해석 모드가 그 자리다(SQ-04).
+ * `initialFormState`를 쓰는 이유는 이전 제출의 오류가 따라오면 「고쳤는데도 빨간
+ * 글씨가 남는」 상태가 되기 때문이다. 안내(`notice`)는 오류가 아니므로 `status`를
+ * 바꾸지 않는다 — 일괄 적용의 해석 모드가 그 자리다(SQ-04).
  */
-export function stepState(next: Transition): FormState {
+export function intentState(next: Transition): FormState {
   const state = initialFormState(next.values)
   return next.notice == null ? state : { ...state, message: next.notice }
 }
 
 /**
- * 제출 실패의 결과 상태 — **오류가 있는 단계로 되돌린다.**
+ * 제출 실패의 결과 상태.
  *
- * ④에서 저장했는데 오류가 ①에 있으면 사용자는 그 문구를 볼 수 없다(그 칸이 히든이다).
- * `knownNames`가 **폼 전체**의 이름인 것도 같은 이유다 — 활성 단계의 것만 주면 다른
- * 단계의 오류가 전부 미매칭으로 상단에 쌓이고 정작 칸에는 표시되지 않는다.
+ * `knownNames`가 **폼 전체**의 이름이어야 한다 — 일부만 주면 나머지 오류가 전부
+ * 미매칭으로 상단에 쌓이고 정작 칸에는 표시되지 않는다.
+ *
+ * **오류 단계로 되돌리는 장치가 없어졌다 (P6 컷 1).** 그것은 「보이지 않는 칸의
+ * 오류를 화면에 가져오는」 수단이었고, 모든 칸이 동시에 렌더되므로 보이지 않는
+ * 칸이 없다. 어느 칸과도 짝지어지지 않은 오류만 상단 요약이 받는 규약은 그대로다.
  *
  * **등록과 수정이 이 함수를 공유한다.** 어댑터마다 적으면 한쪽만 고쳐지는 날이 오고,
  * 그때 그 화면에서만 오류가 보이지 않는다 — 두 어댑터는 어떤 스위트의 import 그래프에도
  * 없으므로(AQ-23) 그 갈림을 아무도 보지 못한다.
  */
 export function submitState<T>(result: ActionResult<T>, next: Transition): FormState {
-  const state = toFormState(result, next.values, productFieldNames(next.counts))
-  const failed = stepForErrors(state.fieldErrors)
-
-  return failed == null
-    ? state
-    : { ...state, values: { ...state.values, [STEP_FIELD]: failed } }
+  return toFormState(result, next.values, productFieldNames(next.counts))
 }
 
 /**

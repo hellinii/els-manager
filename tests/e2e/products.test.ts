@@ -10,7 +10,7 @@ import {
 } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
 import { FILTER_KEYS } from '@/lib/forms/query'
-import { PRODUCT_ID_FIELD, productFieldNames } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD, productFieldNames } from '@/lib/forms/productForm'
 import { PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'

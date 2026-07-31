@@ -8,11 +8,10 @@ import {
 } from '@/lib/domain'
 import { parseProductForm, percentToRatio, ratioToPercent } from '@/lib/forms/parse'
 import {
-  STEP_FIELD,
   productFieldNames,
   roundCountOf,
   rowCountOf,
-} from '@/lib/forms/steps'
+} from '@/lib/forms/productForm'
 import { productValuesOf } from '@/lib/forms/values'
 
 import { ASSET_1, ASSET_2, OWNER, priceMap, productRow, schedule } from '../db/helpers/rows'
@@ -144,10 +143,10 @@ describe('productValuesOf — 폼의 모든 이름을 덮는다', () => {
      * 없으면 그 값은 수정 저장에서 `''`가 되어 계약에 실린다. `productFieldNames`를
      * 좌변으로 두므로 목록이 세 번째 사본이 되지 않는다.
      *
-     * `step`은 폼이 정하는 값이므로 제외한다(수정도 ①에서 시작한다).
+     * 제외할 이름이 없다 — 단계 분리를 철회하며 `step` 필드가 사라졌고(P6 컷 1),
+     * 이제 폼의 모든 이름이 계약 입력의 이름이다.
      */
     for (const name of productFieldNames(counts)) {
-      if (name === STEP_FIELD) continue
       expect(Object.keys(values), `${name}의 초기값이 없다`).toContain(name)
     }
   })

@@ -12,7 +12,7 @@ import {
   type RoundOption,
 } from '@/lib/forms/redemption'
 import { initialFormState, type FormState } from '@/lib/forms/state'
-import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 
 /**
  * §5.4·§5.5 상환 폼 — 처리(SCR-203)와 수정(SCR-202)이 **같은 컴포넌트다**

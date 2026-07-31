@@ -6,7 +6,7 @@ import { deleteProductAction } from '@/app/(app)/products/[id]/actions'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import { initialFormState } from '@/lib/forms/state'
-import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 
 /**
  * §5.3 상품 삭제 — **확인은 JS 없는 2단 공개다** (SCR-202, P4 컷 5)

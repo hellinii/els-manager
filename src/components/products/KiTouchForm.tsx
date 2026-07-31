@@ -7,7 +7,7 @@ import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import { initialFormState } from '@/lib/forms/state'
-import { PRODUCT_ID_FIELD } from '@/lib/forms/steps'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 
 /**
  * §5.9 KI 터치 확정 — **사용자의 조치다. 시스템이 자동 확정하지 않는다** (D-04)

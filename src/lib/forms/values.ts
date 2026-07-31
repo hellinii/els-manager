@@ -2,7 +2,7 @@ import type { ProductDetailView } from '@/lib/db/queries/map'
 
 import { path } from './fieldPath'
 import { ratioToPercent } from './parse'
-import { BARRIERS_FIELD, SCHEDULE_SUBS, UNDERLYING_SUBS } from './steps'
+import { BARRIERS_FIELD, SCHEDULE_SUBS, UNDERLYING_SUBS } from './productForm'
 
 /**
  * 상세 뷰 → 폼 값 맵 — **`parseProductForm`의 역이다** (SCR-204 수정 모드, P4 컷 5)
@@ -31,13 +31,17 @@ import { BARRIERS_FIELD, SCHEDULE_SUBS, UNDERLYING_SUBS } from './steps'
  * | 이름 | 왜 비우는가 |
  * |---|---|
  * | `barriers` | 계약의 필드가 아니라 **차수별 칸을 채우는 도구**다(SQ-04). 채워 두면 「일괄 적용」이 이미 눌린 것처럼 보이는데 그 값은 저장된 것이 아니다 |
- * | `step` | 폼이 정한다. 수정도 ①에서 시작한다 |
  *
- * **평가일도 담지 않는다.** 생성값이므로(DOC-008 §5 SCR-204 v0.5) 발행일·평가주기·
- * 총 차수에서 다시 나온다. 결과로 **수정 저장은 평가일을 재생성한다** — 저장된
- * 날짜가 그 산식과 다르면 수정이 그것을 산식대로 바꾼다. 히든으로 나르는 대안은
- * 발행일을 고친 뒤 ③을 지나지 않고 저장하는 경로에서 고치기 전 날짜를 저장하므로
- * 더 나쁘다(같은 각주가 등록 모드에서 이미 그 판단을 내렸다).
+ * **평가일도 담지 않는다.** 생성값이므로(DOC-008 §5 SCR-204) 발행일·평가주기·총
+ * 차수에서 다시 나온다. 결과로 **수정 저장은 평가일을 재생성한다** — 저장된 날짜가
+ * 그 산식과 다르면 수정이 그것을 산식대로 바꾼다.
+ *
+ * ★ **그 재생성이 «멱등»이다** (P6 컷 1). 산식이 기산 규약(−1일)을 포함하고 그
+ * 규약이 전역이므로, 규약대로 저장된 날짜는 재생성이 같은 값을 다시 낸다. 그래서
+ * 차수별 입력 칸을 만들지 않아도 조정이 성립하고 DOC-011 §5.2의 전체 교체와
+ * 충돌하지 않는다 — DOC-002 §4.8이 그 판단과 뒤집힐 조건을 적는다.
+ *
+ * (`step` 행이 있었다. 단계 분리를 철회하며 그 이름이 사라졌다.)
  */
 export function productValuesOf(view: ProductDetailView): Record<string, string> {
   const { product } = view

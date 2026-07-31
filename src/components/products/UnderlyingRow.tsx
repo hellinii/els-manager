@@ -6,10 +6,10 @@ import { Field, INPUT_CLASS } from '@/components/form/Field'
 import type { AssetOption } from '@/lib/db/queries/prices'
 import { narrowAssets } from '@/lib/forms/assets'
 import { path } from '@/lib/forms/fieldPath'
-import { UNDERLYING_SUBS } from '@/lib/forms/steps'
+import { UNDERLYING_SUBS } from '@/lib/forms/productForm'
 
 /**
- * ② 기초자산 한 행 — 자산 선택 + 기준가격 (SCR-204, DOC-008 §5)
+ * 기초자산 한 행 — 자산 선택 + 기준가격 (SCR-204, DOC-008 §5)
  *
  * ## 자동완성은 **전량 + 클라이언트 필터**다
  *

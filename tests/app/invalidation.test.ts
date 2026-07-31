@@ -16,7 +16,7 @@ import {
   type QueryName,
 } from '@/lib/routes/invalidation'
 import { PATHS } from '@/lib/routes/paths'
-import { PENDING_PARTS } from '@/lib/forms/steps'
+import { PENDING_PARTS } from '@/lib/forms/productForm'
 
 /**
  * 무효화 맵 — 세 축으로 대조한다 (DOC-011 §8 · 계획 §8)
