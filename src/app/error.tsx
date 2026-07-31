@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 
+import { errorNotice } from '@/lib/format/errorNotice'
+
 /**
  * 시스템 오류 경계 — P4 선행 조건 ③ (DOC-000 §3)
  *
@@ -35,18 +37,21 @@ export default function ErrorBoundary({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  /*
+   * 판단은 `lib/format/errorNotice.ts`에 있다 — AQ-38 (c). 이 파일은 어느 스위트도
+   * 실행하지 않으므로(경계에 도달하는 경로가 없다) 분기를 여기 두면 아무도 보지 못한다.
+   * 그래서 남은 것은 «렌더»뿐이고, 그것이 이 컴포넌트가 조건문을 하나만 갖는 이유다.
+   */
+  const notice = errorNotice(error)
+
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 py-12 text-center">
-      <h1 className="text-xl font-semibold tracking-tight">
-        화면을 불러오지 못했다
-      </h1>
-      <p className="max-w-sm text-sm text-neutral-600">
-        일시적인 문제일 수 있다. 다시 시도해도 같으면 아래 코드와 함께 알린다.
-      </p>
+      <h1 className="text-xl font-semibold tracking-tight">{notice.title}</h1>
+      <p className="max-w-sm text-sm text-neutral-600">{notice.body}</p>
 
-      {error.digest != null && (
+      {notice.digest != null && (
         <p className="rounded-md bg-neutral-100 px-3 py-1.5 font-mono text-xs text-neutral-700">
-          {error.digest}
+          {notice.digest}
         </p>
       )}
 

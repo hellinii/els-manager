@@ -14,6 +14,8 @@
  * 보인다 — 즉 **여기서 무엇이 잘못됐는지 설명할 수단은 `digest`뿐이다.**
  */
 
+import { errorNotice } from '@/lib/format/errorNotice'
+
 export default function GlobalError({
   error,
   reset,
@@ -21,6 +23,11 @@ export default function GlobalError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  // 판단은 `lib/format/errorNotice.ts`에 있다 — AQ-38 (c). 이 파일도 어느 스위트도
+  // 실행하지 않으므로 분기를 여기 두면 `error.tsx`와 «따로» 낡는다(실제로 빈 문자열
+  // 갈래가 양쪽에 중복돼 있었다).
+  const notice = errorNotice(error, 'global')
+
   return (
     <html lang="ko">
       <body
@@ -40,13 +47,13 @@ export default function GlobalError({
         }}
       >
         <h1 style={{ fontSize: '1.25rem', fontWeight: 600, margin: 0 }}>
-          앱을 시작하지 못했다
+          {notice.title}
         </h1>
         <p style={{ fontSize: '0.875rem', color: '#525252', maxWidth: '24rem' }}>
-          새로고침해도 같으면 아래 코드와 함께 알린다.
+          {notice.body}
         </p>
 
-        {error.digest != null && (
+        {notice.digest != null && (
           <p
             style={{
               fontFamily: 'ui-monospace, monospace',
@@ -56,7 +63,7 @@ export default function GlobalError({
               borderRadius: '0.375rem',
             }}
           >
-            {error.digest}
+            {notice.digest}
           </p>
         )}
 

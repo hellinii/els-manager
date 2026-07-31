@@ -90,6 +90,45 @@ insert into auth.users (
    now(), now(), now(),
    '{"provider":"email","providers":["email"]}'::jsonb,
    '{"display_name":"경과 사용자"}'::jsonb,
+   '', '', '', '', '', '', '', ''),
+
+  -- ============================================================================
+  -- AQ-41 — SCR-402 빈 상태의 두 갈래 (P5b 컷 10)
+  --
+  -- 두 갈래 모두 「그 소유자의 **모든** 상품이 …이다」 형태라 **한 사용자로 만들 수
+  -- 없다.** 하나가 참이면 다른 하나가 거짓이므로 사용자가 둘이어야 한다.
+  --
+  -- ★ 상품을 여기 두지 않는다 — `sql_paths`가 글롭이라 시드에 상품을 넣으면
+  --   `tests/integration/`의 **필터 없는 전역 건수 단언**이 잘못된 이유로 빨간불이
+  --   된다(모든 SELECT 정책이 `using (true)`라 남의 상품도 센다. CLAUDE.md).
+  --   그래서 **사용자만 시드에 두고 상품은 그 파일의 `beforeAll`이 만든다** —
+  --   `home.test.ts`가 `E2E_PAST`에 쓰는 것과 같은 형태다.
+  --
+  -- ★★ 그리고 이 둘에 «다른» 파일이 상품을 더하면 안 된다. `E2E_PAST`가 그 함정을
+  --    이미 밟았다 — 그 사용자의 상품을 `home.test.ts`가 만들어서, 전체 스위트는
+  --    초록인데 `db:reset` 뒤 `forecast.test.ts`만 돌리면 빨간불이었다.
+  --    **실행 순서가 데이터가 된다**(AQ-34가 전용 사용자를 만든 이유 그대로).
+  -- ============================================================================
+
+  ('00000000-0000-0000-0000-000000000000',
+   '00000000-0000-4000-8000-000000000105',
+   'authenticated', 'authenticated', 'e2e-empty@example.test',
+   extensions.crypt('e2e-test-password', extensions.gen_salt('bf')),
+   now(), now(), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   -- 상품 0건 · 프로필 0건으로 «남는다». 어느 파일도 이 사용자에 무엇도 만들지 않는다.
+   '{"display_name":"전망 없음"}'::jsonb,
+   '', '', '', '', '', '', '', ''),
+
+  ('00000000-0000-0000-0000-000000000000',
+   '00000000-0000-4000-8000-000000000106',
+   'authenticated', 'authenticated', 'e2e-principal@example.test',
+   extensions.crypt('e2e-test-password', extensions.gen_salt('bf')),
+   now(), now(), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb,
+   -- E-07 상품 하나만 갖는다(유량 0 · 금융소득 0 · **원금은 남는다**).
+   -- 그 상품은 `tests/e2e/forecast.test.ts`의 `beforeAll`이 만든다.
+   '{"display_name":"원금만"}'::jsonb,
    '', '', '', '', '', '', '', '')
 on conflict (id) do nothing;
 

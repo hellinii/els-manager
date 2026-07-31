@@ -45,6 +45,22 @@ export const E2E_LIVE = '00000000-0000-4000-8000-000000000103'
 /** 전 차수가 경과한 상품 하나만 갖는다 — ①의 **빈 절**과 SCR-301 셋째 빈 상태 */
 export const E2E_PAST = '00000000-0000-4000-8000-000000000104'
 
+/**
+ * SCR-402 빈 상태 ① — **상품 0건 · 프로필 0건으로 남는다** (AQ-41, 컷 10).
+ *
+ * ★ 어느 파일도 이 사용자에 무엇도 만들지 않는다. 만드는 순간 갈래가 사라진다.
+ */
+export const E2E_EMPTY = '00000000-0000-4000-8000-000000000105'
+
+/**
+ * SCR-402 빈 상태 ② — **E-07 상품 하나만** 갖는다 (AQ-41, 컷 10).
+ *
+ * 유량이 여섯 해 내내 0이고 금융소득도 0인데 **원금이 남으므로 빈 상태가 아니다.**
+ * 상품은 `forecast.test.ts`의 `beforeAll`이 만든다 — 시드에 두면
+ * `tests/integration/`의 전역 건수 단언이 잘못된 이유로 깨진다(시드 파일 주석).
+ */
+export const E2E_PRINCIPAL = '00000000-0000-4000-8000-000000000106'
+
 const E2E_PASSWORD = 'e2e-test-password'
 
 const CREDENTIALS: Record<string, { email: string; password: string }> = {
@@ -53,6 +69,8 @@ const CREDENTIALS: Record<string, { email: string; password: string }> = {
   // `supabase/seed/04_e2e_user.sql`과 반드시 일치한다.
   [E2E_LIVE]: { email: 'e2e-live@example.test', password: E2E_PASSWORD },
   [E2E_PAST]: { email: 'e2e-past@example.test', password: E2E_PASSWORD },
+  [E2E_EMPTY]: { email: 'e2e-empty@example.test', password: E2E_PASSWORD },
+  [E2E_PRINCIPAL]: { email: 'e2e-principal@example.test', password: E2E_PASSWORD },
 }
 
 export type SuiteUser = keyof typeof CREDENTIALS
@@ -69,6 +87,9 @@ export const DISPLAY_NAME: Record<string, string> = {
   [ITG_USER_B]: '계약 사용자 B',
   [E2E_LIVE]: '실행 사용자',
   [E2E_PAST]: '경과 사용자',
+  // 넷의 이름이 서로의 부분문자열이 아니다 — `toContain`이 구분하지 못하는 함정.
+  [E2E_EMPTY]: '전망 없음',
+  [E2E_PRINCIPAL]: '원금만',
 }
 
 export function credentialsOf(user: SuiteUser): { email: string; password: string } {

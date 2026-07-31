@@ -6,6 +6,7 @@ import { PATHS } from '@/lib/routes/paths'
 import { authenticatedJar } from './helpers/auth'
 import { registerProduct } from './helpers/register'
 import { get } from './helpers/server'
+import { E2E_EMPTY, E2E_PRINCIPAL } from './helpers/users'
 
 /**
  * SCR-402 다년도 전망 — **자리표시가 실화면으로 바뀌었음을 렌더에서 본다** (P4b 컷 8)
@@ -170,5 +171,66 @@ describe('SCR-402 — 자리표시가 실화면이 되었다', () => {
      * 라우트가 200이라는 것으로는 이 사실을 확인할 수 없다 — 그것이 그 지적의 내용이었다.
      */
     expect(taxHtml).toContain(`href="${PATHS.forecast}"`)
+  })
+})
+
+/**
+ * SCR-402 빈 상태의 두 갈래 — AQ-41 (P5b 컷 10)
+ *
+ * ## 왜 «전용 사용자 둘»인가
+ *
+ * 두 갈래 모두 「그 소유자의 **모든** 상품이 …이다」 형태라 **한 사용자로 만들 수 없다** —
+ * 하나가 참이면 다른 하나가 거짓이다. 그리고 공유 사용자(`ITG_USER_A`)에는 위 describe가
+ * 이미 상품을 만들므로 쓸 수 없고, `E2E_LIVE`·`E2E_PAST`에 더하면 `home.test.ts`가 그 둘의
+ * 집계를 **값으로** 단언하는 것이 깨진다(그 정확한 단언이 AQ-34가 전용 사용자를 만든 이유다).
+ *
+ * ## ★ 상품을 시드에 두지 않는 이유
+ *
+ * `sql_paths`가 글롭이라 시드에 상품을 넣으면 `tests/integration/`의 **필터 없는 전역 건수
+ * 단언**이 잘못된 이유로 빨간불이 된다(모든 SELECT 정책이 `using (true)`라 남의 상품도 센다).
+ * 그래서 **사용자만 시드에 두고 상품은 여기서 만든다** — `home.test.ts`의 형태 그대로다.
+ *
+ * ## ★★ 그리고 이 둘에 다른 파일이 손대면 안 된다
+ *
+ * `E2E_PAST`가 그 함정을 이미 밟았다 — 그 사용자의 상품을 `home.test.ts`가 만들어서
+ * **전체 스위트는 초록인데 `db:reset` 뒤 이 파일만 돌리면 빨간불**이었다.
+ * **실행 순서가 데이터가 된 것**이며, 그래서 이 두 사용자는 이 파일만 건드린다.
+ */
+describe('SCR-402 빈 상태의 두 갈래 — AQ-41', () => {
+  it('① 상품이 하나도 없으면 빈 상태를 렌더한다', async () => {
+    const jar = await authenticatedJar(E2E_EMPTY)
+    const res = await get(PATHS.forecast, jar)
+    expect(res.status).toBe(200)
+    const empty = visible(await res.text())
+
+    // 표가 없다 — 그것이 빈 상태의 관측 가능한 형태다.
+    expect(empty).not.toMatch(/<thead\b/)
+    // 그리고 «다음 행동»이 있다. `EmptyState.action`이 필수 prop이라 타입이 절반을
+    // 강제하지만, 그 prop이 실제로 마크업이 되는지는 렌더에만 있다(ST-02).
+    expect(empty).toContain('전망할 데이터가 없다')
+  })
+
+  it('② 원금만 남는 상품이 있으면 빈 상태가 «아니다» — E-07', async () => {
+    /*
+     * 유량이 여섯 해 내내 0이고 금융소득도 0인데 **원금이 남는다.** 잔여 원금 축을
+     * 보지 않으면 이 사용자가 ①과 같게 보이고, 그러면 보유 중인 원금이 화면에서
+     * 사라진다 — `isForecastEmpty`가 세 축을 보는 이유이며 그 판정이 마크업으로
+     * 이어지는 한 줄이 여기서 처음 관측된다.
+     */
+    const jar = await authenticatedJar(E2E_PRINCIPAL)
+    const asOf = new Date().toISOString().slice(0, 10)
+    await registerProduct(jar, {
+      label: '원금',
+      principal: '50,000,000',
+      // 전 차수가 경과한 미상환 상품 — 유량 0, 원금 잔존.
+      issueDate: `${Number.parseInt(asOf.slice(0, 4), 10) - 2}-01-02`,
+    })
+
+    const res = await get(PATHS.forecast, jar)
+    expect(res.status).toBe(200)
+    const principalOnly = visible(await res.text())
+
+    expect(principalOnly).not.toContain('전망할 데이터가 없다')
+    expect(principalOnly).toMatch(/<thead\b/)
   })
 })
