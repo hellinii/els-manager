@@ -6,6 +6,7 @@ import {
   ACCOUNT_TYPE_LABELS,
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
+  KI_OBSERVATION_LABELS,
   KI_STATUS_GRADES,
   KI_STATUS_LABELS,
   STATUS_GRADES,
@@ -14,7 +15,11 @@ import {
   barrierGap,
   dDayLabel,
   deriveDisplay,
+  kiTermLabel,
+  lizardLabel,
   percent,
+  priceDisplay,
+  stepdownLabel,
   ymd,
   type DisplayState,
 } from '@/lib/format'
@@ -129,7 +134,140 @@ export function ProductRow({ item }: { item: ProductListItem }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <JudgmentCell item={item} />
       </div>
+
+      {/* ⑧~⑫ 계약 조건 — 전 폭을 지나는 둘째 줄 */}
+      <TermsLine item={item} />
     </li>
+  )
+}
+
+/**
+ * 계약 조건 한 줄 — DOC-008 §5 SCR-201 ⑧~⑫ (v1.9, P6 컷 2)
+ *
+ * ## 왜 열이 아니라 줄인가
+ *
+ * ①~⑦이 이미 데스크톱 5열이다. 다섯을 열로 더하면 **11열**이 되어 어느 폭에서도
+ * 읽히지 않는다. 그래서 `lg:col-span-full`로 표 아래를 지나는 한 줄이 된다 —
+ * 모바일에서는 위의 칸들과 함께 쌓이므로 차이가 없다(§8).
+ *
+ * ## 판정값과 섞지 않는다
+ *
+ * 이 줄에는 `worstOf`·`conditionResult`·`kiStatus`가 없다. 그 셋은 억제 규칙(D1)의
+ * 대상이고 이것은 아니다 — **결함 상품도 계약 조건은 있고, 오히려 그때 화면이
+ * 보여줄 것이 이것뿐이다.** 위 칸이 「시세 없음」인 상품에서도 이 줄은 온전하다.
+ *
+ * ## 문구를 여기서 만들지 않는다
+ *
+ * 스텝다운·리자드·KI 표기는 `lib/format/terms.ts`의 순수 함수가 낸다. 화면은 어떤
+ * 스위트의 import 그래프에도 없으므로(AQ-23) 여기서 문자열을 조립하면 그 판단이
+ * 영구 미검증이 된다.
+ */
+function TermsLine({ item }: { item: ProductListItem }) {
+  const { terms } = item
+  const stepdown = stepdownLabel(terms.barriers)
+  const lizard = lizardLabel(terms.lizards)
+  const nextRound = item.nextEvaluation?.roundNo ?? null
+
+  return (
+    <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-dashed border-neutral-200 pt-2 text-xs lg:col-span-full">
+      {/* ⑧ 기초자산 · 기준가격 */}
+      <div className="flex min-w-0 items-baseline gap-1.5">
+        <dt className="shrink-0 text-neutral-500">기초자산</dt>
+        <dd className="min-w-0">
+          {terms.underlyings.length === 0 ? (
+            /* I-07 결함. 위 칸의 무결성 표식이 이유를 말하므로 여기서는 사실만 */
+            <span className="text-neutral-400">없음</span>
+          ) : (
+            <span className="flex flex-wrap gap-x-2">
+              {terms.underlyings.map((u) => (
+                <span key={u.assetName} className="tabular-nums">
+                  <span className="text-neutral-700">{u.assetName}</span>{' '}
+                  {priceDisplay(u.basePrice)}
+                </span>
+              ))}
+            </span>
+          )}
+        </dd>
+      </div>
+
+      {/* ⑨ 연쿠폰율 */}
+      <div className="flex items-baseline gap-1.5">
+        <dt className="shrink-0 text-neutral-500">연쿠폰</dt>
+        <dd className="tabular-nums">{percent(terms.annualCouponRate)}</dd>
+      </div>
+
+      {/* ⑩ KI 배리어 · 관찰방식 — `null`이 노낙인이다(I-11의 짝) */}
+      <div className="flex items-baseline gap-1.5">
+        <dt className="shrink-0 text-neutral-500">KI</dt>
+        <dd className="tabular-nums">
+          {kiTermLabel(
+            terms.kiBarrier,
+            terms.kiObservation == null
+              ? null
+              : KI_OBSERVATION_LABELS[terms.kiObservation],
+          )}
+        </dd>
+      </div>
+
+      {/* ⑪ 조기상환 배리어(스텝다운) — 다음 차수를 강조한다 */}
+      {stepdown != null && (
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <dt className="shrink-0 text-neutral-500">스텝다운</dt>
+          <dd className="min-w-0 break-all tabular-nums">
+            <StepdownCells barriers={terms.barriers} nextRound={nextRound} />
+          </dd>
+        </div>
+      )}
+
+      {/* ⑫ 리자드 — 붙은 차수만. 없으면 칸 자체를 그리지 않는다 */}
+      {lizard != null && (
+        <div className="flex items-baseline gap-1.5">
+          <dt className="shrink-0 text-neutral-500">리자드</dt>
+          <dd className="tabular-nums">{lizard}</dd>
+        </div>
+      )}
+    </dl>
+  )
+}
+
+/**
+ * 스텝다운 수열 — **다음 차수의 배리어를 강조한다.**
+ *
+ * ④가 이미 그 차수를 말하고 있으므로 둘이 같은 것을 가리키고, 사용자는 「지금 어느
+ * 칸을 보아야 하는가」를 세지 않아도 된다. 강조가 없으면 6개 숫자 중 어느 것이
+ * 지금 걸린 조건인지 알 수 없다.
+ *
+ * 문자열 하나(`stepdownLabel`)로 렌더하지 않는 이유가 그 강조다. 두 경로가 갈리지
+ * 않도록 **같은 함수로 토큰을 만든다** — `stepdownLabel`이 그 함수의 조립 결과이고
+ * 여기서는 토큰마다 요소를 두므로, 표기 규칙이 바뀌면 둘이 함께 바뀐다.
+ */
+function StepdownCells({
+  barriers,
+  nextRound,
+}: {
+  barriers: readonly string[]
+  /** 1-기반 차수. `null`이면 강조하지 않는다(상환 완료·전 차수 경과) */
+  nextRound: number | null
+}) {
+  return (
+    <>
+      {barriers.map((barrier, index) => {
+        const current = nextRound != null && index + 1 === nextRound
+        return (
+          <span key={index}>
+            {index > 0 && <span className="text-neutral-300">-</span>}
+            <span
+              className={
+                current ? 'font-semibold text-neutral-900' : 'text-neutral-600'
+              }
+            >
+              {percent(barrier).replace('%', '')}
+            </span>
+          </span>
+        )
+      })}
+      <span className="text-neutral-500">%</span>
+    </>
   )
 }
 

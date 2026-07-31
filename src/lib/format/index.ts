@@ -39,6 +39,12 @@ export {
   type BadgeGrade,
 } from './badges'
 export { deriveDisplay, PRICE_MISSING_LABEL, type DisplayState } from './derived'
+export {
+  kiTermLabel,
+  lizardLabel,
+  stepdownLabel,
+  type LizardTerm,
+} from './terms'
 export { groupByMonth, splitByPast, type MonthGroup } from './schedule'
 export { selectableYears } from './tax'
 export { isForecastEmpty } from './forecast'

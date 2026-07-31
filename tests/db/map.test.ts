@@ -13,7 +13,7 @@ import {
 import { dec } from '@/lib/decimal'
 import { deriveDisplay } from '@/lib/format'
 
-import { ASSET_1, ASSET_2, OTHER, OWNER, priceMap, productRow, redemption, schedule } from './helpers/rows'
+import { ASSET_1, ASSET_2, OTHER, OWNER, asset, priceMap, productRow, redemption, schedule } from './helpers/rows'
 
 const ASOF = '2026-06-30'
 
@@ -998,5 +998,149 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
 
     expect(rounds.map((r) => r.isPast)).toEqual([true, false])
     expect(rounds.every((r) => r.status === 'ACTIVE')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 계약 조건 — `ProductListItem.terms` (§4.2 v3.1, P6 컷 2)
+// ---------------------------------------------------------------------------
+
+describe('계약 조건 — 판정과 다른 성질을 갖는다', () => {
+  function termsOfRow(overrides: Partial<ProductRow> = {}) {
+    return toProductListItem(productRow(overrides), priceMap([]), ASOF, OWNER)
+      .terms
+  }
+
+  it('★ 기준일에 의존하지 않는다 — 같은 상품에 언제나 같은 값이다', () => {
+    /*
+     * ★ 계약 조건이 판정값과 다른 점이 정확히 이것이다. `worstOf`·`kiStatus`·
+     * `nextEvaluation`은 기준일이 움직이면 함께 움직이고 `terms`는 움직이지 않는다.
+     * 매퍼가 `asOf`를 받지 않는 함수로 떼어져 있는 것이 그 사실의 구조적 형태이며,
+     * 이 단언은 그 성질이 우연이 아님을 고정한다.
+     */
+    const row = productRow()
+    const early = toProductListItem(row, priceMap([]), '2026-01-05', OWNER)
+    const late = toProductListItem(row, priceMap([]), '2030-01-05', OWNER)
+
+    expect(early.terms).toEqual(late.terms)
+    // 음성 대조 — 판정값은 실제로 움직인다(그래야 위 단언이 항진명제가 아니다)
+    expect(early.nextEvaluation).not.toEqual(late.nextEvaluation)
+  })
+
+  it('★ 시세가 없어도 온전하다 — 억제 규칙(D1)이 이쪽에 미치지 않는다', () => {
+    const item = toProductListItem(productRow(), priceMap([]), ASOF, OWNER)
+
+    // 판정은 억제됐다
+    expect(item.worstOf).toBeNull()
+    expect(item.kiStatus).toBeNull()
+    // 계약 조건은 그대로다 — **오히려 그때 화면이 보여줄 것이 이것뿐이다**
+    expect(item.terms.barriers).toEqual(['0.9000', '0.9000'])
+    expect(item.terms.annualCouponRate).toBe('0.0800')
+  })
+
+  it('기초자산 0건인 결함 상품도 계약 조건을 갖는다 (I-07)', () => {
+    const terms = termsOfRow({ els_underlyings: [] })
+
+    expect(terms.underlyings).toEqual([])
+    // 차수는 온전하다 — 결함이 파괴한 입력은 시세뿐이다(`DESTROYED_BY`)
+    expect(terms.barriers).toHaveLength(2)
+  })
+
+  it('평가일정 0건이면 배리어가 빈 배열이다 — 화면이 그 칸을 그리지 않는다', () => {
+    expect(termsOfRow({ redemption_schedules: [] }).barriers).toEqual([])
+  })
+
+  it('★ 정렬이 상세 매퍼와 같다 — 스텝다운은 순서가 곧 뜻이다', () => {
+    /*
+     * ★ 스텝다운은 **내려가는 수열**이므로 순서가 값의 일부다. 행 순서가 PostgREST의
+     * 반환 순서(보장되지 않는다)를 따라가면 목록의 스텝다운과 상세의 차수표가 다른
+     * 순서로 보이고, 그 어긋남은 어느 폭에서도 오류로 보이지 않는다 — 그냥 다른
+     * 상품처럼 읽힌다.
+     */
+    const terms = termsOfRow({
+      // 행이 역순으로 온다
+      redemption_schedules: [
+        schedule({ round_no: 3, evaluation_date: '2027-07-02', barrier: '0.8000' }),
+        schedule({ round_no: 1, evaluation_date: '2026-07-02', barrier: '0.9000' }),
+        schedule({ round_no: 2, evaluation_date: '2027-01-04', barrier: '0.8500' }),
+      ],
+      els_underlyings: [
+        { asset_id: ASSET_2, base_price: '200.000000', sequence: 2, assets: asset(ASSET_2, '자산2') },
+        { asset_id: ASSET_1, base_price: '100.000000', sequence: 1, assets: asset(ASSET_1, '자산1') },
+      ],
+    })
+
+    expect(terms.barriers).toEqual(['0.9000', '0.8500', '0.8000'])
+    expect(terms.underlyings.map((u) => u.assetName)).toEqual(['자산1', '자산2'])
+  })
+
+  it('★ 리자드가 붙은 차수만 담는다 — 걸러 내는 판단이 화면에 없다', () => {
+    /*
+     * 전 차수를 담고 화면이 걸러 내면 그 판단이 컴포넌트로 내려가고, 화면은 어떤
+     * 스위트의 import 그래프에도 없다(AQ-23). **배리어가 리자드의 존재를 정의한다** —
+     * 파서가 같은 규칙을 쓴다(`parse.ts`: 배리어가 없으면 나머지 둘을 보내지 않는다).
+     */
+    const terms = termsOfRow({
+      redemption_schedules: [
+        schedule({ round_no: 1, evaluation_date: '2026-07-02' }),
+        schedule({
+          round_no: 2,
+          evaluation_date: '2027-01-04',
+          lizard_barrier: '0.6000',
+          lizard_coupon_rate: '0.0300',
+          lizard_requires_no_ki: true,
+        }),
+        schedule({
+          round_no: 3,
+          evaluation_date: '2027-07-02',
+          lizard_barrier: '0.5500',
+          lizard_coupon_rate: '0.0000',
+        }),
+      ],
+    })
+
+    expect(terms.lizards).toEqual([
+      { roundNo: 2, barrier: '0.6000', couponRate: '0.0300', requiresNoKi: true },
+      // `lizard_requires_no_ki`가 `null`이면 거짓이다 — 없는 요구를 참으로 읽지 않는다
+      { roundNo: 3, barrier: '0.5500', couponRate: '0.0000', requiresNoKi: false },
+    ])
+    // 배리어는 세 차수 전부다 — 두 목록의 길이가 다른 것이 정상이다
+    expect(terms.barriers).toHaveLength(3)
+  })
+
+  it('노낙인 상품은 KI 두 칸이 함께 비어 있다 (I-11의 짝)', () => {
+    const terms = termsOfRow({ ki_barrier: null, ki_observation: null })
+    expect(terms.kiBarrier).toBeNull()
+    expect(terms.kiObservation).toBeNull()
+  })
+
+  it('★ 기준가격의 18자리가 밀리지 않는다 (AQ-30)', () => {
+    /*
+     * `numeric(18,6)`의 상한 근처다. 실측(P3b)에서 JSON 수치로 실으면
+     * `99999999999.999999`가 `100000000000.000000`으로 저장됐고, 이 경로는 읽기의
+     * `::text`가 그것을 막는다 — 매퍼가 `dec()`를 지나 `priceString`으로 고정한다.
+     */
+    const terms = termsOfRow({
+      els_underlyings: [
+        {
+          asset_id: ASSET_1,
+          base_price: '99999999999.999999',
+          sequence: 1,
+          assets: asset(ASSET_1, '자산1'),
+        },
+      ],
+    })
+
+    expect(terms.underlyings[0]!.basePrice).toBe('99999999999.999999')
+  })
+
+  it('자산 임베드가 비면 상세와 **같은 문구**를 쓴다', () => {
+    // FK가 막으므로 도달하지 않는다. 두 화면이 같은 결함을 다르게 부르면 안 된다.
+    const terms = termsOfRow({
+      els_underlyings: [
+        { asset_id: ASSET_1, base_price: '100.000000', sequence: 1, assets: null },
+      ],
+    })
+    expect(terms.underlyings[0]!.assetName).toBe('(알 수 없음)')
   })
 })

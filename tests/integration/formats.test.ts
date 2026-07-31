@@ -110,6 +110,26 @@ const PRODUCT_LIST: Record<string, Spec> = {
   kiStatus: KI_STATUSES,
   integrityIssue: INTEGRITY_ISSUES,
   isOwner: 'BOOL',
+
+  /*
+   * 계약 조건 (v3.1) — **§4.3의 같은 이름 필드와 같은 분류여야 한다.** 형식이 갈리면
+   * 목록과 상세가 같은 값을 다르게 직렬화한다는 뜻이고, 그 어긋남은 두 화면의 숫자
+   * 차이로만 드러난다(`product.*` 판정 삼종에 같은 주석이 붙어 있는 이유다).
+   *
+   * `terms` 자신은 등재하지 않는다 — `null`이 될 수 없는 객체이므로 `walk`가 그것을
+   * 잎으로 내지 않는다(`NULL_OBJECT`와 다른 점이 정확히 그것이다).
+   */
+  'terms.annualCouponRate': 'RATIO',
+  'terms.kiBarrier': 'RATIO',
+  'terms.kiObservation': KI_OBSERVATIONS,
+  'terms.underlyings[].assetName': 'TEXT',
+  'terms.underlyings[].basePrice': 'PRICE',
+  /** 스칼라 배열이다 — 잎이 원소 자신이므로 `[]`로 끝난다 */
+  'terms.barriers[]': 'RATIO',
+  'terms.lizards[].roundNo': 'NUMBER',
+  'terms.lizards[].barrier': 'RATIO',
+  'terms.lizards[].couponRate': 'RATIO',
+  'terms.lizards[].requiresNoKi': 'BOOL',
 }
 
 /** §4.3 상품 상세 */

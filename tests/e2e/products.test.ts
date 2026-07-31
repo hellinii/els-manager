@@ -87,9 +87,15 @@ const EMPTY_TOTAL = '등록된 상품이 없다'
 
 describe('SCR-201 목록', () => {
   let jar: ReturnType<typeof cookieJar>
+  /**
+   * 계약 조건이 카드에 닿는지 보려면 **값을 아는 상품**이 하나 필요하다 (P6 컷 2).
+   * 화면으로 만든다 — 그 경로가 배리어·리자드·기준가를 실제로 저장하는 경로다.
+   */
+  let product: RegisteredProduct
 
   beforeAll(async () => {
     jar = await authenticatedJar()
+    product = await registerProduct(jar, { label: '목록' })
   })
 
   it('200으로 서고 필터·정렬 폼이 GET이다', async () => {
@@ -106,6 +112,46 @@ describe('SCR-201 목록', () => {
     const form = /<form[^>]*action="\/products"[^>]*>/.exec(html)?.[0]
     expect(form, '필터 폼이 없다').toBeDefined()
     expect(form?.toLowerCase()).toContain('method="get"')
+  })
+
+  it('★ 카드가 계약 조건 다섯을 함께 보여준다 — DOC-008 §5 ⑧~⑫', async () => {
+    /*
+     * ★ **여기서만 보이는 것**: `terms`가 계약에 담기는 것은 `tests/db/map.test.ts`가
+     * 보고 표기 규칙은 `tests/app/productList.test.ts`가 본다. 그 둘이 **렌더된
+     * 문서에 닿는지**는 이 층에만 있다 — 매퍼가 값을 담고 컴포넌트가 그것을 그리지
+     * 않으면 두 파일은 그대로 초록이다.
+     *
+     * 픽스처는 `registerProduct`가 화면으로 만든 상품이다(배리어 90-85-80, 자산 1종,
+     * 연쿠폰 8%, KI 50% 종가, 2차 리자드 60%/쿠폰 3%/KI 미터치).
+     */
+    const html = await (await get(PATHS.products, jar)).text()
+
+    // ⑧ 기초자산 · 기준가격 — 18자리가 표시 경로에서도 밀리지 않는다(AQ-30)
+    expect(html).toContain(product.assetName)
+    expect(html).toContain(priceDisplay(product.basePrice))
+
+    /*
+     * ⑨⑩ — **요소 경계까지 포함해 단언한다.** `toContain('8%')`는 `'58%'`에도
+     * 걸리므로 값이 틀려도 통과할 수 있다. 각 `<dd>`가 문자열 하나를 자식으로
+     * 가지므로(React가 사이에 주석을 넣지 않는다) `>…<`가 그 경계다.
+     */
+    expect(html).toContain('연쿠폰')
+    expect(html).toContain(`>${percent(percentToRatio('8'))}<`)
+    expect(html).toContain(`>${percent(percentToRatio('50'))} 종가<`)
+
+    // ⑪ 스텝다운 — 토큰마다 요소이므로 문자열 전체가 아니라 라벨과 토큰을 본다
+    expect(html).toContain('스텝다운')
+    for (const barrier of product.barriers) {
+      expect(html, `배리어 ${barrier}`).toContain(`>${barrier}<`)
+    }
+
+    // ⑫ 리자드 — 붙은 차수만. 1건이므로 배리어·쿠폰·KI 요구가 함께 나온다
+    expect(html).toContain('리자드')
+    expect(html).toContain(
+      `>2차 ${percent(percentToRatio('60'))} · 쿠폰 ${percent(
+        percentToRatio('3'),
+      )} · KI 미터치<`,
+    )
   })
 
   it('KI 상태 선택지가 다섯이다 — AQ-24가 화면까지 왔다', async () => {

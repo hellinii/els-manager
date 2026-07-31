@@ -75,6 +75,24 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       kiStatus: 'SAFE',
       integrityIssue: null,
       isOwner: true,
+      // v3.1 신설. **중첩 형태도 이 대조를 지난다** — 배열 안의 객체까지 평범한
+      // 리터럴로 채울 수 있어야 하므로, 계약 조건에 브랜드나 `DecimalValue`가
+      // 섞여 들어오면 여기서 컴파일이 깨진다.
+      terms: {
+        annualCouponRate: '0.0850',
+        kiBarrier: '0.5000',
+        kiObservation: 'CLOSING',
+        underlyings: [{ assetName: '자산1', basePrice: '2489.550000' }],
+        barriers: ['0.9000', '0.8500'],
+        lizards: [
+          {
+            roundNo: 2,
+            barrier: '0.6000',
+            couponRate: '0.0300',
+            requiresNoKi: true,
+          },
+        ],
+      },
     }
 
     expect(plain.conditionResult).toBe('EARLY')

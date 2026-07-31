@@ -17,11 +17,13 @@ import {
   underlyingRatio,
   worstOf,
   type ConditionResult,
+  type KiObservation,
   type KiStatus,
   type RedemptionMark,
 } from '@/lib/domain'
 
 import { koreanAmount } from '@/lib/format/money'
+import type { LizardTerm } from '@/lib/format/terms'
 
 import { attributionOf, type Attribution } from './attribution'
 import type { LatestPrice, ProductRow, ScheduleRow } from './load'
@@ -367,6 +369,43 @@ export type ProductListItem = {
   kiStatus: KiStatus | null
   integrityIssue: IntegrityIssue | null
   isOwner: boolean
+  terms: ProductListTerms
+}
+
+/**
+ * 계약 조건 — **판정값이 아니다** (DOC-011 §4.2 v3.1, DOC-008 §5 SCR-201 ⑧~⑫)
+ *
+ * ## 왜 담아도 왕복이 늘지 않는가
+ *
+ * `PRODUCT_SELECT`가 **이미** `els_underlyings(+assets)`와 `redemption_schedules`를
+ * 임베드한다(상품 + 하위 전부, 1 왕복) — 판정 삼종이 그 데이터를 쓰기 때문이다.
+ * 이 매퍼는 v3.0까지 **그것을 읽고 버렸다.** 즉 이 필드는 조회를 넓히는 것이 아니라
+ * 이미 온 것을 노출한다.
+ *
+ * ## 억제 규칙(D1)이 이쪽에는 미치지 않는다
+ *
+ * 결함 상품도 계약 조건은 있다 — 오히려 그때 화면이 보여줄 것이 이것뿐이다.
+ * `worstOf`·`kiStatus`가 비는 것과 달리 `terms`는 언제나 상품이 가진 값이며,
+ * 기초자산이 0종이면 `underlyings`가 빈 배열인 것이 그 사실의 표현이다.
+ *
+ * ## 상세(`ProductDetailView`)의 하위 형태를 재사용하지 않는다
+ *
+ * 그쪽 `underlyings`는 `currentPrice`·`ratio`·`isWorst`를, `schedules`는
+ * `expectedGross`·`conditionResult`·`isPast`를 담고 **전부 차수별 판정**이다. 같은
+ * 형태를 쓰면 목록이 쓰지 않는 값을 계산하게 되고, 무엇보다 「목록은 계약 조건 ·
+ * 상세는 판정」이라는 구분이 타입에서 사라진다.
+ */
+export type ProductListTerms = {
+  annualCouponRate: string
+  /** `null` = 노낙인. `kiObservation`과 함께 있거나 함께 없다(I-11) */
+  kiBarrier: string | null
+  kiObservation: KiObservation | null
+  /** `sequence` 순서 */
+  underlyings: Array<{ assetName: string; basePrice: string }>
+  /** 차수 순서. 스텝다운 표기의 정본이며 일괄 입력 형식(SQ-04)과 같은 순서다 */
+  barriers: string[]
+  /** 리자드가 붙은 차수만 */
+  lizards: LizardTerm[]
 }
 
 export function toProductListItem(
@@ -399,6 +438,58 @@ export function toProductListItem(
     kiStatus: j.ki,
     integrityIssue: j.integrityIssue,
     isOwner: row.owner_id === viewerId,
+    terms: termsOf(row),
+  }
+}
+
+/**
+ * 계약 조건을 행에서 뽑는다 — **시세도 판정도 읽지 않는다.**
+ *
+ * 인자가 `row` 하나인 것이 그 사실의 형태다. `prices`·`asOf`·`viewerId`를 받지 않으므로
+ * 이 함수는 **기준일에 의존하지 않고** 같은 상품에 언제나 같은 값을 낸다 — 계약 조건이
+ * 판정값과 다른 점이 정확히 그것이다.
+ *
+ * 정렬 규약은 상세 매퍼와 같다(`sequence`·`round_no` 오름차순). 갈리면 목록의 스텝다운
+ * 순서와 상세의 차수표 순서가 달라지고, 스텝다운은 **순서가 곧 뜻**이다(내려가는 수열).
+ */
+function termsOf(row: ProductRow): ProductListTerms {
+  const schedules = row.redemption_schedules
+    .slice()
+    .sort((a, b) => a.round_no - b.round_no)
+
+  return {
+    annualCouponRate: ratioString(dec(row.annual_coupon_rate)),
+    kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
+    kiObservation: row.ki_observation,
+
+    underlyings: row.els_underlyings
+      .slice()
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((u) => ({
+        // 자산 임베드가 비는 것은 FK가 막으므로 도달하지 않는다. 그래도 상세와
+        // **같은 문구**를 쓴다 — 두 화면이 같은 결함을 다르게 부르면 안 된다.
+        assetName: u.assets?.name ?? '(알 수 없음)',
+        basePrice: priceString(dec(u.base_price)),
+      })),
+
+    barriers: schedules.map((s) => ratioString(dec(s.barrier))),
+
+    /*
+     * 리자드가 **붙은 차수만** 담는다. 전 차수를 담고 화면이 걸러 내면 그 판단이
+     * 컴포넌트로 내려가고, 화면은 어떤 스위트의 import 그래프에도 없다(AQ-23).
+     * 배리어가 리자드의 존재를 정의한다 — 파서가 같은 규칙을 쓴다(`parse.ts`).
+     */
+    lizards: schedules
+      .filter((s) => s.lizard_barrier != null)
+      .map((s) => ({
+        roundNo: s.round_no,
+        barrier: ratioString(dec(s.lizard_barrier!)),
+        couponRate:
+          s.lizard_coupon_rate == null
+            ? null
+            : ratioString(dec(s.lizard_coupon_rate)),
+        requiresNoKi: s.lizard_requires_no_ki ?? false,
+      })),
   }
 }
 
