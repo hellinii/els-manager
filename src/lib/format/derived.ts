@@ -21,15 +21,20 @@ import { INTEGRITY_ISSUE_GRADES, type BadgeGrade } from './badges'
  * 화면마다 `if`를 쓰면 그중 하나가 순서를 뒤집는 날이 오고 그 화면만 조용히 틀린다.
  * 판별 유니온으로 돌려주므로 호출부는 `kind`를 분기할 뿐 순서를 다시 정하지 않는다.
  *
- * ## 소비자는 **셋**이다 — 다섯이 아니다 (P4.5에서 정정)
+ * ## 소비자 목록 — **이 표가 정본이다** (P4.5에서 정정, P6 컷 6에서 한 줄 추가)
  *
  * | 화면 | 계약 | 부르는가 |
  * |---|---|---|
  * | SCR-201 | §4.2 `ProductListItem` | `components/products/ProductRow.tsx` |
  * | SCR-202 | §4.3 `ProductDetailView.product` | `app/(app)/products/[id]/page.tsx` |
- * | SCR-301 | §4.4 `ScheduleItem` | `components/schedule/ScheduleRow.tsx` |
+ * | SCR-301 (시간순) | §4.4 `ScheduleItem` | `components/schedule/ScheduleRow.tsx` |
+ * | SCR-301 (상품별) | §4.4 `ScheduleItem` | `components/schedule/ProductScheduleCard.tsx` |
  * | SCR-101 | §4.1 `upcomingEvaluations` | **부를 수 없다** |
  * | SCR-401 | §4.6 `contributingProducts` | **부를 수 없다** |
+ *
+ * 넷째는 **행마다가 아니라 카드마다** 부른다 — 입력 셋이 전부 상품 단위 값이고
+ * §4.4가 차수마다 같은 값을 싣기 때문이다. 그래서 판정 결과가 차수 행이 아니라
+ * 카드 머리에 놓인다(결함·시세 없음이 상품 단위 사실이므로 자리가 옳아졌다).
  *
  * v1.4까지 이 머리글은 「이 판정을 하는 화면이 다섯이다(SCR-101·201·202·301·401)」로
  * 적었고 세 파일이 그 수를 근거로 자기를 「두 번째」·「다섯 번째 소비자」로 번호

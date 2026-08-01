@@ -192,6 +192,27 @@ function TermsLine({ item }: { item: ProductListItem }) {
   const lizard = lizardLabel(terms.lizards)
   const nextRound = item.nextEvaluation?.roundNo ?? null
 
+  /*
+   * 기실현 등재는 계약 조건 줄을 **한 문장으로 갈아치운다** (DOC-002 D-07).
+   *
+   * 다섯 칸을 전부 「없음」·「—」으로 채우면 그 줄은 「입력이 빠졌다」로 읽히고,
+   * 그것은 바로 위 칸의 무결성 표식이 말하는 것과 같은 말이 된다 — 그런데 이
+   * 상품에는 표식이 없다(결함이 아니다). 같은 모양에 다른 뜻이 붙는 자리이므로
+   * 모양을 다르게 한다.
+   */
+  if (item.entryMode === 'REALIZED_ONLY') {
+    return (
+      <dl className="-mx-4 -mb-4 mt-1 rounded-b-lg bg-neutral-50 px-4 py-2.5 text-xs lg:col-span-full">
+        <div className="flex items-baseline gap-1.5">
+          <dt className="shrink-0 text-neutral-500">등재</dt>
+          <dd className="text-neutral-700">
+            기실현 — 계약 조건 없이 상환 실적만 등재한 상품이다
+          </dd>
+        </div>
+      </dl>
+    )
+  }
+
   return (
     <dl className="-mx-4 -mb-4 mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-b-lg bg-neutral-50 px-4 py-2.5 text-xs lg:col-span-full">
       {/* ⑧ 기초자산 · 기준가격 */}
@@ -214,10 +235,16 @@ function TermsLine({ item }: { item: ProductListItem }) {
         </dd>
       </div>
 
-      {/* ⑨ 연쿠폰율 */}
+      {/* ⑨ 연쿠폰율 — `null`은 기실현 등재다(D-07). 결함이 아니라 없는 값이다 */}
       <div className="flex items-baseline gap-1.5">
         <dt className="shrink-0 text-neutral-500">연쿠폰</dt>
-        <dd className="tabular-nums">{percent(terms.annualCouponRate)}</dd>
+        <dd className="tabular-nums">
+          {terms.annualCouponRate == null ? (
+            <span className="text-neutral-400">—</span>
+          ) : (
+            percent(terms.annualCouponRate)
+          )}
+        </dd>
       </div>
 
       {/* ⑩ KI 배리어 · 관찰방식 — `null`이 노낙인이다(I-11의 짝) */}

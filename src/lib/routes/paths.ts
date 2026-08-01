@@ -24,6 +24,8 @@ export const PATHS = {
   products: '/products',
   /** SCR-204 등록 */
   productNew: '/products/new',
+  /** SCR-205 기실현 등재 */
+  productRealizedNew: '/products/realized/new',
   /** SCR-202 상세 */
   product: (id: string): string => `/products/${id}`,
   /** SCR-204 수정 */

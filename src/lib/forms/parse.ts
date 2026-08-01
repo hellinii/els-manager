@@ -3,6 +3,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  RealizedProductInput,
   RedemptionInput,
   ScheduleInput,
   TaxProfileInput,
@@ -302,6 +303,46 @@ export function parseRedemptionForm(form: FormData): RedemptionInput {
 
   const roundNo = optionalText(form, 'roundNo')
   if (roundNo != null) input.roundNo = countOf(roundNo)
+
+  const withholdingTax = optionalText(form, 'withholdingTax')
+  if (withholdingTax != null) {
+    input.withholdingTax = amountText(form, 'withholdingTax')
+  }
+
+  const note = optionalText(form, 'note')
+  if (note != null) input.note = note
+
+  return input
+}
+
+/**
+ * §5.11 기실현 등재 — SCR-205.
+ *
+ * **`roundNo`를 읽지 않는다.** 폼에 그 칸이 없고 계약 타입에도 없다 — 일정이
+ * 0건이라 실재하는 차수가 없기 때문이며(I-13) 「읽어서 버린다」가 아니라
+ * **읽을 것이 없다**는 것이 그 사실의 형태다.
+ *
+ * 나머지는 `parseProductForm`·`parseRedemptionForm`과 같은 헬퍼를 쓴다 — 쉼표
+ * 제거(`amountText`)와 체크박스 규약이 화면마다 갈리면 같은 입력이 다른 값으로
+ * 저장된다.
+ */
+export function parseRealizedProductForm(form: FormData): RealizedProductInput {
+  const input: RealizedProductInput = {
+    name: text(form, 'name'),
+    principal: amountText(form, 'principal'),
+    accountType: text(form, 'accountType') as RealizedProductInput['accountType'],
+    redemptionType: text(
+      form,
+      'redemptionType',
+    ) as RealizedProductInput['redemptionType'],
+    redemptionDate: text(form, 'redemptionDate'),
+    grossAmount: amountText(form, 'grossAmount'),
+    taxableIncome: amountText(form, 'taxableIncome'),
+    isConfirmed: checkbox(form, 'isConfirmed'),
+  }
+
+  const issuer = optionalText(form, 'issuer')
+  if (issuer != null) input.issuer = issuer
 
   const withholdingTax = optionalText(form, 'withholdingTax')
   if (withholdingTax != null) {

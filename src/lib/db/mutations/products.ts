@@ -1,14 +1,19 @@
-import { parseProductInput, parseTouchedAt } from '../validate/inputs'
+import {
+  parseProductInput,
+  parseRealizedProductInput,
+  parseTouchedAt,
+} from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V18_kiTouchedRequiresBarrier } from '../validate/rules'
 import { requireAffected, requireOwnedProduct, staleState } from './access'
 import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toUpdate, type MoneyFieldsOf } from './payload'
+import { withholdingFor } from './redemptions'
 import { failWith, ok, okVoid, type ActionResult } from './result'
-import type { ProductInput } from './types'
+import type { ProductInput, RealizedProductInput } from './types'
 
-/** §5.1~§5.3·§5.9 — 상품 생성·수정·삭제·KI 터치 확정 */
+/** §5.1~§5.3·§5.9·§5.11 — 상품 생성·수정·삭제·KI 터치 확정·기실현 등재 */
 
 /**
  * `jsonb` payload의 형태 — **금액 열을 세 테이블에서 파생시킨다** (AQ-30 잔여 ③ 해결)
@@ -84,6 +89,52 @@ function productPayload(input: ProductInput): ProductPayload {
       lizardCouponRate: item.lizardCouponRate ?? null,
       lizardRequiresNoKi: item.lizardRequiresNoKi ?? null,
     })),
+  }
+}
+
+/**
+ * §5.11의 payload — **금액을 두 테이블에서 각각 파생시킨다** (AQ-30과 같은 형태)
+ *
+ * `MoneyFieldsOf<'els_products'>`는 `principal`·`annualCouponRate`·`kiBarrier` 셋을
+ * 요구하는데 이 계약은 원금만 받는다. 그래서 그 매핑 타입을 그대로 쓰지 않고
+ * **`Pick`으로 좁힌다** — 좁힌 뒤에도 파생이 유지되므로 `els_products`에 새 금액
+ * 열이 생기면 여기가 아니라 `MoneyFieldsOf` 쪽이 먼저 바뀌고, 그 열을 이 계약이
+ * 받기로 하는 날 `Pick`에 이름을 더하는 것이 컴파일러가 보는 변경이 된다.
+ *
+ * 나머지 금액 넷은 `redemptions`에서 파생시킨다. `withholdingTax`가 선택적이 아닌
+ * 이유는 **계약 계층이 이미 산출했기 때문**이다(미입력이면 `taxableIncome ×
+ * 분리과세율`) — 여기서 `undefined`를 허용하면 그 산출을 건너뛰는 경로가 생긴다.
+ */
+type RealizedPayload = Pick<MoneyFieldsOf<'els_products'>, 'principal'> &
+  Pick<
+    MoneyFieldsOf<'redemptions'>,
+    'grossAmount' | 'taxableIncome' | 'withholdingTax'
+  > & {
+    name: string
+    issuer: string | null
+    accountType: string
+    redemptionType: string
+    redemptionDate: string
+    isConfirmed: boolean
+    note: string | null
+  }
+
+function realizedPayload(
+  input: RealizedProductInput,
+  withholdingTax: string,
+): RealizedPayload {
+  return {
+    name: input.name,
+    issuer: input.issuer ?? null,
+    principal: input.principal,
+    accountType: input.accountType,
+    redemptionType: input.redemptionType,
+    redemptionDate: input.redemptionDate,
+    grossAmount: input.grossAmount,
+    taxableIncome: input.taxableIncome,
+    withholdingTax,
+    isConfirmed: input.isConfirmed,
+    note: input.note ?? null,
   }
 }
 
@@ -223,5 +274,54 @@ export function makeProductMutations(ctx: MutationContext) {
     return conflict == null ? okVoid() : failWith(conflict)
   }
 
-  return { createProduct, updateProduct, deleteProduct, setKiTouched }
+  /**
+   * §5.11 — **상품 1건 + 상환 1건을 한 트랜잭션에.**
+   *
+   * `createProduct` + `createRedemption`을 이어 부르지 않는 이유가 §5.1과 같고
+   * 더 무겁다: 두 요청은 두 트랜잭션이므로 둘째가 실패하면 **`REALIZED_ONLY`인데
+   * 상환이 없는 상품**이 남는다. §5.1의 잔해(기초자산 0건)는 `integrityIssue`가
+   * 드러내지만 이 잔해는 계약 조건도 상환도 없어 **판정의 모든 입력이 없는데**
+   * 조회 계층이 `entry_mode`만 보면 정상으로 읽힌다.
+   *
+   * **사전 조회가 없다.** 부모 상품이 없으므로 소유·상환 중복을 볼 대상이 없고,
+   * `owner_id`는 함수가 `auth.uid()`로, `entry_mode`는 리터럴로 박는다.
+   *
+   * 원천징수액 산출은 **`createRedemption`과 같은 함수를 지난다**(§5.4). 복제하면
+   * 두 계약이 다른 상수를 쓸 수 있고 그 갈림은 값을 비운 저장에서만 드러난다.
+   */
+  async function createRealizedProduct(
+    input: RealizedProductInput,
+  ): Promise<ActionResult<{ id: string }>> {
+    const p = new Problems()
+    const parsed = parseRealizedProductInput(p, input)
+    if (parsed == null) return failWith(p.toError())
+
+    const withholding = await withholdingFor(ctx, parsed)
+    if (!withholding.ok) return failWith(withholding.error)
+
+    const { data, error } = await ctx.db.rpc('create_realized_els_product', {
+      payload: realizedPayload(parsed, withholding.value),
+    })
+    if (error != null) return failDb(error, '기실현 등재')
+
+    // `createProduct`와 같은 방어 — 함수는 uuid를 반환하거나 예외를 던지므로
+    // NULL은 올 수 없다. 확인하는 것은 그 전제가 깨졌을 때 없는 id를 화면에
+    // 넘기지 않기 위함이다.
+    const createdId: string | null = data
+    if (createdId == null) {
+      console.error(
+        '[DB] 기실현 등재 — create_realized_els_product가 NULL을 반환했다. 오류도 없었다.',
+      )
+      return failWith({ code: 'INTERNAL', message: '처리 중 오류가 발생했다.' })
+    }
+    return ok({ id: createdId })
+  }
+
+  return {
+    createProduct,
+    updateProduct,
+    deleteProduct,
+    setKiTouched,
+    createRealizedProduct,
+  }
 }

@@ -89,6 +89,13 @@ type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
  * | `integrityIssue` | ⑤의 표시를 **가르는 입력**이다(§4.2 우선순위표) |
  * | `isOwner` | 액션 버튼 노출 판단. SCR-201에는 그 버튼이 없다 |
  * | `terms` | 다섯으로 갈려 `TERM_SOURCES`가 받는다 |
+ * | `entryMode` | **⑧~⑫ 줄 전체의 모양을 가르는 입력**이다 — 아래 |
+ *
+ * `entryMode`가 `integrityIssue`와 같은 부류인 것이 그 분류의 근거다: 둘 다 값이
+ * 아니라 **표시를 가르는 입력**이며, 항목 번호를 새로 받지 않는다. 다만 가르는
+ * 범위가 다르다 — `integrityIssue`는 ⑤ 한 칸이고 `entryMode`는 계약 조건 줄
+ * **다섯 칸 전부**를 한 문장으로 갈아치운다(기실현 등재는 그 다섯이 전부 없고,
+ * 「없음」을 다섯 번 적으면 결함 표식과 같은 말이 된다 — DOC-002 D-07).
  */
 const NOT_DISPLAYED = [
   'id',
@@ -96,6 +103,7 @@ const NOT_DISPLAYED = [
   'accountType',
   'status',
   'integrityIssue',
+  'entryMode',
   'isOwner',
   'terms',
 ] as const satisfies ReadonlyArray<keyof ProductListItem>
@@ -163,7 +171,8 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
     expect(overlap, '같은 필드가 두 표에 있다').toEqual([])
 
     // 파서와 같은 이유로 건수를 고정한다 — 0건을 세고 통과하는 것을 막는다
-    expect(displayed.size + NOT_DISPLAYED.length).toBe(14)
+    // (P6 컷 5에서 `entryMode`가 늘어 14 → 15)
+    expect(displayed.size + NOT_DISPLAYED.length).toBe(15)
   })
 
   it('두 행의 마커가 겹치지 않고 ①~⑫를 채운다', () => {

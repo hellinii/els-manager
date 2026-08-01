@@ -40,6 +40,21 @@ import { cookieJar, get } from './helpers/server'
 /** 존재할 수 없는 소유자. 어떤 DB 상태에서도 이 필터의 결과는 0건이다. */
 const GHOST_OWNER = '00000000-0000-4000-8000-0000000000ff'
 
+/**
+ * ★ **이 describe의 단언은 전부 «시간순 보기»의 것이다** (P6 컷 6).
+ *
+ * 컷 6이 기본 보기를 「상품별」로 바꿨으므로 맨 주소는 카드 목록을 낸다. 이 파일의
+ * 아래 단언들은 절 머리글·월 그룹·`<li>` 세기에 기대므로 그 형태를 요구한다 —
+ * **한 글자도 고치지 않고 주소에만 축을 붙였다.** 그 자체가 「시간순 경로가
+ * 손상되지 않았다」의 증명이다: 마크업이 바뀌었다면 어느 단언인가는 죽는다.
+ *
+ * `rowsOf`가 **페이지 전체의 `<li>`**를 세는 것이 두 보기를 동시에 렌더하면 안
+ * 되는 실측 근거이기도 하다(DOC-008 §5) — 카드도 `<li>`이고 차수 행도 `<li>`다.
+ */
+const TIMELINE = `${PATHS.schedule}?${SCHEDULE_KEYS.view}=TIME`
+
+const timeline = (query = ''): string => (query === '' ? TIMELINE : `${TIMELINE}&${query}`)
+
 const EMPTY_NARROWED = '조건에 맞는 평가일이 없다'
 const EMPTY_TOTAL = '등록된 평가일정이 없다'
 const PAST_SECTION = '지난 평가일'
@@ -131,7 +146,7 @@ describe('SCR-301 평가일정', () => {
   })
 
   it('200으로 서고 필터 폼이 GET이다', async () => {
-    const res = await get(PATHS.schedule, jar)
+    const res = await get(timeline(), jar)
     expect(res.status).toBe(200)
     const html = await res.text()
 
@@ -150,7 +165,7 @@ describe('SCR-301 평가일정', () => {
      * 구분」을 주요 요소로 규정하므로 기본 화면에 둘 다 있어야 한다. 기본이
      * 「다가오는」이면 그 구분은 눌러야 나타나는 기능이 된다.
      */
-    const html = await (await get(PATHS.schedule, jar)).text()
+    const html = await (await get(timeline(), jar)).text()
     const select = /<select name="range"[\s\S]*?<\/select>/.exec(html)?.[0]
 
     expect(select, '기간 선택 상자가 없다').toBeDefined()
@@ -169,7 +184,7 @@ describe('SCR-301 평가일정', () => {
      * 남는지 본다. `ownerId`를 렌더만 하고 필터로 쓰지 못하는 상태(예: 이름을 값으로
      * 실어 보내는 구현)는 이 단언에서 죽는다.
      */
-    const html = await (await get(PATHS.schedule, jar)).text()
+    const html = await (await get(timeline(), jar)).text()
     const select = /<select name="ownerId"[\s\S]*?<\/select>/.exec(html)?.[0]
     expect(select, '소유자 선택 상자가 없다').toBeDefined()
 
@@ -186,7 +201,7 @@ describe('SCR-301 평가일정', () => {
     const kept: string[] = []
     for (const value of values) {
       const filtered = await (
-        await get(`${PATHS.schedule}?${SCHEDULE_KEYS.ownerId}=${value}`, jar)
+        await get(timeline(`${SCHEDULE_KEYS.ownerId}=${value}`), jar)
       ).text()
       if (rowsOf(filtered, seeded.productName).length > 0) kept.push(value)
     }
@@ -199,7 +214,7 @@ describe('SCR-301 평가일정', () => {
      * 주기이므로 1차는 경과이고 2·3차는 미래다 — 즉 한 상품이 두 절에 나뉘어
      * 나타난다. 날짜를 손으로 적지 않고 앱이 쓴 함수로 파생시킨다.
      */
-    const html = await (await get(PATHS.schedule, jar)).text()
+    const html = await (await get(timeline(), jar)).text()
 
     expect(hasSection(html, PAST_SECTION), '지난 절이 없다').toBe(true)
     expect(hasSection(html, UPCOMING_SECTION), '다가오는 절이 없다').toBe(true)
@@ -222,14 +237,14 @@ describe('SCR-301 평가일정', () => {
      * 스위트가 본다(`tests/app/schedule.test.ts`) — 이 상품의 2·3차가 정확히 그
      * 경우다(2027년 1월·7월).
      */
-    const html = await (await get(PATHS.schedule, jar)).text()
+    const html = await (await get(timeline(), jar)).text()
     for (const date of dates) {
       expect(html, `${date}의 월 머리글`).toContain(korMonth(date))
     }
   })
 
   it('DOC-008 §5의 항목 표시 여섯이 한 줄에 있다', async () => {
-    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const html = visible(await (await get(timeline(), jar)).text())
     const rows = rowsOf(html, seeded.productName)
     expect(rows).toHaveLength(dates.length)
 
@@ -289,7 +304,7 @@ describe('SCR-301 평가일정', () => {
     expect([302, 303], '상환이 리다이렉트로 끝나지 않았다').toContain(saved.status)
 
     // ① 기본 화면 — 줄이 남고 표식이 붙는다
-    const all = await (await get(PATHS.schedule, jar)).text()
+    const all = await (await get(timeline(), jar)).text()
     const rows = rowsOf(all, doomed.productName)
     expect(rows.length).toBeGreaterThan(0)
     for (const row of rows) {
@@ -305,7 +320,7 @@ describe('SCR-301 평가일정', () => {
 
     // ② 미상환만 보기 — 줄이 사라진다
     const active = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.activeOnly}=on`, jar)
+      await get(timeline(`${SCHEDULE_KEYS.activeOnly}=on`), jar)
     ).text()
     expect(rowsOf(active, doomed.productName)).toEqual([])
     // 다른 상품(미상환)은 남아 있다 — 필터가 전부를 지운 것이 아니다
@@ -314,7 +329,7 @@ describe('SCR-301 평가일정', () => {
 
   it('기간을 좁히면 그 절만 남는다', async () => {
     const upcomingOnly = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.range}=UPCOMING`, jar)
+      await get(timeline(`${SCHEDULE_KEYS.range}=UPCOMING`), jar)
     ).text()
     expect(hasSection(upcomingOnly, UPCOMING_SECTION)).toBe(true)
     // 지난 절이 아예 렌더되지 않는다 — 빈 절을 「없다」로 표시하지 않는다.
@@ -322,7 +337,7 @@ describe('SCR-301 평가일정', () => {
     expect(rowsOf(upcomingOnly, seeded.productName)).toHaveLength(dates.length - 1)
 
     const pastOnly = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.range}=PAST`, jar)
+      await get(timeline(`${SCHEDULE_KEYS.range}=PAST`), jar)
     ).text()
     expect(hasSection(pastOnly, PAST_SECTION)).toBe(true)
     /*
@@ -345,7 +360,7 @@ describe('SCR-301 평가일정', () => {
      * 상시 스위트가 본다(`tests/app/schedule.test.ts`의 당일 케이스).
      */
     const pastOnly = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.range}=PAST`, jar)
+      await get(timeline(`${SCHEDULE_KEYS.range}=PAST`), jar)
     ).text()
     const rows = rowsOf(pastOnly, seeded.productName)
     expect(rows).toHaveLength(1)
@@ -354,7 +369,7 @@ describe('SCR-301 평가일정', () => {
 
   it('빈 상태 두 갈래를 구분한다 — 실재하지 않는 소유자로 좁힌다', async () => {
     const html = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.ownerId}=${GHOST_OWNER}`, jar)
+      await get(timeline(`${SCHEDULE_KEYS.ownerId}=${GHOST_OWNER}`), jar)
     ).text()
 
     expect(html).toContain(EMPTY_NARROWED)
@@ -365,7 +380,7 @@ describe('SCR-301 평가일정', () => {
 
   it('조작된 주소가 오류가 되지 않는다', async () => {
     const res = await get(
-      `${PATHS.schedule}?range=YESTERDAY&ownerId=zzz&activeOnly=`,
+      timeline('range=YESTERDAY&ownerId=zzz&activeOnly='),
       jar,
     )
     expect(res.status).toBe(200)
@@ -373,5 +388,215 @@ describe('SCR-301 평가일정', () => {
     // 좁혀지지 않았으므로 「조건에 맞는 평가일 없음」이 나올 수 없다.
     expect(html).not.toContain(EMPTY_NARROWED)
     expect(hasSection(html, UPCOMING_SECTION)).toBe(true)
+  })
+})
+
+/**
+ * SCR-301 상품별 보기 — P6 컷 6
+ *
+ * ## 위 describe와 «같은 데이터, 다른 주소»다
+ *
+ * 그래서 이 파일이 「보기 전환이 마크업만 바꾼다」를 통째로 증명한다 — 위쪽은
+ * `view=TIME`을 붙이고 단언을 한 글자도 바꾸지 않았고, 여기는 맨 주소를 읽는다.
+ *
+ * ## 여기서만 확인할 수 있는 것 넷
+ *
+ * | 무엇을 | 왜 여기인가 |
+ * |---|---|
+ * | 기본 보기가 상품별이다 | 기본값은 파서에 있으나 **그 값이 화면을 고르는가**는 렌더를 지나야 안다 |
+ * | 접힘이 «제거»가 아니다 | 지난 날짜가 DOM에 남아 있다는 것은 HTML 문자열로만 보인다 |
+ * | 전환·제출이 축을 잃지 않는다 | 링크의 `href`와 폼의 히든 칸은 두 요청의 왕복으로만 확인된다 |
+ * | 세후 = 세전 − 원천징수 | 계약 → 매퍼 → 세율 왕복 → 포매터 → HTML **전 사슬**이 여기서만 한 번에 지나간다 |
+ */
+describe('SCR-301 상품별 보기', () => {
+  let jar: ReturnType<typeof cookieJar>
+  /** 원금을 작게 잡는다 — 금액을 손으로 검산하기 위해서다(`registerProduct`의 각주) */
+  let seeded: RegisteredProduct
+  let dates: string[]
+
+  const PRINCIPAL = 100_000_000
+
+  beforeAll(async () => {
+    jar = await authenticatedJar()
+    seeded = await registerProduct(jar, { label: '상품별', principal: '100,000,000' })
+    dates = evaluationDatesOf(seeded)
+  })
+
+  /**
+   * 그 상품의 카드를 자른다 — 카드 제목이 `<h2>`인 것이 이 함수의 전제다.
+   *
+   * 절 자르기(`sectionOf`)와 같은 기법이며 같은 함정을 피한다: 끝을 문서의 끝이
+   * 아니라 **RSC 페이로드 앞**으로 둔다(그 뒤에 같은 목록이 한 번 더 실린다).
+   */
+  function cardOf(html: string, productName: string): string {
+    /*
+     * ★ **정규식을 쓰지 않는다** — 상품명이 `[E2E] 상품…`이고 `[`·`]`가 메타문자다.
+     * 실측으로 걸렸다: `new RegExp(name)`이 문자 클래스로 해석되어 다섯 케이스가
+     * 빈 문자열을 잘라 왔다. `headingAt`이 무사한 것은 그쪽 인자가 고정 한글
+     * 문자열이기 때문이며, **그 안전이 이 함수로 전이되지 않는다.**
+     */
+    const nameAt = html.indexOf(productName)
+    if (nameAt < 0) return ''
+    const at = html.lastIndexOf('<h2', nameAt)
+    if (at < 0) return ''
+    const nextHeading = html.indexOf('<h2', at + 3)
+    const script = html.indexOf('<script>self.__next_f', at)
+    const ends = [nextHeading, script].filter((i) => i >= 0)
+    return ends.length === 0 ? html.slice(at) : html.slice(at, Math.min(...ends))
+  }
+
+  it('기본 주소가 상품별이다 — 절 머리글이 없다', async () => {
+    /*
+     * ★ **음성 대조가 이 케이스의 절반이다.** 카드가 있다는 단언만 두면 기본이
+     * 시간순으로 되돌아가도(두 보기가 동시에 렌더되면) 초록으로 남는다. 절
+     * 머리글의 부재가 「대체했다」를 말하며, 그것이 §9 SQ-02가 캘린더를 버린
+     * 근거를 이 보기가 피하는 조건이다(DOC-008 §5).
+     */
+    const res = await get(PATHS.schedule, jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+
+    expect(html).toContain(seeded.productName)
+    expect(hasSection(html, PAST_SECTION)).toBe(false)
+    expect(hasSection(html, UPCOMING_SECTION)).toBe(false)
+    // 같은 요청에서 시간순은 살아 있다 — 대체이지 삭제가 아니다
+    const timelineHtml = await (await get(timeline(), jar)).text()
+    expect(hasSection(timelineHtml, UPCOMING_SECTION)).toBe(true)
+  })
+
+  it('한 카드가 그 상품의 차수를 전부 담는다', async () => {
+    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const card = cardOf(html, seeded.productName)
+
+    expect(card, '카드를 찾지 못했다').not.toBe('')
+    // 1차는 경과(접힘 안), 2·3차는 미래 — 셋 다 카드 안에 있다
+    for (const date of dates) expect(card).toContain(ymd(date))
+    for (const round of ['1차', '2차', '3차']) expect(card).toContain(round)
+    // 카드 머리의 상품 단위 값 둘
+    expect(card).toContain('투자원금')
+    expect(card).toContain('연쿠폰')
+    expect(card).toContain(percent(percentToRatio('8')))
+  })
+
+  it('★ 지난 차수는 접히되 «제거되지 않는다»', async () => {
+    /*
+     * DOC-008 §5가 「접힌 것과 필터로 빠진 것은 다르다」로 P4 컷 7의 구획 결정을
+     * 유지한 자리다. 그 차이는 **HTML에 남아 있는가**로만 관측된다 — 화면에서는
+     * 둘 다 보이지 않기 때문이다.
+     */
+    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const card = cardOf(html, seeded.productName)
+
+    expect(card).toContain('지난 차수 1건')
+    // 다가오는 차수가 있으므로 «닫혀» 있다
+    expect(card).toMatch(/<details(?![^>]*\bopen\b)[^>]*>/)
+    // 그런데 그 날짜는 DOM에 있다
+    expect(card).toContain(ymd(dates[0]!))
+  })
+
+  it('다가오는 차수만 남기면 접기 자체가 사라진다', async () => {
+    const html = visible(
+      await (
+        await get(`${PATHS.schedule}?${SCHEDULE_KEYS.range}=UPCOMING`, jar)
+      ).text(),
+    )
+    const card = cardOf(html, seeded.productName)
+
+    expect(card).not.toContain('지난 차수')
+    expect(card).toContain(ymd(dates[1]!))
+    // 기간 필터가 3차수 중 2차수만 남겼다 — 카드가 그 사실을 적는다
+    expect(card).toContain('전체 3차수 중 2차수')
+  })
+
+  it('지난 차수만 남기면 «열린 채» 렌더된다', async () => {
+    /*
+     * 다가오는 차수가 없으면 펼친다 — 접으면 카드가 비어 보이고 그 상품이 화면에서
+     * 사라진 것처럼 읽힌다. 열림이 **데이터**에 의존하고 폭에 의존하지 않는 것이
+     * 규약이며(§8), 그래서 서버 HTML에 그대로 나타난다.
+     */
+    const html = visible(
+      await (await get(`${PATHS.schedule}?${SCHEDULE_KEYS.range}=PAST`, jar)).text(),
+    )
+    const card = cardOf(html, seeded.productName)
+
+    expect(card).toContain('지난 차수 1건')
+    expect(card).toMatch(/<details[^>]*\bopen\b/)
+  })
+
+  it('★ 세후 = 세전 − 원천징수를 화면의 숫자로 검산한다', async () => {
+    /*
+     * 계약 → 매퍼 → **세율 왕복** → 포매터 → HTML의 전 사슬이 여기서만 한 번에
+     * 지나간다. 상시 스위트는 픽스처 상수를 주입하므로 「DB의 세율이 실제로
+     * 쓰이는가」를 보지 못한다.
+     *
+     * P = 100,000,000 · r = 8% · m = 6이므로 1차 세전 104,000,000이고 과세
+     * 금융소득 4,000,000에 15.4%를 적용해 세후 103,384,000이다(DOC-007 §4.5).
+     */
+    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const card = cardOf(html, seeded.productName)
+
+    const won = (n: number) => n.toLocaleString('en-US')
+    const gross = PRINCIPAL * 1.04
+    const withheld = (gross - PRINCIPAL) * 0.154
+
+    expect(card).toContain(won(gross)) // 104,000,000
+    expect(card).toContain(won(gross - withheld)) // 103,384,000
+    expect(card).toContain(`+${won(gross - PRINCIPAL)}`) // +4,000,000
+    // 각주가 세율을 «계약이 준 값으로» 렌더한다 — 절대 규칙 #5
+    expect(html).toContain('15.4% 분리과세 기준')
+  })
+
+  it('★ 보기 전환 링크가 현재 필터를 싣고, 그 주소가 왕복한다', async () => {
+    const narrowed = `${PATHS.schedule}?${SCHEDULE_KEYS.range}=UPCOMING`
+    const html = await (await get(narrowed, jar)).text()
+
+    // 시간순으로 가는 링크가 `range`를 잃지 않는다
+    const href = /href="(\/schedule\?[^"]*view=TIME[^"]*)"/.exec(html)?.[1]
+    expect(href, '보기 전환 링크가 없다').toBeDefined()
+    expect(href).toContain('range=UPCOMING')
+
+    // 그 주소를 다시 열면 시간순이고 필터가 살아 있다
+    const back = await (await get(href!.replace(/&amp;/g, '&'), jar)).text()
+    expect(hasSection(back, UPCOMING_SECTION)).toBe(true)
+    expect(hasSection(back, PAST_SECTION)).toBe(false)
+    expect(back).toContain(seeded.productName)
+  })
+
+  it('★ 필터 폼이 보기를 히든으로 나른다 — 기본값은 싣지 않는다', async () => {
+    /*
+     * 칸이 없으면 필터를 적용하는 순간 보기가 **조용히 기본값으로 되돌아간다.**
+     * SCR-201의 `page`와 정반대 방향이고(그쪽은 지워져야 한다) 그 대비가 DOC-008
+     * §7의 각주다.
+     */
+    const timelineHtml = await (await get(timeline(), jar)).text()
+    expect(timelineHtml).toMatch(
+      /<input[^>]*type="hidden"[^>]*name="view"[^>]*value="TIME"/,
+    )
+
+    const defaultHtml = await (await get(PATHS.schedule, jar)).text()
+    expect(defaultHtml).not.toMatch(/<input[^>]*name="view"/)
+  })
+
+  it('보기 전환이 주 네비게이션의 활성 표식을 쓰지 않는다', async () => {
+    /*
+     * ★ `aria-current="page"`는 `tests/e2e/shell.test.ts`가 활성 탭을 세는 표식이다.
+     * `ScopeSwitch`가 실측으로 이 함정에 걸렸다(홈의 활성 표식이 2건 → 3건).
+     */
+    const html = await (await get(PATHS.schedule, jar)).text()
+    const nav = /<nav[^>]*aria-label="보기"[\s\S]*?<\/nav>/.exec(html)?.[0]
+
+    expect(nav, '보기 전환이 없다').toBeDefined()
+    expect(nav).toContain('aria-current="true"')
+    expect(nav).not.toContain('aria-current="page"')
+  })
+
+  it('조작된 보기는 기본값으로 떨어진다', async () => {
+    const res = await get(`${PATHS.schedule}?${SCHEDULE_KEYS.view}=CALENDAR`, jar)
+    expect(res.status).toBe(200)
+
+    const html = await res.text()
+    expect(html).toContain(seeded.productName)
+    // `range`·`sortBy`와 같은 규약이다 — 인식하지 못한 값은 버린다
+    expect(hasSection(html, UPCOMING_SECTION)).toBe(false)
   })
 })

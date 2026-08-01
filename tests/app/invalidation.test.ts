@@ -104,10 +104,11 @@ const _witnessCatchesSingleSite: QueryAxisExhaustive<Without<'searchAssets'>> = 
 // ---------------------------------------------------------------------------
 
 describe('전수', () => {
-  it('계약 11개가 모두 항목을 갖는다', () => {
+  it('계약 12개가 모두 항목을 갖는다', () => {
     // 타입 수준에서도 `Record<MutationName, …>`가 강제하지만, 그쪽은 `keyof`가
     // 문서와 갈렸을 때를 보지 못한다 — 실제로 조립된 묶음의 키로 대조한다.
-    expect(MUTATION_NAMES).toHaveLength(11)
+    // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12)
+    expect(MUTATION_NAMES).toHaveLength(12)
     expect(Object.keys(INVALIDATION).sort()).toEqual([...MUTATION_NAMES].sort())
   })
 
@@ -159,6 +160,9 @@ describe('전수', () => {
     // 그 집합이 무엇인지도 박는다 — 위 단언만으로는 둘이 함께 비어도 통과한다.
     expect(mutationsAffecting('listUserSummaries')).toEqual([
       'createProduct',
+      // P6 컷 5 — 기실현 등재는 상환 실적을 함께 만들므로 그 해의 금융소득이
+      // 즉시 바뀐다. 여덟째가 되면서도 **두 집합의 동일성은 유지된다**(위 단언).
+      'createRealizedProduct',
       'createRedemption',
       'deleteProduct',
       'deleteRedemption',
@@ -598,6 +602,10 @@ describe('Route Handler 원장 — 저장소의 첫 핸들러 (P5b 컷 1)', () =
  */
 const STALE_ROUTES: Record<MutationName, string[]> = {
   createProduct: ['/', '/forecast', '/prices', '/products', '/schedule', '/tax'],
+  // **`createProduct`에서 `/prices`·`/schedule`이 빠진 것이 이 행의 내용이다.**
+  // 기실현 등재는 평가일정 0건·기초자산 0종이므로 일정 목록에 나타날 수 없고
+  // 시세 화면의 `usedByActiveProducts`도 움직이지 않는다(DOC-002 D-07).
+  createRealizedProduct: ['/', '/forecast', '/products', '/tax'],
   updateProduct: [
     '/',
     '/forecast',
@@ -746,26 +754,43 @@ describe('합성 — affects × ROUTE_QUERIES', () => {
     expect(staleRoutesFor('setKiTouched')).toContain(PATHS.schedule)
   })
 
-  it('설정은 어떤 변경에도 낡지 않는다 — 조회 계약을 읽지 않는 유일한 라우트다', () => {
+  it('조회 계약을 읽지 않는 라우트 둘 — 어떤 변경에도 낡지 않는다', () => {
     /*
-     * ★ **빈 배열이 옳은 유일한 자리다.** `ROUTE_QUERIES`의 다른 항목이 비면 그 화면은
-     * 「저장했는데 그 화면만 그대로」가 되지만, SCR-502는 조회 계약을 부르지 않으므로
-     * (로그아웃 + 앱 정보·면책뿐) 낡을 값이 없다. 그래서 **그 사실을 케이스로 박는다** —
-     * 나중에 이 화면이 무언가를 읽게 되면 여기가 빨간불이 되어 항목을 채우라고 말한다.
+     * ★ **빈 배열이 옳은 자리를 「하나」에서 「이유가 있는 둘」로 바꿨다 (P6 컷 5).**
      *
-     * 같은 사실의 다른 면: 이 라우트는 `next build`에서 정적으로 프리렌더된다
+     * `ROUTE_QUERIES`의 항목이 비면 보통 그 화면은 「저장했는데 그 화면만 그대로」가
+     * 되므로 이 단언은 원래 **`/settings` 하나만** 허용했다. 컷 5가 SCR-205를 세우며
+     * 둘째가 생겼고, **개수를 늘리는 것으로 고치지 않는다** — 그러면 다음에 조용히
+     * 빈 항목이 하나 더 생겨도 개수만 맞추면 통과한다. 대신 **이유를 원장으로 적고
+     * 그 원장과 대조한다**: 새 빈 항목은 이유를 쓰지 않고는 초록이 되지 않는다.
+     *
+     * | 라우트 | 왜 아무것도 읽지 않는가 |
+     * |---|---|
+     * | `/settings` | 로그아웃 + 앱 정보·면책뿐이다. 낡을 값이 없다 |
+     * | `/products/realized/new` | 계약 조건을 입력받지 않으므로 자산 목록조차 읽지 않는다(SCR-204와 갈리는 자리) |
+     *
+     * 같은 사실의 다른 면: 두 라우트는 `next build`에서 정적으로 프리렌더된다
      * (`cookies()`를 지나지 않는다). 그래서 **날짜·시각을 표시할 수 없다** — 그
      * 함정의 실측 기록이 `src/app/(app)/settings/page.tsx`의 머리글에 있다.
      */
-    expect(ROUTE_QUERIES[PATHS.settings]).toEqual([])
-    for (const name of MUTATION_NAMES) {
-      expect(staleRoutesFor(name), name).not.toContain(PATHS.settings)
+    const READS_NOTHING: Record<string, string> = {
+      [PATHS.settings]: '로그아웃 + 앱 정보·면책뿐. 낡을 값이 없다',
+      [PATHS.productRealizedNew]:
+        '계약 조건을 입력받지 않으므로 자산 목록조차 읽지 않는다 (DOC-008 SCR-205)',
     }
-    // 빈 항목이 여기 하나뿐이다 — 다른 화면이 조용히 비면 이 단언이 잡는다.
+
+    for (const route of Object.keys(READS_NOTHING)) {
+      expect(ROUTE_QUERIES[route], `${route}는 아무것도 읽지 않는다`).toEqual([])
+      for (const name of MUTATION_NAMES) {
+        expect(staleRoutesFor(name), `${name} → ${route}`).not.toContain(route)
+      }
+    }
+
+    // 빈 항목이 원장과 정확히 일치한다 — 다른 화면이 조용히 비면 이 단언이 잡는다.
     const empty = Object.entries(ROUTE_QUERIES)
       .filter(([, queries]) => queries.length === 0)
       .map(([route]) => route)
-    expect(empty).toEqual([PATHS.settings])
+    expect(empty.sort()).toEqual(Object.keys(READS_NOTHING).sort())
   })
 
   it('`/forecast`는 세금 요약과 함께 낡는다 — 대리 기준이 옳았다', () => {
@@ -827,7 +852,8 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
   const rows = tableAfterHeader(DOC_011, '| 화면 | 조회 계약 | 변경 계약 |')
 
   it('매트릭스를 찾았다', () => {
-    expect(rows.length).toBe(12) // SCR-001·101·201·202·203·204·301·302·401·402·501·502
+    // SCR-001·101·201·202·203·204·**205**·301·302·401·402·501·502
+    expect(rows.length).toBe(13)
   })
 
   it('문서가 배정한 변경 계약이 전부 맵에 있다', () => {
@@ -921,7 +947,8 @@ function screenRoutes(): Record<string, string[]> {
     DOC_008,
     '| ID | 화면명 | 경로 | 권한 | 관련 요구사항 | 주요 엔티티 |',
   )
-  expect(rows.length, 'DOC-008 §4 화면 목록이 비어 있다').toBe(14)
+  // P6 컷 5에서 SCR-205(기실현 등재)가 더해져 14 → 15
+  expect(rows.length, 'DOC-008 §4 화면 목록이 비어 있다').toBe(15)
 
   const map: Record<string, string[]> = {}
   for (const [id, , pathCell] of rows) {

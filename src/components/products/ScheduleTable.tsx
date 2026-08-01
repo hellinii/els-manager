@@ -93,7 +93,9 @@ export function ScheduleTable({
             </div>
 
             <Value label="배리어">{percent(s.barrier)}</Value>
-            <Value label="예상 수령액">{amount(s.expectedGross)}원</Value>
+            <Value label="예상 수령액">
+              {s.expectedGross == null ? '—' : `${amount(s.expectedGross)}원`}
+            </Value>
 
             <div className="flex flex-col gap-1.5">
               {s.conditionResult != null && (

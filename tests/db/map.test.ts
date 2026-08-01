@@ -13,7 +13,7 @@ import {
 import { dec } from '@/lib/decimal'
 import { deriveDisplay } from '@/lib/format'
 
-import { ASSET_1, ASSET_2, OTHER, OWNER, asset, priceMap, productRow, redemption, schedule } from './helpers/rows'
+import { ASSET_1, ASSET_2, OTHER, OWNER, asset, priceMap, productRow, redemption, schedule, taxBasis } from './helpers/rows'
 
 const ASOF = '2026-06-30'
 
@@ -397,6 +397,7 @@ describe('§4.4 평가일정 — 좁힌 유니온', () => {
       productRow({ els_underlyings: [] }),
       priceMap([]),
       ASOF,
+      taxBasis(),
     )
     expect(items).toHaveLength(2)
     expect(items.every((i) => i.integrityIssue === 'UNDERLYING_MISSING')).toBe(true)
@@ -407,6 +408,7 @@ describe('§4.4 평가일정 — 좁힌 유니온', () => {
       productRow({ redemption_schedules: [] }),
       priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
       ASOF,
+      taxBasis(),
     )
     expect(items).toEqual([])
   })
@@ -426,8 +428,182 @@ describe('§4.4 평가일정 — 좁힌 유니온', () => {
       }),
       priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
       ASOF,
+      taxBasis(),
     )
     expect(items.map((i) => i.hasLizard)).toEqual([false, true])
+  })
+})
+
+/**
+ * §4.4 v3.3 — 차수별 금액 (P6 컷 6)
+ *
+ * 픽스처: `P = 100,000,000` · `r = 0.08` · `m = 6` · 두 차수 · `GENERAL`.
+ * 그래서 1차 세전 104,000,000 / 2차 108,000,000이고 과세 금융소득은 각각
+ * 4,000,000 · 8,000,000이다.
+ */
+describe('§4.4 v3.3 차수별 금액', () => {
+  const itemsOf = (row = productRow(), basis = taxBasis()) =>
+    toScheduleItems(
+      row,
+      priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
+      ASOF,
+      basis,
+    )
+
+  it('차수마다 다른 것과 같은 것이 함께 실린다', () => {
+    const items = itemsOf()
+
+    // 금액은 차수의 함수다
+    expect(items.map((i) => i.proceeds!.expectedGross)).toEqual([
+      '104000000',
+      '108000000',
+    ])
+    // 상품 단위 사실은 차수마다 같다 — `productName`·`status`와 같은 형태다
+    expect(items.every((i) => i.principal === '100000000')).toBe(true)
+    expect(items.every((i) => i.annualCouponRate === '0.0800')).toBe(true)
+    expect(items.every((i) => i.accountType === 'GENERAL')).toBe(true)
+    expect(items.every((i) => i.totalRounds === 2)).toBe(true)
+    expect(items.every((i) => i.proceeds!.taxLawYear === 2026)).toBe(true)
+  })
+
+  /*
+   * ★ **음성 대조.** `expectedGross × (1 − rate)`로 구현해도 「세후가 세전보다
+   * 작다」는 성질은 그대로이므로 부등호 단언으로는 갈리지 않는다. 리터럴로 박는다:
+   * 그 오구현이면 1차 세후가 87,984,000이 되어 여기서 죽는다.
+   */
+  it('세후는 «과세 금융소득»에 세율을 곱해 뺀 값이다 — 세전 전액이 아니다', () => {
+    const [first, second] = itemsOf()
+
+    expect(first!.proceeds).toMatchObject({
+      expectedGross: '104000000',
+      expectedWithholding: '616000', // 4,000,000 × 0.154
+      expectedNet: '103384000',
+      expectedPnl: '4000000',
+      separateTaxationRate: '0.1540',
+    })
+    expect(second!.proceeds).toMatchObject({
+      expectedGross: '108000000',
+      expectedWithholding: '1232000', // 8,000,000 × 0.154
+      expectedNet: '106768000',
+      expectedPnl: '8000000',
+    })
+  })
+
+  it('세후 + 원천징수 = 세전 — 한 반올림값에서 파생된다 (DOC-007 §4.5)', () => {
+    for (const item of itemsOf()) {
+      const p = item.proceeds!
+      expect(dec(p.expectedNet).plus(dec(p.expectedWithholding)).toString()).toBe(
+        p.expectedGross,
+      )
+      expect(dec(p.expectedGross).minus(dec(item.principal)).toString()).toBe(
+        p.expectedPnl,
+      )
+    }
+  })
+
+  /*
+   * ★ 이 케이스가 위 음성 대조의 짝이다. `gross × (1 − rate)` 오구현은
+   * 비과세에서도 세금을 떼므로 **여기서만** 갈리는 것이 아니라 여기서도 갈린다 —
+   * 둘을 함께 두는 이유는 §4.5가 이 분기를 «명시»했기 때문이다(곱해서 0인 것과
+   * 부과 대상이 아닌 것은 화면이 다르게 말한다).
+   */
+  it('TAX_FREE는 세후 = 세전이고 손익은 그대로 산출된다', () => {
+    const [first] = itemsOf(productRow({ account_type: 'TAX_FREE' }))
+
+    expect(first!.accountType).toBe('TAX_FREE')
+    expect(first!.proceeds).toMatchObject({
+      expectedGross: '104000000',
+      expectedWithholding: '0',
+      expectedNet: '104000000',
+      expectedPnl: '4000000',
+    })
+  })
+
+  /*
+   * 억제 규칙 D1이 이 다섯에 미치지 않는다. §4.3이 v0.6에서 정확히 이 실수를
+   * 했고 v0.8이 되돌렸다 — 원인의 범위를 넘어 억제하면 같은 상품이 §4.6에서는
+   * 과세에 기여하면서 여기서만 값을 잃는다.
+   */
+  it('결함 상품에도 금액이 있다 — 시세를 하나도 쓰지 않는다', () => {
+    const [first] = toScheduleItems(
+      productRow({ els_underlyings: [] }),
+      priceMap([]),
+      ASOF,
+      taxBasis(),
+    )
+
+    expect(first!.integrityIssue).toBe('UNDERLYING_MISSING')
+    expect(first!.worstOf).toBeNull()
+    expect(first!.conditionResult).toBeNull()
+    expect(first!.proceeds!.expectedNet).toBe('103384000')
+  })
+
+  it('상환 완료 상품의 남은 차수에도 금액이 있다 — 억제는 화면의 일이다', () => {
+    const [first] = itemsOf(
+      productRow({
+        redemptions: redemption({ redemption_type: 'EARLY', round_no: 1 }),
+      }),
+    )
+
+    expect(first!.status).toBe('REDEEMED')
+    expect(first!.proceeds!.expectedGross).toBe('104000000')
+  })
+
+  /*
+   * `annualCouponRate == null ⟺ proceeds == null`. 계약이 「함께 빈다」를
+   * 보장하므로 화면이 둘 중 하나만 보고 분기해도 어긋나지 않는다. 도달 경로는
+   * 계약 «밖»이다 — 수동 SQL로 `REALIZED_ONLY` 상품에 차수를 넣는 것뿐이다
+   * (AQ-14·AQ-65와 같은 자리).
+   */
+  it('쿠폰율이 없으면 금액도 없다 — 쌍조건이다', () => {
+    const items = itemsOf(
+      productRow({ entry_mode: 'REALIZED_ONLY', annual_coupon_rate: null }),
+    )
+
+    expect(items).toHaveLength(2)
+    for (const item of items) {
+      expect(item.annualCouponRate).toBeNull()
+      expect(item.proceeds).toBeNull()
+      // 원금은 남는다 — 계약 조건이 아니라 상품의 사실이다
+      expect(item.principal).toBe('100000000')
+    }
+  })
+
+  /*
+   * ★ 기간 필터가 차수를 잘라도 `totalRounds`는 «상품 전체»다. 임베드된 부모가
+   * 자기 일정 전체를 담으므로 공짜이며, 화면이 `max(roundNo)`로 합성하면
+   * 3~4차만 남은 6차수 상품에서 **4가 나와 틀린다.**
+   */
+  it('totalRounds는 행 수이고 max(round_no)가 아니다', () => {
+    const items = itemsOf(
+      productRow({
+        redemption_schedules: [
+          schedule({ round_no: 5, evaluation_date: '2028-07-02' }),
+          schedule({ round_no: 6, evaluation_date: '2029-01-04' }),
+        ],
+      }),
+    )
+
+    expect(items.every((i) => i.totalRounds === 2)).toBe(true)
+    expect(items.map((i) => i.roundNo)).toEqual([5, 6])
+  })
+
+  it('근사한 세율 연도가 드러난다', () => {
+    const [first] = itemsOf(productRow(), taxBasis({ taxLawYear: 2026 }))
+    expect(first!.proceeds!.taxLawYear).toBe(2026)
+
+    const [approx] = itemsOf(productRow(), taxBasis({ taxLawYear: 2025 }))
+    expect(approx!.proceeds!.taxLawYear).toBe(2025)
+  })
+
+  it('예상 손익은 음수가 될 수 없다 — 현 산식에서 r ≥ 0이다', () => {
+    // 음수 케이스가 생기면 그것은 이 테스트의 문제가 아니라 DOC-007 §4.1의
+    // 변경이다. 쿠폰율 0(원금상환형)이 하한이며 그때 손익은 정확히 0이다.
+    const items = itemsOf(productRow({ annual_coupon_rate: '0.0000' }))
+    for (const item of items) {
+      expect(item.proceeds!.expectedPnl).toBe('0')
+      expect(item.proceeds!.expectedNet).toBe(item.proceeds!.expectedGross)
+    }
   })
 })
 
@@ -909,7 +1085,7 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
 
   it.each(SCHEDULE_CASES)('$label', ({ row, prices }) => {
     const item = toProductListItem(row, prices, ASOF, OWNER)
-    const rounds = toScheduleItems(row, prices, ASOF)
+    const rounds = toScheduleItems(row, prices, ASOF, taxBasis())
 
     expect(rounds.length).toBeGreaterThan(0)
     for (const round of rounds) {
@@ -927,7 +1103,7 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
   it('다섯 경우가 실제로 세 종류의 판정을 낸다', () => {
     // 픽스처가 전부 같은 `kind`를 내면 위 `it.each`는 항진명제다.
     const kinds = SCHEDULE_CASES.map(({ row, prices }) =>
-      toScheduleItems(row, prices, ASOF).map((r) => deriveDisplay(r).kind),
+      toScheduleItems(row, prices, ASOF, taxBasis()).map((r) => deriveDisplay(r).kind),
     )
     expect(kinds).toEqual([
       ['VALUED', 'VALUED'],
@@ -952,6 +1128,7 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
       productRow({ redemptions: redemption() }),
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
+      taxBasis(),
     )
 
     expect(rounds.every((r) => r.status === 'REDEEMED')).toBe(true)
@@ -977,6 +1154,7 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
       productRow({ users: null }),
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
+      taxBasis(),
     )
 
     expect(rounds.every((r) => r.ownerId === OWNER)).toBe(true)
@@ -994,6 +1172,7 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       // 두 차수(2026-07-02·2027-01-04) 중 앞의 것만 지난 기준일
       '2026-08-01',
+      taxBasis(),
     )
 
     expect(rounds.map((r) => r.isPast)).toEqual([true, false])
@@ -1142,5 +1321,149 @@ describe('계약 조건 — 판정과 다른 성질을 갖는다', () => {
       ],
     })
     expect(terms.underlyings[0]!.assetName).toBe('(알 수 없음)')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 억제의 셋째 축 — 기실현 등재 (DOC-011 §4.2, DOC-002 D-07)
+// ---------------------------------------------------------------------------
+
+/**
+ * `entry_mode = 'REALIZED_ONLY'` + 상환 1건. 하위 행은 **둘 다 0건**이다.
+ *
+ * 계약을 경유해 만들어지는 유일한 형태이며(`create_realized_els_product`), 그래서
+ * 픽스처도 그 형태만 만든다 — 상환을 뺀 변종은 아래 「상환 취소」 케이스가 따로
+ * 만든다(그쪽이 결함이라는 것이 이 축의 유일한 예외다).
+ */
+function realizedRow(overrides: Partial<ProductRow> = {}): ProductRow {
+  return productRow({
+    entry_mode: 'REALIZED_ONLY',
+    issue_date: null,
+    annual_coupon_rate: null,
+    // 그림의 1740회 한 줄 — 실수령액 20,788,019 · 과표 1,398,019 · 원금 19,390,000
+    principal: '19390000',
+    els_underlyings: [],
+    redemption_schedules: [],
+    redemptions: redemption({
+      redemption_type: 'EARLY',
+      // 일정이 0건이므로 실재하는 차수가 없다 — I-14 트리거가 면제한다
+      round_no: null,
+      redemption_date: '2026-06-04',
+      gross_amount: '20788019',
+      taxable_income: '1398019',
+      withholding_tax: '215295',
+    }),
+    ...overrides,
+  })
+}
+
+describe('기실현 등재 — 억제는 결함 이름이 아니라 부재를 따른다', () => {
+  it('던지지 않는다 — 워스트오브를 빈 집합에 묻지 않는다', () => {
+    expect(() => toProductListItem(realizedRow(), priceMap([]), ASOF, OWNER)).not.toThrow()
+    expect(() =>
+      toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER),
+    ).not.toThrow()
+  })
+
+  it('결함이 아니다 — `integrityIssue`가 `null`이고 `entryMode`가 그 이유를 나른다', () => {
+    const item = toProductListItem(realizedRow(), priceMap([]), ASOF, OWNER)
+
+    expect(item.integrityIssue).toBeNull()
+    expect(item.entryMode).toBe('REALIZED_ONLY')
+    // 같은 관측(하위 행 0건)에 다른 이름이 붙는다 — 결함 상품과 대조한다.
+    const broken = toProductListItem(
+      productRow({ els_underlyings: [] }),
+      priceMap([]),
+      ASOF,
+      OWNER,
+    )
+    expect(broken.integrityIssue).toBe('UNDERLYING_MISSING')
+    expect(broken.entryMode).toBe('FULL')
+  })
+
+  it('판정값은 전부 비고 상환 실적은 산다', () => {
+    const item = toProductListItem(realizedRow(), priceMap([]), ASOF, OWNER)
+
+    // 억제 — 시세도 차수도 없다
+    expect(item.worstOf).toBeNull()
+    expect(item.kiStatus).toBeNull()
+    expect(item.conditionResult).toBeNull()
+    expect(item.nextEvaluation).toBeNull()
+
+    // 상환 실적에서 나오는 것 — E-05의 「표시값은 상환 실적이다」
+    expect(item.status).toBe('REDEEMED')
+    expect(item.principal).toBe('19390000')
+  })
+
+  it('계약 조건은 `null`이다 — 「0」이 아니다', () => {
+    const item = toProductListItem(realizedRow(), priceMap([]), ASOF, OWNER)
+    // 0으로 접으면 「연쿠폰율 0%」가 되어 없는 계약을 지어낸다.
+    expect(item.terms.annualCouponRate).toBeNull()
+    expect(item.terms.underlyings).toEqual([])
+    expect(item.terms.barriers).toEqual([])
+
+    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER)
+    expect(view.product.issueDate).toBeNull()
+    expect(view.product.annualCouponRate).toBeNull()
+    expect(view.product.entryMode).toBe('REALIZED_ONLY')
+    expect(view.product.totalRounds).toBe(0)
+    // 추정을 만들지 않는다 — 계약 조건이 없으면 예상 수령액이 정의되지 않는다
+    expect(view.projection).toBeNull()
+    expect(view.schedules).toEqual([])
+  })
+
+  it('귀속연도는 상환일에서 나온다 — 세금 집계에 그 해로 들어간다', () => {
+    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER)
+    expect(view.redemption?.redemptionDate).toBe('2026-06-04')
+    expect(view.redemption?.taxableIncome).toBe('1398019')
+    expect(view.redemption?.withholdingTax).toBe('215295')
+  })
+
+  /**
+   * ★ **축의 판정이 `entry_mode` 단독이 아니라 상환 존재와 짝인 것을 여기서 본다.**
+   *
+   * `deleteRedemption`이 기실현 상품을 보유중으로 되돌리면 계약 조건도 상환도 없는
+   * 상태가 된다 — 등재는 그 상태를 만들 수 없고(한 트랜잭션) 상환 취소만이 만든다.
+   * `entry_mode`만 보고 면제하면 **판정 입력이 하나도 없는 보유중 상품이 정상으로
+   * 읽힌다.**
+   */
+  it('상환을 취소하면 다시 결함이다 — 다음 행동이 상품 삭제다', () => {
+    const cancelled = realizedRow({ redemptions: null })
+    const item = toProductListItem(cancelled, priceMap([]), ASOF, OWNER)
+
+    expect(item.status).toBe('ACTIVE')
+    expect(item.integrityIssue).toBe('UNDERLYING_MISSING')
+    // 그 상태에서도 던지지 않는다 — 억제가 결함 축에서도 걸린다
+    expect(item.worstOf).toBeNull()
+  })
+
+  /**
+   * ★★ **이 케이스가 이 축의 유일한 판별 계기다.**
+   *
+   * 기실현 등재가 안전한 것은 방어 코드 때문이 **아니라** 세 겹의 도달 가능성
+   * 때문이다(`integrityIssueOf` 위 각주) — `worstOfRow`의 0건 가드 ·
+   * `asActive`의 상환 완료 처리 · `attentionReasonsFor`의 `REDEEMED` 조기 반환.
+   * **그 도달 가능성을 단언하는 층이 없었다.**
+   *
+   * 셋 중 하나가 사라지면 `destroyed`가 `null`이고 `worstOf`가 `null`이므로
+   * `PRICE_MISSING`이 붙고, SCR-101이 기실현 상품에 「시세 없음」을 표시한다 —
+   * 사용자가 **영원히 오지 않을 시세를 기다리는** 상태이며 ST-06이 금지한 그것이다.
+   *
+   * **음성 대조로 판별력을 확인했다**(아래 두 대조 모두 이 케이스만 깨뜨렸다):
+   *   ① `attentionReasonsFor`의 `if (j.status === 'REDEEMED') return reasons` 제거
+   *      → `['PRICE_MISSING']`
+   *   ② `integrityIssueOf`의 `isRealizedEntry` 가드 제거
+   *      → `['UNDERLYING_MISSING']` (결함으로 오분류 — 「수정 필요」가 붙는다)
+   */
+  it('조치 사유가 비어 있다 — 「시세 없음」도 「수정 필요」도 붙지 않는다', () => {
+    expect(attentionReasonsOf(realizedRow(), priceMap([]), ASOF)).toEqual([])
+  })
+
+  it('대조 — 같은 0건이 결함 상품에서는 사유가 된다', () => {
+    // 억제가 통째로 꺼져 있지 않다는 증거다. 같은 「기초자산 0종」에서 한쪽은
+    // 빈 목록이고 다른 쪽은 결함 사유를 낸다 — 가르는 것은 `entry_mode`뿐이다.
+    expect(
+      attentionReasonsOf(productRow({ els_underlyings: [] }), priceMap([]), ASOF),
+    ).toEqual(['UNDERLYING_MISSING'])
   })
 })

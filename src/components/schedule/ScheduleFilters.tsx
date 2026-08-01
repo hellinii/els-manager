@@ -4,8 +4,11 @@ import { INPUT_CLASS } from '@/components/form/Field'
 import type { OwnerOption } from '@/components/products/ProductFilters'
 import {
   SCHEDULE_KEYS,
+  SCHEDULE_VIEW_DEFAULT,
+  scheduleQuery,
   type ScheduleFilter,
   type ScheduleRange,
+  type ScheduleView,
 } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -31,7 +34,23 @@ import { PATHS } from '@/lib/routes/paths'
  * 이 화면의 목적이 「시간 순으로 조망」이므로 순서가 하나로 정해진다(계약이 준
  * 평가일 오름차순). SCR-201의 정렬 셋이 둘로 좁혀진 것과 같은 판단의 극단이며,
  * 고를 것이 하나뿐인 선택 상자를 두지 않는다.
+ *
+ * ## ★ 보기를 히든으로 나른다 (P6 컷 6)
+ *
+ * `<form method="GET">`은 자기 안의 칸만 보낸다. SCR-201의 `page`는 **일부러**
+ * 칸이 없어 제출 때 지워지는데(필터를 바꾸면 페이지가 무효다) **보기는 정반대다**
+ * — 필터를 바꿔도 사용자가 고른 표현은 무효가 되지 않는다. 칸이 없으면 필터를
+ * 적용하는 순간 보기가 **조용히 기본값으로 되돌아간다.**
+ *
+ * 기본값일 때 렌더하지 «않는» 것이 「기본값은 주소에 싣지 않는다」를 지키는
+ * 방법이다(`filterQuery`·`dashboardQuery`와 같은 규약).
+ *
+ * 「초기화」도 보기를 보존한다 — 필터 초기화가 표현까지 되돌리면 시간순에서
+ * 잘못 좁힌 사용자가 말없이 상품별로 던져진다.
  */
+
+/** 초기화가 되돌리는 지점 — 「아무것도 좁히지 않음」이며 보기는 여기 없다 */
+const NO_FILTER: ScheduleFilter = { ownerId: null, range: 'ALL', activeOnly: false }
 
 const RANGE_LABELS: Record<ScheduleRange, string> = {
   ALL: '전체 기간',
@@ -42,10 +61,12 @@ const RANGE_LABELS: Record<ScheduleRange, string> = {
 export function ScheduleFilters({
   filter,
   owners,
+  view,
 }: {
   filter: ScheduleFilter
   /** 좁히지 않은 조회에서 나온다 — 필터가 자기 선택지를 지우지 않게(SCR-201과 같다) */
   owners: readonly OwnerOption[]
+  view: ScheduleView
 }) {
   return (
     <form
@@ -53,6 +74,10 @@ export function ScheduleFilters({
       action={PATHS.schedule}
       className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3"
     >
+      {view !== SCHEDULE_VIEW_DEFAULT && (
+        <input type="hidden" name={SCHEDULE_KEYS.view} value={view} />
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-neutral-600">소유자</span>
@@ -113,7 +138,10 @@ export function ScheduleFilters({
         >
           적용
         </button>
-        <Link href={PATHS.schedule} className="text-sm text-neutral-600 underline">
+        <Link
+          href={`${PATHS.schedule}${scheduleQuery(NO_FILTER, view)}`}
+          className="text-sm text-neutral-600 underline"
+        >
           초기화
         </Link>
       </div>

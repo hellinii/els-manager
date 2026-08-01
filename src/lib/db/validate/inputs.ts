@@ -4,6 +4,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  RealizedProductInput,
   RedemptionInput,
   ScheduleInput,
   TaxProfileInput,
@@ -29,7 +30,11 @@ import {
   requireString,
   requireUuid,
 } from './primitives'
-import { validateProductCrossFields, validateRedemptionCrossFields } from './rules'
+import {
+  V12_maturityLossZero,
+  validateProductCrossFields,
+  validateRedemptionCrossFields,
+} from './rules'
 
 /**
  * 셰이프 파싱 — 서버 액션의 인자는 **`unknown`이다**
@@ -356,6 +361,119 @@ export function parseRedemptionInput(p: Problems, raw: unknown): RedemptionInput
   if (note != null) input.note = note
 
   validateRedemptionCrossFields(p, input)
+  return p.isEmpty ? input : null
+}
+
+/**
+ * §5.11 기실현 등재 — 상품 스칼라 넷 + 상환 실적 여섯
+ *
+ * **`parseProductInput`·`parseRedemptionInput`을 부르지 않는다.** 둘 다 이 입력에
+ * 없는 필드를 필수로 요구하므로(발행일·연쿠폰율·기초자산·차수 / 없음) 부르면
+ * 존재하지 않는 칸에 오류가 붙는다 — 화면에 그 칸이 없으므로 사용자는 **고칠 수
+ * 없는 오류**를 본다. 규칙 ID와 필드 이름은 두 파서와 같은 것을 쓴다: 같은 값에
+ * 다른 ID를 주면 §6의 표가 두 뜻을 갖게 된다.
+ *
+ * **V-13을 부르지 않는 것이 규칙 위반이 아니다** — 입력에 `roundNo`가 없어 위반을
+ * 표현할 수 없다(DOC-011 §5.11). V-10도 같다: 발행일이 없으므로 비교 대상이 없다.
+ */
+export function parseRealizedProductInput(
+  p: Problems,
+  raw: unknown,
+): RealizedProductInput | null {
+  if (!isPlainObject(raw)) {
+    p.add('V-19', 'name', '입력 형식이 올바르지 않다.')
+    return null
+  }
+
+  const name = requireString(p, 'V-19', 'name', raw.name, {
+    label: '상품명',
+    max: LENGTH_LIMITS.productName,
+  })
+  const issuer = optionalString(p, 'V-19', 'issuer', raw.issuer, {
+    label: '발행사',
+    max: LENGTH_LIMITS.issuer,
+  })
+  const principal = requireAmount(p, 'V-01', 'principal', raw.principal, {
+    label: '투자원금',
+    min: 'positive',
+    integer: true,
+  })
+  const accountType = requireEnum(
+    p,
+    'V-19',
+    'accountType',
+    raw.accountType,
+    ACCOUNT_TYPES,
+    '계좌유형',
+  )
+
+  const redemptionType = requireEnum(
+    p,
+    'V-13',
+    'redemptionType',
+    raw.redemptionType,
+    REDEMPTION_TYPES,
+    '상환 유형',
+  )
+  const redemptionDate = requireIsoDate(
+    p,
+    'V-10',
+    'redemptionDate',
+    raw.redemptionDate,
+    '상환일',
+  )
+  const grossAmount = requireAmount(p, 'V-19', 'grossAmount', raw.grossAmount, {
+    label: '실수령액',
+    min: 'zero',
+    integer: true,
+  })
+  const taxableIncome = requireAmount(p, 'V-11', 'taxableIncome', raw.taxableIncome, {
+    label: '과세 금융소득',
+    min: 'zero',
+    integer: true,
+  })
+  const withholdingTax = optionalAmount(p, 'V-19', 'withholdingTax', raw.withholdingTax, {
+    label: '원천징수세액',
+    min: 'zero',
+    integer: true,
+  })
+  const isConfirmed = requireBoolean(p, 'V-19', 'isConfirmed', raw.isConfirmed, '확정값 여부')
+  const note = optionalString(p, 'V-19', 'note', raw.note, { label: '비고' })
+
+  if (
+    !allPresent([
+      name,
+      issuer,
+      principal,
+      accountType,
+      redemptionType,
+      redemptionDate,
+      grossAmount,
+      taxableIncome,
+      withholdingTax,
+      isConfirmed,
+      note,
+    ])
+  ) {
+    return null
+  }
+
+  const input: RealizedProductInput = {
+    name: name!,
+    principal: principal!,
+    accountType: accountType!,
+    redemptionType: redemptionType!,
+    redemptionDate: redemptionDate!,
+    grossAmount: grossAmount!,
+    taxableIncome: taxableIncome!,
+    isConfirmed: isConfirmed!,
+  }
+  if (issuer != null) input.issuer = issuer
+  if (withholdingTax != null) input.withholdingTax = withholdingTax
+  if (note != null) input.note = note
+
+  // V-12는 부른다 — 절대 규칙 #8이며 유형과 과표만 보면 판정된다(차수가 필요 없다).
+  V12_maturityLossZero(p, input)
   return p.isEmpty ? input : null
 }
 

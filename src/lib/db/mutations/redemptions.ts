@@ -1,6 +1,5 @@
-import { dec, truncateToUnit } from '@/lib/decimal'
 import { attributionYear } from '@/lib/domain'
-import { DEFAULT_ROUNDING } from '@/lib/tax'
+import { separateTaxationWithholding } from '@/lib/tax'
 
 import {
   TaxSeedRangeError,
@@ -89,9 +88,17 @@ async function taxYearForWithholding(
   }
 }
 
-async function withholdingFor(
+/**
+ * **§5.11이 이 함수를 공유한다.** 산출을 복제하면 두 계약이 다른 상수·다른 연도·
+ * 다른 접기를 쓸 수 있고, 그 갈림은 원천징수세액을 비운 채 저장할 때에만 드러난다
+ * — 즉 평소에는 보이지 않는다. 인자를 `RedemptionInput`이 아니라 **실제로 읽는 두
+ * 필드**로 좁힌 것이 그 공유의 형태다(V-12와 같은 판단).
+ */
+export async function withholdingFor(
   ctx: MutationContext,
-  input: RedemptionInput,
+  input: Pick<RedemptionInput, 'redemptionDate' | 'taxableIncome'> & {
+    withholdingTax?: string
+  },
 ): Promise<Access<string>> {
   if (input.withholdingTax != null) return { ok: true, value: input.withholdingTax }
 
@@ -119,10 +126,13 @@ async function withholdingFor(
   )
   if (!constants.ok) return { ok: false, error: constants.error }
 
-  const amount = truncateToUnit(
-    dec(input.taxableIncome).times(dec(constants.value.separateTaxationRate)),
-    DEFAULT_ROUNDING.unit,
-  )
+  // 같은 식이 §5.5(비교과세의 `withheld`)와 §4.5(차수별 세후)에도 있으므로 순수
+  // 함수 하나를 공유한다 — DOC-010 AQ-67. 절사와 「둘 중 어느 요율인가」가 그
+  // 함수의 몫이 되었고, 여기서는 상수 묶음을 그대로 넘긴다.
+  const amount = separateTaxationWithholding({
+    taxableIncome: input.taxableIncome,
+    constants: constants.value,
+  })
   return { ok: true, value: amount.toString() }
 }
 
@@ -139,7 +149,12 @@ function validateAgainstProduct(
   input: RedemptionInput,
   product: ProductRow,
 ): void {
-  V10_redemptionAfterIssue(p, input.redemptionDate, product.issue_date)
+  // V-10은 **비교 대상이 있을 때만** 검사한다. 기실현 등재는 발행일을 입력받지
+  // 않으므로(DOC-011 §5.11) 비교할 값이 없고, 그 부재가 이 계약의 정의다 —
+  // 규칙에 예외를 두는 것이 아니라 전제가 없다.
+  if (product.issue_date != null) {
+    V10_redemptionAfterIssue(p, input.redemptionDate, product.issue_date)
+  }
 
   const schedule =
     product.redemption_schedules.find((row) => row.round_no === input.roundNo) ?? null

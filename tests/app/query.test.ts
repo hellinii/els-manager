@@ -6,6 +6,7 @@ import {
   FILTER_KEYS,
   SCHEDULE_KEYS,
   SCHEDULE_RANGE_DEFAULT,
+  SCHEDULE_VIEW_DEFAULT,
   TAX_KEYS,
   SORT_DEFAULT,
   filterQuery,
@@ -13,7 +14,9 @@ import {
   isScheduleNarrowed,
   parseProductFilter,
   parseScheduleFilter,
+  parseScheduleView,
   parseTaxFilter,
+  scheduleQuery,
   toListParams,
   toScheduleParams,
   type ProductFilter,
@@ -292,6 +295,102 @@ describe('평가일정 필터 (SCR-301)', () => {
       ownerId: owner,
       activeOnly: true,
     })
+  })
+})
+
+/**
+ * 보기 축 — SCR-301 상품별 / 시간순 (P6 컷 6)
+ *
+ * **`ScheduleFilter` 밖에 있다.** 그 사실 자체가 아래 첫 케이스가 지키는 것이며,
+ * 이 describe가 위 것과 분리되어 있는 이유이기도 하다.
+ */
+describe('평가일정 보기 (SCR-301)', () => {
+  it('★ 보기는 좁히지 않는다 — 빈 상태와 두 번째 조회가 여기 달려 있다', () => {
+    /*
+     * 이 파일에서 가장 값이 큰 단언이다. `view`가 `ScheduleFilter` 안에 있었다면
+     * 누군가 `isScheduleNarrowed`의 OR에 더했을 것이고(필터처럼 보인다), 그러면
+     * **필터를 하나도 걸지 않은 기본 화면이 「좁혀짐」이 된다** — 빈 상태가
+     * 「등록된 평가일정이 없다 · 등록」에서 「조건에 맞는 평가일이 없다 · 필터
+     * 초기화」로 바뀌고, 소유자 선택지를 위한 두 번째 조회가 항상 돈다.
+     *
+     * 타입을 갈랐으므로 그 필드는 OR의 사정거리에 들어올 수 없다. 이 케이스는
+     * 그 분리가 유지되는지를 «값으로» 확인한다.
+     */
+    const values = { [SCHEDULE_KEYS.view]: 'TIME' }
+
+    expect(parseScheduleView(values)).toBe('TIME')
+    expect(parseScheduleFilter(values)).toEqual(NO_SCHEDULE_FILTER)
+    expect(isScheduleNarrowed(parseScheduleFilter(values))).toBe(false)
+    // 계약 파라미터도 아니다 — 표현이지 조회 조건이 아니다
+    expect(toScheduleParams(parseScheduleFilter(values), ASOF)).toEqual({})
+  })
+
+  it('기본은 상품별이고 인식하지 못한 값은 기본값이다', () => {
+    // `range`·`sortBy`와 같은 규약이다 — 손으로 적은 주소에 특별한 뜻을 주지 않는다.
+    expect(parseScheduleView({})).toBe(SCHEDULE_VIEW_DEFAULT)
+    expect(parseScheduleView({})).toBe('PRODUCT')
+    expect(parseScheduleView({ [SCHEDULE_KEYS.view]: 'CALENDAR' })).toBe('PRODUCT')
+    expect(parseScheduleView({ [SCHEDULE_KEYS.view]: '' })).toBe('PRODUCT')
+    // 배열은 버린다 — 다른 축과 같은 규약이다(`one`이 문자열만 받는다).
+    expect(parseScheduleView({ [SCHEDULE_KEYS.view]: ['TIME'] })).toBe('PRODUCT')
+  })
+
+  it('기본값은 주소에 싣지 않는다', () => {
+    expect(scheduleQuery(NO_SCHEDULE_FILTER, SCHEDULE_VIEW_DEFAULT)).toBe('')
+    expect(scheduleQuery(NO_SCHEDULE_FILTER, 'TIME')).toBe('?view=TIME')
+  })
+
+  it('★ 전환 링크가 현재 필터를 함께 싣는다', () => {
+    /*
+     * `dashboardQuery`는 축이 하나뿐이라 질의를 처음부터 조립하지만 여기는 넷이다.
+     * 싣지 않으면 보기를 바꾸는 순간 소유자·기간·미상환 필터가 사라진다 —
+     * `pageQuery`가 같은 자리에서 같은 일을 한다.
+     */
+    const owner = '11111111-2222-4333-8444-555555555555'
+    const filter = parseScheduleFilter({
+      [SCHEDULE_KEYS.ownerId]: owner,
+      [SCHEDULE_KEYS.range]: 'UPCOMING',
+      [SCHEDULE_KEYS.activeOnly]: 'on',
+    })
+
+    const query = scheduleQuery(filter, 'TIME')
+    expect(query).toContain(`${SCHEDULE_KEYS.ownerId}=${owner}`)
+    expect(query).toContain('range=UPCOMING')
+    expect(query).toContain('view=TIME')
+  })
+
+  it('★ 되돌린 주소를 다시 파싱하면 같은 필터·같은 보기다', () => {
+    /*
+     * 왕복이 항등이어야 전환이 필터를 보존한다. ⚠️ 함정은 `activeOnly`다 —
+     * 파서가 `!== ''`로 읽으므로 `activeOnly=`(빈 문자열)로 직렬화하면 되읽을 때
+     * **꺼진다.** `'on'`으로 적는 이유가 그것이고, 이 케이스가 그것을 잡는다.
+     */
+    const cases: Array<[ScheduleFilter, 'PRODUCT' | 'TIME']> = [
+      [NO_SCHEDULE_FILTER, 'PRODUCT'],
+      [NO_SCHEDULE_FILTER, 'TIME'],
+      [{ ownerId: null, range: 'PAST', activeOnly: true }, 'TIME'],
+      [
+        {
+          ownerId: '11111111-2222-4333-8444-555555555555',
+          range: 'UPCOMING',
+          activeOnly: true,
+        },
+        'PRODUCT',
+      ],
+    ]
+
+    for (const [filter, view] of cases) {
+      const parsed = Object.fromEntries(
+        new URLSearchParams(scheduleQuery(filter, view)),
+      )
+      expect(parseScheduleFilter(parsed)).toEqual(filter)
+      expect(parseScheduleView(parsed)).toBe(view)
+    }
+  })
+
+  it('보기 키가 필터 키와 충돌하지 않는다', () => {
+    const filterKeys = Object.values(FILTER_KEYS)
+    expect(filterKeys).not.toContain(SCHEDULE_KEYS.view)
   })
 })
 

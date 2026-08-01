@@ -1,8 +1,10 @@
 import type { Metadata } from 'next'
 
 import type { OwnerOption } from '@/components/products/ProductFilters'
+import { ProductScheduleList } from '@/components/schedule/ProductScheduleList'
 import { ScheduleFilters } from '@/components/schedule/ScheduleFilters'
 import { ScheduleRow } from '@/components/schedule/ScheduleRow'
+import { ViewSwitch } from '@/components/schedule/ViewSwitch'
 import { EmptyState } from '@/components/state/EmptyState'
 import type { ScheduleItem } from '@/lib/db/queries/map'
 import { getAsOf, getQueries } from '@/lib/db/server'
@@ -10,8 +12,12 @@ import { groupByMonth, korDate, splitByPast, type MonthGroup } from '@/lib/forma
 import {
   isScheduleNarrowed,
   parseScheduleFilter,
+  parseScheduleView,
+  scheduleQuery,
   toScheduleParams,
   type QueryValues,
+  type ScheduleFilter,
+  type ScheduleView,
 } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -41,9 +47,23 @@ import { PATHS } from '@/lib/routes/paths'
  * 기준일 당일이 섞이는데, 그 한 줄을 날짜 계산으로 빼면 경계 판정이 계약과 화면 두
  * 곳에 생긴다. 질의는 **행 수를 줄이는 일만** 하고 판정은 계약이 준 값이 한다.
  *
+ * ## 보기 축은 필터가 «아니다» (P6 컷 6)
+ *
+ * `view`는 `ScheduleFilter` 밖에 있고 `isScheduleNarrowed`가 세지 않는다. 세면
+ * 아무 필터도 걸지 않은 화면이 「좁혀짐」이 되어 빈 상태가 둘째로 바뀌고 두 번째
+ * 조회가 항상 돈다 — 아래 왕복 문단의 전제가 무너진다(`lib/forms/query.ts`의
+ * `parseScheduleView` 머리글이 그 판단의 정본이다).
+ *
+ * **두 보기는 동시에 렌더되지 않는다.** 같은 계약·같은 필터·같은 순수 함수
+ * (`splitByPast`)를 읽고 한 번에 하나만 나오며, 그 성질이 §9 SQ-02가 캘린더를
+ * 버린 근거(「그 위에 얹히는 두 번째 목록」)를 이 보기가 피하는 방법이다. 실측
+ * 근거도 있다 — `tests/e2e/schedule.test.ts`의 행 세기가 **페이지 전체의 `<li>`**를
+ * 잡으므로 동시 렌더는 그 파일과 `home.test.ts`의 건수 단언을 전부 두 배로 만든다.
+ *
  * ## 왕복
  *
- * 기본 화면은 좁히지 않으므로 조회 1회(= 2 왕복: 차수 + 시세). 필터가 걸리면 2회다.
+ * 기본 화면은 좁히지 않으므로 조회 1회(= **3 왕복**: 차수 + 시세 + 세율 연도).
+ * 필터가 걸리면 2회다.
  * 기본이 「전체 기간」인 것이 그 조건을 만든다 — 기본을 「다가오는」으로 두면 첫
  * 렌더부터 좁혀진 상태이므로 소유자 선택지를 위해 **항상** 두 번 불러야 한다.
  */
@@ -58,7 +78,9 @@ export default async function SchedulePage({
   // Next 16의 searchParams는 Promise다.
   searchParams: Promise<QueryValues>
 }) {
-  const filter = parseScheduleFilter(await searchParams)
+  const params = await searchParams
+  const filter = parseScheduleFilter(params)
+  const view = parseScheduleView(params)
   const queries = await getQueries()
   // 화면과 계약이 **같은 기준일**을 본다(Q-02) — 기간 조건이 여기서 나온다.
   const asOf = getAsOf()
@@ -73,20 +95,46 @@ export default async function SchedulePage({
 
   const { past, upcoming } = splitByPast(items)
 
+  /*
+   * ★ **셋째 빈 상태의 판정은 보기와 무관하다** (DOC-008 §6). 자리만 다르다 —
+   * 시간순은 「다가오는 평가일」 절의 자리, 상품별은 카드 목록 위다. 문구도 게이트도
+   * 같으므로 여기서 한 번 정한다. `null`이면 그 상태가 아니거나 사용자가 미래를
+   * 빼기로 한 것이다(그때 「없다」고 말하면 필터가 결함으로 읽힌다).
+   */
+  const missingUpcoming =
+    upcoming.length === 0 && filter.range !== 'PAST'
+      ? '다가오는 평가일이 없다. 경과한 차수의 상환 처리 또는 이월을 확인한다.'
+      : null
+
   return (
     <section className="flex flex-col gap-5">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">평가일정</h1>
-        <p className="mt-1 text-sm text-neutral-600">
-          기준일 {korDate(asOf)} ·{' '}
-          {narrowed ? `${all.length}건 중 ${items.length}건` : `${items.length}건`}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">평가일정</h1>
+          <p className="mt-1 text-sm text-neutral-600">
+            기준일 {korDate(asOf)} ·{' '}
+            {narrowed ? `${all.length}건 중 ${items.length}건` : `${items.length}건`}
+          </p>
+        </div>
+        <ViewSwitch filter={filter} view={view} />
       </header>
 
-      <ScheduleFilters filter={filter} owners={ownersOf(all)} />
+      <ScheduleFilters filter={filter} owners={ownersOf(all)} view={view} />
 
       {items.length === 0 ? (
-        <ScheduleEmpty narrowed={narrowed} />
+        <ScheduleEmpty narrowed={narrowed} view={view} />
+      ) : view === 'PRODUCT' ? (
+        <div className="flex flex-col gap-3">
+          {/*
+            셋째 빈 상태가 화면 단위로 뜨면 카드는 같은 말을 반복하지 않는다 —
+            두 상태는 구조적으로 배타다(모든 상품이 그 상태이면 여기가 뜬다).
+          */}
+          {missingUpcoming != null && <MissingUpcoming note={missingUpcoming} />}
+          <ProductScheduleList
+            items={items}
+            noteMissingUpcoming={missingUpcoming == null}
+          />
+        </div>
       ) : (
         <div className="flex flex-col gap-6">
           {/*
@@ -111,11 +159,7 @@ export default async function SchedulePage({
              * 기간을 「지난 평가일」로 좁힌 경우에는 이 절을 렌더하지 않는다 —
              * 사용자가 미래를 빼기로 했는데 「없다」고 말하면 필터가 결함으로 읽힌다.
              */
-            emptyNote={
-              filter.range === 'PAST'
-                ? null
-                : '다가오는 평가일이 없다. 경과한 차수의 상환 처리 또는 이월을 확인한다.'
-            }
+            emptyNote={missingUpcoming}
           />
         </div>
       )}
@@ -200,13 +244,28 @@ function Section({
  * 「상품 등록」을 붙이면 사용자는 필터가 걸린 것을 모른 채 상품을 하나 더 만들고
  * 그것도 목록에 나타나지 않는다.
  */
-function ScheduleEmpty({ narrowed }: { narrowed: boolean }) {
+function ScheduleEmpty({
+  narrowed,
+  view,
+}: {
+  narrowed: boolean
+  /** 초기화 링크가 보기를 보존하므로 필요하다 — 필터 자체는 되돌릴 값이 상수다 */
+  view: ScheduleView
+}) {
   if (narrowed) {
     return (
       <EmptyState
         title="조건에 맞는 평가일이 없다"
         description="필터를 해제하면 전체 일정이 보인다."
-        action={{ label: '필터 초기화', href: PATHS.schedule }}
+        /*
+         * ★ 초기화가 **보기를 보존한다** — 필터를 되돌리는 것과 표현을 되돌리는
+         * 것은 다른 일이고, 섞으면 시간순에서 잘못 좁힌 사용자가 말없이 상품별로
+         * 던져진다. `ScheduleFilters`의 초기화 링크와 같은 규약이다.
+         */
+        action={{
+          label: '필터 초기화',
+          href: `${PATHS.schedule}${scheduleQuery(NO_FILTER, view)}`,
+        }}
       />
     )
   }
@@ -214,9 +273,28 @@ function ScheduleEmpty({ narrowed }: { narrowed: boolean }) {
   return (
     <EmptyState
       title="등록된 평가일정이 없다"
-      description="ELS를 등록하면 차수별 평가일이 여기에 시간 순으로 모인다."
+      /* 기본 보기가 상품별이므로 「시간 순으로 모인다」는 화면과 어긋난다(v2.2) */
+      description="ELS를 등록하면 차수별 평가일과 예상 수령액이 여기에 모인다."
       action={{ label: '+ 등록', href: PATHS.productNew }}
     />
+  )
+}
+
+/** 좁히지 않은 필터를 되돌리는 지점 — 보기는 여기 없다 */
+const NO_FILTER: ScheduleFilter = { ownerId: null, range: 'ALL', activeOnly: false }
+
+/**
+ * 셋째 빈 상태를 **상품별 보기의 자리**에 낸다 — 문구는 시간순과 바이트 동일하다.
+ *
+ * 시간순은 「다가오는 평가일」 절이 실재하므로 그 자리에 남기고(`Section`의
+ * `emptyNote`), 상품별에는 그 절이 없으므로 카드 목록 위에 온다. 한 상태에 두
+ * 문구를 두면 사용자가 보기를 바꿀 때 **상태가 바뀐 것으로 읽는다**(DOC-008 §6).
+ */
+function MissingUpcoming({ note }: { note: string }) {
+  return (
+    <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
+      {note}
+    </p>
   )
 }
 

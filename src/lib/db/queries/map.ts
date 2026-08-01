@@ -24,6 +24,7 @@ import {
 
 import { koreanAmount } from '@/lib/format/money'
 import type { LizardTerm } from '@/lib/format/terms'
+import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 
 import { attributionOf, type Attribution } from './attribution'
 import type { LatestPrice, ProductRow, ScheduleRow } from './load'
@@ -58,6 +59,20 @@ export function amountString(value: DecimalValue): string {
 /** 비율: 소수 4자리 고정. 저장 정밀도 `numeric(6,4)`와 일치한다. */
 export function ratioString(value: DecimalValue): string {
   return value.toDecimalPlaces(4).toFixed(4)
+}
+
+/**
+ * 「없으면 없다」 — 기실현 등재로 계약 조건이 빠지는 자리가 생겼다(DOC-002 D-07).
+ *
+ * `value == null ? null : xString(value)`를 호출부마다 적으면 어딘가 한 곳이
+ * `?? '0'`이 되고, **0원은 「모른다」가 아니라 「0원이다」**를 말한다.
+ */
+function nullableAmount(value: DecimalValue | null): string | null {
+  return value == null ? null : amountString(value)
+}
+
+function nullableRatio(value: string | null): string | null {
+  return value == null ? null : ratioString(dec(value))
 }
 
 /**
@@ -121,11 +136,56 @@ export function destroyedInputOf(
  * 부르므로(§4.6의 과세 기여도 결함 표식을 붙인다) 여기서 기록하면 같은 결함이
  * 화면당 여러 번 찍혀 원인을 가린다. 기록은 판정 진입점 하나에서만 한다 —
  * `listSchedule`이 부모별로 한 번만 매핑하는 것과 같은 이유다.
+ *
+ * ## 기실현 등재는 그 0건이 결함이 아니다 (P6 컷 5, DOC-011 §4.2 셋째 축)
+ *
+ * `entry_mode = 'REALIZED_ONLY'`인 상품은 계약 조건을 갖지 않기로 등재된 것이므로
+ * 하위 행 0건이 의도다(DOC-002 D-07).
+ *
+ * **★ 그런데 억제를 새로 만들 필요가 없었다 — 실측이 초안을 반증했다.** 이 자리에
+ * 「부재를 따르는」 별 함수(`absentInputOf`)를 두었다가 **철회했다.** 근거로 적은
+ * 것은 「`integrityIssue`만 `null`로 만들면 억제가 풀려 기초자산 0종에 `worstOf`를
+ * 물고, 빈 집합의 `min()`이라 `RangeError`가 나 화면이 전원에게 죽는다」였고
+ * **그것이 거짓이다.** 억제를 결함 이름에 되매단 구현으로 음성 대조를 돌렸더니
+ * 그 시점의 **87건이 전부 초록**이었다. 이미 세 겹이 이 경우를 덮고 있었다.
+ *
+ * | 무엇 | 어디 |
+ * |---|---|
+ * | `worstOfRow`가 기초자산 0건을 **스스로** 가드한다 | 아래 함수 |
+ * | `asActive`가 상환 완료에서 `ki`·`conditionResult`를 죽인다 | DOC-007 §9.1 |
+ * | `attentionReasonsFor`가 `REDEEMED`에서 먼저 반환한다 | 이 파일 아래 |
+ *
+ * 기실현 등재는 **정의상 항상 상환 완료**이므로(D-07) 뒤의 둘이 언제나 걸린다.
+ * 그래서 `destroyed`를 어느 쪽으로 계산해도 뷰의 값이 한 칸도 달라지지 않는다.
+ *
+ * **그래서 방어 코드가 아니라 케이스를 남겼다.** 지켜야 하는 것은 위 세 겹의
+ * **도달 가능성**이고 그것을 단언하는 층이 없었다 — 셋 중 하나가 사라지면 기실현
+ * 상품에 「시세 없음」이 붙어 사용자가 영원히 오지 않을 시세를 기다린다(ST-06).
+ * `tests/db/map.test.ts`의 「조치 사유가 비어 있다」가 그 계기이며, 그 케이스를 넣은
+ * 뒤 같은 변형이 **실제로 잡힌다**(초록이었던 대조가 빨간불이 된다 — 두 방향을 다
+ * 실행해 확인했다). **없는 위험을 지키는 분기보다 있는 위험을 판별하는 단언이 싸다** —
+ * 그 분기는 자기가 무엇을 막는지 말하면서 아무것도 막지 않으므로, 다음 사람이 그
+ * 문장을 근거로 다른 결정을 한다.
+ *
+ * **판정이 `entry_mode` 단독이 아니라 상환 존재와 짝이다** — 아래 본문의 각주.
  */
 export function integrityIssueOf(row: ProductRow): IntegrityIssue | null {
+  // 기실현 등재는 계약 조건을 갖지 않기로 등재된 상품이므로 하위 행 0건이
+  // 결함이 아니다(DOC-002 D-07). **판정이 `entry_mode` 단독이 아니라 상환 존재와
+  // 짝인 것이 요점이다** — `deleteRedemption`이 그 상품을 보유중으로 되돌리면
+  // 계약 조건도 상환도 없는 상태가 되고, 그것은 등재가 만들 수 없는 상태이며
+  // 다음 행동이 상품 삭제이므로 화면이 그 사실을 말해야 한다. `entry_mode`만
+  // 보면 판정 입력이 하나도 없는 보유중 상품이 정상으로 읽힌다.
+  if (isRealizedEntry(row)) return null
+
   if (row.els_underlyings.length === 0) return 'UNDERLYING_MISSING'
   if (row.redemption_schedules.length === 0) return 'SCHEDULE_MISSING'
   return null
+}
+
+/** 기실현 등재인가 — **상환이 있어야 참이다.** 위 각주가 그 짝의 이유다 */
+export function isRealizedEntry(row: ProductRow): boolean {
+  return row.entry_mode === 'REALIZED_ONLY' && row.redemptions != null
 }
 
 /**
@@ -368,6 +428,15 @@ export type ProductListItem = {
   conditionResult: ConditionResult | null
   kiStatus: KiStatus | null
   integrityIssue: IntegrityIssue | null
+  /**
+   * 기실현 등재 여부 — DOC-002 §4.6.
+   *
+   * **`integrityIssue`와 함께 담기는 것이 요점이다.** 둘은 같은 관측(하위 행 0건)에
+   * 붙는 다른 이름이고, 화면이 그 둘을 **다르게 말해야** 한다 — 결함은 「수정 필요」,
+   * 이쪽은 수정으로 해소할 것이 없다(DOC-005 §6). 하나만 담으면 화면이 정상 상품에
+   * 「기초자산 없음 — 수정 필요」를 붙이거나, 결함을 조용히 정상으로 표시한다.
+   */
+  entryMode: 'FULL' | 'REALIZED_ONLY'
   isOwner: boolean
   terms: ProductListTerms
 }
@@ -396,7 +465,8 @@ export type ProductListItem = {
  * 상세는 판정」이라는 구분이 타입에서 사라진다.
  */
 export type ProductListTerms = {
-  annualCouponRate: string
+  /** `null` = 기실현 등재. `entryMode`의 짝이며 I-18이 `FULL`에서 보장한다 */
+  annualCouponRate: string | null
   /** `null` = 노낙인. `kiObservation`과 함께 있거나 함께 없다(I-11) */
   kiBarrier: string | null
   kiObservation: KiObservation | null
@@ -437,6 +507,7 @@ export function toProductListItem(
     conditionResult: j.conditionResult,
     kiStatus: j.ki,
     integrityIssue: j.integrityIssue,
+    entryMode: row.entry_mode,
     isOwner: row.owner_id === viewerId,
     terms: termsOf(row),
   }
@@ -458,7 +529,8 @@ function termsOf(row: ProductRow): ProductListTerms {
     .sort((a, b) => a.round_no - b.round_no)
 
   return {
-    annualCouponRate: ratioString(dec(row.annual_coupon_rate)),
+    // 기실현 등재는 `null`이다 — 그 상품에 연쿠폰율이 없다(D-07).
+    annualCouponRate: nullableRatio(row.annual_coupon_rate),
     kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
     kiObservation: row.ki_observation,
 
@@ -518,7 +590,8 @@ export type ProductDetailView = {
     ownerId: string
     ownerName: string
     isOwner: boolean
-    issueDate: string
+    /** `null` = 기실현 등재 (DOC-002 D-07). `FULL`이면 항상 있다(I-18) */
+    issueDate: string | null
     principal: string
     evaluationPeriodMonths: number
     totalRounds: number
@@ -539,10 +612,13 @@ export type ProductDetailView = {
      * `BELOW`의 순서를 요구하므로 `lib/domain`의 재구현이 된다.
      */
     status: 'ACTIVE' | 'REDEEMED'
+    /** 기실현 등재 여부 — DOC-002 §4.6. 목록(§4.2)과 같은 필드다 */
+    entryMode: 'FULL' | 'REALIZED_ONLY'
     worstOf: string | null
     kiStatus: KiStatus | null
     integrityIssue: IntegrityIssue | null
-    annualCouponRate: string
+    /** `null` = 기실현 등재. `issueDate`와 같은 짝이며 I-18이 `FULL`에서 보장한다 */
+    annualCouponRate: string | null
     kiBarrier: string | null
     kiObservation: 'CONTINUOUS' | 'CLOSING' | null
     kiTouchedAt: string | null
@@ -566,7 +642,8 @@ export type ProductDetailView = {
     lizardBarrier: string | null
     lizardCouponRate: string | null
     lizardRequiresNoKi: boolean | null
-    expectedGross: string
+    /** `null` = 연쿠폰율이 없어 산출할 수 없다 — `expectedGrossOf`의 각주 */
+    expectedGross: string | null
     conditionResult: ConditionResult | null
     isPast: boolean
   }>
@@ -586,7 +663,17 @@ export type ProductDetailView = {
  * 가정을 따른다. 상품의 계약 조건에서 나오는 값이므로 상환 완료 상품에서도
  * 의미가 있다 — 실제 수령액(`redemption.grossAmount`)과는 다른 값이다.
  */
-function expectedGrossOf(row: ProductRow, roundNo: number): DecimalValue {
+function expectedGrossOf(
+  row: ProductRow,
+  roundNo: number,
+): DecimalValue | null {
+  // **쿠폰율이 없으면 산출하지 않는다** — 기실현 등재는 계약 조건이 없다(D-07).
+  // 그 상품은 차수도 0건이므로 이 함수의 두 호출부(차수별 표·`projectionOf`)에
+  // 도달하지 않는다. 그래도 `null`을 표현하는 이유는 **도달 경로가 계약 밖에
+  // 하나 있기 때문**이다: 수동 SQL로 `REALIZED_ONLY` 상품에 차수를 넣으면 여기
+  // 온다(AQ-14·AQ-65와 같은 자리). 그때 값을 지어내거나 죽는 것보다 비우는 편이 낫다.
+  if (row.annual_coupon_rate == null) return null
+
   return grossExpected({
     principal: row.principal,
     couponRate: row.annual_coupon_rate,
@@ -634,7 +721,8 @@ export function toProductDetailView(
       worstOf: j.worstOf == null ? null : ratioString(j.worstOf),
       kiStatus: j.ki,
       integrityIssue: j.integrityIssue,
-      annualCouponRate: ratioString(dec(row.annual_coupon_rate)),
+      entryMode: row.entry_mode,
+      annualCouponRate: nullableRatio(row.annual_coupon_rate),
       kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
       kiObservation: row.ki_observation,
       kiTouchedAt: row.ki_touched_at,
@@ -672,7 +760,7 @@ export function toProductDetailView(
           ? null
           : ratioString(dec(s.lizard_coupon_rate)),
       lizardRequiresNoKi: s.lizard_requires_no_ki,
-      expectedGross: amountString(expectedGrossOf(row, s.round_no)),
+      expectedGross: nullableAmount(expectedGrossOf(row, s.round_no)),
       // 판정은 **적용 차수 한 곳**에만 있다. 다른 차수의 배리어로 지금 시세를
       // 판정하면 그 차수가 도래했을 때의 결과인 척하는 값이 된다.
       conditionResult:
@@ -742,6 +830,9 @@ function projectionOf(
 
   const round = j.attribution.round
   const gross = expectedGrossOf(row, round.round_no)
+  // ③ 계약 조건이 없다 — 쿠폰율 없이는 추정 자체가 정의되지 않는다(위 각주).
+  // 「값을 비운 추정」을 만들지 않는 것이 §4.2 D1의 규약이다.
+  if (gross == null) return null
 
   return {
     appliedRoundNo: round.round_no,
@@ -803,14 +894,133 @@ export type ScheduleItem = {
   /** 일정 0건 상품은 이 목록에 **행 자체가 생기지 않으므로** SCHEDULE_MISSING은 도달 불가다 */
   integrityIssue: 'UNDERLYING_MISSING' | null
   isPast: boolean
+
+  /**
+   * 투자원금 — 카드 머리가 읽는다. 차수 손익의 기준선이다 (v3.3, P6 컷 6)
+   *
+   * 아래 넷과 함께 **차수마다 같은 값**이며 `productName`·`status`가 이미 그
+   * 형태다. 상품 쪽 값이 왕복을 늘리지 않는 이유는 `PRODUCT_SELECT`가 이미
+   * 싣고 판정이 쓰고 있었기 때문이다 — v3.2까지 매퍼가 **읽고 버렸다**.
+   */
+  principal: string
+  /** 연쿠폰율. `null` = 계약 조건 없음(D-07)이며 `proceeds`와 **같은 조건**으로 빈다 */
+  annualCouponRate: string | null
+  /**
+   * 원천징수 유무를 가르는 축 (DOC-007 §4.3).
+   *
+   * `expectedNet`만 담으면 화면이 「왜 세후 = 세전인가」를 말할 수 없다 —
+   * 비과세 계좌와 「쿠폰율이 0이라 손익이 0」이 같게 보인다.
+   */
+  accountType: 'GENERAL' | 'TAX_FREE'
+  /**
+   * 그 상품의 **전체** 차수. 정본은 행 수이며 `max(round_no)`가 **아니다**(§4.3의 같은 규약).
+   *
+   * 기간 필터가 6차수 중 3~4차만 남기면 카드는 「3차부터 시작하는 상품」으로
+   * 읽힌다. 화면이 `max(roundNo)`로 합성하면 그 경우 **4가 나와 틀린다.**
+   */
+  totalRounds: number
+  /** `annualCouponRate == null`일 때만 `null`. 그 둘은 함께 빈다 */
+  proceeds: ScheduleProceeds | null
+}
+
+/**
+ * 차수별 금액 — **여섯이 함께 있거나 함께 없다** (v3.3).
+ *
+ * 독립 nullable로 흩으면 「다섯은 있고 하나만 없다」가 타입상 표현 가능해지는데
+ * 그 조합은 실재하지 않는다. §4.3의 `projection: {…} | null`과 같은 형태다.
+ */
+export type ScheduleProceeds = {
+  /** 세전. DOC-007 §4.1의 `EARLY` 가정 — §4.3의 같은 이름 필드와 같은 값이다 */
+  expectedGross: string
+  /** 예상 원천징수. `TAX_FREE`는 `'0'` */
+  expectedWithholding: string
+  /** 세후 예상 수령액 = 세전 − 예상 원천징수. **잔차다** */
+  expectedNet: string
+  /** 예상 손익 = 세전 − 투자원금. 현 산식에서 음수가 될 수 없다(`r ≥ 0`) */
+  expectedPnl: string
+  /**
+   * 위 셋에 **실제로 쓰인** 분리과세율.
+   *
+   * 화면의 고지(「15.4% 분리과세 기준」)가 절대 규칙 #5에 따라 이 숫자를 코드에
+   * 적을 수 없다. 값을 만든 세율이 값과 **함께 이동**하므로 둘이 갈릴 수 없다.
+   */
+  separateTaxationRate: string
+  /** 그 세율의 연도. 기준일의 연도와 다르면 근사다 */
+  taxLawYear: number
+}
+
+/**
+ * 세후 값의 세율 근거 — **요청당 하나다** (v3.3).
+ *
+ * `listSchedule`이 `year(ctx.asOf)`로 한 번 풀어 전 차수에 같은 값을 싣는다.
+ * 차수의 귀속연도로 풀지 않는 이유는 `resolveTaxYear`가 시드 이전 연도를
+ * **던지기** 때문이다 — 이 화면은 지난 차수를 반드시 렌더하므로 2025년 평가일
+ * 하나가 화면 전체를 500으로 만든다(DOC-010 AQ-66). `asOf`는 과거가 될 수 없어
+ * 그 분기가 **구조적으로 도달 불가**가 된다.
+ */
+export type ScheduleTaxBasis = {
+  constants: TaxConstants
+  taxLawYear: number
+}
+
+/**
+ * 차수별 금액 — DOC-007 §4.5.
+ *
+ * **세 값이 한 반올림값에서 파생된다.** 각각 반올림하면 화면에서
+ * `세후 + 원천징수 ≠ 세전`이 되고 사용자가 뺄셈으로 그것을 본다. §5.3이
+ * 지방소득세를 잔차로 두는 것과 같은 판단이며, §4.6의 과세 집계는 그와 달리
+ * **반올림하지 않은** 값을 계속 쓴다(반올림하면 2천만 원 경계가 움직인다).
+ *
+ * `redemption: null`을 넘기는 것이 중요하다 — 이 축 전체가 「예상」이므로
+ * 상환 확정값을 섞지 않는다. 그래서 상환 완료 상품에서도 **계약 조건이 내는
+ * 반사실**이 나오며, 그것을 표시할지는 화면의 결정이다(억제는 여기서 하지 않는다).
+ */
+function proceedsOf(
+  row: ProductRow,
+  roundNo: number,
+  tax: ScheduleTaxBasis,
+): ScheduleProceeds | null {
+  const gross = expectedGrossOf(row, roundNo)
+  if (gross == null) return null
+
+  const shown = roundToUnit(gross, '1')
+
+  const taxable = taxableIncome({
+    accountType: row.account_type,
+    principal: row.principal,
+    redemption: null,
+    expectedGross: shown,
+  })
+
+  const withheld = separateTaxationWithholding({
+    taxableIncome: taxable,
+    constants: tax.constants,
+  })
+
+  return {
+    expectedGross: amountString(shown),
+    expectedWithholding: amountString(withheld),
+    expectedNet: amountString(shown.minus(withheld)),
+    expectedPnl: amountString(shown.minus(dec(row.principal))),
+    separateTaxationRate: ratioString(dec(tax.constants.separateTaxationRate)),
+    taxLawYear: tax.taxLawYear,
+  }
 }
 
 export function toScheduleItems(
   row: ProductRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
+  /**
+   * **필수 인자다.** 선택으로 두면 잊은 호출부가 조용히 `proceeds: null`을
+   * 만들고, 그 화면은 금액 칸이 전부 「—」인 채로 정상처럼 보인다.
+   */
+  tax: ScheduleTaxBasis,
 ): ScheduleItem[] {
   const j = judge(row, prices, asOf)
+  // 정본은 **행 수**다. V-04(차수 연속성)가 계약 계층에만 있으므로 DB는
+  // `max(round_no)`가 행 수보다 큰 상태를 허용한다(CLAUDE.md · DOC-011 AQ-29).
+  const totalRounds = row.redemption_schedules.length
 
   return row.redemption_schedules
     .slice()
@@ -839,6 +1049,18 @@ export function toScheduleItems(
       integrityIssue:
         j.integrityIssue === 'UNDERLYING_MISSING' ? 'UNDERLYING_MISSING' : null,
       isPast: isPast({ evaluationDate: s.evaluation_date, asOf }),
+
+      /*
+       * v3.3의 다섯. **억제 규칙 D1이 미치지 않는다** — 결함 상품도 계약 조건은
+       * 온전하고 이 값들은 시세를 하나도 쓰지 않는다. §4.3이 v0.6에서 정확히 이
+       * 실수를 했고 v0.8이 되돌렸다(원인의 범위를 넘어 억제하면 같은 상품이
+       * §4.6에서는 과세에 기여하면서 여기서만 값을 잃는다).
+       */
+      principal: amountString(dec(row.principal)),
+      annualCouponRate: nullableRatio(row.annual_coupon_rate),
+      accountType: row.account_type,
+      totalRounds,
+      proceeds: proceedsOf(row, s.round_no, tax),
     }))
 }
 

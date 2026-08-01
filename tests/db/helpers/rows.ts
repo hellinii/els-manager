@@ -1,4 +1,6 @@
 import type { LatestPrice, ProductRow } from '@/lib/db/queries/load'
+import type { ScheduleTaxBasis } from '@/lib/db/queries/map'
+import { CONSTANTS_2026 } from '../../fixtures/tax-2026'
 
 /**
  * 행 픽스처 — **DB 없이** 매핑을 검증한다.
@@ -28,6 +30,9 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
     ki_touched_at: null,
     account_type: 'GENERAL',
     note: null,
+    // 기본값이 `FULL`인 것이 DB 기본값과 같다(DOC-002 §4.6) — 픽스처가 스키마와
+    // 다른 기본을 쓰면 기존 케이스 전부가 조용히 다른 상품을 시험하게 된다.
+    entry_mode: 'FULL',
     users: { id: OWNER, display_name: '소유자' },
     els_underlyings: [
       { asset_id: ASSET_1, base_price: '100.000000', sequence: 1, assets: asset(ASSET_1, '자산1') },
@@ -43,6 +48,20 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
 
 export function asset(id: string, name: string) {
   return { id, name, market: 'NASDAQ', currency: 'USD' }
+}
+
+/**
+ * `toScheduleItems`의 세율 근거 — §4.4 v3.3.
+ *
+ * **요율을 리터럴로 적지 않는다**(절대 규칙 #5의 정신). `CONSTANTS_2026`은
+ * `tests/seed/`의 시드 대조(AQ-05)가 마이그레이션과 묶어 주므로, 이 픽스처를
+ * 쓰면 테스트가 프로덕션과 같은 값을 탄다.
+ *
+ * 기본 연도가 `ASOF`(2026)의 연도와 같다 — 근사 표식(`taxLawYear`)이 정상
+ * 경로에서 켜지지 않아야 그 축의 케이스가 의미를 갖는다.
+ */
+export function taxBasis(overrides: Partial<ScheduleTaxBasis> = {}): ScheduleTaxBasis {
+  return { constants: CONSTANTS_2026, taxLawYear: 2026, ...overrides }
 }
 
 export function schedule(

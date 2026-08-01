@@ -27,6 +27,28 @@ export async function seedProduct(params: {
   return { id: result.rows[0].id }
 }
 
+/**
+ * 기실현 등재 상품 — `entry_mode = 'REALIZED_ONLY'` (DOC-002 D-07).
+ *
+ * 계약 조건 두 열이 `NULL`이고 하위 행이 0건이다. **I-18을 만족하는 유일한 조합**
+ * 이며(`FULL`이면 두 열이 필수다) `create_realized_els_product`가 만드는 것과 같은
+ * 형태다 — 여기서 손으로 넣는 이유는 이 스위트가 `pg` 직결이라 `auth.uid()`를
+ * 쓰지 않는다는 것뿐이다.
+ */
+export async function seedRealizedProduct(params: {
+  ownerId?: string
+  name?: string
+}): Promise<SeededProduct> {
+  const result = await asOwner<{ id: string }>(
+    `insert into public.els_products
+       (owner_id, name, principal, account_type, entry_mode)
+     values ($1, $2, 19390000, 'GENERAL', 'REALIZED_ONLY')
+     returning id`,
+    [params.ownerId ?? USER_A, params.name ?? '기실현 상품'],
+  )
+  return { id: result.rows[0].id }
+}
+
 export async function seedAsset(params: {
   name?: string
   market?: string | null

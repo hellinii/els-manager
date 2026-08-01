@@ -106,11 +106,12 @@ export type Database = {
       els_products: {
         Row: {
           account_type: Database["public"]["Enums"]["account_type"]
-          annual_coupon_rate: number
+          annual_coupon_rate: number | null
           created_at: string
+          entry_mode: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months: number
           id: string
-          issue_date: string
+          issue_date: string | null
           issuer: string | null
           ki_barrier: number | null
           ki_observation: Database["public"]["Enums"]["ki_observation"] | null
@@ -123,11 +124,12 @@ export type Database = {
         }
         Insert: {
           account_type: Database["public"]["Enums"]["account_type"]
-          annual_coupon_rate: number
+          annual_coupon_rate?: number | null
           created_at?: string
+          entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months?: number
           id?: string
-          issue_date: string
+          issue_date?: string | null
           issuer?: string | null
           ki_barrier?: number | null
           ki_observation?: Database["public"]["Enums"]["ki_observation"] | null
@@ -140,11 +142,12 @@ export type Database = {
         }
         Update: {
           account_type?: Database["public"]["Enums"]["account_type"]
-          annual_coupon_rate?: number
+          annual_coupon_rate?: number | null
           created_at?: string
+          entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months?: number
           id?: string
-          issue_date?: string
+          issue_date?: string | null
           issuer?: string | null
           ki_barrier?: number | null
           ki_observation?: Database["public"]["Enums"]["ki_observation"] | null
@@ -434,6 +437,7 @@ export type Database = {
     }
     Functions: {
       create_els_product: { Args: { payload: Json }; Returns: string }
+      create_realized_els_product: { Args: { payload: Json }; Returns: string }
       update_els_product: {
         Args: { p_id: string; payload: Json }
         Returns: string
@@ -445,6 +449,7 @@ export type Database = {
       health_insurance_type: "EMPLOYEE" | "REGIONAL" | "DEPENDENT" | "NONE"
       ki_observation: "CONTINUOUS" | "CLOSING"
       price_source: "AUTO" | "MANUAL"
+      product_entry_mode: "FULL" | "REALIZED_ONLY"
       redemption_type: "EARLY" | "LIZARD" | "MATURITY_GAIN" | "MATURITY_LOSS"
     }
     CompositeTypes: {
@@ -578,6 +583,7 @@ export const Constants = {
       health_insurance_type: ["EMPLOYEE", "REGIONAL", "DEPENDENT", "NONE"],
       ki_observation: ["CONTINUOUS", "CLOSING"],
       price_source: ["AUTO", "MANUAL"],
+      product_entry_mode: ["FULL", "REALIZED_ONLY"],
       redemption_type: ["EARLY", "LIZARD", "MATURITY_GAIN", "MATURITY_LOSS"],
     },
   },

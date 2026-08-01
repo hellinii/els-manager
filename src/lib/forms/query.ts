@@ -267,6 +267,8 @@ export const SCHEDULE_KEYS = {
   ownerId: FILTER_KEYS.ownerId,
   range: 'range',
   activeOnly: 'activeOnly',
+  /** ★ 보기 축. **`ScheduleFilter`에 들어 있지 않다** — 아래 `parseScheduleView` */
+  view: 'view',
 } as const
 
 export const SCHEDULE_RANGE_DEFAULT: ScheduleRange = 'ALL'
@@ -325,6 +327,66 @@ export function isScheduleNarrowed(filter: ScheduleFilter): boolean {
     filter.activeOnly ||
     filter.range !== SCHEDULE_RANGE_DEFAULT
   )
+}
+
+/**
+ * 보기 — 상품별 / 시간순 (DOC-008 §5, P6 컷 6)
+ *
+ * ## ★ `ScheduleFilter`에 «넣지 않는» 것이 이 절의 결정이다
+ *
+ * 넣으면 누군가 위 `isScheduleNarrowed`의 OR에 더한다 — 그 타입 안에 있으면
+ * 필터처럼 보이기 때문이다. 그러면 **필터를 하나도 걸지 않은 화면이 「좁혀짐」으로
+ * 판정되어** 두 가지가 함께 깨진다: ① 빈 상태가 첫째(「등록된 평가일정이 없다 ·
+ * 등록」)에서 둘째(「조건에 맞는 평가일이 없다 · 필터 초기화」)로 바뀌어 사용자가
+ * **걸지도 않은 필터를 해제하려 한다** ② 소유자 선택지를 위한 두 번째 조회가
+ * **항상** 돈다 — 이 화면의 왕복 근거가 「기본이 전체 기간이라 좁히지 않는다」이므로
+ * 그 전제가 함께 무너진다.
+ *
+ * 타입을 가르면 그 필드가 OR의 사정거리에 **들어올 수 없다.** `PAGE_KEY`가
+ * `ProductFilter` 밖에 있는 것과 같은 형태이며, 다른 점은 방향이다 — 페이지는
+ * 필터가 바뀔 때 **지워져야** 하고 보기는 **살아남아야** 한다(필터를 바꿔도
+ * 사용자가 고른 표현은 무효가 되지 않는다). 그래서 필터 폼이 보기를 히든으로 싣고,
+ * 페이지는 일부러 칸을 두지 않는다.
+ */
+export type ScheduleView = 'PRODUCT' | 'TIME'
+
+export const SCHEDULE_VIEW_DEFAULT: ScheduleView = 'PRODUCT'
+
+const SCHEDULE_VIEWS = ['PRODUCT', 'TIME'] as const
+
+export function parseScheduleView(values: QueryValues): ScheduleView {
+  return (
+    oneOf(one(values[SCHEDULE_KEYS.view]), SCHEDULE_VIEWS) ?? SCHEDULE_VIEW_DEFAULT
+  )
+}
+
+/**
+ * 그 보기의 주소 — 전환 링크와 「필터 초기화」가 쓴다.
+ *
+ * **현재 필터를 함께 싣는다.** `dashboardQuery`는 축이 하나뿐이라 질의를 처음부터
+ * 조립하지만 여기는 넷이므로, 싣지 않으면 보기를 바꿀 때 필터가 사라진다 —
+ * `pageQuery`가 같은 자리에 있다(「페이지 링크가 현재 필터를 함께 싣는다」).
+ *
+ * **기본값은 주소에 싣지 않는다**(`filterQuery`·`dashboardQuery`와 같은 규약).
+ *
+ * ⚠️ `activeOnly`는 `'on'`으로 적는다 — 파서가 「부재 = 꺼짐」 규약이라 값을 보지
+ * 않지만, `activeOnly=`(빈 문자열)로 적으면 `!== ''`가 거짓이 되어 **되읽을 때
+ * 꺼진다.** 왕복이 항등이어야 전환 링크가 필터를 보존한다.
+ */
+export function scheduleQuery(filter: ScheduleFilter, view: ScheduleView): string {
+  const pairs: Array<[string, string]> = []
+
+  if (filter.ownerId != null) pairs.push([SCHEDULE_KEYS.ownerId, filter.ownerId])
+  if (filter.range !== SCHEDULE_RANGE_DEFAULT) {
+    pairs.push([SCHEDULE_KEYS.range, filter.range])
+  }
+  if (filter.activeOnly) pairs.push([SCHEDULE_KEYS.activeOnly, 'on'])
+  if (view !== SCHEDULE_VIEW_DEFAULT) pairs.push([SCHEDULE_KEYS.view, view])
+
+  if (pairs.length === 0) return ''
+  return `?${pairs
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&')}`
 }
 
 // ---------------------------------------------------------------------------

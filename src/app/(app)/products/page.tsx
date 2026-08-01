@@ -114,12 +114,25 @@ export default async function ProductsPage({
           노출(본인 소유로 생성)」이라고 규정한다. 등록은 남의 데이터에 대한 조작이
           아니므로 ST-04의 대상이 아니다.
         */}
-        <Link
-          href={PATHS.productNew}
-          className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700"
-        >
-          + 등록
-        </Link>
+        {/*
+          기실현 등재를 나란히 둔다 — 네비게이션 탭을 늘리지 않는 이유가
+          DOC-008 §3(탭 넷이 정본)이고, 이 화면이 유일한 진입점이다. 부차적인
+          경로임을 형태로 말한다: 테두리만 있는 버튼이다.
+        */}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link
+            href={PATHS.productRealizedNew}
+            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-100"
+          >
+            기실현 등재
+          </Link>
+          <Link
+            href={PATHS.productNew}
+            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700"
+          >
+            + 등록
+          </Link>
+        </div>
       </header>
 
       <ProductFilters filter={filter} owners={ownersOf(all)} />

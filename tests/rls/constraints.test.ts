@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { actingAs, asOwner } from './helpers/client'
 import { USER_A } from './helpers/fixtures'
-import { seedAsset, seedPrice, seedProduct, seedSchedule } from './helpers/seed'
+import {
+  seedAsset,
+  seedPrice,
+  seedProduct,
+  seedRealizedProduct,
+  seedSchedule,
+} from './helpers/seed'
 import { expectConstraintViolation } from './helpers/expect'
 
 /**
@@ -203,7 +209,7 @@ describe('I-14 — 조기·리자드 상환은 차수를 갖는다', () => {
     await expectConstraintViolation(
       () => actingAs(USER_A).query(insert, [product.id, 'EARLY', null]),
       '23514',
-      'redemptions_round_no_required_check',
+      'redemptions_round_no_required',
     )
   })
 
@@ -213,7 +219,7 @@ describe('I-14 — 조기·리자드 상환은 차수를 갖는다', () => {
     await expectConstraintViolation(
       () => actingAs(USER_A).query(insert, [product.id, 'LIZARD', null]),
       '23514',
-      'redemptions_round_no_required_check',
+      'redemptions_round_no_required',
     )
   })
 
@@ -239,6 +245,100 @@ describe('I-14 — 조기·리자드 상환은 차수를 갖는다', () => {
       6,
     ])
     expect(created.rowCount).toBe(1)
+  })
+
+  /**
+   * ★ **면제는 부모 행을 본다 — 그래서 `CHECK`가 아니라 트리거다** (P6 컷 5).
+   *
+   * 기실현 등재는 평가일정이 0건이라 **실재하는 차수가 없다**(I-13의 복합 FK가
+   * 전부 거부한다). 그러므로 조기·리자드 상환도 `round_no IS NULL`이어야 하고,
+   * 종전 `CHECK`는 그것을 거부했다. 면제 조건이 `els_products.entry_mode`에 있어
+   * 단일 행 제약으로 표현할 수 없다(DQ-06과 같은 부류).
+   *
+   * **위 두 케이스와 짝으로 읽는다** — 같은 INSERT가 `FULL` 부모에서는 거부되고
+   * `REALIZED_ONLY` 부모에서는 통과한다. 면제가 규칙을 통째로 끄지 않았다는 증거다.
+   */
+  it('기실현 등재는 면제된다 — 조기상환 + 차수 없음이 통과한다', async () => {
+    const product = await seedRealizedProduct({ ownerId: USER_A })
+
+    const created = await actingAs(USER_A).query(insert, [product.id, 'EARLY', null])
+    expect(created.rowCount).toBe(1)
+  })
+
+  it('기실현 등재도 리자드 상환이 통과한다', async () => {
+    const product = await seedRealizedProduct({ ownerId: USER_A, name: '기실현 리자드' })
+
+    const created = await actingAs(USER_A).query(insert, [product.id, 'LIZARD', null])
+    expect(created.rowCount).toBe(1)
+  })
+
+  it('UPDATE도 같은 면제를 받는다 — 트리거가 두 이벤트를 본다', async () => {
+    const product = await seedRealizedProduct({ ownerId: USER_A, name: '기실현 수정' })
+    await actingAs(USER_A).query(insert, [product.id, 'MATURITY_GAIN', null])
+
+    const updated = await actingAs(USER_A).query(
+      `update public.redemptions set redemption_type = 'EARLY' where els_id = $1`,
+      [product.id],
+    )
+    expect(updated.rowCount).toBe(1)
+  })
+})
+
+describe('I-18 — FULL은 계약 조건 두 열을 갖는다', () => {
+  /**
+   * 널 허용의 대가를 되받는 제약이다. 기실현 등재를 위해 `issue_date`·
+   * `annual_coupon_rate`를 널 허용으로 내렸는데, 그 완화가 `FULL`에도 적용되면
+   * 조건 판정의 입력이 조용히 사라진다(DOC-002 §8 I-18).
+   */
+  const insert = `insert into public.els_products
+      (owner_id, name, issue_date, principal, annual_coupon_rate, account_type, entry_mode)
+    values ($1, $2, $3, 100000000, $4, 'GENERAL', $5)`
+
+  it('FULL인데 발행일이 없으면 거부한다', async () => {
+    await expectConstraintViolation(
+      () => actingAs(USER_A).query(insert, [USER_A, 'I-18 발행일', null, 0.08, 'FULL']),
+      '23514',
+      'els_products_full_terms_check',
+    )
+  })
+
+  it('FULL인데 연쿠폰율이 없으면 거부한다', async () => {
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(insert, [USER_A, 'I-18 쿠폰율', '2026-01-02', null, 'FULL']),
+      '23514',
+      'els_products_full_terms_check',
+    )
+  })
+
+  it('REALIZED_ONLY는 둘 다 없어도 된다', async () => {
+    const created = await actingAs(USER_A).query(insert, [
+      USER_A,
+      'I-18 기실현',
+      null,
+      null,
+      'REALIZED_ONLY',
+    ])
+    expect(created.rowCount).toBe(1)
+  })
+
+  /**
+   * ★ **부수로 `REALIZED_ONLY → FULL` 전이를 막는다** — DOC-010 AQ-65의 절반이
+   * 이 제약으로 닫힌다. 반대 방향(`FULL → REALIZED_ONLY`)은 여전히 열려 있고
+   * 그것이 그 항목의 잔여다.
+   */
+  it('REALIZED_ONLY를 FULL로 뒤집을 수 없다 — 채울 두 값이 없다', async () => {
+    const product = await seedRealizedProduct({ ownerId: USER_A, name: 'I-18 전이' })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          `update public.els_products set entry_mode = 'FULL' where id = $1`,
+          [product.id],
+        ),
+      '23514',
+      'els_products_full_terms_check',
+    )
   })
 })
 

@@ -166,16 +166,38 @@ export default async function ProductDetailPage({
         </OwnerOnly>
       </header>
 
+      {/*
+        기실현 등재는 **계약 조건 절을 그리지 않는다** (DOC-008 SCR-205).
+
+        발행일·평가주기·총 차수·연쿠폰율을 「—」·「0차」로 채우면 그 화면은
+        「입력이 빠졌다」로 읽히고 사용자가 수정을 시도한다 — 그런데 저장은
+        `CONFLICT`로 막혀 있다(상환 완료). 그러므로 **없는 칸을 보여주는 대신
+        없는 이유를 적는다.** `integrityIssue`의 「수정 필요」와 다른 말이어야
+        하는 것이 요점이다(DOC-005 §6 「기실현 등재」).
+      */}
+      {product.entryMode === 'REALIZED_ONLY' && (
+        <p className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">
+          <strong>기실현 등재</strong> — 이미 상환이 끝난 상품을 과거 이력으로
+          등재했다. 계약 조건(발행일·연쿠폰율·기초자산·배리어)은 입력받지 않았으므로
+          조건 판정·평가일정이 없다. 세금 집계에는 아래 상환 실적이 그대로 반영된다.
+        </p>
+      )}
+
       {/* ── ① 기본 정보 ────────────────────────────────────────────────── */}
       <Section title="기본 정보">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <Fact label="발행일">{korDate(product.issueDate)}</Fact>
           <Fact label="투자원금">{won(product.principal)}</Fact>
           <Fact label="계좌유형">{ACCOUNT_TYPE_LABELS[product.accountType]}</Fact>
-          <Fact label="평가주기">{product.evaluationPeriodMonths}개월</Fact>
-          {/* 정본은 행 수다. `max(round_no)`가 아니다(DOC-002 §4.6) */}
-          <Fact label="총 차수">{product.totalRounds}차</Fact>
-          <Fact label="연쿠폰율">{percent(product.annualCouponRate)}</Fact>
+          {product.entryMode === 'FULL' && (
+            <>
+              {/* I-18이 두 값의 존재를 `FULL`에서 보장한다 — 그래서 `??`가 없다 */}
+              <Fact label="발행일">{korDate(product.issueDate ?? '')}</Fact>
+              <Fact label="평가주기">{product.evaluationPeriodMonths}개월</Fact>
+              {/* 정본은 행 수다. `max(round_no)`가 아니다(DOC-002 §4.6) */}
+              <Fact label="총 차수">{product.totalRounds}차</Fact>
+              <Fact label="연쿠폰율">{percent(product.annualCouponRate ?? '')}</Fact>
+            </>
+          )}
         </dl>
         {product.note != null && (
           <p className="mt-3 whitespace-pre-line rounded-md bg-neutral-50 px-3 py-2 text-sm text-neutral-700">

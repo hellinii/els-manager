@@ -13,6 +13,7 @@ import {
   type TaxBracket,
   type TaxConstants,
 } from './types'
+import { separateTaxationWithholding } from './withholding'
 
 /**
  * 금융소득종합과세 — DOC-007 §5
@@ -76,7 +77,6 @@ export function calculateFinancialIncomeTax(
   const threshold = dec(constants.comprehensiveTaxationThreshold)
   const incomeTaxRate = dec(constants.separateTaxationIncomeTaxRate)
   const localRate = dec(constants.localIncomeTaxRate)
-  const withholdingRate = dec(constants.separateTaxationRate)
 
   // 절사 단위 검증을 조기에 수행한다. F ≤ 0 경로에서도 잘못된 정책은 오류다
   truncateToUnit(ZERO, rounding.unit)
@@ -128,10 +128,16 @@ export function calculateFinancialIncomeTax(
   )
   const localIncomeTax = totalTax.minus(computedTax)
 
-  const withheld = truncateToUnit(
-    financialIncome.times(withholdingRate),
-    rounding.unit,
-  )
+  /*
+   * §5.5의 `withheld(F)`. 같은 식이 §4.5(차수별)와 §5.4(상환 실적 산출)에도
+   * 있으므로 순수 함수 하나를 공유한다 — DOC-010 AQ-67. 여기서 상수 묶음을
+   * 그대로 넘기는 것이 요점이다: 0.154와 0.14 중 고르는 일이 그 함수의 것이다.
+   */
+  const withheld = separateTaxationWithholding({
+    taxableIncome: financialIncome,
+    constants,
+    rounding,
+  })
 
   return {
     isComprehensive,

@@ -40,6 +40,11 @@ const RAISE_ONLY = [
   'els_products_underlyings_required',
   'els_products_schedules_required',
   'els_products_redeemed_immutable',
+  // ★ P6 컷 5에서 **`CHECK`에서 트리거로 내려왔다** — 면제 조건이 부모 상품의
+  // `entry_mode`라 단일 행 `CHECK`로 표현할 수 없다(DOC-002 §8 I-14). 그래서
+  // 이 이름은 이제 `pg_constraint`에 **없고** 여기로 옮겨진다. 접미사에서
+  // `_check`가 빠진 것도 같은 사실의 표현이다(`*_required` = 교차 행 규칙).
+  'redemptions_round_no_required',
 ] as const
 
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')

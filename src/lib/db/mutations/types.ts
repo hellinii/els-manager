@@ -54,6 +54,35 @@ export type RedemptionInput = {
   note?: string
 }
 
+/**
+ * §5.11 기실현 등재 — 상품과 상환을 한 입력으로 받는다
+ *
+ * `ProductInput` + `RedemptionInput`의 교집합이 아니라 **거래내역 한 줄**이다.
+ * 그래서 없는 것이 둘이다 —
+ *
+ * | 없는 것 | 왜 |
+ * |---|---|
+ * | 계약 조건 여섯(발행일·연쿠폰율·평가주기·기초자산·차수·배리어·KI) | 거래내역에 없다. 지어내지 않는다(DOC-002 D-07) |
+ * | `roundNo` | 일정이 0건이라 실재하는 차수가 없다(I-13). **위반을 표현할 수 없게** 만드는 것이 V-13에 예외를 두는 것보다 낫다 |
+ *
+ * 두 타입을 합성(`ProductInput & RedemptionInput`)하지 않는 이유가 그것이다 —
+ * 합성하면 없는 필드를 `Omit`으로 깎아 내야 하고, 그 목록이 계약의 정의가 아니라
+ * **차집합의 부산물**이 된다.
+ */
+export type RealizedProductInput = {
+  name: string
+  issuer?: string
+  principal: string
+  accountType: 'GENERAL' | 'TAX_FREE'
+  redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
+  redemptionDate: string
+  grossAmount: string
+  taxableIncome: string
+  withholdingTax?: string
+  isConfirmed: boolean
+  note?: string
+}
+
 export type TaxProfileInput = {
   year: number
   otherIncomeBase: string

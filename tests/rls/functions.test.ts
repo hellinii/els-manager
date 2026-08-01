@@ -41,8 +41,21 @@ import { expectConstraintViolation, expectRlsViolation } from './helpers/expect'
 /** `SECURITY DEFINER`가 정당한 함수 — DOC-010 §7 함수 권한 표 */
 const DEFINER_ALLOWLIST = ['handle_new_auth_user', 'handle_auth_user_email_change']
 
-/** `authenticated`에게 `EXECUTE`를 부여한 함수 — 그 밖은 트리거 전용이다 */
-const EXECUTABLE_BY_AUTHENTICATED = ['create_els_product', 'update_els_product']
+/**
+ * `authenticated`에게 `EXECUTE`를 부여한 함수 — 그 밖은 트리거 전용이다.
+ *
+ * P6 컷 5에서 셋이 됐다. `create_realized_els_product`가 함수인 이유는
+ * `create_els_product`와 같다 — 상품 1건 + 상환 1건을 한 트랜잭션에 만들어야 하고
+ * PostgREST는 요청당 1 트랜잭션이다(DOC-011 §5.11).
+ *
+ * **`check_redemption_round_required`는 여기 없다** — 같은 컷이 추가한 트리거
+ * 함수이며 `authenticated`가 직접 부를 이유가 없다. 그 부재가 이 목록의 뜻이다.
+ */
+const EXECUTABLE_BY_AUTHENTICATED = [
+  'create_els_product',
+  'create_realized_els_product',
+  'update_els_product',
+]
 
 type FunctionRow = {
   proname: string

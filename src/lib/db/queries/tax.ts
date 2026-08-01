@@ -185,6 +185,13 @@ export function contributionOf(
     }
   }
 
+  // 계약 조건이 없으면 추정할 수 없다 — 기실현 등재는 연쿠폰율이 없다(D-07).
+  // **`NO_ROUND`와 같은 답을 준다**(기여하지 않는다): 「추정할 수 없다」와
+  // 「기여가 0이다」를 같은 값으로 내면 그 상품의 원금이 §7.5에서 증발한다.
+  // 그 상품은 항상 상환 완료이므로 위 분기가 먼저 반환한다 — 여기 오는 유일한
+  // 길은 계약 밖에서 차수를 넣은 경우다(AQ-14·AQ-65).
+  if (row.annual_coupon_rate == null) return null
+
   const gross = grossExpected({
     principal: row.principal,
     couponRate: row.annual_coupon_rate,

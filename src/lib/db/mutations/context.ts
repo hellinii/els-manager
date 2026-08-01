@@ -68,6 +68,7 @@ export function createUnauthenticatedMutations(): Mutations {
     updateProduct: async () => unauthenticated(),
     deleteProduct: async () => unauthenticated(),
     setKiTouched: async () => unauthenticated(),
+    createRealizedProduct: async () => unauthenticated(),
     createRedemption: async () => unauthenticated(),
     updateRedemption: async () => unauthenticated(),
     deleteRedemption: async () => unauthenticated(),

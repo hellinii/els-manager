@@ -82,3 +82,160 @@ export function splitByPast<T extends { isPast: boolean }>(
     upcoming: items.filter((item) => !item.isPast),
   }
 }
+
+// ---------------------------------------------------------------------------
+// 상품 그룹 — SCR-301 상품별 보기 (P6 컷 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * 카드 머리가 읽는 **상품 단위 사실** — 차수마다 같은 값으로 실려 온다(DOC-011 §4.4).
+ *
+ * 계약 타입에 묶지 않는 이유는 이 파일 머리글의 그것과 같다. 대신 이 구조가
+ * `ScheduleItem`의 부분집합이라는 사실은 **타입 수준 증인**이 지킨다
+ * (`tests/app/schedule.test.ts`) — 계약이 필드 이름을 바꾸면 그쪽이 깨진다.
+ */
+export type ScheduleProductFacts = {
+  productId: string
+  productName: string
+  principal: string
+  annualCouponRate: string | null
+  totalRounds: number
+}
+
+export type ProductGroup<T> = ScheduleProductFacts & {
+  /** 차수 오름차순. `isPast = false` */
+  upcoming: T[]
+  /** 차수 오름차순. `isPast = true` — 화면이 접는다 */
+  past: T[]
+  /** 이 카드가 실제로 담은 차수 수 */
+  shownRounds: number
+  /** 기간 필터가 이 상품의 차수를 잘랐다 — 카드 머리가 「전체 N차수 중 M차수」를 적는다 */
+  isTruncated: boolean
+}
+
+/**
+ * 상품별 묶음 — **정렬이 아니라 「묶는 키」만 다르다** (DOC-008 §5).
+ *
+ * ## 카드 순서는 「가장 이른 **다가오는** 차수」다 — 첫 등장 순이 아니다
+ *
+ * ★ **표본 12건으로 재고 고쳤다.** 처음에는 `groupByMonth`처럼 첫 등장 순으로
+ * 두었는데(계약이 평가일 오름차순이므로 「그 상품의 가장 이른 평가일 순」이 된다)
+ * 실제 데이터에서 **전 차수가 경과한 상품 셋이 맨 위로 올라왔다** — 그것들의 가장
+ * 이른 차수가 2023년이기 때문이다. 화면의 물음이 「다음이 언제 오는가」인데 답이
+ * 세 칸 아래에 있으면 그 순서는 목적을 거스른다.
+ *
+ * 그래서 **다가오는 차수를 가진 상품이 먼저**이고 그 안에서는 가장 이른 다가오는
+ * 차수 순이다. 다가오는 차수가 없는 상품(전 차수 경과 · 상환 완료)은 **꼬리에,
+ * 최근에 지난 것부터** — 그쪽에서 시급한 것은 방금 놓친 차수이지 3년 전 것이
+ * 아니다(E-07의 다음 행동이 「상환 처리 또는 이월 확인」이다).
+ *
+ * ## 그래도 「정렬은 계약의 일이다」가 유지된다
+ *
+ * **날짜를 비교하지 않는다.** 두 부류 모두 **입력 순서의 위치**로만 정렬하며,
+ * 그 순서를 평가일 오름차순으로 만든 것은 계약이다. 즉 여기서 하는 일은 계약이
+ * 준 전순서를 **다시 매기는 것이 아니라 두 부분수열로 가르는 것**이고, 각 부분수열
+ * 안에서는 계약의 순서가 그대로다 — `splitByPast`가 절을 가르는 것과 같은 형태이며
+ * 이 파일이 「날짜를 비교하지 않는다」고 적은 규약도 지켜진다.
+ *
+ * ★ **카드 순서를 상품명·원금·수익률로 두면 DOC-008 §5의 정렬 각주가 깨진다.**
+ * 그 축들은 시간과 무관하므로 「시간 순으로 조망」이 카드 경계에서 끊긴다.
+ * 「상품별로 견준다」는 목적은 **카드 안에서** 달성되며 그런 순서를 요구하지 않는다.
+ *
+ * ## 그룹 «안»은 차수로 정렬한다 — 이것이 유일한 재정렬이고 필요하다
+ *
+ * 계약은 평가일 오름차순으로 주는데, 한 상품 안에서 날짜 순 = 차수 순인 것은
+ * **V-07(평가일 증가)이 성립할 때뿐**이다. 그 규칙은 계약 계층에만 있고
+ * `create_els_product`는 보지 않는다(DOC-011 AQ-29). 3차가 2차보다 이른 상품이
+ * 오면 입력 순서를 보존하는 카드는 **`3차, 2차, 4차`를 조용히 찍는다.**
+ *
+ * ## `productId`로 묶는다 — 이름이 아니다
+ *
+ * 동명의 다른 상품 둘이 한 카드로 접히면 원금·연쿠폰율이 한쪽 것으로 표시되고,
+ * 그 카드는 **그럴싸하다.** `groupByMonth`가 「해가 바뀌면 다른 그룹이다」로
+ * 같은 함정을 피한 것과 같은 자리다.
+ *
+ * ## 상품 단위 사실을 그룹이 «들고 있다»
+ *
+ * 화면이 `upcoming[0] ?? past[0]`로 읽으면 타입이 정당화하지 못하는 단언이
+ * 필요하다(그룹이 비지 않는다는 것은 구성상 참이지만 타입이 말하지 않는다).
+ * 값은 그 상품의 **첫 항목**에서 취한다 — §4.4가 차수마다 같은 값을 보장한다.
+ */
+export function groupByProduct<
+  T extends ScheduleProductFacts & { roundNo: number; isPast: boolean },
+>(items: readonly T[]): Array<ProductGroup<T>> {
+  const byId = new Map<string, { facts: ScheduleProductFacts; rounds: T[] }>()
+  /** 그 상품의 가장 이른 **다가오는** 차수의 입력 위치. 없으면 `-1` */
+  const firstUpcoming = new Map<string, number>()
+  /** 그 상품의 가장 늦은 **지난** 차수의 입력 위치 */
+  const lastPast = new Map<string, number>()
+
+  items.forEach((item, index) => {
+    let bucket = byId.get(item.productId)
+    if (bucket == null) {
+      bucket = {
+        facts: {
+          productId: item.productId,
+          productName: item.productName,
+          principal: item.principal,
+          annualCouponRate: item.annualCouponRate,
+          totalRounds: item.totalRounds,
+        },
+        rounds: [],
+      }
+      byId.set(item.productId, bucket)
+    }
+    bucket.rounds.push(item)
+
+    if (item.isPast) lastPast.set(item.productId, index)
+    else if (!firstUpcoming.has(item.productId)) {
+      firstUpcoming.set(item.productId, index)
+    }
+  })
+
+  const ids = [...byId.keys()]
+  const upcomingFirst = ids
+    .filter((id) => firstUpcoming.has(id))
+    .sort((a, b) => firstUpcoming.get(a)! - firstUpcoming.get(b)!)
+  // 다가오는 차수가 없는 상품 — 꼬리에, **최근에 지난 것부터**. 그쪽에서 시급한
+  // 것은 방금 놓친 차수이지 3년 전 것이 아니다(E-07).
+  const pastOnly = ids
+    .filter((id) => !firstUpcoming.has(id))
+    .sort((a, b) => (lastPast.get(b) ?? 0) - (lastPast.get(a) ?? 0))
+
+  return [...upcomingFirst, ...pastOnly].map((id) => {
+    const { facts, rounds } = byId.get(id)!
+    // 정렬 뒤에 나눈다 — `splitByPast`가 입력 순서를 보존하므로 두 배열이 모두
+    // 차수 오름차순이 되고, 과거/미래 판정이 이 파일 하나에만 남는다.
+    const sorted = [...rounds].sort((a, b) => a.roundNo - b.roundNo)
+    const { past, upcoming } = splitByPast(sorted)
+
+    return {
+      ...facts,
+      upcoming,
+      past,
+      shownRounds: sorted.length,
+      isTruncated: sorted.length < facts.totalRounds,
+    }
+  })
+}
+
+/**
+ * 목록 전체의 세율 연도 — 화면 고지가 읽는다. `null`이면 드러낼 값이 없다.
+ *
+ * 최대값으로 접는다. 지금은 계약이 전 행에 같은 값을 싣지만(§4.4는
+ * `year(asOf)` 하나로 푼다), 차수별로 갈리는 날이 와도 **「가장 최근 법으로
+ * 계산된 행이 있다」**가 참으로 남는다 — 그때 고지를 행 단위로 옮길지는
+ * DOC-010 AQ-66의 잔여 ⓐ다.
+ */
+export function taxBasisOf(
+  items: readonly { proceeds: { taxLawYear: number } | null }[],
+): number | null {
+  let latest: number | null = null
+  for (const item of items) {
+    if (item.proceeds == null) continue
+    if (latest == null || item.proceeds.taxLawYear > latest) {
+      latest = item.proceeds.taxLawYear
+    }
+  }
+  return latest
+}

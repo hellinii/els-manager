@@ -64,6 +64,7 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       principal: '100000000',
       accountType: 'GENERAL',
       status: 'ACTIVE',
+      entryMode: 'FULL',
       nextEvaluation: {
         roundNo: 1,
         date: '2026-07-02',
@@ -104,7 +105,9 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       productName: '상품',
       // v1.8 신설 둘. 이 리터럴이 **전수 대조**이므로 필드가 늘면 여기서 컴파일이
       // 깨진다 — 그것이 이 파일의 목적이다(브랜드가 섞여 들어오면 채울 수 없는
-      // 속성이 생긴다). 컷 7이 실제로 그 신호를 받아 두 줄을 더했다.
+      // 속성이 생긴다). 컷 7이 실제로 그 신호를 받아 두 줄을 더했고, **P6 컷 6이
+      // 다섯을 더했다** — 그 다섯이 전부 `string`·`number`·널이라는 것이 곧
+      // 「브랜드가 섞이지 않았다」의 증명이다.
       ownerId: OWNER,
       ownerName: '소유자',
       roundNo: 1,
@@ -117,6 +120,18 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       conditionResult: 'EARLY',
       integrityIssue: null,
       isPast: false,
+      principal: '100000000',
+      annualCouponRate: '0.0800',
+      accountType: 'GENERAL',
+      totalRounds: 2,
+      proceeds: {
+        expectedGross: '104000000',
+        expectedWithholding: '616000',
+        expectedNet: '103384000',
+        expectedPnl: '4000000',
+        separateTaxationRate: '0.1540',
+        taxLawYear: 2026,
+      },
     }
     expect(plain.integrityIssue).toBeNull()
   })

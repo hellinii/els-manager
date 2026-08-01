@@ -49,7 +49,10 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
   const values: Record<string, string> = {
     name: product.name,
     issuer: product.issuer ?? '',
-    issueDate: product.issueDate,
+    // 기실현 등재는 `null`이다(D-07). 이 폼(SCR-204)은 그 상품의 저장을 이미
+    // `CONFLICT`로 막으므로(상환 완료) 빈 칸이 보이는 것이 최종 상태다 — 채울
+    // 값을 지어내면 「저장할 수 있다」는 거짓을 화면이 말한다.
+    issueDate: product.issueDate ?? '',
     // 금액은 숫자만이다 — 파서가 쉼표를 지우므로 쉼표를 붙여도 왕복하지만, 저장된
     // 값을 그대로 보여주는 편이 「무엇이 저장되어 있는가」에 대한 답이다.
     principal: product.principal,
@@ -61,7 +64,10 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
     // 아니다. DB는 차수 `1, 2, 99`를 허용하므로 두 값이 갈릴 수 있고, 그때 차수표가
     // 99행이 되면 사용자가 고칠 수 없는 화면이 된다.
     totalRounds: String(view.schedules.length),
-    annualCouponRate: ratioToPercent(product.annualCouponRate),
+    annualCouponRate:
+      product.annualCouponRate == null
+        ? ''
+        : ratioToPercent(product.annualCouponRate),
     kiBarrier: product.kiBarrier == null ? '' : ratioToPercent(product.kiBarrier),
     kiObservation: product.kiObservation ?? '',
     [BARRIERS_FIELD]: '',

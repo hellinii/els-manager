@@ -45,7 +45,15 @@ export {
   stepdownLabel,
   type LizardTerm,
 } from './terms'
-export { groupByMonth, splitByPast, type MonthGroup } from './schedule'
+export {
+  groupByMonth,
+  groupByProduct,
+  splitByPast,
+  taxBasisOf,
+  type MonthGroup,
+  type ProductGroup,
+  type ScheduleProductFacts,
+} from './schedule'
 export { paginate, PRODUCTS_PER_PAGE, type Paged } from './page'
 export { selectableYears } from './tax'
 export { isForecastEmpty } from './forecast'

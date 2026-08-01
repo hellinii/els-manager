@@ -246,6 +246,8 @@ export const ELS_PRODUCT_COLUMNS = defineColumns('els_products', {
   ki_touched_at: 'raw',
   account_type: 'raw',
   note: 'raw',
+  // 기실현 등재의 판별 열 — DOC-002 §4.6. 금액이 아니므로 `raw`다
+  entry_mode: 'raw',
 })
 
 export const UNDERLYING_COLUMNS = defineColumns('els_underlyings', {

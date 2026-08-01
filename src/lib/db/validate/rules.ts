@@ -241,7 +241,14 @@ export function validateProductCrossFields(p: Problems, input: ProductInput): vo
  * ELS 손실은 다른 금융소득과 통산되지 않으므로 음수도 양수도 될 수 없다. DB `CHECK`가
  * 최종 보장이며 이 규칙은 **필드별 오류 표시**를 위한 것이다 — 두 층의 역할이 다르다.
  */
-export function V12_maturityLossZero(p: Problems, input: RedemptionInput): void {
+export function V12_maturityLossZero(
+  p: Problems,
+  // **`RedemptionInput`으로 좁히지 않는다.** §5.11 기실현 등재도 같은 규칙을
+  // 지나야 하고(절대 규칙 #8) 그 입력에는 `roundNo`·`note`가 없다. 이 규칙이
+  // 실제로 읽는 두 필드만 요구하면 두 계약이 **같은 함수**를 부를 수 있다 —
+  // 복제하면 한쪽만 고쳐지는 날이 오고, 그때 틀리는 것은 세액이다.
+  input: { redemptionType: RedemptionInput['redemptionType']; taxableIncome: string },
+): void {
   if (input.redemptionType !== 'MATURITY_LOSS') return
   if (!dec(input.taxableIncome).eq(0)) {
     p.add('V-12', 'taxableIncome', '만기상환(손실)의 과세 금융소득은 0이어야 한다.')

@@ -5,6 +5,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  RealizedProductInput,
   RedemptionInput,
   RefreshPricesResult,
   TaxProfileInput,
@@ -62,6 +63,13 @@ export async function setKiTouched(
   touchedAt: string | null,
 ): Promise<ActionResult<void>> {
   return (await getMutations()).setKiTouched(productId, touchedAt)
+}
+
+/** §5.11 — 기실현 등재. 상품과 상환을 한 트랜잭션에 만든다 */
+export async function createRealizedProduct(
+  input: RealizedProductInput,
+): Promise<ActionResult<{ id: string }>> {
+  return (await getMutations()).createRealizedProduct(input)
 }
 
 // ---------------------------------------------------------------------------

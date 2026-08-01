@@ -736,7 +736,15 @@ describe('왕복 수 계수 — 실측', () => {
     expect(budget.listProducts).toEqual({ els_products: 1, assets: 1 })
     expect(budget.getProduct).toEqual({ els_products: 1, assets: 1 })
     expect(budget.getProductNoUnderlying).toEqual({ els_products: 1 })
-    expect(budget.listSchedule).toEqual({ redemption_schedules: 1, assets: 1 })
+    // v3.3에서 `tax_years`가 늘었다 — `expectedNet`이 `separate_taxation_rate`를
+    // 요구하고 절대 규칙 #5가 그 값을 코드에 두는 것을 막는다. 다중집합으로 세는
+    // 이유가 여기서 값을 한다: 총합만 세면 「차수 2회」와 「차수 1회 + 세율 1회」가
+    // 구분되지 않는다.
+    expect(budget.listSchedule).toEqual({
+      redemption_schedules: 1,
+      assets: 1,
+      tax_years: 1,
+    })
     expect(budget.searchAssets).toEqual({ assets: 1 })
     expect(budget.listAssetPrices).toEqual({ assets: 1, els_products: 1 })
     expect(budget.getTaxSummary).toEqual({
@@ -793,7 +801,7 @@ describe('왕복 수 계수 — 실측', () => {
 
     expect(total(await tables(() => s.asA.listProducts()))).toBe(2)
     expect(total(await tables(() => s.asA.getProduct(FX.productA)))).toBe(2)
-    expect(total(await tables(() => s.asA.listSchedule()))).toBe(2)
+    expect(total(await tables(() => s.asA.listSchedule()))).toBe(3)
     expect(total(await tables(() => s.asA.searchAssets('단독')))).toBe(1)
     expect(total(await tables(() => s.asA.listAssetPrices()))).toBe(2)
     expect(

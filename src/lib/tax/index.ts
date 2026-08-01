@@ -17,6 +17,8 @@ export {
 
 export { findBracket, progressiveTax } from './brackets'
 
+export { separateTaxationWithholding } from './withholding'
+
 export {
   calculateFinancialIncomeTax,
   type FinancialIncomeTaxParams,

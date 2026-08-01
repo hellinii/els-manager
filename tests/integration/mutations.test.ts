@@ -1,9 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createMutations, type Mutations } from '@/lib/db/mutations/context'
+import type { ForecastRow } from '@/lib/db/queries/forecast'
 import { toInsert } from '@/lib/db/mutations/payload'
 import type { ActionResult } from '@/lib/db/mutations/result'
-import type { ProductInput, RedemptionInput } from '@/lib/db/mutations/types'
+import type {
+  ProductInput,
+  RealizedProductInput,
+  RedemptionInput,
+} from '@/lib/db/mutations/types'
 
 import { FX, FX_NAME_PREFIX, ITG_USER_A, ITG_USER_B } from './helpers/fixtures'
 import { closeSeedConnection, resetFixtures } from './helpers/seed'
@@ -40,6 +45,7 @@ const NAME = {
   staleRedeemed: `${FX_NAME_PREFIX} 변경-영향0행-상환`,
   asset1: `${FX_NAME_PREFIX} 변경자산1`,
   asset2: `${FX_NAME_PREFIX} 변경자산2`,
+  realized: `${FX_NAME_PREFIX} 기실현-등재`,
 } as const
 
 /**
@@ -1170,6 +1176,240 @@ describe('§5.10 createAsset', () => {
       await a.write.createAsset({ name, assetType: 'INDEX', currency: 'KRW' }),
     )
     expect(error.code).toBe('CONFLICT')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// §5.11 기실현 등재 (P6 컷 5)
+// ---------------------------------------------------------------------------
+
+describe('§5.11 createRealizedProduct', () => {
+  /**
+   * 상품 1건 + 상환 1건이 **한 트랜잭션**에 만들어진다 (DOC-011 §5.11).
+   *
+   * `tests/db/`가 볼 수 없는 것 셋을 여기서 본다 — ① 두 행이 실제로 커밋되는가
+   * ② `entry_mode`·`owner_id`가 함수 안에서 박히는가 ③ 금액이 float64를 지나지
+   * 않는가(`principal`이 15자리다).
+   */
+  const realizedInput = (
+    overrides: Partial<RealizedProductInput> = {},
+  ): RealizedProductInput => ({
+    name: NAME.realized,
+    issuer: '키움증권',
+    principal: PRINCIPAL,
+    accountType: 'GENERAL',
+    // 그림의 1740회 — 조기상환이고 차수가 없다
+    redemptionType: 'EARLY',
+    redemptionDate: '2026-06-04',
+    grossAmount: '20788019',
+    taxableIncome: '1398019',
+    isConfirmed: true,
+    ...overrides,
+  })
+
+  it('상품과 상환이 함께 만들어진다 — 차수 없는 조기상환이 통과한다', async () => {
+    const { id } = dataOf(await a.write.createRealizedProduct(realizedInput()))
+
+    const view = await a.read.getProduct(id)
+    expect(view).not.toBeNull()
+    expect(view!.product.entryMode).toBe('REALIZED_ONLY')
+    expect(view!.product.status).toBe('REDEEMED')
+    // 계약 조건이 없다 — 지어내지 않았다는 증거다
+    expect(view!.product.issueDate).toBeNull()
+    expect(view!.product.annualCouponRate).toBeNull()
+    expect(view!.underlyings).toEqual([])
+    expect(view!.schedules).toEqual([])
+    // 상환 실적은 그대로 있다
+    expect(view!.redemption?.redemptionType).toBe('EARLY')
+    expect(view!.redemption?.roundNo).toBeNull()
+    expect(view!.redemption?.redemptionDate).toBe('2026-06-04')
+    expect(view!.redemption?.taxableIncome).toBe('1398019')
+  })
+
+  /**
+   * ★ **금액이 float64를 지나지 않았다.** `numeric(15,0)`의 상한인 15자리를 쓴다 —
+   * `->>` + `::numeric` 경로를 지나지 않으면 값이 달라진다(AQ-30의 실측).
+   */
+  it('15자리 원금이 그대로 왕복한다', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-금액` }),
+      ),
+    )
+    const view = await a.read.getProduct(id)
+    expect(view!.product.principal).toBe(PRINCIPAL)
+  })
+
+  /** `owner_id`를 함수가 `auth.uid()`로 박는다 — 입력에 그 필드가 없다 */
+  it('소유자는 호출자다 — 타인 소유로 만들 경로가 없다', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-소유자` }),
+      ),
+    )
+    const view = await b.read.getProduct(id)
+    // B도 읽을 수 있다(모든 SELECT가 using (true)) — 그러나 소유자는 A다
+    expect(view!.product.ownerId).toBe(ITG_USER_A)
+    expect(view!.product.isOwner).toBe(false)
+  })
+
+  /**
+   * 원천징수액 산출이 §5.4와 **같은 함수**를 지난다. 그림의 값으로 검산된다 —
+   * `1,398,019 × 15.4% = 215,294.9`이고 원 단위 **절사**이므로 215,294다.
+   *
+   * ★ 그림의 증권사 값은 215,295(반올림)다. **두 값이 다른 것이 정상이다** —
+   * A-04상 실제 징수액이 정본이므로 사용자가 적으면 그 값이 그대로 저장되고,
+   * 이 케이스는 **적지 않았을 때의 기본값**을 잰다. 접기 규칙을 DB에 맡기면
+   * 절사가 조용히 반올림이 된다(§5.4의 각주).
+   */
+  it('원천징수세액을 비우면 과표 × 분리과세율로 절사 산출한다', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-징수` }),
+      ),
+    )
+    const view = await a.read.getProduct(id)
+    expect(view!.redemption?.withholdingTax).toBe('215294')
+  })
+
+  it('적어 넣은 실제 징수액은 그대로 저장된다 (A-04)', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({
+          name: `${FX_NAME_PREFIX} 기실현-징수확정`,
+          withholdingTax: '215295',
+        }),
+      ),
+    )
+    const view = await a.read.getProduct(id)
+    expect(view!.redemption?.withholdingTax).toBe('215295')
+  })
+
+  /** V-12 / I-08 — 절대 규칙 #8. 계약 계층이 필드 오류로 먼저 잡는다 */
+  it('만기손실에 과세소득이 붙으면 VALIDATION_FAILED', async () => {
+    const error = errorOf(
+      await a.write.createRealizedProduct(
+        realizedInput({
+          name: `${FX_NAME_PREFIX} 기실현-손실`,
+          redemptionType: 'MATURITY_LOSS',
+          taxableIncome: '1398019',
+        }),
+      ),
+    )
+    expect(error.code).toBe('VALIDATION_FAILED')
+    expect(error.fields?.taxableIncome).toBeDefined()
+  })
+
+  /**
+   * ★★ **수정 경로가 열리지 않는다** — 만들어진 상품은 즉시 상환 완료이므로
+   * `els_products_redeemed_immutable`이 §5.2를 막는다(DOC-011 §5.11의 각주).
+   * 고쳐야 하는 것은 상환 값이며 그 경로가 §5.5로 있다.
+   */
+  it('수정할 수 없다 — 상환 완료이므로 CONFLICT다', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-수정불가` }),
+      ),
+    )
+
+    const error = errorOf(
+      await a.write.updateProduct(id, productInput({ assetId })),
+    )
+    expect(error.code).toBe('CONFLICT')
+  })
+
+  /**
+   * ★★ **요청의 핵심 — 「귀속연도별로 포트폴리오에 반영된다」를 값으로 잰다.**
+   *
+   * `entry_mode`를 어느 집계도 읽지 않으므로 기존 경로 그대로 잡혀야 한다. 그것이
+   * 「집계 union이 필요한 별 테이블」 대신 판별 열을 택한 이유이며(DOC-002 D-07),
+   * **가정이 아니라 측정으로 남겨야 하는 자리다** — 빠뜨리면 조용히 과소 집계된다.
+   *
+   * 귀속연도는 `year(redemption_date)`다(DOC-007 §7.2) — 2026-06-04이므로 2026년이고,
+   * **다른 해에는 기여하지 않는다.** 뒤 단언이 그 배타성을 함께 본다.
+   *
+   * **대조 연도를 2027로 잡은 것은 실측이 정했다** — 2025로 쓰면 조회가 던진다
+   * (`TaxSeedRangeError`: 시드가 2026년부터다). 뒤 연도는 최신 세율로 근사하므로
+   * 정상 응답이 오고(§4.6 `taxLawYear`), 여기서 재려는 것은 세액이 아니라
+   * **기여의 배타성**이므로 근사 여부가 무관하다.
+   */
+  it('세금 요약이 그 해에 잡는다 — 그리고 다른 해에는 잡지 않는다', async () => {
+    const before = await a.read.getTaxSummary({ ownerId: ITG_USER_A, year: 2026 })
+    const before2027 = await a.read.getTaxSummary({ ownerId: ITG_USER_A, year: 2027 })
+
+    dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-세금` }),
+      ),
+    )
+
+    const after = await a.read.getTaxSummary({ ownerId: ITG_USER_A, year: 2026 })
+    const after2027 = await a.read.getTaxSummary({ ownerId: ITG_USER_A, year: 2027 })
+
+    // 과표 1,398,019가 그 해의 ELS 과세 금융소득에 더해진다
+    expect(
+      Number(after.income.elsTaxableIncome) - Number(before.income.elsTaxableIncome),
+    ).toBe(1398019)
+    // 2027년은 한 원도 움직이지 않는다 — 집계 키가 `(owner_id, year)`다
+    expect(after2027.income.elsTaxableIncome).toBe(before2027.income.elsTaxableIncome)
+  })
+
+  /**
+   * 다년도 전망도 같은 경로를 쓴다 — §7.5의 `redeemedBy`가 **상환 레코드의 존재**로
+   * 정의되어 있으므로(DOC-007) 기실현 등재가 특수 처리 없이 흡수된다.
+   *
+   * **잔여 원금에 남지 않는 것이 그 흡수의 관측이다** — 상환이 있으므로 그 상품의
+   * 원금은 누적 회수로 넘어간다(한 상품은 둘 중 정확히 하나에만 들어간다).
+   */
+  it('다년도 전망이 그 해의 회수로 잡고 잔여 원금에 남기지 않는다', async () => {
+    const rowOf = (rows: ForecastRow[], year: number): ForecastRow => {
+      const found = rows.find((r) => r.year === year)
+      expect(found, `${year}년 행이 없다`).toBeDefined()
+      return found!
+    }
+
+    const before = await a.read.getForecast({ ownerId: ITG_USER_A })
+
+    dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-전망` }),
+      ),
+    )
+
+    const after = await a.read.getForecast({ ownerId: ITG_USER_A })
+
+    // 그 해의 세후 회수가 늘었다 — 0이 아니라는 것이 요점이다
+    expect(Number(rowOf(after, 2026).netProceeds)).toBeGreaterThan(
+      Number(rowOf(before, 2026).netProceeds),
+    )
+    // 잔여 원금은 늘지 않는다 — 상환이 있으므로 「그 해 말에 남아 있는 것」이 아니다
+    expect(rowOf(after, 2026).remainingPrincipal).toBe(
+      rowOf(before, 2026).remainingPrincipal,
+    )
+  })
+
+  /**
+   * 상환을 취소하면 **다시 결함이다** — 계약 조건도 상환도 없는 보유중 상태이며
+   * 등재가 만들 수 없는 상태다(DOC-002 §7). 다음 행동은 상품 삭제이고 그 경로가
+   * 열려 있음을 함께 본다.
+   */
+  it('상환 취소 → 결함으로 드러나고 상품 삭제가 열린다', async () => {
+    const { id } = dataOf(
+      await a.write.createRealizedProduct(
+        realizedInput({ name: `${FX_NAME_PREFIX} 기실현-취소` }),
+      ),
+    )
+    const redemptionId = (await a.read.getProduct(id))!.redemption!.id
+
+    expect((await a.write.deleteRedemption(redemptionId)).ok).toBe(true)
+
+    const after = await a.read.getProduct(id)
+    expect(after!.product.status).toBe('ACTIVE')
+    expect(after!.product.integrityIssue).toBe('UNDERLYING_MISSING')
+
+    // 2단계의 둘째 — 상환이 없으므로 이제 지울 수 있다
+    expect((await a.write.deleteProduct(id)).ok).toBe(true)
+    expect(await a.read.getProduct(id)).toBeNull()
   })
 })
 

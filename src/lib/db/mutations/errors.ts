@@ -164,7 +164,10 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
   },
 
   // ── I-13·I-14 상환의 차수 ───────────────────────────────────────────────
-  redemptions_round_no_required_check: {
+  // **이름에서 `_check`가 빠진 것은 트리거로 내려갔기 때문이다** — 면제 조건이
+  // 부모 상품의 `entry_mode`라 단일 행 `CHECK`로 표현할 수 없다(DOC-002 §8 I-14).
+  // `*_required`(교차 행)가 정확한 부류이고 처리는 두 접미사에서 같다.
+  redemptions_round_no_required: {
     rule: 'I-14 / V-13',
     fields: ['roundNo'],
     message: '조기상환·리자드 상환은 차수가 필요하다.',
@@ -193,6 +196,18 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     rule: 'I-17 / V-20',
     fields: ['evaluationPeriodMonths'],
     message: '평가주기는 1개월 이상이어야 한다.',
+  },
+
+  // ── I-18 계약 조건 두 열의 짝 (P6 컷 5) ─────────────────────────────────
+  //
+  // 계약 경로로는 도달하기 어렵다 — `createProduct`는 두 값을 필수로 받고
+  // (V-07·V-08) `createRealizedProduct`는 `REALIZED_ONLY`를 박는다. 사상을 두는
+  // 이유는 **역방향 전이**다: `REALIZED_ONLY → FULL` UPDATE가 이 제약에 걸리며
+  // (DOC-010 AQ-65) 그것이 계약 밖 경로의 유일한 자동 방어다.
+  els_products_full_terms_check: {
+    rule: 'I-18',
+    fields: ['issueDate', 'annualCouponRate'],
+    message: '계약 조건을 갖는 상품은 발행일과 연쿠폰율이 필요하다.',
   },
   redemption_schedules_barrier_check: {
     rule: 'I-17 / V-08',

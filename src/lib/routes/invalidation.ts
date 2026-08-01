@@ -125,6 +125,22 @@ export const INVALIDATION = {
     ],
   },
 
+  // §5.11 — 기실현 등재. **`createProduct`보다 좁다**: 그 상품은 평가일정 0건·
+  // 기초자산 0종이므로(DOC-002 D-07)
+  //   · `listSchedule`에 나타날 수 없다 — 그 목록의 행 단위가 **차수**다
+  //   · `listAssetPrices`의 `usedByActiveProducts`를 움직이지 않는다 — 참조하는
+  //     자산이 없고, 애초에 상환 완료라 「미상환」에도 들지 않는다
+  // 반대로 세금·전망은 즉시 바뀐다 — 상환 실적이 그 해의 금융소득에 들어간다.
+  createRealizedProduct: {
+    affects: [
+      'listProducts',
+      'getDashboard',
+      'getTaxSummary',
+      'listUserSummaries',
+      'getForecast',
+    ],
+  },
+
   // §5.2·§5.3 — 위 전부 + 그 상품의 상세. 삭제 후 상세는 404가 되어야 한다.
   updateProduct: { affects: [...PRODUCT_WIDE] },
   deleteProduct: { affects: [...PRODUCT_WIDE] },
@@ -226,6 +242,9 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   '/products/[id]/redeem': ['getProduct'],
   '/products/[id]/edit': ['getProduct', 'searchAssets'],
   [PATHS.productNew]: ['searchAssets'],
+  // **비어 있는 것이 옳다** — 계약 조건을 입력받지 않으므로 자산 목록도 읽지 않고,
+  // 읽는 것이 없으므로 어느 변경도 이 화면을 낡게 하지 않는다(`/settings`와 같은 자리).
+  [PATHS.productRealizedNew]: [],
   [PATHS.schedule]: ['listSchedule'],
   [PATHS.prices]: ['listAssetPrices'],
   [PATHS.tax]: ['getTaxSummary'],

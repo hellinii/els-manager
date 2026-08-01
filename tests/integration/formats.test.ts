@@ -53,6 +53,8 @@ const ATTENTION_REASONS = [
   'SCHEDULE_MISSING',
 ] as const
 const STATUSES = ['ACTIVE', 'REDEEMED'] as const
+/** DOC-002 §4.6 — 기실현 등재의 판별 열 (P6 컷 5) */
+const ENTRY_MODES = ['FULL', 'REALIZED_ONLY'] as const
 const KI_OBSERVATIONS = ['CONTINUOUS', 'CLOSING'] as const
 
 /** §4.1 대시보드 */
@@ -100,6 +102,7 @@ const PRODUCT_LIST: Record<string, Spec> = {
   principal: 'AMOUNT',
   accountType: ACCOUNT_TYPES,
   status: STATUSES,
+  entryMode: ENTRY_MODES,
   nextEvaluation: 'NULL_OBJECT',
   'nextEvaluation.roundNo': 'NUMBER',
   'nextEvaluation.date': 'DATE',
@@ -155,6 +158,7 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'product.kiObservation': KI_OBSERVATIONS,
   'product.kiTouchedAt': 'DATE',
   'product.accountType': ACCOUNT_TYPES,
+  'product.entryMode': ENTRY_MODES,
   'product.note': 'TEXT',
   'underlyings[].assetId': 'UUID',
   'underlyings[].assetName': 'TEXT',
@@ -210,6 +214,22 @@ const SCHEDULE_ITEM: Record<string, Spec> = {
   conditionResult: CONDITION_RESULTS,
   integrityIssue: ['UNDERLYING_MISSING'],
   isPast: 'BOOL',
+  // v3.3 신설 다섯. **분류가 §4.2·§4.3의 같은 이름 필드와 같아야 한다** —
+  // `principal`·`accountType`은 §4.2에, `expectedGross`는 §4.3에 있고 화면은
+  // 같은 포매터(`amount`·`percent`)에 넣는다. 형식이 갈리면 두 뷰가 같은 값을
+  // 다르게 직렬화한다는 뜻이다.
+  principal: 'AMOUNT',
+  annualCouponRate: 'RATIO',
+  accountType: ACCOUNT_TYPES,
+  totalRounds: 'NUMBER',
+  'proceeds.expectedGross': 'AMOUNT',
+  'proceeds.expectedWithholding': 'AMOUNT',
+  'proceeds.expectedNet': 'AMOUNT',
+  // `AMOUNT`는 부호를 허용한다(`recentRedemptions[].realizedPnl`이 이미 그 자리다).
+  // 현 산식에서 음수가 나오지 않지만 분류를 좁히면 산식이 바뀌는 날 형식이 막는다.
+  'proceeds.expectedPnl': 'AMOUNT',
+  'proceeds.separateTaxationRate': 'RATIO',
+  'proceeds.taxLawYear': 'NUMBER',
 }
 
 /** §4.5 시세 */

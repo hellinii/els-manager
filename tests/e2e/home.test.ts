@@ -619,8 +619,16 @@ describe('SCR-101 홈', () => {
      * 성립한다. 전용 사용자로 소유자 축을 좁혀서 만든다 — 그때 다음 행동은 등록도
      * 필터 해제도 아니라 상환 처리·이월 확인이므로 문구가 따로 있어야 한다.
      */
+    /*
+     * ★ 주소에 `view=TIME`이 붙는다 (P6 컷 6). 아래 단언들은 **절 머리글과 `<li>`
+     * 세기**에 기대므로 시간순 보기의 형태를 요구한다 — 컷 6이 기본을 상품별로
+     * 바꿨으므로 맨 주소는 카드를 낸다(카드도 `<li>`이고 차수 행도 `<li>`이다).
+     * **AQ-34가 관측하는 «상태»는 보기와 무관하다** — 아래 마지막 단언이 그것을
+     * 상품별 주소에서 다시 확인한다.
+     */
+    const query = `${SCHEDULE_KEYS.ownerId}=${E2E_PAST}`
     const html = await (
-      await get(`${PATHS.schedule}?${SCHEDULE_KEYS.ownerId}=${E2E_PAST}`, past)
+      await get(`${PATHS.schedule}?${query}&${SCHEDULE_KEYS.view}=TIME`, past)
     ).text()
 
     expect(html).toContain('지난 평가일')
@@ -629,6 +637,15 @@ describe('SCR-101 홈', () => {
     expect(html).not.toContain('조건에 맞는 평가일이 없다')
     expect(html).not.toContain('등록된 평가일정이 없다')
     expect(rowsOf(html, overdue.productName)).toHaveLength(overdue.barriers.length)
+
+    /*
+     * ★ **문구가 보기마다 갈리지 않는다** (DOC-008 §6). 자리만 다르다 — 시간순은
+     * 「다가오는 평가일」 절의 자리이고 상품별은 카드 목록 위다. 한 상태에 두 문구를
+     * 두면 사용자가 보기를 바꿀 때 **상태가 바뀐 것으로 읽는다.**
+     */
+    const byProduct = await (await get(`${PATHS.schedule}?${query}`, past)).text()
+    expect(byProduct).toContain('다가오는 평가일이 없다')
+    expect(byProduct).not.toContain('조건에 맞는 평가일이 없다')
   })
 
   // -------------------------------------------------------------------------
