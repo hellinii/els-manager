@@ -46,6 +46,12 @@ export {
   type LizardTerm,
 } from './terms'
 export {
+  underlyingLines,
+  type UnderlyingLine,
+  type UnderlyingQuote,
+  type UnderlyingTerm,
+} from './underlyings'
+export {
   groupByMonth,
   groupByProduct,
   splitByPast,

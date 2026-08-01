@@ -4,7 +4,7 @@ import {
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
 } from '@/lib/domain'
-import { STATUS_LABELS, korMonth, percent, ymd } from '@/lib/format'
+import { STATUS_LABELS, korMonth, percent, priceDisplay, ymd } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
 import { SCHEDULE_KEYS } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
@@ -476,6 +476,29 @@ describe('SCR-301 상품별 보기', () => {
     expect(card).toContain('투자원금')
     expect(card).toContain('연쿠폰')
     expect(card).toContain(percent(percentToRatio('8')))
+  })
+
+  it('★ 카드 머리가 기초자산과 KI를 적는다 — DOC-008 §5 ⑨⑩', async () => {
+    /*
+     * ★ P6 컷 7. 이 화면은 「언제 오는가」에는 답하면서 **「무엇에 걸려 있는가」에는
+     * 답하지 않았다** — ⑤가 워스트오브 하나를 적을 뿐이어서 그 숫자를 만든 자산도
+     * KI가 어디 있는지도 SCR-202를 열어야 나왔다.
+     *
+     * **표기가 SCR-201과 같다는 것이 이 항목의 조건이다**(§5) — 같은 순수 함수와 같은
+     * 컴포넌트를 지나므로, 두 화면 중 한쪽만 바뀌면 `products.test.ts`의 짝 단언과
+     * 여기가 함께 빨간불이 된다.
+     */
+    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const card = cardOf(html, seeded.productName)
+
+    expect(card).toContain('기초자산')
+    expect(card).toContain(seeded.assetName)
+    // 기준가 → 현재가. 둘 다 18자리이므로 서로 구별된다(AQ-30의 값 경로)
+    expect(card).toContain(priceDisplay(seeded.basePrice))
+    expect(card).toContain(priceDisplay(seeded.currentPrice))
+    expect(card).toContain('> → <')
+    // KI — 배리어와 관찰방식은 함께 온다(I-11의 짝)
+    expect(card).toContain(`>${percent(percentToRatio('50'))} 종가<`)
   })
 
   it('★ 지난 차수는 접히되 «제거되지 않는다»', async () => {

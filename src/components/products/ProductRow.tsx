@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { Badge } from '@/components/display/Badge'
+import { UnderlyingLines } from '@/components/display/UnderlyingLines'
 import type { ProductListItem } from '@/lib/db/queries/map'
 import {
   ACCOUNT_TYPE_LABELS,
@@ -18,8 +19,8 @@ import {
   kiTermLabel,
   lizardLabel,
   percent,
-  priceDisplay,
   stepdownLabel,
+  underlyingLines,
   ymd,
   type DisplayState,
 } from '@/lib/format'
@@ -151,26 +152,33 @@ export function ProductRow({ item }: { item: ProductListItem }) {
         <JudgmentCell item={item} />
       </div>
 
-      {/* ⑧~⑫ 계약 조건 — 전 폭을 지나는 둘째 줄 */}
+      {/* ⑧~⑬ 기초자산의 지금 + 계약 조건 — 전 폭을 지나는 둘째 줄 */}
       <TermsLine item={item} />
     </li>
   )
 }
 
 /**
- * 계약 조건 한 줄 — DOC-008 §5 SCR-201 ⑧~⑫ (v1.9, P6 컷 2)
+ * 계약 조건 한 줄 — DOC-008 §5 SCR-201 ⑧~⑬ (v2.3, P6 컷 7)
  *
  * ## 왜 열이 아니라 줄인가
  *
- * ①~⑦이 이미 데스크톱 5열이다. 다섯을 열로 더하면 **11열**이 되어 어느 폭에서도
+ * ①~⑦이 이미 데스크톱 5열이다. 여섯을 열로 더하면 **11열**이 되어 어느 폭에서도
  * 읽히지 않는다. 그래서 `lg:col-span-full`로 표 아래를 지나는 한 줄이 된다 —
  * 모바일에서는 위의 칸들과 함께 쌓이므로 차이가 없다(§8).
  *
- * ## 판정값과 섞지 않는다
+ * ## 판정값과 섞지 않는다 — 예외가 **하나** 있고 그것이 ⑧이다
  *
  * 이 줄에는 `worstOf`·`conditionResult`·`kiStatus`가 없다. 그 셋은 억제 규칙(D1)의
- * 대상이고 이것은 아니다 — **결함 상품도 계약 조건은 있고, 오히려 그때 화면이
- * 보여줄 것이 이것뿐이다.** 위 칸이 「시세 없음」인 상품에서도 이 줄은 온전하다.
+ * 대상이고 계약 조건은 아니다 — **결함 상품도 계약 조건은 있고, 오히려 그때 화면이
+ * 보여줄 것이 이것뿐이다.**
+ *
+ * ⑧(기초자산별 현재가·비율)만 그 축의 값이면서 이 줄에 있다. **자리를 정하는 것이
+ * 성질이 아니라 «무엇 옆에 있어야 읽히는가»이기 때문이다** — 현재가는 기준가 옆에서만
+ * 뜻이 서고, 기준가는 계약 조건이다. 그래서 마커는 판정 행에 두고(DOC-008 §5) 렌더는
+ * 여기서 한다. 억제는 값 쪽에 이미 있다: 결함 상품은 기초자산이 0종이라 그 칸이
+ * 「없음」이 되고, 시세만 없으면 자산별로 「시세 없음」이 된다. **이 줄의 나머지는
+ * 어느 경우에도 온전하다.**
  *
  * ## 문구를 여기서 만들지 않는다
  *
@@ -195,7 +203,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
   /*
    * 기실현 등재는 계약 조건 줄을 **한 문장으로 갈아치운다** (DOC-002 D-07).
    *
-   * 다섯 칸을 전부 「없음」·「—」으로 채우면 그 줄은 「입력이 빠졌다」로 읽히고,
+   * 여섯 칸을 전부 「없음」·「—」으로 채우면 그 줄은 「입력이 빠졌다」로 읽히고,
    * 그것은 바로 위 칸의 무결성 표식이 말하는 것과 같은 말이 된다 — 그런데 이
    * 상품에는 표식이 없다(결함이 아니다). 같은 모양에 다른 뜻이 붙는 자리이므로
    * 모양을 다르게 한다.
@@ -215,27 +223,23 @@ function TermsLine({ item }: { item: ProductListItem }) {
 
   return (
     <dl className="-mx-4 -mb-4 mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-b-lg bg-neutral-50 px-4 py-2.5 text-xs lg:col-span-full">
-      {/* ⑧ 기초자산 · 기준가격 */}
+      {/*
+        ⑧⑨ 기초자산 — **한 칸에 두 성질이 나란히 있다** (v2.3)
+
+        ⑨(기준가)는 계약 조건이고 ⑧(현재가·비율)은 관측이다. 마커가 두 행으로 갈리는
+        것이 그 사실의 표시이며, 계약도 두 필드로 나눠 준다 — 합치는 일은 순수 함수가
+        하고 여기서는 그리기만 한다(`UnderlyingLines`의 머리글).
+      */}
       <div className="flex min-w-0 items-baseline gap-1.5">
         <dt className="shrink-0 text-neutral-500">기초자산</dt>
         <dd className="min-w-0">
-          {terms.underlyings.length === 0 ? (
-            /* I-07 결함. 위 칸의 무결성 표식이 이유를 말하므로 여기서는 사실만 */
-            <span className="text-neutral-400">없음</span>
-          ) : (
-            <span className="flex flex-wrap gap-x-2">
-              {terms.underlyings.map((u) => (
-                <span key={u.assetName} className="tabular-nums">
-                  <span className="text-neutral-700">{u.assetName}</span>{' '}
-                  {priceDisplay(u.basePrice)}
-                </span>
-              ))}
-            </span>
-          )}
+          <UnderlyingLines
+            lines={underlyingLines(terms.underlyings, item.underlyingPrices)}
+          />
         </dd>
       </div>
 
-      {/* ⑨ 연쿠폰율 — `null`은 기실현 등재다(D-07). 결함이 아니라 없는 값이다 */}
+      {/* ⑩ 연쿠폰율 — `null`은 기실현 등재다(D-07). 결함이 아니라 없는 값이다 */}
       <div className="flex items-baseline gap-1.5">
         <dt className="shrink-0 text-neutral-500">연쿠폰</dt>
         <dd className="tabular-nums">
@@ -247,7 +251,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
         </dd>
       </div>
 
-      {/* ⑩ KI 배리어 · 관찰방식 — `null`이 노낙인이다(I-11의 짝) */}
+      {/* ⑪ KI 배리어 · 관찰방식 — `null`이 노낙인이다(I-11의 짝) */}
       <div className="flex items-baseline gap-1.5">
         <dt className="shrink-0 text-neutral-500">KI</dt>
         <dd className="tabular-nums">
@@ -260,7 +264,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
         </dd>
       </div>
 
-      {/* ⑪ 조기상환 배리어(스텝다운) — 다음 차수를 강조한다 */}
+      {/* ⑫ 조기상환 배리어(스텝다운) — 다음 차수를 강조한다 */}
       {stepdown != null && (
         <div className="flex min-w-0 items-baseline gap-1.5">
           <dt className="shrink-0 text-neutral-500">스텝다운</dt>
@@ -270,7 +274,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
         </div>
       )}
 
-      {/* ⑫ 리자드 — 붙은 차수만. 없으면 칸 자체를 그리지 않는다 */}
+      {/* ⑬ 리자드 — 붙은 차수만. 없으면 칸 자체를 그리지 않는다 */}
       {lizard != null && (
         <div className="flex items-baseline gap-1.5">
           <dt className="shrink-0 text-neutral-500">리자드</dt>

@@ -115,6 +115,16 @@ const PRODUCT_LIST: Record<string, Spec> = {
   isOwner: 'BOOL',
 
   /*
+   * 기초자산별 관측 (v3.4) — **§4.3 `underlyings[]`의 같은 이름 필드와 같은 분류여야
+   * 한다.** 두 뷰가 같은 함수(`underlyingQuotesOf`)에서 나오므로 형식이 갈리면 그
+   * 함수가 아니라 **직렬화 경계**가 갈렸다는 뜻이다.
+   */
+  'underlyingPrices[].assetId': 'UUID',
+  'underlyingPrices[].currentPrice': 'PRICE',
+  'underlyingPrices[].ratio': 'RATIO',
+  'underlyingPrices[].isWorst': 'BOOL',
+
+  /*
    * 계약 조건 (v3.1) — **§4.3의 같은 이름 필드와 같은 분류여야 한다.** 형식이 갈리면
    * 목록과 상세가 같은 값을 다르게 직렬화한다는 뜻이고, 그 어긋남은 두 화면의 숫자
    * 차이로만 드러난다(`product.*` 판정 삼종에 같은 주석이 붙어 있는 이유다).
@@ -125,6 +135,8 @@ const PRODUCT_LIST: Record<string, Spec> = {
   'terms.annualCouponRate': 'RATIO',
   'terms.kiBarrier': 'RATIO',
   'terms.kiObservation': KI_OBSERVATIONS,
+  /** 관측과 짝짓는 키다 — 표시값이 아니지만 직렬화 경계는 똑같이 지난다 */
+  'terms.underlyings[].assetId': 'UUID',
   'terms.underlyings[].assetName': 'TEXT',
   'terms.underlyings[].basePrice': 'PRICE',
   /** 스칼라 배열이다 — 잎이 원소 자신이므로 `[]`로 끝난다 */
@@ -230,6 +242,18 @@ const SCHEDULE_ITEM: Record<string, Spec> = {
   'proceeds.expectedPnl': 'AMOUNT',
   'proceeds.separateTaxationRate': 'RATIO',
   'proceeds.taxLawYear': 'NUMBER',
+
+  // v3.4 신설 셋. `kiBarrier`·`kiObservation`은 §4.2 `terms`의 같은 이름 필드와,
+  // `underlyings[]`의 다섯은 §4.3의 같은 이름 필드와 **같은 분류여야 한다** —
+  // 그쪽은 계약/관측이 두 필드로 갈려 있고 여기는 합쳐져 있으므로, 형식이 갈리면
+  // 「형태만 다르고 값은 같다」는 §4.4의 주장이 거짓이 된다.
+  kiBarrier: 'RATIO',
+  kiObservation: KI_OBSERVATIONS,
+  'underlyings[].assetName': 'TEXT',
+  'underlyings[].basePrice': 'PRICE',
+  'underlyings[].currentPrice': 'PRICE',
+  'underlyings[].ratio': 'RATIO',
+  'underlyings[].isWorst': 'BOOL',
 }
 
 /** §4.5 시세 */

@@ -10,6 +10,7 @@ import {
   paginate,
   PRODUCTS_PER_PAGE,
   stepdownLabel,
+  underlyingLines,
 } from '@/lib/format'
 import {
   filterQuery,
@@ -44,10 +45,15 @@ import {
 const DOC_008 = join(process.cwd(), 'docs', '08_정보구조_및_화면목록.md')
 
 /**
- * ①~⑦ — 판정의 결과. 억제 규칙(DOC-011 §4.2 D1)의 대상이다.
+ * ①~⑧ — 판정의 결과. 억제 규칙(DOC-011 §4.2 D1)의 대상이다.
  *
  * ②는 `ownerName`이 아니라 `ownerId`도 함께 쓰지만, 표시하는 것은 이름 하나다 —
  * 이 표는 「무엇을 렌더하는가」이고 `ownerId`는 필터의 값이다(아래 `NOT_DISPLAYED`).
+ *
+ * **⑧이 이 행에 있는 것이 v2.3의 판단이다.** 화면에서는 ⑨(기준가)와 같은 칸에
+ * 나란히 렌더되지만 성질이 다르다 — 기준가는 발행 시점에 확정된 계약이고
+ * 현재가·비율은 기준일마다 달라지는 관측이며, D1 표의 첫 행이 `ratio`·`isWorst`를
+ * `worstOf`와 한 줄에 묶어 억제한다. 그래서 값도 `terms` 밖의 형제 필드다.
  */
 const JUDGMENT_SOURCES = {
   '①': 'name',
@@ -57,21 +63,22 @@ const JUDGMENT_SOURCES = {
   '⑤': 'worstOf',
   '⑥': 'conditionResult',
   '⑦': 'kiStatus',
+  '⑧': 'underlyingPrices',
 } as const satisfies Record<string, keyof ProductListItem>
 
 /**
- * ⑧~⑫ — 계약 조건. **다섯이 한 필드(`terms`)의 다섯 속성이다.**
+ * ⑨~⑬ — 계약 조건. **다섯이 한 필드(`terms`)의 다섯 속성이다.**
  *
  * 값이 `keyof ProductListItem['terms']`인 것이 「목록은 계약 조건 · 상세는 판정」이라는
- * 구분을 이 표에서도 지키는 형태다. ⑩은 배리어와 관찰방식 둘을 표시하지만 그 둘은
+ * 구분을 이 표에서도 지키는 형태다. ⑪은 배리어와 관찰방식 둘을 표시하지만 그 둘은
  * 함께 있거나 함께 없으므로(I-11) 한 항목이다 — 대표로 `kiBarrier`를 적는다.
  */
 const TERM_SOURCES = {
-  '⑧': 'underlyings',
-  '⑨': 'annualCouponRate',
-  '⑩': 'kiBarrier',
-  '⑪': 'barriers',
-  '⑫': 'lizards',
+  '⑨': 'underlyings',
+  '⑩': 'annualCouponRate',
+  '⑪': 'kiBarrier',
+  '⑫': 'barriers',
+  '⑬': 'lizards',
 } as const satisfies Record<string, keyof ProductListItem['terms']>
 
 type Expect<T extends true> = T
@@ -89,7 +96,7 @@ type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
  * | `integrityIssue` | ⑤의 표시를 **가르는 입력**이다(§4.2 우선순위표) |
  * | `isOwner` | 액션 버튼 노출 판단. SCR-201에는 그 버튼이 없다 |
  * | `terms` | 다섯으로 갈려 `TERM_SOURCES`가 받는다 |
- * | `entryMode` | **⑧~⑫ 줄 전체의 모양을 가르는 입력**이다 — 아래 |
+ * | `entryMode` | **⑧~⑬ 줄 전체의 모양을 가르는 입력**이다 — 아래 |
  *
  * `entryMode`가 `integrityIssue`와 같은 부류인 것이 그 분류의 근거다: 둘 다 값이
  * 아니라 **표시를 가르는 입력**이며, 항목 번호를 새로 받지 않는다. 다만 가르는
@@ -123,7 +130,7 @@ type _NoUnmappedTop = Expect<Equals<UnmappedTop, never>>
 
 type MappedTerm = (typeof TERM_SOURCES)[keyof typeof TERM_SOURCES]
 type UnmappedTerm = Exclude<keyof ProductListItem['terms'], MappedTerm>
-/** `kiObservation`은 ⑩이 `kiBarrier`와 함께 표시한다 — 그 하나만 예외다 */
+/** `kiObservation`은 ⑪이 `kiBarrier`와 함께 표시한다 — 그 하나만 예외다 */
 type _NoUnmappedTerm = Expect<Equals<UnmappedTerm, 'kiObservation'>>
 
 /** SCR-201 절의 표시 항목 셀. 화면마다 `| 항목 | 내용 |`이 있으므로 절부터 자른다 */
@@ -136,8 +143,15 @@ function displayMarkers(row: '판정' | '계약 조건'): string[] {
   const found = pattern.exec(text.slice(at))
   expect(found, `SCR-201 절에 「카드 표시 항목 — ${row}」 행이 없다`).not.toBeNull()
 
-  // 마커로 자른다. 번호를 셀 안에서 세는 것이 항목의 정의다.
-  return [...found![1]!.matchAll(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]/g)].map((m) => m[0])
+  /*
+   * 마커로 자른다. 번호를 셀 안에서 세는 것이 항목의 정의다.
+   *
+   * **범위(`①`~`⑳` = U+2460~U+2473)로 잡는다 — 열거하지 않는다.** 종전에는 `①`~`⑫`를
+   * 손으로 적었고, 컷 7이 ⑬을 더하자 파서가 그것을 **문자가 아닌 것으로 보아 조용히
+   * 건너뛰었다**(항목이 늘었는데 건수가 그대로였다). 열거는 늘어날 축을 따라오지
+   * 못한다 — 이 파일이 문서에 대해 막으려는 결함과 같은 부류가 파서 안에 있었다.
+   */
+  return [...found![1]!.matchAll(/[①-⑳]/g)].map((m) => m[0])
 }
 
 describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
@@ -156,7 +170,7 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
 
   it('파서가 항목을 찾았다', () => {
     // 0건을 찾고 조용히 통과하는 것이 이 부류 파서의 유일한 위험이다.
-    expect(displayMarkers('판정').length).toBe(7)
+    expect(displayMarkers('판정').length).toBe(8)
     expect(displayMarkers('계약 조건').length).toBe(5)
   })
 
@@ -171,11 +185,11 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
     expect(overlap, '같은 필드가 두 표에 있다').toEqual([])
 
     // 파서와 같은 이유로 건수를 고정한다 — 0건을 세고 통과하는 것을 막는다
-    // (P6 컷 5에서 `entryMode`가 늘어 14 → 15)
-    expect(displayed.size + NOT_DISPLAYED.length).toBe(15)
+    // (P6 컷 5에서 `entryMode`가 늘어 14 → 15, 컷 7에서 `underlyingPrices`가 늘어 16)
+    expect(displayed.size + NOT_DISPLAYED.length).toBe(16)
   })
 
-  it('두 행의 마커가 겹치지 않고 ①~⑫를 채운다', () => {
+  it('두 행의 마커가 겹치지 않고 ①~⑬을 채운다', () => {
     /*
      * 겹치면 같은 번호가 두 뜻을 갖고, 빠지면 번호가 뜻하는 순서가 끊긴다. 둘 다
      * 위의 두 단언을 통과하면서 일어날 수 있다 — 각각 자기 행만 보기 때문이다.
@@ -195,6 +209,7 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
       '⑩',
       '⑪',
       '⑫',
+      '⑬',
     ])
   })
 })
@@ -311,6 +326,94 @@ describe('kiTermLabel — `null`이 노낙인이다', () => {
      * 있는 것처럼** 보여준다. 배리어만 적는 것이 그 상태의 정직한 표시다.
      */
     expect(kiTermLabel('0.5000', null)).toBe('50%')
+  })
+})
+
+describe('underlyingLines — 계약과 관측을 `assetId`로 합친다', () => {
+  const A = 'aaaa-1'
+  const B = 'bbbb-2'
+  const term = (assetId: string, assetName: string, basePrice: string) => ({
+    assetId,
+    assetName,
+    basePrice,
+  })
+
+  it('같은 자산의 기준가와 현재가가 한 줄이 된다', () => {
+    const [line] = underlyingLines(
+      [term(A, 'KOSPI200', '350.120000')],
+      [{ assetId: A, currentPrice: '341.200000', ratio: '0.9745', isWorst: true }],
+    )
+
+    expect(line).toEqual({
+      assetName: 'KOSPI200',
+      basePrice: '350.120000',
+      currentPrice: '341.200000',
+      ratio: '0.9745',
+      isWorst: true,
+    })
+  })
+
+  it('★ 순서가 아니라 `assetId`로 짝짓는다', () => {
+    /*
+     * ★ 계약은 두 배열을 같은 `sequence` 순서로 주지만 그것은 **현재 구현의 성질**
+     * 이고 계약의 보장이 아니다. 인덱스로 zip하면 A의 기준가에 B의 현재가가 붙고,
+     * 그 줄은 **그럴싸하다** — 값이 비어 있지 않으므로 화면에서 드러나지 않는다.
+     * (`groupByProduct`가 이름이 아니라 `productId`로 묶는 것과 같은 부류의 함정.)
+     */
+    const lines = underlyingLines(
+      [term(A, '자산A', '100.000000'), term(B, '자산B', '200.000000')],
+      [
+        // 관측이 역순으로 왔다
+        { assetId: B, currentPrice: '180.000000', ratio: '0.9000', isWorst: true },
+        { assetId: A, currentPrice: '110.000000', ratio: '1.1000', isWorst: false },
+      ],
+    )
+
+    expect(lines.map((line) => [line.assetName, line.currentPrice])).toEqual([
+      ['자산A', '110.000000'],
+      ['자산B', '180.000000'],
+    ])
+    expect(lines.map((line) => line.isWorst)).toEqual([false, true])
+  })
+
+  it('★ 줄 수를 정하는 것은 계약 측이다 — 관측이 통째로 없어도 기준가는 남는다', () => {
+    /*
+     * ★ 억제 규칙(D1)이 `terms`에 미치지 않는다는 사실의 표시 계층 판이다. 관측
+     * 배열을 훑는 구현이면 시세 수집 전의 상품에서 **기초자산 칸이 통째로 사라지고**,
+     * 그것은 「입력이 빠졌다」(I-07)와 같은 모양이 된다.
+     */
+    const lines = underlyingLines([term(A, '자산A', '100.000000')], [])
+
+    expect(lines).toEqual([
+      {
+        assetName: '자산A',
+        basePrice: '100.000000',
+        currentPrice: null,
+        ratio: null,
+        isWorst: false,
+      },
+    ])
+  })
+
+  it('★ 관측이 없는 자산의 `isWorst`는 거짓이다 — 비교하지 않은 줄에 표식을 붙이지 않는다', () => {
+    // 워스트오브는 하나라도 없으면 `null`이므로(E-01) 이때는 어느 줄에도 표식이
+    // 없어야 한다. 값이 있는 쪽의 비율은 그래도 참이며 화면이 그것을 보여준다.
+    const lines = underlyingLines(
+      [term(A, '자산A', '100.000000'), term(B, '자산B', '200.000000')],
+      [
+        { assetId: A, currentPrice: '110.000000', ratio: '1.1000', isWorst: false },
+        { assetId: B, currentPrice: null, ratio: null, isWorst: false },
+      ],
+    )
+
+    expect(lines.map((line) => line.isWorst)).toEqual([false, false])
+    expect(lines[1]!.currentPrice).toBeNull()
+    // 음성 대조 — 값이 있는 줄은 살아 있다(전부 비우는 구현이 아니다)
+    expect(lines[0]!.ratio).toBe('1.1000')
+  })
+
+  it('기초자산이 0종이면 빈 배열이다 — 화면이 「없음」을 그린다', () => {
+    expect(underlyingLines([], [])).toEqual([])
   })
 })
 

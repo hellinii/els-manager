@@ -71,6 +71,14 @@ export type RegisteredProduct = {
   principal: string
   /** 기준가. **18자리 유효숫자다** — AQ-30의 값 경로를 화면에서 확인한다 */
   basePrice: string
+  /**
+   * 이 자산에 심어 둔 최신 시세 — SCR-201 ⑧·SCR-301 ⑨가 그리는 값이다 (P6 컷 7).
+   *
+   * `worstOfRatio`로는 대신할 수 없다. 그 값은 **비율**이라 ⑤ 워스트오브 열에도
+   * 같은 문자열로 나오므로, 「현재가가 기초자산 칸에 닿았는가」를 그것으로 단언하면
+   * ⑧을 통째로 지워도 초록이다.
+   */
+  currentPrice: string
   /** 워스트오브가 이 값이 된다 — 시세 ÷ 기준가 */
   worstOfRatio: string
   /** 일괄 입력으로 채운 배리어(퍼센트 표기) */
@@ -193,6 +201,7 @@ export async function registerProduct(
     issueDate,
     principal: principal.replace(/,/g, ''),
     basePrice: BASE_PRICE,
+    currentPrice: CURRENT_PRICE,
     worstOfRatio: '1.2000',
     barriers,
   }

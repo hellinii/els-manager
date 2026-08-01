@@ -76,6 +76,17 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       kiStatus: 'SAFE',
       integrityIssue: null,
       isOwner: true,
+      // v3.4 신설. `ratio`는 나눗셈의 결과라 **브랜드가 섞이기 가장 쉬운 자리다** —
+      // 매퍼가 `ratioString`을 빠뜨리면 `DecimalValue`가 그대로 실리고, 그 값은
+      // JSON 왕복에서 형태가 달라진다(아래 왕복 케이스가 그것을 잡는다).
+      underlyingPrices: [
+        {
+          assetId: 'a1',
+          currentPrice: '2364.072500',
+          ratio: '0.9500',
+          isWorst: true,
+        },
+      ],
       // v3.1 신설. **중첩 형태도 이 대조를 지난다** — 배열 안의 객체까지 평범한
       // 리터럴로 채울 수 있어야 하므로, 계약 조건에 브랜드나 `DecimalValue`가
       // 섞여 들어오면 여기서 컴파일이 깨진다.
@@ -83,7 +94,9 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
         annualCouponRate: '0.0850',
         kiBarrier: '0.5000',
         kiObservation: 'CLOSING',
-        underlyings: [{ assetName: '자산1', basePrice: '2489.550000' }],
+        underlyings: [
+          { assetId: 'a1', assetName: '자산1', basePrice: '2489.550000' },
+        ],
         barriers: ['0.9000', '0.8500'],
         lizards: [
           {
@@ -132,6 +145,21 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
         separateTaxationRate: '0.1540',
         taxLawYear: 2026,
       },
+      // **P6 컷 7이 셋을 더했다.** `underlyings`는 §4.2와 달리 합쳐진 형태이고
+      // (그쪽은 `terms` ↔ `underlyingPrices` 둘이다) 그 안의 `ratio`가 여기서도
+      // 평범한 문자열이어야 한다 — 두 계약이 같은 함수에서 나오므로 한쪽만
+      // 브랜드가 새는 일은 없지만, 그 사실을 단언하는 자리가 계약마다 있어야 한다.
+      kiBarrier: '0.5000',
+      kiObservation: 'CLOSING',
+      underlyings: [
+        {
+          assetName: '자산1',
+          basePrice: '2489.550000',
+          currentPrice: '2364.072500',
+          ratio: '0.9500',
+          isWorst: true,
+        },
+      ],
     }
     expect(plain.integrityIssue).toBeNull()
   })

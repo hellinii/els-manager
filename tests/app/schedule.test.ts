@@ -179,6 +179,19 @@ function round(
     principal: '100000000',
     annualCouponRate: '0.0800',
     totalRounds: 2,
+    // v3.4의 셋도 **상품 단위 사실**이라 카드 머리가 읽는다(DOC-008 §5 ⑨⑩).
+    // 그룹핑이 이 값들을 어느 차수에서 가져오는지는 아래 「같은 이름」 케이스가 본다.
+    underlyings: [
+      {
+        assetName: '자산1',
+        basePrice: '100.000000',
+        currentPrice: '95.000000',
+        ratio: '0.9500',
+        isWorst: true,
+      },
+    ],
+    kiBarrier: '0.5000',
+    kiObservation: 'CLOSING',
     roundNo,
     isPast,
     ...overrides,

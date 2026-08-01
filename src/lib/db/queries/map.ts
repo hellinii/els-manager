@@ -24,10 +24,21 @@ import {
 
 import { koreanAmount } from '@/lib/format/money'
 import type { LizardTerm } from '@/lib/format/terms'
+import {
+  underlyingLines,
+  type UnderlyingLine,
+  type UnderlyingQuote,
+  type UnderlyingTerm,
+} from '@/lib/format/underlyings'
 import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 
 import { attributionOf, type Attribution } from './attribution'
-import type { LatestPrice, ProductRow, ScheduleRow } from './load'
+import type {
+  LatestPrice,
+  ProductRow,
+  ScheduleRow,
+  UnderlyingRow,
+} from './load'
 
 /**
  * 행 → 뷰 매핑 — **순수**하다. 클라이언트를 모른다.
@@ -231,19 +242,65 @@ export function ownerNameOf(row: ProductRow): string {
   return row.users?.display_name ?? '(알 수 없음)'
 }
 
-/** 기초자산별 비율. 시세가 하나라도 없으면 `null`을 담는다. */
-function ratiosOf(
+/**
+ * `sequence` 오름차순 — **세 뷰가 같은 순서를 쓴다.**
+ *
+ * 스텝다운처럼 순서가 곧 뜻인 값은 아니지만, 계약 측(`terms.underlyings`)과 관측 측
+ * (`underlyingPrices`)이 다른 순서로 나가면 두 배열이 같은 자산을 다른 자리에 두게
+ * 된다 — 화면은 `assetId`로 합치므로 표시가 깨지지는 않으나(`underlyingLines`),
+ * 「같은 순서다」라고 적은 계약(§4.2)이 거짓이 된다.
+ */
+function sortedUnderlyings(row: ProductRow): UnderlyingRow[] {
+  return row.els_underlyings.slice().sort((a, b) => a.sequence - b.sequence)
+}
+
+/**
+ * 기초자산별 **관측** — §4.2 `underlyingPrices` · §4.4 `underlyings` (v3.4, P6 컷 7)
+ *
+ * 계약 조건(이름·기준가)을 담지 않는다. §4.2가 그 둘을 형제 필드로 가르는 이유가
+ * D1이며(`ratio`·`isWorst`는 `UNDERLYING_MISSING`에 억제되는 값이고 `terms`는 아니다),
+ * 여기에 이름을 실으면 한 뷰에 같은 값이 둘이 되어 갈리는 날 정본이 없어진다.
+ *
+ * **`worst`를 인자로 받는다.** 여기서 다시 최솟값을 고르면 `judge()`가 낸 워스트오브와
+ * 갈릴 수 있고, 갈리면 ⑤가 적는 숫자와 표식이 붙은 줄이 서로 다른 것을 가리킨다.
+ * 반올림 전 값끼리 비교하는 것도 그 이유다 — 4자리로 접은 뒤 비교하면 경계에서
+ * 표식이 두 줄에 붙거나 한 줄에도 안 붙는다.
+ */
+function underlyingQuotesOf(
   row: ProductRow,
   prices: Map<string, LatestPrice>,
-): Array<{ assetId: string; ratio: DecimalValue | null }> {
-  return row.els_underlyings.map((u) => {
+  worst: DecimalValue | null,
+): UnderlyingQuote[] {
+  return sortedUnderlyings(row).map((u) => {
     const current = prices.get(u.asset_id)?.price ?? null
+    const ratio =
+      current == null ? null : underlyingRatio(u.base_price, current.price)
+
     return {
       assetId: u.asset_id,
-      ratio:
-        current == null ? null : underlyingRatio(u.base_price, current.price),
+      currentPrice: current == null ? null : priceString(dec(current.price)),
+      ratio: ratio == null ? null : ratioString(ratio),
+      // 동률이면 전부 참이다(§4.3의 같은 규약). 하나만 고르면 그 선택이 표시
+      // 순서에 의존하는 임의값이 되고, 워스트오브가 없으면 전부 거짓이다.
+      isWorst: worst != null && ratio != null && ratio.equals(worst),
     }
   })
+}
+
+/**
+ * 기초자산별 **계약 조건** — 시세를 읽지 않는다.
+ *
+ * 인자가 `row` 하나인 것이 그 사실의 형태다(`termsOf`의 머리글과 같은 규약).
+ * `assetId`는 표시값이 아니라 관측과 짝짓는 키다 — §4.2 v3.4.
+ */
+function contractUnderlyingsOf(row: ProductRow): UnderlyingTerm[] {
+  return sortedUnderlyings(row).map((u) => ({
+    assetId: u.asset_id,
+    // 자산 임베드가 비는 것은 FK가 막으므로 도달하지 않는다. 그래도 상세와
+    // **같은 문구**를 쓴다 — 두 화면이 같은 결함을 다르게 부르면 안 된다.
+    assetName: u.assets?.name ?? '(알 수 없음)',
+    basePrice: priceString(dec(u.base_price)),
+  }))
 }
 
 /**
@@ -438,11 +495,21 @@ export type ProductListItem = {
    */
   entryMode: 'FULL' | 'REALIZED_ONLY'
   isOwner: boolean
+  /**
+   * 기초자산별 **관측** — `terms.underlyings`의 형제다 (§4.2 v3.4, DOC-008 §5 ⑧)
+   *
+   * `terms` 안에 넣지 않는 이유는 D1 표의 첫 행이다 — `ratio`·`isWorst`는 거기서
+   * `worstOf`와 한 줄에 묶여 `UNDERLYING_MISSING`에 억제되는 값이고, `terms`는
+   * 「D1이 미치지 않는다」가 정의다. 넣으면 그 정의가 거짓이 된다.
+   *
+   * 화면은 `underlyingLines`로 둘을 `assetId`로 합쳐 한 칸에 렌더한다.
+   */
+  underlyingPrices: UnderlyingQuote[]
   terms: ProductListTerms
 }
 
 /**
- * 계약 조건 — **판정값이 아니다** (DOC-011 §4.2 v3.1, DOC-008 §5 SCR-201 ⑧~⑫)
+ * 계약 조건 — **판정값이 아니다** (DOC-011 §4.2 v3.1, DOC-008 §5 SCR-201 ⑨~⑬)
  *
  * ## 왜 담아도 왕복이 늘지 않는가
  *
@@ -470,8 +537,8 @@ export type ProductListTerms = {
   /** `null` = 노낙인. `kiObservation`과 함께 있거나 함께 없다(I-11) */
   kiBarrier: string | null
   kiObservation: KiObservation | null
-  /** `sequence` 순서 */
-  underlyings: Array<{ assetName: string; basePrice: string }>
+  /** `sequence` 순서. `assetId`는 `underlyingPrices`와 짝짓는 키다 — 표시값이 아니다 */
+  underlyings: UnderlyingTerm[]
   /** 차수 순서. 스텝다운 표기의 정본이며 일괄 입력 형식(SQ-04)과 같은 순서다 */
   barriers: string[]
   /** 리자드가 붙은 차수만 */
@@ -509,6 +576,7 @@ export function toProductListItem(
     integrityIssue: j.integrityIssue,
     entryMode: row.entry_mode,
     isOwner: row.owner_id === viewerId,
+    underlyingPrices: underlyingQuotesOf(row, prices, j.worstOf),
     terms: termsOf(row),
   }
 }
@@ -534,15 +602,7 @@ function termsOf(row: ProductRow): ProductListTerms {
     kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
     kiObservation: row.ki_observation,
 
-    underlyings: row.els_underlyings
-      .slice()
-      .sort((a, b) => a.sequence - b.sequence)
-      .map((u) => ({
-        // 자산 임베드가 비는 것은 FK가 막으므로 도달하지 않는다. 그래도 상세와
-        // **같은 문구**를 쓴다 — 두 화면이 같은 결함을 다르게 부르면 안 된다.
-        assetName: u.assets?.name ?? '(알 수 없음)',
-        basePrice: priceString(dec(u.base_price)),
-      })),
+    underlyings: contractUnderlyingsOf(row),
 
     barriers: schedules.map((s) => ratioString(dec(s.barrier))),
 
@@ -689,13 +749,14 @@ export function toProductDetailView(
   viewerId: string,
 ): ProductDetailView {
   const j = judge(row, prices, asOf)
-  const ratios = ratiosOf(row, prices)
-
-  // isWorst — 최저 비율이 동률이면 전부 true. worstOf가 null이면 전부 false.
-  // 동률에서 하나만 고르면 그 선택이 표시 순서에 의존하는 임의값이 된다(§4.3).
-  const worstRatio = j.worstOf
-  const isWorstOf = (ratio: DecimalValue | null): boolean =>
-    worstRatio != null && ratio != null && ratio.equals(worstRatio)
+  /*
+   * 세 값(`currentPrice`·`ratio`·`isWorst`)을 §4.2·§4.4와 **같은 함수**에서 얻는다.
+   * 여기서 다시 계산하면 「동률이면 전부 true」와 「반올림 전 값으로 비교한다」가
+   * 두 곳에 생기고, 그 갈림은 배리어 경계의 상품에서만 드러난다.
+   */
+  const quotes = new Map(
+    underlyingQuotesOf(row, prices, j.worstOf).map((q) => [q.assetId, q]),
+  )
 
   const schedules = [...row.redemption_schedules].sort(
     (a, b) => a.round_no - b.round_no,
@@ -730,24 +791,25 @@ export function toProductDetailView(
       note: row.note,
     },
 
-    underlyings: row.els_underlyings
-      .slice()
-      .sort((a, b) => a.sequence - b.sequence)
-      .map((u) => {
-        const latest = prices.get(u.asset_id) ?? null
-        const ratio = ratios.find((r) => r.assetId === u.asset_id)?.ratio ?? null
-        return {
-          assetId: u.asset_id,
-          assetName: latest?.asset.name ?? u.assets?.name ?? '(알 수 없음)',
-          basePrice: priceString(dec(u.base_price)),
-          currentPrice:
-            latest?.price == null ? null : priceString(dec(latest.price.price)),
-          priceAsOf: latest?.price?.as_of_date ?? null,
-          priceSource: latest?.price?.source ?? null,
-          ratio: ratio == null ? null : ratioString(ratio),
-          isWorst: isWorstOf(ratio),
-        }
-      }),
+    underlyings: sortedUnderlyings(row).map((u) => {
+      const latest = prices.get(u.asset_id) ?? null
+      // 위 `quotes`가 세 값을 낸다. 자산마다 반드시 있다 — 같은 행에서 같은
+      // 순서로 나온 배열을 색인한 것이므로 부재는 도달 불가다.
+      const quote = quotes.get(u.asset_id)
+      return {
+        assetId: u.asset_id,
+        // **여기만 시세 임베드의 이름을 먼저 본다.** 이 화면은 자산 하나를 표의
+        // 한 줄로 보여주므로 `assets` 임베드가 빈 경우에도 이름을 낼 길이 있으면
+        // 쓴다(목록은 `terms`가 시세를 읽지 않아 그 길이 없다).
+        assetName: latest?.asset.name ?? u.assets?.name ?? '(알 수 없음)',
+        basePrice: priceString(dec(u.base_price)),
+        currentPrice: quote?.currentPrice ?? null,
+        priceAsOf: latest?.price?.as_of_date ?? null,
+        priceSource: latest?.price?.source ?? null,
+        ratio: quote?.ratio ?? null,
+        isWorst: quote?.isWorst ?? false,
+      }
+    }),
 
     schedules: schedules.map((s) => ({
       roundNo: s.round_no,
@@ -921,6 +983,24 @@ export type ScheduleItem = {
   totalRounds: number
   /** `annualCouponRate == null`일 때만 `null`. 그 둘은 함께 빈다 */
   proceeds: ScheduleProceeds | null
+
+  /**
+   * 카드 머리의 계약 조건 둘 — DOC-008 §5 SCR-301 ⑩ (v3.4, P6 컷 7)
+   *
+   * `judge()`가 `kiStatus`에 쓰는 두 열이며 매퍼가 읽고 버리던 값이다.
+   * 계약 조건이므로 어느 억제 축에도 걸리지 않는다.
+   */
+  kiBarrier: string | null
+  kiObservation: KiObservation | null
+  /**
+   * 기초자산 표시 줄 — DOC-008 §5 SCR-301 ⑨ (v3.4)
+   *
+   * **§4.2와 달리 계약과 관측을 합쳐서 담는다.** 이 뷰에는 그 축이 애초에 없다
+   * (`barrier`는 계약이고 `worstOf`는 판정인데 한 평면에 있다) — 없는 축을 만들면
+   * `assetId` 짝짓기가 아무것도 지키지 않는 채로 화면에 노출된다. 대신 §4.2가
+   * 화면에서 쓰는 것과 **같은 타입**이라 두 화면의 렌더러가 하나다.
+   */
+  underlyings: UnderlyingLine[]
 }
 
 /**
@@ -1021,6 +1101,15 @@ export function toScheduleItems(
   // 정본은 **행 수**다. V-04(차수 연속성)가 계약 계층에만 있으므로 DB는
   // `max(round_no)`가 행 수보다 큰 상태를 허용한다(CLAUDE.md · DOC-011 AQ-29).
   const totalRounds = row.redemption_schedules.length
+  /*
+   * 상품 단위 값이므로 **차수 밖에서 한 번** 만든다. 안에서 부르면 6차수 상품이
+   * 같은 배열을 여섯 벌 만들고, 그중 어느 것도 다르지 않다 — `judge()`를 부모별로
+   * 한 번만 부르는 `listSchedule`의 규율과 같은 자리다.
+   */
+  const underlyings = underlyingLines(
+    contractUnderlyingsOf(row),
+    underlyingQuotesOf(row, prices, j.worstOf),
+  )
 
   return row.redemption_schedules
     .slice()
@@ -1061,6 +1150,12 @@ export function toScheduleItems(
       accountType: row.account_type,
       totalRounds,
       proceeds: proceedsOf(row, s.round_no, tax),
+
+      // v3.4의 셋. 계약 조건 둘은 억제되지 않고, 기초자산 줄은 관측이 빈 자산만
+      // 빈다 — 배열 자체가 비는 것은 `UNDERLYING_MISSING`뿐이다.
+      kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
+      kiObservation: row.ki_observation,
+      underlyings,
     }))
 }
 

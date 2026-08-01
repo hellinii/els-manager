@@ -1,17 +1,20 @@
 import Link from 'next/link'
 
 import { Badge } from '@/components/display/Badge'
+import { UnderlyingLines } from '@/components/display/UnderlyingLines'
 import type { ScheduleItem } from '@/lib/db/queries/map'
 import {
   ACCOUNT_TYPE_LABELS,
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
+  KI_OBSERVATION_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   amount,
   barrierGap,
   dDayLabel,
   deriveDisplay,
+  kiTermLabel,
   percent,
   signedWon,
   ymd,
@@ -138,6 +141,33 @@ export function ProductScheduleCard({
           )}
         </dl>
       </div>
+
+      {/*
+        ── ⑨⑩ 계약 조건 둘 — **둘째 줄이다** (v2.3, P6 컷 7)
+
+        위 `<dl>`에 넣지 않는 이유는 그것이 제목과 `justify-between`으로 마주 보는
+        블록이라는 것이다. 기초자산은 자산 수만큼 길어지므로 그 자리에 두면 상품명이
+        눌린다 — SCR-201이 계약 조건을 카드의 **둘째 줄**로 뺀 것과 같은 형태이고,
+        두 화면이 같은 값을 같은 자리에 두게 된다.
+
+        차수 행이 아니라 카드 머리인 것은 ⑦⑧과 같은 근거다: 상품 단위 값이라 차수
+        행에 두면 6차수 상품에서 같은 문자열이 여섯 번 나온다.
+      */}
+      <dl className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
+        <HeadFact label="기초자산">
+          <UnderlyingLines lines={group.underlyings} />
+        </HeadFact>
+        <HeadFact label="KI">
+          <span className="tabular-nums">
+            {kiTermLabel(
+              group.kiBarrier,
+              group.kiObservation == null
+                ? null
+                : KI_OBSERVATION_LABELS[group.kiObservation],
+            )}
+          </span>
+        </HeadFact>
+      </dl>
 
       {/* ── 차수 표 — 카드 테두리까지 흘러나간다 (`TermsLine`의 선례) ── */}
       <div className="-mx-4 -mb-4 mt-3 overflow-hidden rounded-b-lg border-t border-neutral-200">

@@ -1,4 +1,5 @@
 import { korMonth, monthKey } from './date'
+import type { UnderlyingLine } from './underlyings'
 
 /**
  * 평가일정의 **구획과 그룹** — SCR-301 (P4 컷 7)
@@ -100,6 +101,11 @@ export type ScheduleProductFacts = {
   principal: string
   annualCouponRate: string | null
   totalRounds: number
+  /** DOC-008 §5 ⑨ — 계약(기준가)과 관측(현재가)이 한 칸에 온다 (v3.4) */
+  underlyings: readonly UnderlyingLine[]
+  /** DOC-008 §5 ⑩ — `null`이 노낙인이다(I-11의 짝) */
+  kiBarrier: string | null
+  kiObservation: 'CONTINUOUS' | 'CLOSING' | null
 }
 
 export type ProductGroup<T> = ScheduleProductFacts & {
@@ -179,6 +185,9 @@ export function groupByProduct<
           principal: item.principal,
           annualCouponRate: item.annualCouponRate,
           totalRounds: item.totalRounds,
+          underlyings: item.underlyings,
+          kiBarrier: item.kiBarrier,
+          kiObservation: item.kiObservation,
         },
         rounds: [],
       }

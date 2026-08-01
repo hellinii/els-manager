@@ -147,7 +147,7 @@ describe('SCR-201 목록', () => {
     expect(form?.toLowerCase()).toContain('method="get"')
   })
 
-  it('★ 카드가 계약 조건 다섯을 함께 보여준다 — DOC-008 §5 ⑧~⑫', async () => {
+  it('★ 카드가 기초자산의 지금과 계약 조건을 함께 보여준다 — DOC-008 §5 ⑧~⑬', async () => {
     /*
      * ★ **여기서만 보이는 것**: `terms`가 계약에 담기는 것은 `tests/db/map.test.ts`가
      * 보고 표기 규칙은 `tests/app/productList.test.ts`가 본다. 그 둘이 **렌더된
@@ -159,12 +159,21 @@ describe('SCR-201 목록', () => {
      */
     const html = await listPageContaining(jar, product.productName)
 
-    // ⑧ 기초자산 · 기준가격 — 18자리가 표시 경로에서도 밀리지 않는다(AQ-30)
+    // ⑨ 기초자산 · 기준가격 — 18자리가 표시 경로에서도 밀리지 않는다(AQ-30)
     expect(html).toContain(product.assetName)
     expect(html).toContain(priceDisplay(product.basePrice))
 
     /*
-     * ⑨⑩ — **요소 경계까지 포함해 단언한다.** `toContain('8%')`는 `'58%'`에도
+     * ⑧ 현재가 — **비율로 단언하지 않는다.** 그 문자열(`120%`)은 ⑤ 워스트오브 열에도
+     * 있으므로 이 칸을 통째로 지워도 통과한다(컷 4a의 「기초자산 1」과 같은 함정).
+     * 현재가는 기준가와 다른 18자리이므로 그것이 이 칸의 고유한 증거다.
+     */
+    expect(html).toContain(priceDisplay(product.currentPrice))
+    // 기준가와 현재가를 잇는 화살표. 두 값이 **한 칸에** 있다는 것의 표시다
+    expect(html).toContain('> → <')
+
+    /*
+     * ⑩⑪ — **요소 경계까지 포함해 단언한다.** `toContain('8%')`는 `'58%'`에도
      * 걸리므로 값이 틀려도 통과할 수 있다. 각 `<dd>`가 문자열 하나를 자식으로
      * 가지므로(React가 사이에 주석을 넣지 않는다) `>…<`가 그 경계다.
      */
@@ -172,13 +181,13 @@ describe('SCR-201 목록', () => {
     expect(html).toContain(`>${percent(percentToRatio('8'))}<`)
     expect(html).toContain(`>${percent(percentToRatio('50'))} 종가<`)
 
-    // ⑪ 스텝다운 — 토큰마다 요소이므로 문자열 전체가 아니라 라벨과 토큰을 본다
+    // ⑫ 스텝다운 — 토큰마다 요소이므로 문자열 전체가 아니라 라벨과 토큰을 본다
     expect(html).toContain('스텝다운')
     for (const barrier of product.barriers) {
       expect(html, `배리어 ${barrier}`).toContain(`>${barrier}<`)
     }
 
-    // ⑫ 리자드 — 붙은 차수만. 1건이므로 배리어·쿠폰·KI 요구가 함께 나온다
+    // ⑬ 리자드 — 붙은 차수만. 1건이므로 배리어·쿠폰·KI 요구가 함께 나온다
     expect(html).toContain('리자드')
     expect(html).toContain(
       `>2차 ${percent(percentToRatio('60'))} · 쿠폰 ${percent(

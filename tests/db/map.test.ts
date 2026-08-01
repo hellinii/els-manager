@@ -1325,6 +1325,233 @@ describe('계약 조건 — 판정과 다른 성질을 갖는다', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 기초자산별 관측 — `underlyingPrices` · `ScheduleItem.underlyings` (§4.2·§4.4 v3.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * P6 컷 7 — **계약 조건과 다른 축이다.**
+ *
+ * 바로 위 절이 「`terms`는 기준일에 의존하지 않는다」를 고정하고, 이 절은 그 형제
+ * 필드가 **기준일에 의존한다**는 것과 그 둘이 `assetId`로 짝지어진다는 것을 본다.
+ * 두 단언이 함께 있어야 「왜 한 칸에 보이는 값이 두 필드인가」가 설명된다.
+ */
+describe('기초자산별 관측 — 계약 조건의 형제다', () => {
+  /** 자산 둘. 기준가가 다르므로 같은 현재가로도 비율이 갈린다 */
+  const TWO_ASSETS: ProductRow['els_underlyings'] = [
+    {
+      asset_id: ASSET_1,
+      base_price: '100.000000',
+      sequence: 1,
+      assets: asset(ASSET_1, '자산1'),
+    },
+    {
+      asset_id: ASSET_2,
+      base_price: '200.000000',
+      sequence: 2,
+      assets: asset(ASSET_2, '자산2'),
+    },
+  ]
+
+  it('계약 측과 **같은 자산·같은 순서**이고 이름·기준가를 사본으로 싣지 않는다', () => {
+    /*
+     * 사본을 실으면 한 뷰에 같은 값이 둘이 되고, 갈리는 날 어느 쪽이 정본인지
+     * 말할 것이 없다. 짝짓기 키(`assetId`)만 겹치는 것이 그 판단의 형태다.
+     */
+    const item = toProductListItem(
+      productRow({ els_underlyings: TWO_ASSETS }),
+      priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
+      ASOF,
+      OWNER,
+    )
+
+    expect(item.underlyingPrices.map((q) => q.assetId)).toEqual([ASSET_1, ASSET_2])
+    expect(item.terms.underlyings.map((u) => u.assetId)).toEqual([ASSET_1, ASSET_2])
+    expect(Object.keys(item.underlyingPrices[0]!).sort()).toEqual([
+      'assetId',
+      'currentPrice',
+      'isWorst',
+      'ratio',
+    ])
+  })
+
+  it('★ 기준일에 의존한다 — 계약 조건과 갈리는 지점이 이것이다', () => {
+    /*
+     * ★ 바로 위 절의 「`terms`는 언제나 같은 값이다」와 **짝을 이루는 단언**이다.
+     * 시세는 `asOf` 상한으로 골라지므로(D6) 기준일이 움직이면 이 필드도 움직인다 —
+     * 그 성질이 `terms` 안에 들어가면 안 되는 이유의 값 쪽 증거다.
+     */
+    const row = productRow({ els_underlyings: TWO_ASSETS })
+    const withPrice = toProductListItem(
+      row,
+      priceMap([
+        { assetId: ASSET_1, price: '95.000000' },
+        { assetId: ASSET_2, price: '190.000000' },
+      ]),
+      ASOF,
+      OWNER,
+    )
+    const withoutPrice = toProductListItem(row, priceMap([]), ASOF, OWNER)
+
+    expect(withPrice.terms).toEqual(withoutPrice.terms)
+    expect(withPrice.underlyingPrices).not.toEqual(withoutPrice.underlyingPrices)
+  })
+
+  it('★ 동률이면 `isWorst`가 전부 참이다 — 화면이 하나를 고르지 않는다', () => {
+    // §4.3의 같은 규약이다. 하나만 고르면 그 선택이 표시 순서에 의존하는 임의값이 된다.
+    const item = toProductListItem(
+      productRow({ els_underlyings: TWO_ASSETS }),
+      priceMap([
+        { assetId: ASSET_1, price: '95.000000' }, // 0.95
+        { assetId: ASSET_2, price: '190.000000' }, // 0.95
+      ]),
+      ASOF,
+      OWNER,
+    )
+
+    expect(item.underlyingPrices.map((q) => q.ratio)).toEqual(['0.9500', '0.9500'])
+    expect(item.underlyingPrices.map((q) => q.isWorst)).toEqual([true, true])
+    expect(item.worstOf).toBe('0.9500')
+  })
+
+  it('★ 시세가 하나만 없으면 그 자산만 비고 표식은 **아무 데도** 붙지 않는다', () => {
+    /*
+     * ★ 워스트오브는 하나라도 없으면 `null`이므로(E-01) 비교할 기준이 없다. 그런데
+     * **값이 있는 자산의 비율은 그때도 참이다** — 화면이 어느 자산의 시세가 빠졌는지
+     * 보여주는 근거가 이 조합이며(ST-01), 표식을 남은 자산에 붙이면 「비교하지 않은
+     * 자산이 최저다」라고 말하게 된다.
+     */
+    const item = toProductListItem(
+      productRow({ els_underlyings: TWO_ASSETS }),
+      priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
+      ASOF,
+      OWNER,
+    )
+
+    expect(item.worstOf).toBeNull()
+    expect(item.underlyingPrices.map((q) => q.currentPrice)).toEqual([
+      '95.000000',
+      null,
+    ])
+    expect(item.underlyingPrices.map((q) => q.ratio)).toEqual(['0.9500', null])
+    expect(item.underlyingPrices.map((q) => q.isWorst)).toEqual([false, false])
+  })
+
+  it('★ 목록·상세·평가일정이 **같은 값**을 낸다', () => {
+    /*
+     * ★ 세 뷰가 같은 함수를 지나는 것이 이 단언의 대상이다. 각자 계산하면 「동률이면
+     * 전부 참」과 「반올림 전 값으로 비교한다」가 세 곳에 생기고, 그 갈림은 배리어
+     * 경계의 상품에서만 드러난다 — 판정 삼종에 대해 §4.3이 세운 규율과 같다.
+     */
+    const row = productRow({ els_underlyings: TWO_ASSETS })
+    const prices = priceMap([
+      { assetId: ASSET_1, price: '95.000000' },
+      { assetId: ASSET_2, price: '180.000000' },
+    ])
+
+    const list = toProductListItem(row, prices, ASOF, OWNER)
+    const detail = toProductDetailView(row, prices, ASOF, OWNER)
+    const [firstRound] = toScheduleItems(row, prices, ASOF, taxBasis())
+
+    const shape = (u: {
+      currentPrice: string | null
+      ratio: string | null
+      isWorst: boolean
+    }) => [u.currentPrice, u.ratio, u.isWorst]
+
+    expect(list.underlyingPrices.map(shape)).toEqual(detail.underlyings.map(shape))
+    expect(firstRound!.underlyings.map(shape)).toEqual(detail.underlyings.map(shape))
+    // 음성 대조 — 두 자산이 실제로 다른 값을 갖는다(빈 배열끼리 같은 것이 아니다)
+    expect(detail.underlyings.map((u) => u.isWorst)).toEqual([false, true])
+  })
+
+  it('기초자산이 0건인 결함 상품은 빈 배열이다', () => {
+    const item = toProductListItem(
+      productRow({ els_underlyings: [] }),
+      priceMap([]),
+      ASOF,
+      OWNER,
+    )
+
+    expect(item.underlyingPrices).toEqual([])
+    expect(item.integrityIssue).toBe('UNDERLYING_MISSING')
+  })
+})
+
+describe('평가일정의 기초자산·KI (§4.4 v3.4)', () => {
+  const prices = priceMap([{ assetId: ASSET_1, price: '95.000000' }])
+
+  it('★ 계약과 관측이 **합쳐진** 형태다 — §4.2와 형태가 다르다', () => {
+    /*
+     * ★ 이 뷰에는 계약/판정을 가르는 축이 없다(`barrier`는 계약이고 `worstOf`는
+     * 판정인데 한 평면에 있다). 없는 축을 만들면 `assetId` 짝짓기가 아무것도
+     * 지키지 않는 채로 화면에 노출되므로, 화면이 쓰는 표시 줄을 그대로 담는다.
+     */
+    const [item] = toScheduleItems(productRow(), prices, ASOF, taxBasis())
+
+    expect(item!.underlyings).toEqual([
+      {
+        assetName: '자산1',
+        basePrice: '100.000000',
+        currentPrice: '95.000000',
+        ratio: '0.9500',
+        isWorst: true,
+      },
+    ])
+    // 짝지을 상대가 없으므로 키를 담지 않는다
+    expect(item!.underlyings[0]).not.toHaveProperty('assetId')
+  })
+
+  it('KI 두 칸이 §4.2 `terms`와 같은 값이다', () => {
+    const row = productRow()
+    const [item] = toScheduleItems(row, prices, ASOF, taxBasis())
+    const { terms } = toProductListItem(row, prices, ASOF, OWNER)
+
+    expect(item!.kiBarrier).toBe(terms.kiBarrier)
+    expect(item!.kiObservation).toBe(terms.kiObservation)
+  })
+
+  it('노낙인 상품은 KI 두 칸이 함께 비어 있다 (I-11의 짝)', () => {
+    const [item] = toScheduleItems(
+      productRow({ ki_barrier: null, ki_observation: null }),
+      prices,
+      ASOF,
+      taxBasis(),
+    )
+
+    expect(item!.kiBarrier).toBeNull()
+    expect(item!.kiObservation).toBeNull()
+  })
+
+  it('★ 차수마다 같은 값이다 — 카드 머리가 첫 항목에서 읽는 근거다', () => {
+    /*
+     * ★ `groupByProduct`가 상품 단위 사실을 **첫 항목**에서 취하므로(그 함수의
+     * 머리글) 차수마다 같다는 것이 계약의 보장이어야 한다. 갈리면 카드 머리가
+     * 「어느 차수의 값인가」에 의존하고, 그 의존은 기간 필터가 앞 차수를 자를 때
+     * 조용히 다른 값을 보여준다.
+     */
+    const items = toScheduleItems(productRow(), prices, ASOF, taxBasis())
+
+    expect(items).toHaveLength(2)
+    expect(items[0]!.underlyings).toEqual(items[1]!.underlyings)
+    expect(items[0]!.kiBarrier).toBe(items[1]!.kiBarrier)
+  })
+
+  it('기초자산이 0건인 결함 상품은 빈 배열이다 — 카드가 「없음」을 그린다', () => {
+    const items = toScheduleItems(
+      productRow({ els_underlyings: [] }),
+      priceMap([]),
+      ASOF,
+      taxBasis(),
+    )
+
+    expect(items[0]!.underlyings).toEqual([])
+    expect(items[0]!.integrityIssue).toBe('UNDERLYING_MISSING')
+    // 계약 조건은 억제되지 않는다 — 결함이 파괴한 입력은 시세뿐이다
+    expect(items[0]!.kiBarrier).toBe('0.5000')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 억제의 셋째 축 — 기실현 등재 (DOC-011 §4.2, DOC-002 D-07)
 // ---------------------------------------------------------------------------
 
