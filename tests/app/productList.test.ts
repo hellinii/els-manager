@@ -4,7 +4,20 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import type { ProductListItem } from '@/lib/db/queries/map'
-import { kiTermLabel, lizardLabel, stepdownLabel } from '@/lib/format'
+import {
+  kiTermLabel,
+  lizardLabel,
+  paginate,
+  PRODUCTS_PER_PAGE,
+  stepdownLabel,
+} from '@/lib/format'
+import {
+  filterQuery,
+  PAGE_KEY,
+  pageQuery,
+  parsePage,
+  type ProductFilter,
+} from '@/lib/forms/query'
 
 /**
  * SCR-201의 표시 구조 — **문서와 계약이 갈리는 것을 여기서 본다** (P6 컷 2)
@@ -289,5 +302,133 @@ describe('kiTermLabel — `null`이 노낙인이다', () => {
      * 있는 것처럼** 보여준다. 배리어만 적는 것이 그 상태의 정직한 표시다.
      */
     expect(kiTermLabel('0.5000', null)).toBe('50%')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 페이지 나눔 — DOC-008 §5 SCR-201 v2.0
+// ---------------------------------------------------------------------------
+
+describe('paginate — 거른 뒤의 목록을 자른다', () => {
+  const of = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
+
+  it('10건까지는 한 페이지다 — 요구가 「10개가 넘어가면」이다', () => {
+    const paged = paginate(of(10), 1)
+    expect(paged.items).toHaveLength(10)
+    expect(paged.pageCount).toBe(1)
+    expect(paged.total).toBe(10)
+  })
+
+  it('11건이면 두 페이지이고 마지막이 1건이다', () => {
+    expect(paginate(of(11), 1).items).toHaveLength(10)
+    const second = paginate(of(11), 2)
+    expect(second.items).toEqual([11])
+    expect(second.pageCount).toBe(2)
+    // 건수는 자르기 **전**의 전체다 — 화면이 「N건」을 그것으로 말한다
+    expect(second.total).toBe(11)
+  })
+
+  it('★ 범위 밖 페이지를 마지막으로 clamp한다 — 자르지 않는다', () => {
+    /*
+     * ★ 그대로 자르면 빈 배열이 되고 화면은 그 상태를 「조건에 맞는 상품이 없다」로
+     * 렌더한다 — **상품은 있는데** 그렇게 보이므로 §6의 빈 상태 두 갈래가 오염된다
+     * (그 둘의 구분은 「필터를 걸었는가」이고 「페이지를 잘못 짚었는가」가 아니다).
+     */
+    const paged = paginate(of(11), 99)
+    expect(paged.page).toBe(2)
+    expect(paged.items).toEqual([11])
+    expect(paged.items).not.toEqual([])
+  })
+
+  it('인식하지 못한 페이지는 1이다 — 조작된 링크가 화면을 막지 않는다', () => {
+    for (const bad of [0, -3, Number.NaN, 1.5]) {
+      const paged = paginate(of(25), bad)
+      expect(paged.page, String(bad)).toBe(1)
+      expect(paged.items[0], String(bad)).toBe(1)
+    }
+  })
+
+  it('0건에서 pageCount가 1이다 — 「0페이지 중 0페이지」를 만들지 않는다', () => {
+    const paged = paginate([], 1)
+    expect(paged).toEqual({ items: [], page: 1, pageCount: 1, total: 0 })
+  })
+
+  it('★ 페이지를 이어 붙이면 원본이다 — 빠지거나 겹치는 항목이 없다', () => {
+    /*
+     * ★ off-by-one은 「한 항목이 두 페이지에 나온다」 또는 「한 항목이 어느 페이지에도
+     * 없다」로 나타나고, 둘 다 페이지를 하나씩 볼 때는 정상으로 보인다. 이어 붙여
+     * 대조하는 것이 그것을 잡는 유일한 형태다.
+     */
+    const source = of(37)
+    const { pageCount } = paginate(source, 1)
+    expect(pageCount).toBe(4)
+
+    const joined = Array.from({ length: pageCount }, (_, i) =>
+      paginate(source, i + 1).items,
+    ).flat()
+    expect(joined).toEqual(source)
+  })
+
+  it('페이지 크기를 인자로 받는다 — 상수에 묶이지 않는다', () => {
+    expect(paginate(of(5), 2, 2).items).toEqual([3, 4])
+    expect(PRODUCTS_PER_PAGE).toBe(10)
+  })
+})
+
+describe('주소의 페이지 축 — 필터와 분리되어 있다', () => {
+  const BASE: ProductFilter = {
+    ownerId: null,
+    status: null,
+    kiStatus: null,
+    sortBy: 'EVALUATION_DATE',
+  }
+
+  it('인식하지 못한 값은 1페이지다', () => {
+    for (const raw of ['', '0', '-2', 'abc', '1.5', undefined]) {
+      expect(parsePage({ [PAGE_KEY]: raw }), String(raw)).toBe(1)
+    }
+    expect(parsePage({})).toBe(1)
+  })
+
+  it('★ 배열은 첫 값을 쓰지 않고 버린다 — `one()`의 규약을 그대로 따른다', () => {
+    /*
+     * ★ `?page=3&page=9`는 폼이 만들 수 없는 형태이므로 조작된 주소다. 어느 쪽을
+     * 골라도 **사용자가 고르지 않은 하나를 우리가 고르는 것**이라 버린다(`one()`의
+     * 각주). 초안에서 「첫 값을 본다」로 단언했다가 이 규약에 걸렸다 — 새 축이 기존
+     * 규약을 따르는지가 여기서 확인된다.
+     */
+    expect(parsePage({ [PAGE_KEY]: ['3', '9'] })).toBe(1)
+    // 음성 대조 — 단일 값은 읽는다(무조건 1을 내는 것이 아니다)
+    expect(parsePage({ [PAGE_KEY]: '3' })).toBe(3)
+  })
+
+  it('1페이지는 주소에 싣지 않는다', () => {
+    expect(pageQuery(BASE, 1)).toBe('')
+    expect(pageQuery(BASE, 2)).toBe(`?${PAGE_KEY}=2`)
+  })
+
+  it('★ 페이지 링크가 현재 필터를 그대로 싣는다', () => {
+    const narrowed: ProductFilter = { ...BASE, status: 'ACTIVE', sortBy: 'PRINCIPAL' }
+    const query = pageQuery(narrowed, 3)
+    expect(query).toContain('status=ACTIVE')
+    expect(query).toContain('sortBy=PRINCIPAL')
+    expect(query).toContain(`${PAGE_KEY}=3`)
+    // `filterQuery`를 재사용하므로 `?`가 하나다
+    expect(query.match(/\?/g)).toHaveLength(1)
+  })
+
+  it('★★ 필터 질의에는 페이지가 없다 — 초기화가 규율이 아니라 구조다', () => {
+    /*
+     * ★★ 이 단언이 「필터를 바꾸면 1페이지로 돌아간다」의 근거다. 필터·정렬 폼은
+     * `<form method="GET">`이고 그 안에 `page` 칸이 없으므로 제출하면 주소에 그 키가
+     * 실리지 않는다 — `filterQuery`가 그것을 만들지 않는 것이 같은 사실의 다른 면이다.
+     *
+     * `page`를 `ProductFilter`에 넣었다면 여기가 빨간불이 되고, 그때 실제로 깨지는
+     * 것은 「3페이지를 보다가 필터를 좁히면 상품이 있는데 빈 화면」이다.
+     */
+    const query = filterQuery({ ...BASE, status: 'REDEEMED' })
+    expect(query).not.toContain(PAGE_KEY)
+    // 음성 대조 — 다른 축은 실린다(질의 자체가 비어 있어서 통과하는 것이 아니다)
+    expect(query).toContain('status=REDEEMED')
   })
 })

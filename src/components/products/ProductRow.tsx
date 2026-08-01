@@ -37,6 +37,22 @@ import { PATHS } from '@/lib/routes/paths'
  * SCR-302의 `PriceRow`가 같은 형태이며, 폭마다 다른 화면을 만들지 않는 것이
  * 이 프로젝트의 기존 판단이다.
  *
+ * ## ★ 테두리는 **모든 폭에서** 유지된다 (v2.0, 실사용이 정했다)
+ *
+ * 종전에는 데스크톱에서 테두리를 지우고(`lg:border-0 lg:rounded-none`) 목록의
+ * `divide-y`에 경계를 맡겼다. 한 줄 카드에서는 성립했으나 **계약 조건 줄이 붙으며
+ * 깨졌다** — 한 상품 **안**의 구분선과 상품 **사이**의 구분선이 둘 다 얇은 수평선이
+ * 되어 「이 기초자산이 위 상품인가 아래 상품인가」를 보면서 헷갈리게 됐다.
+ *
+ * **선을 굵게 하는 것으로 고치지 않았다.** 굵기를 다르게 두면 「어느 쪽이 더
+ * 굵은가」를 매번 비교해야 하고 그 비교는 두 선을 동시에 볼 때만 성립한다. 경계는
+ * 비교가 아니라 **둘러싸기**로 표현한다 — 테두리 + 카드 사이의 여백이면 어느 값이
+ * 어느 상품에 속하는지가 **선의 해석 없이** 결정된다. 목록 쪽의 `divide-y`도 함께
+ * 여백으로 바뀌었다(`products/page.tsx`).
+ *
+ * `lg:items-center` → `lg:items-start`인 것도 그 결과다. 카드가 두 줄이므로 열을
+ * 수직 중앙에 두면 첫 줄의 값들이 계약 조건 줄 쪽으로 밀려 내려가 머리글과 어긋난다.
+ *
  * ## `deriveDisplay()`의 소비자 셋 중 하나다
  *
  * §4.2 우선순위(무결성 결함 > E-05 상환완료 > E-01 시세 없음)를 여기서 다시 정하지
@@ -60,7 +76,7 @@ export function ProductRow({ item }: { item: ProductListItem }) {
   const next = item.nextEvaluation
 
   return (
-    <li className="grid gap-2 rounded-lg border border-neutral-200 p-4 md:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] lg:items-center lg:rounded-none lg:border-0 lg:px-4 lg:py-3">
+    <li className="grid gap-2 rounded-lg border border-neutral-200 p-4 md:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] lg:items-start">
       {/* ① 상품 — 이름이 SCR-202로 가는 링크다 */}
       <div className="min-w-0">
         <Link
@@ -161,6 +177,14 @@ export function ProductRow({ item }: { item: ProductListItem }) {
  * 스텝다운·리자드·KI 표기는 `lib/format/terms.ts`의 순수 함수가 낸다. 화면은 어떤
  * 스위트의 import 그래프에도 없으므로(AQ-23) 여기서 문자열을 조립하면 그 판단이
  * 영구 미검증이 된다.
+ *
+ * ## ★ 구분선이 아니라 배경이다 (v2.0)
+ *
+ * 종전에는 이 줄에 `border-t border-dashed`가 있었고 그것이 카드 사이의 구분선과
+ * 같은 부류의 신호였다 — 어느 선이 상품의 경계인지 모호해진 원인의 절반이다.
+ * **배경은 「이 블록은 위와 한 덩어리」를 말하고 선은 「여기서 갈린다」를 말한다.**
+ * 카드 안쪽 여백을 음수 마진으로 되돌려 배경이 테두리까지 닿게 하므로, 이 블록이
+ * 카드에 속한다는 것이 모양으로 드러난다.
  */
 function TermsLine({ item }: { item: ProductListItem }) {
   const { terms } = item
@@ -169,7 +193,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
   const nextRound = item.nextEvaluation?.roundNo ?? null
 
   return (
-    <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-dashed border-neutral-200 pt-2 text-xs lg:col-span-full">
+    <dl className="-mx-4 -mb-4 mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-b-lg bg-neutral-50 px-4 py-2.5 text-xs lg:col-span-full">
       {/* ⑧ 기초자산 · 기준가격 */}
       <div className="flex min-w-0 items-baseline gap-1.5">
         <dt className="shrink-0 text-neutral-500">기초자산</dt>

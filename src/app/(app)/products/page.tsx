@@ -6,12 +6,15 @@ import { ProductRow } from '@/components/products/ProductRow'
 import { EmptyState } from '@/components/state/EmptyState'
 import type { ProductListItem } from '@/lib/db/queries/map'
 import { getQueries } from '@/lib/db/server'
-import { KI_STATUS_LABELS } from '@/lib/format'
+import { KI_STATUS_LABELS, paginate } from '@/lib/format'
 import type { KiStatus } from '@/lib/domain'
 import {
   isNarrowed,
+  pageQuery,
+  parsePage,
   parseProductFilter,
   toListParams,
+  type ProductFilter,
   type QueryValues,
 } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
@@ -70,24 +73,39 @@ export default async function ProductsPage({
   // Next 16의 searchParams는 Promise다.
   searchParams: Promise<QueryValues>
 }) {
-  const filter = parseProductFilter(await searchParams, KI_STATUS_VALUES)
+  const params = await searchParams
+  const filter = parseProductFilter(params, KI_STATUS_VALUES)
   const queries = await getQueries()
 
   const narrowed = isNarrowed(filter)
-  const [items, pool] = await Promise.all([
+  const [matched, pool] = await Promise.all([
     queries.listProducts(toListParams(filter)),
     narrowed ? queries.listProducts({}) : null,
   ])
   // 좁히지 않았으면 첫 조회가 곧 전체다.
-  const all = pool ?? items
+  const all = pool ?? matched
+
+  /*
+   * 페이지는 **거른 뒤에** 자른다. 계약이 `status`·`kiStatus`를 조회 후에 거르므로
+   * (Q-05) 그 전에 자르면 페이지마다 건수가 달라진다 — `paginate`의 각주.
+   * 범위 밖 페이지는 그 함수가 clamp하므로 여기서 판단하지 않는다.
+   */
+  const paged = paginate(matched, parsePage(params))
+  const items = paged.items
 
   return (
     <section className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">ELS 목록</h1>
+          {/*
+            건수는 **거른 결과 전체**를 말한다 — 이 페이지에 보이는 수가 아니다.
+            페이지가 나뉘면 「지금 몇 페이지인가」를 덧붙인다: 그것이 없으면 10건
+            뒤가 잘린 것과 상품이 10건인 것이 같게 보인다(AQ-22의 형태).
+          */}
           <p className="mt-1 text-sm text-neutral-600">
-            {narrowed ? `${all.length}건 중 ${items.length}건` : `${items.length}건`}
+            {narrowed ? `${all.length}건 중 ${paged.total}건` : `${paged.total}건`}
+            {paged.pageCount > 1 && ` · ${paged.page}/${paged.pageCount} 페이지`}
           </p>
         </div>
 
@@ -109,13 +127,18 @@ export default async function ProductsPage({
       {items.length === 0 ? (
         <ListEmpty narrowed={narrowed} />
       ) : (
-        <div className="lg:overflow-hidden lg:rounded-lg lg:border lg:border-neutral-200">
+        <div className="flex flex-col gap-3">
           {/*
             표 머리글은 데스크톱에서만 — 그 아래에서는 카드이고 각 값이 자기
             라벨을 들고 있다(`ProductRow`의 `lg:hidden` 라벨). 열 정의를 두 곳에
             적는 대신 같은 그리드 템플릿을 공유한다.
+
+            ★ **외곽 테두리를 두지 않는다** (v2.0). 카드마다 테두리가 있으므로
+            감싸면 이중선이 되고, 그 이중선이 「어느 선이 경계인가」를 다시 모호하게
+            만든다 — 정확히 이 컷이 고치는 그 결함이다. `px-4`가 카드의 안쪽 여백과
+            같아서 열이 그대로 맞는다.
           */}
-          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-500 lg:grid">
+          <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] gap-3 px-4 text-xs font-medium text-neutral-500 lg:grid">
             <span>상품</span>
             <span className="text-right">투자원금 (원)</span>
             <span>다음 평가일</span>
@@ -123,12 +146,22 @@ export default async function ProductsPage({
             <span>판정</span>
           </div>
 
-          {/* 모바일 1열 → 태블릿 2열 → 데스크톱 표 (DOC-008 §8) */}
-          <ul className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-neutral-200">
+          {/*
+            모바일 1열 → 태블릿 2열 → 데스크톱 1열 (DOC-008 §8)
+
+            ★ **`divide-y`를 여백으로 바꿨다** (v2.0). 구분선에 경계를 맡기면 한 상품
+            안의 선(계약 조건 줄)과 상품 사이의 선이 같은 부류가 되어 소속이 모호해진다.
+            여백 + 카드 테두리는 **선의 해석 없이** 소속을 정한다.
+          */}
+          <ul className="grid gap-3 md:grid-cols-2 lg:grid-cols-1">
             {items.map((item) => (
               <ProductRow key={item.id} item={item} />
             ))}
           </ul>
+
+          {paged.pageCount > 1 && (
+            <Pagination filter={filter} page={paged.page} pageCount={paged.pageCount} />
+          )}
         </div>
       )}
     </section>
@@ -180,4 +213,87 @@ function ownersOf(items: readonly ProductListItem[]): OwnerOption[] {
   return [...byId.entries()]
     .map(([id, name]) => ({ id, name }))
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * 페이지 이동 — **링크다. JS가 없어도 동작한다** (DOC-008 §5 SCR-201 v2.0)
+ *
+ * 필터·정렬이 `<form method="GET">`인 것과 같은 축이다: 주소가 상태이므로 페이지도
+ * 주소에 있고, 이동은 링크다. 버튼과 클라이언트 상태로 두면 뒤로 가기가 페이지를
+ * 되돌리지 못하고 링크를 공유할 수도 없다.
+ *
+ * ## 번호를 전부 그리지 않는다
+ *
+ * 이전·다음과 「n/m」만 둔다. 번호를 나열하면 페이지가 많을 때 그 목록이 카드보다
+ * 길어지고, A-01 규모에서 페이지는 한 자리 수다. 첫·끝으로 가는 링크도 두지 않는다 —
+ * 두 페이지 사이를 오가는 것이 이 화면의 실제 사용이다.
+ *
+ * ## 필터를 함께 싣는다
+ *
+ * `pageQuery`가 `filterQuery`를 재사용한다 — 여기서 질의를 조립하면 정렬 기본값을
+ * 주소에 싣지 않는 규칙이 두 곳에 생기고, 그 갈림은 「페이지를 넘기면 정렬이 주소에
+ * 나타난다」로 드러난다.
+ */
+function Pagination({
+  filter,
+  page,
+  pageCount,
+}: {
+  filter: ProductFilter
+  page: number
+  pageCount: number
+}) {
+  const first = page <= 1
+  const last = page >= pageCount
+
+  return (
+    <nav
+      aria-label="페이지 이동"
+      className="flex items-center justify-center gap-2 pt-1"
+    >
+      <PageLink href={pageQuery(filter, page - 1)} disabled={first}>
+        이전
+      </PageLink>
+      {/* 한 문자열로 렌더한다 — `{a}/{b}`는 사이에 빈 주석이 들어간다(실측) */}
+      <span className="px-2 text-sm tabular-nums text-neutral-600">
+        {`${page} / ${pageCount}`}
+      </span>
+      <PageLink href={pageQuery(filter, page + 1)} disabled={last}>
+        다음
+      </PageLink>
+    </nav>
+  )
+}
+
+/**
+ * 양 끝에서는 **`<span>`이다 — 비활성 링크를 두지 않는다.**
+ *
+ * `aria-disabled`를 붙인 `<a>`는 여전히 눌리고, 눌리면 범위 밖 페이지로 가서
+ * `paginate`가 clamp한 같은 화면이 다시 그려진다 — 사용자에게는 「눌렀는데 아무 일도
+ * 없다」이고 그것은 결함으로 읽힌다. ST-04가 권한 없는 버튼을 **숨기는** 것과 같은
+ * 판단이다: 할 수 없는 조작은 조작할 수 없는 모양이어야 한다.
+ */
+function PageLink({
+  href,
+  disabled,
+  children,
+}: {
+  href: string
+  disabled: boolean
+  children: string
+}) {
+  const shape = 'rounded-md border px-3 py-1.5 text-sm'
+  if (disabled) {
+    return (
+      <span className={`${shape} border-neutral-200 text-neutral-300`}>{children}</span>
+    )
+  }
+  return (
+    <Link
+      href={`${PATHS.products}${href}`}
+      className={`${shape} border-neutral-300 text-neutral-700 hover:bg-neutral-100`}
+    >
+      {children}
+    </Link>
+  )
 }

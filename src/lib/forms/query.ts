@@ -88,6 +88,51 @@ export function parseProductFilter(
 const SORT_KEYS = ['EVALUATION_DATE', 'PRINCIPAL', 'D_DAY'] as const
 
 /**
+ * 페이지 번호의 질의 키 — **`ProductFilter`에 넣지 않는다** (DOC-008 §5 v2.0)
+ *
+ * ★ 넣으면 `filterQuery`가 그것을 실어 나르고, 그러면 **필터를 바꿔도 페이지가 따라온다** —
+ * 3페이지를 보다가 필터를 좁히면 결과가 1페이지뿐일 수 있고 그때 사용자는 상품이 있는데
+ * 빈 화면을 본다(clamp가 막지만 애초에 발생하지 않는 것이 낫다).
+ *
+ * 그래서 축을 분리했고, 그 결과 **페이지 초기화가 규율이 아니라 구조가 된다**: 필터·정렬
+ * 폼은 `<form method="GET">`이고 그 안에 `page` 칸이 **없으므로** 제출하면 주소에 `page`가
+ * 실리지 않는다. 「필터를 바꿀 때 페이지를 지운다」를 코드로 기억할 필요가 없다.
+ *
+ * 반대 방향은 명시적이다 — 페이지 링크가 `pageQuery`로 현재 필터를 함께 싣는다.
+ */
+export const PAGE_KEY = 'page'
+
+/**
+ * 주소의 페이지 번호. 1-기반이며 **인식하지 못한 값은 1이다.**
+ *
+ * 상한을 여기서 보지 않는 이유: 전체 페이지 수는 거른 뒤의 건수에서 나오고 그것은 조회
+ * 결과다. 범위 밖 값의 처분은 `paginate`가 clamp로 한다(그 함수의 각주).
+ */
+export function parsePage(values: QueryValues): number {
+  const raw = (one(values[PAGE_KEY]) ?? '').trim()
+  if (!/^\d+$/.test(raw)) return 1
+  const parsed = Number.parseInt(raw, 10)
+  return parsed < 1 ? 1 : parsed
+}
+
+/**
+ * 그 페이지로 가는 주소 — **현재 필터를 그대로 싣는다.**
+ *
+ * `filterQuery`를 재사용하는 것이 요점이다. 여기서 질의 문자열을 다시 조립하면 필터의
+ * 기본값 규칙(정렬 기본값은 주소에 싣지 않는다)이 두 곳에 생기고, 그 갈림은 「페이지를
+ * 넘기면 정렬이 주소에 나타난다」로 드러난다.
+ *
+ * 1페이지는 키를 싣지 않는다 — 아무것도 고르지 않은 상태의 주소가 깨끗해야 한다는
+ * `filterQuery`의 같은 규약이다.
+ */
+export function pageQuery(filter: ProductFilter, page: number): string {
+  const base = filterQuery(filter)
+  if (page <= 1) return base
+  const joiner = base === '' ? '?' : '&'
+  return `${base}${joiner}${PAGE_KEY}=${page}`
+}
+
+/**
  * 계약에 넘길 형태로. **선택 필드는 키를 아예 넣지 않는다** —
  * `exactOptionalPropertyTypes`에서 `undefined`를 넘기는 것과 키가 없는 것이
  * 다르고, 계약의 `params.x != null` 분기는 후자를 전제한다.

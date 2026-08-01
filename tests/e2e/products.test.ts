@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import {
   CONDITION_RESULT_LABELS,
+  PRODUCTS_PER_PAGE,
   KI_STATUS_LABELS,
   STATUS_LABELS,
   percent,
@@ -76,6 +77,38 @@ function visible(html: string): string {
   return html.replace(/<!--[\s\S]*?-->/g, '')
 }
 
+/**
+ * 그 문자열을 담은 목록 페이지의 HTML — **페이지를 걸어서 찾는다** (P6 컷 4)
+ *
+ * 페이지 나눔이 들어오면서 「목록에 X가 있다」가 **1페이지에 X가 있다**를 뜻하지 않게
+ * 됐다. 누적된 픽스처가 10건을 넘으면 방금 만든 상품이 2페이지로 밀리고, 그때 실패하는
+ * 것은 앱이 아니라 단언이다 — 실제로 이 컷에서 기존 두 케이스가 그렇게 깨졌다.
+ *
+ * 조건부로 두지 않는 것이 요점이다. 찾지 못하면 **던진다** — 「없으면 통과」로 두면
+ * 페이지 나눔이 상품을 실제로 잃어버려도 초록이 된다.
+ */
+async function listPageContaining(
+  jar: ReturnType<typeof cookieJar>,
+  needle: string,
+): Promise<string> {
+  const first = await (await get(PATHS.products, jar)).text()
+  if (first.includes(needle)) return first
+
+  // 「n / m」에서 전체 페이지 수를 읽는다. 없으면 한 페이지뿐이고 위에서 끝났다.
+  const shown = /(\d+) \/ (\d+)</.exec(visible(first))
+  const pageCount = shown == null ? 1 : Number.parseInt(shown[2]!, 10)
+
+  for (let page = 2; page <= pageCount; page += 1) {
+    const html = await (await get(`${PATHS.products}?page=${page}`, jar)).text()
+    if (html.includes(needle)) return html
+  }
+
+  throw new Error(
+    `목록 ${pageCount}페이지를 전부 걸었는데 「${needle}」이 없다 — ` +
+      '페이지 나눔이 항목을 잃었거나 그 상품이 목록에 없다.',
+  )
+}
+
 /** 존재할 수 없는 소유자. 어떤 DB 상태에서도 이 필터의 결과는 0건이다. */
 const GHOST_OWNER = '00000000-0000-4000-8000-0000000000ff'
 
@@ -124,7 +157,7 @@ describe('SCR-201 목록', () => {
      * 픽스처는 `registerProduct`가 화면으로 만든 상품이다(배리어 90-85-80, 자산 1종,
      * 연쿠폰 8%, KI 50% 종가, 2차 리자드 60%/쿠폰 3%/KI 미터치).
      */
-    const html = await (await get(PATHS.products, jar)).text()
+    const html = await listPageContaining(jar, product.productName)
 
     // ⑧ 기초자산 · 기준가격 — 18자리가 표시 경로에서도 밀리지 않는다(AQ-30)
     expect(html).toContain(product.assetName)
@@ -152,6 +185,82 @@ describe('SCR-201 목록', () => {
         percentToRatio('3'),
       )} · KI 미터치<`,
     )
+  })
+
+  it('★ 페이지 이동이 건수와 일치한다 — 조건부로 건너뛰지 않는다', async () => {
+    /*
+     * ★ **실행 시점의 상품 수에 의존하지 않는다.** 이 스위트는 DB 상태를 전제하지
+     * 않으므로(파일 머리글) 「11건을 만들고 2페이지를 본다」는 다른 파일의 픽스처에
+     * 인질이 된다. 대신 **건수와 렌더의 «관계»**를 단언한다 — 어느 상태에서도
+     * 무언가를 확인하며, 그것이 「데이터가 없으면 아무것도 확인하지 않고 초록」을
+     * 피하는 형태다(같은 머리글의 규율).
+     *
+     * 불변식: 페이지 이동은 **건수가 10을 넘을 때만** 있다.
+     */
+    const html = visible(await (await get(PATHS.products, jar)).text())
+
+    const counted = /(\d+)건/.exec(html)
+    expect(counted, '건수 문구가 없다').not.toBeNull()
+    const total = Number.parseInt(counted![1]!, 10)
+
+    const hasNav = html.includes('aria-label="페이지 이동"')
+    expect(hasNav, `${total}건에서 페이지 이동 ${hasNav ? '있음' : '없음'}`).toBe(
+      total > PRODUCTS_PER_PAGE,
+    )
+
+    if (total > PRODUCTS_PER_PAGE) {
+      // 1페이지에서는 「이전」이 링크가 아니다 — 눌리면 clamp된 같은 화면이 다시
+      // 그려지고 사용자에게는 「눌렀는데 아무 일도 없다」가 된다(ST-04와 같은 판단)
+      expect(html).toMatch(/<span[^>]*>이전<\/span>/)
+      expect(html).toMatch(/<a[^>]*href="\/products\?page=2"[^>]*>다음<\/a>/)
+    }
+  })
+
+  it('★ 범위 밖 페이지가 빈 상태를 만들지 않는다 — clamp', async () => {
+    /*
+     * ★ 자르면 빈 배열이 되고 화면은 「조건에 맞는 상품이 없다」를 말한다 —
+     * **상품은 있는데** 그렇게 보이므로 §6의 빈 상태 두 갈래가 오염된다(그 둘의
+     * 구분은 「필터를 걸었는가」이고 「페이지를 잘못 짚었는가」가 아니다).
+     *
+     * 이 단언은 상품이 1건이라도 있으면 성립하고, 이 describe의 `beforeAll`이
+     * 하나를 만들므로 **데이터 전제가 자기 안에 있다.**
+     */
+    for (const bad of ['99', '0', '-1', 'abc']) {
+      const res = await get(`${PATHS.products}?page=${bad}`, jar)
+      expect(res.status, `page=${bad}`).toBe(200)
+      const html = await res.text()
+      expect(html, `page=${bad}에서 빈 상태`).not.toContain(EMPTY_NARROWED)
+      expect(html, `page=${bad}에서 빈 상태`).not.toContain(EMPTY_TOTAL)
+    }
+  })
+
+  it('★ 필터 폼에 page 칸이 없다 — 페이지 초기화가 구조다', async () => {
+    /*
+     * ★★ 이 단언이 「필터를 바꾸면 1페이지로 돌아간다」의 근거다. 폼에 `page` 칸이
+     * 생기면 제출이 그것을 실어 나르고, 그때 실제로 깨지는 것은 「3페이지를 보다가
+     * 필터를 좁히면 상품이 있는데 빈 화면」이다. 규율로 지키지 않고 구조로 만든 것을
+     * 여기서 고정한다.
+     */
+    const html = await (await get(`${PATHS.products}?page=2`, jar)).text()
+    const form = /<form[^>]*action="\/products"[\s\S]*?<\/form>/.exec(html)?.[0]
+    expect(form, '필터 폼이 없다').toBeDefined()
+    expect(form).not.toContain('name="page"')
+    // 음성 대조 — 다른 축은 폼에 있다(폼을 잘못 잡아서 통과하는 것이 아니다)
+    expect(form).toContain('name="kiStatus"')
+  })
+
+  it('★ 카드 경계가 모든 폭에서 테두리다 — v1.9 결함의 회귀 방지', async () => {
+    /*
+     * ★ 데스크톱에서 테두리를 지우고(`lg:border-0`) 목록의 `divide-y`에 경계를
+     * 맡기던 것이 **계약 조건 줄이 붙으며 깨졌다** — 한 상품 «안»의 선과 상품 «사이»의
+     * 선이 같은 부류가 되어 소속이 모호해졌다(실사용 보고).
+     *
+     * 이것은 스타일 테스트가 아니라 **되돌린 결정 하나의 회귀 방지**다. 그 둘이
+     * 돌아오면 같은 혼동이 재발하고, 그 재발은 어느 단언에도 잡히지 않는다.
+     */
+    const html = await (await get(PATHS.products, jar)).text()
+    expect(html, '카드가 데스크톱에서 테두리를 잃는다').not.toContain('lg:border-0')
+    expect(html, '목록이 구분선으로 경계를 만든다').not.toContain('divide-neutral-200')
   })
 
   it('KI 상태 선택지가 다섯이다 — AQ-24가 화면까지 왔다', async () => {
@@ -264,9 +373,9 @@ describe('SCR-202 상세', () => {
      * 지우므로 순서에 따라 0건이 된다). 그 우연이 사라지는 실행에서는 아무것도
      * 확인하지 않고 초록이 되므로 화면으로 만들어 넣는다(`helpers/register.ts`).
      */
-    const html = await (await get(PATHS.products, jar)).text()
+    // 페이지 나눔 이후에는 1페이지에 있다고 가정할 수 없다 — `listPageContaining`의 각주
+    const html = await listPageContaining(jar, seeded.productName)
     expect(html).toContain(`href="/products/${seeded.productId}"`)
-    expect(html).toContain(seeded.productName)
   })
 
   it('상세가 200으로 서고 §5의 여섯 요소가 나온다', async () => {
