@@ -73,8 +73,14 @@ export default async function PricesPage() {
       ) : (
         <>
           <div className="overflow-hidden rounded-lg border border-neutral-200">
-            {/* 표 머리글은 데스크톱에서만 — 모바일은 카드 1열이다(DOC-008 §8) */}
-            <div className="hidden grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.6fr)] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-500 lg:grid">
+            {/*
+             * 표 머리글은 데스크톱에서만 — 모바일은 카드 1열이다(DOC-008 §8)
+             *
+             * **열 비율은 `PriceRow`의 `li`와 글자 하나까지 같아야 한다.** 조립하지
+             * 않고 양쪽에 적어 두는 이유는 `ProductScheduleCard`의 docblock과 같다
+             * (Tailwind가 템플릿 리터럴로 만든 클래스를 생성하지 않는다).
+             */}
+            <div className="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-500 lg:grid">
               <span>자산</span>
               <span className="text-right">최신 시세</span>
               <span>출처</span>

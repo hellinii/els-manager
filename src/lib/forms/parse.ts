@@ -3,6 +3,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  ProviderSymbolInput,
   RealizedProductInput,
   RedemptionInput,
   ScheduleInput,
@@ -138,6 +139,25 @@ export function parseManualPriceForm(form: FormData): ManualPriceInput {
     assetId: text(form, 'assetId'),
     asOfDate: text(form, 'asOfDate'),
     price: text(form, 'price'),
+  }
+}
+
+/**
+ * §5.12 공급자 심볼 매핑 — SCR-302.
+ *
+ * ★ **빈 문자열을 `null`로 바꾼다 — 그것이 「해제」다.** 폼은 빈 칸을 `''`로 보내므로
+ * 그대로 넘기면 계약이 「길이 0의 심볼」로 받고 V-19가 「입력한다」를 낸다 —
+ * 그런데 사용자의 의도는 **비우는 것**이다. 즉 이 한 줄이 「지우기」를 별도 버튼 없이
+ * 성립시킨다(§5.9의 `null = 해제`와 같은 형태).
+ *
+ * 공백만 있는 입력도 해제로 본다 — 보이는 것이 빈 칸이므로 사용자에게는 같은 조작이다.
+ */
+export function parseProviderSymbolForm(form: FormData): ProviderSymbolInput {
+  const symbol = text(form, 'providerSymbol')
+  return {
+    assetId: text(form, 'assetId'),
+    provider: text(form, 'provider'),
+    providerSymbol: symbol.trim() === '' ? null : symbol,
   }
 }
 

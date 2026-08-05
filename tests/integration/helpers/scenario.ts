@@ -8,6 +8,7 @@ import {
   resetFixtures,
   seedAsset,
   seedPrice,
+  seedProviderSymbol,
   seedProduct,
   seedRedemption,
   seedSchedule,
@@ -64,6 +65,14 @@ export async function setupScenario(): Promise<Scenario> {
   // assetNoPrice — 시세 행을 만들지 않는다 (E-01)
   // assetStale — 5일 이상 경과 (isStale)
   await seedPrice({ assetId: FX.assetStale, asOfDate: '2026-06-20', price: '70.000000' })
+
+  /*
+   * 공급자 매핑 하나 (P5a 컷 2b). **`assetSolo`에만 붙인다** — 그래야 §4.5의
+   * `providerSymbols`가 「비어 있는 자산」과 「매핑된 자산」을 «둘 다» 관측한다.
+   * 전부에 붙이면 빈 배열 갈래가 사라지고, 하나도 안 붙이면 잎이 0개라
+   * `formats.test.ts`의 형식 검사가 조용히 통과한다.
+   */
+  await seedProviderSymbol({ assetId: FX.assetSolo, providerSymbol: '3:AAPL' })
 
   // productA — 정상 경로
   await seedProduct({

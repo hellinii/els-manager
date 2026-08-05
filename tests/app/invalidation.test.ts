@@ -104,11 +104,12 @@ const _witnessCatchesSingleSite: QueryAxisExhaustive<Without<'searchAssets'>> = 
 // ---------------------------------------------------------------------------
 
 describe('전수', () => {
-  it('계약 12개가 모두 항목을 갖는다', () => {
+  it('계약 13개가 모두 항목을 갖는다', () => {
     // 타입 수준에서도 `Record<MutationName, …>`가 강제하지만, 그쪽은 `keyof`가
     // 문서와 갈렸을 때를 보지 못한다 — 실제로 조립된 묶음의 키로 대조한다.
-    // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12)
-    expect(MUTATION_NAMES).toHaveLength(12)
+    // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12,
+    //  P5a 컷 2b에서 §5.12 `saveProviderSymbol`이 더해져 12 → 13)
+    expect(MUTATION_NAMES).toHaveLength(13)
     expect(Object.keys(INVALIDATION).sort()).toEqual([...MUTATION_NAMES].sort())
   })
 
@@ -692,6 +693,16 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
   ],
   // 자산 목록을 읽는 곳만. 상세·상환은 자산 목록을 읽지 않는다.
   createAsset: ['/prices', '/products/[id]/edit', '/products/new'],
+  /*
+   * §5.12 — `createAsset`과 **같은 셋**이다. 같은 두 질의(`listAssetPrices`·`searchAssets`)에
+   * 미치므로 곱한 결과가 같다.
+   *
+   * ★ 「같아서 옳다」가 아니라 **옳아서 같다**는 것을 적어 둔다: 매핑을 고치면 SCR-302의
+   * 목록과 등록·수정 화면의 자동완성(`hasPriceProvider`)이 낡는다. 반대로 `/products`나
+   * `/tax`는 낡지 «않는다» — 매핑은 「어디서 값을 가져올지」이고 `asset_prices`의 값을
+   * 바꾸지 않으므로 판정 입력이 그대로다.
+   */
+  saveProviderSymbol: ['/prices', '/products/[id]/edit', '/products/new'],
 }
 
 describe('합성 — affects × ROUTE_QUERIES', () => {

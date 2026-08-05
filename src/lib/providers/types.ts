@@ -176,3 +176,29 @@ export type ProviderFactory = {
  * 후자는 「갱신했으나 대상이 없었다」로 읽힌다.
  */
 export const PRICE_PROVIDERS: readonly ProviderFactory[] = []
+
+/**
+ * **코드가 «아는» 공급자 전부** — 수집에 켜졌는지와 무관하다.
+ *
+ * ## 두 명부를 가르는 것이 설계다 (P5a 컷 2b)
+ *
+ * | | 무엇인가 | 누가 읽는가 |
+ * |---|---|---|
+ * | `PRICE_PROVIDERS` | 수집에 **켜진** 것 | `decide()`의 `providerCount` · §5.8 `refreshPrices` |
+ * | `KNOWN_PROVIDER_IDS` | 코드가 **아는** 것 | §5.12의 **V-21**(매핑의 `provider` 검증) |
+ *
+ * ★ **매핑 검증이 「켜진 것」을 보면 안 된다.** 컷 1이 어댑터를 세웠으나 등재하지
+ * 않았으므로(수집기가 없어 CR-08이 된다) 레지스트리를 보면 **이 화면이 컷 3까지 아무 값도
+ * 저장할 수 없다.** 반대로 전체 명부를 보면 매핑을 미리 넣어 둘 수 있고 **수집기가 첫
+ * 실행부터 대상을 갖는다** — 즉 이 분리가 컷 2b를 컷 3보다 먼저 쓸모 있게 만든다.
+ *
+ * ★★ 반대 방향의 함정도 적어 둔다: 이 목록으로 **수집을 돌리면 안 된다.** 그러면
+ * 「등재하지 않았다」가 무의미해지고 CR-08 상태가 되살아난다. 그 관계를
+ * `tests/providers/kiwoom.test.ts`가 **부분집합으로 단언한다**
+ * (`PRICE_PROVIDERS ⊆ KNOWN_PROVIDER_IDS`) — 두 목록이 반대로 자라는 것을 막는다.
+ */
+export const KNOWN_PROVIDER_IDS: readonly string[] = ['KIWOOM_ES040']
+
+export function isKnownProvider(id: string): boolean {
+  return KNOWN_PROVIDER_IDS.includes(id)
+}

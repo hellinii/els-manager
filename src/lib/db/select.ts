@@ -284,6 +284,22 @@ export const ASSET_COLUMNS = defineColumns('assets', {
   currency: 'raw',
 })
 
+/**
+ * §4.5가 `providerSymbols`를 담기 위해 읽는 열 (P5a 컷 2b).
+ *
+ * **`'text'`가 하나도 없다** — 이 테이블에 `numeric` 열이 없기 때문이고, 그 사실을
+ * `tests/rls/cron-runs.test.ts`의 형제 케이스가 아니라 `types-drift`의 17행 원장이
+ * 지킨다(새 `numeric` 열이 생기면 그 원장이 먼저 빨간불이 된다).
+ *
+ * `id`를 담지 «않는다» — 화면이 좌표로 쓰는 것은 `(assetId, provider)`이고
+ * §5.12가 그 좌표로 UPSERT·DELETE 한다. `id`를 실으면 화면이 그것을 키로 쓸 수 있게
+ * 되는데 그러면 좌표가 둘이 된다.
+ */
+export const PROVIDER_SYMBOL_COLUMNS = defineColumns('asset_provider_symbols', {
+  provider: 'raw',
+  provider_symbol: 'raw',
+})
+
 export const PRICE_COLUMNS = defineColumns('asset_prices', {
   as_of_date: 'raw',
   price: 'text',

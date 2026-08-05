@@ -1,6 +1,6 @@
 import { PRICE_PROVIDERS } from '@/lib/providers/types'
 
-import { parseManualPriceInput } from '../validate/inputs'
+import { parseManualPriceInput, parseProviderSymbolInput } from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V17_notFuture } from '../validate/rules'
 import { requireAffected } from './access'
@@ -8,7 +8,7 @@ import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toInsert } from './payload'
 import { failWith, okVoid, type ActionResult } from './result'
-import type { ManualPriceInput, RefreshPricesResult } from './types'
+import type { ManualPriceInput, ProviderSymbolInput, RefreshPricesResult } from './types'
 
 /** §5.7·§5.8 — 수동 시세 입력·시세 수동 갱신 */
 
@@ -80,5 +80,65 @@ export function makePriceMutations(ctx: MutationContext) {
     })
   }
 
-  return { saveManualPrice, refreshPrices }
+  /**
+   * §5.12 — 공급자 심볼 매핑. `providerSymbol == null`이면 **해제(삭제)**다.
+   *
+   * ★ 계약이 하나인 근거는 §5.9 `setKiTouched`와 같다 — 좌표가 하나이고
+   * (`(asset_id, provider)`) 화면의 조작도 하나다. 둘로 쪼개면 계약 수가 14가 되고
+   * `MutationName`을 세는 원장이 두 번 움직인다.
+   *
+   * ★★ **삭제가 «필요»한 것은 `UNIQUE(asset_id, provider)` 때문이다** — 그 제약 아래에서
+   * UPDATE로는 매핑을 없앨 수 없다(공급자를 바꿀 수는 있어도). 그래서 한 계약이 UPSERT와
+   * DELETE를 함께 갖는 것이 규약 위반이 아니라 **좌표의 성질**이다.
+   *
+   * ★★★ **해제에 `requireAffected`를 쓰지 않는다.** 없는 행을 지우는 요청은 0행으로
+   * 끝나는데 그것은 **성공이다** — 이미 없는 것을 없애는 요청을 거부할 이유가 없다
+   * (§5.9가 노낙인 상품의 `null` 터치를 허용한 것과 같은 판단). `requireAffected`를 걸면
+   * 두 번 누르는 것이 오류가 되고, 그 오류에는 사용자가 고칠 것이 없다.
+   */
+  async function saveProviderSymbol(input: ProviderSymbolInput): Promise<ActionResult<void>> {
+    const p = new Problems()
+    const parsed = parseProviderSymbolInput(p, input)
+    /*
+     * ★ **`parsed == null`만 보면 V-21이 조용히 사라진다** — e2e가 잡은 실제 결함이다.
+     *
+     * `V21_knownProvider`는 `provider`가 «있는데 소속이 틀린» 경우를 기록하므로
+     * `allPresent([assetId, provider])`가 참이고 파서가 **객체를 돌려준다.** 그 상태에서
+     * `parsed == null`만 검사하면 위반이 `Problems`에 남은 채 저장이 진행되어
+     * **모르는 공급자의 매핑이 그대로 들어간다** — V-21이 막으려던 바로 그 상태다.
+     *
+     * `saveManualPrice`가 V-17에 대해 `if (!p.isEmpty)`를 따로 두는 것과 같은 형태이며,
+     * 그쪽은 규칙이 파서 «밖»에 있어 눈에 보였고 이쪽은 파서 «안»이라 보이지 않았다.
+     * **부류: 검증을 추가했으나 그 결과를 반환하는 줄을 빠뜨렸다 — 조용히 통과한다.**
+     */
+    if (parsed == null || !p.isEmpty) return failWith(p.toError())
+
+    if (parsed.providerSymbol == null) {
+      const { error } = await ctx.db
+        .from('asset_provider_symbols')
+        .delete()
+        .eq('asset_id', parsed.assetId)
+        .eq('provider', parsed.provider)
+      if (error != null) return failDb(error, '공급자 매핑 해제')
+      return okVoid() // 0행도 성공이다 — 위 ★★★
+    }
+
+    const { data, error } = await ctx.db
+      .from('asset_provider_symbols')
+      .upsert(
+        toInsert('asset_provider_symbols', {
+          asset_id: parsed.assetId,
+          provider: parsed.provider,
+          provider_symbol: parsed.providerSymbol,
+        }),
+        { onConflict: 'asset_id,provider' },
+      )
+      .select('id')
+    if (error != null) return failDb(error, '공급자 매핑 저장')
+
+    const conflict = requireAffected(data)
+    return conflict == null ? okVoid() : failWith(conflict)
+  }
+
+  return { saveManualPrice, refreshPrices, saveProviderSymbol }
 }

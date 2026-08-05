@@ -103,6 +103,19 @@ export type AssetInput = {
   currency: string
 }
 
+/**
+ * §5.12 공급자 심볼 매핑 — SCR-302.
+ *
+ * ★ `providerSymbol: null`이 «해제»다 — §5.9 `setKiTouched`가 같은 형태이며 근거도 같다:
+ * 좌표(`assetId`·`provider`)가 하나이고 화면의 조작도 하나(그 칸을 비우는 것)다.
+ * 둘로 쪼개면 계약 수가 13에서 14가 되고 `MutationName`을 세는 원장이 두 번 움직인다.
+ */
+export type ProviderSymbolInput = {
+  assetId: string
+  provider: string
+  providerSymbol: string | null
+}
+
 /** §5.8 `refreshPrices`의 반환 */
 export type RefreshPricesResult = {
   succeeded: number

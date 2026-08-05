@@ -264,6 +264,30 @@ describe('§4.5 listAssetPrices', () => {
     const pair1 = rows.find((r) => r.name === '[ITG] 쌍자산1')!
     expect(pair1.usedByActiveProducts).toBe(0)
   })
+
+  it('★ providerSymbols가 매핑을 «값으로» 나른다 — 형식만이 아니라 내용', async () => {
+    /*
+     * `formats.test.ts`는 잎의 **형식**을 보고 이 케이스가 **값**을 본다. 둘이 필요한
+     * 이유는 형식 검사가 `'TEXT'`이므로 **엉뚱한 문자열도 통과**하기 때문이다 —
+     * 임베드가 다른 자산의 행을 붙여도(조인 키를 틀리면 그렇게 된다) 형식은 옳다.
+     */
+    const rows = await s.asA.listAssetPrices()
+    const solo = rows.find((r) => r.name === '[ITG] 단독자산')!
+    expect(solo.providerSymbols).toEqual([
+      { provider: 'KIWOOM_ES040', symbol: '3:AAPL' },
+    ])
+  })
+
+  it('★ 매핑이 없으면 빈 배열이다 — `null`이 아니다', async () => {
+    /*
+     * 화면이 `.length === 0`으로 「자동 수집 안 함」을 판정하므로 `null`이 오면
+     * `TypeError`가 된다. 임베드가 0건일 때 postgrest가 `[]`을 준다는 것을 값으로
+     * 고정한다 — 그 성질을 가정하고 화면을 짰기 때문이다.
+     */
+    const rows = await s.asA.listAssetPrices()
+    const pair1 = rows.find((r) => r.name === '[ITG] 쌍자산1')!
+    expect(pair1.providerSymbols).toEqual([])
+  })
 })
 
 describe('§4.9 searchAssets', () => {
@@ -272,6 +296,25 @@ describe('§4.9 searchAssets', () => {
     expect(options).toHaveLength(1)
     expect(options[0].name).toBe('[ITG] 단독자산')
     expect(options[0].currency).toBe('USD')
+    /*
+     * ★ **`false` → `true`로 뒤집혔다 (P5a 컷 2b).** 종전 값은 옳았지만 그것이 옳은
+     * 이유는 **어떤 픽스처에도 매핑이 없었기 때문**이다 — `asset_provider_symbols`가
+     * 저장소 전체에서 비어 있었고, 그래서 **이 파생값의 `true` 갈래가 한 번도 실행되지
+     * 않았다.** 컷 2b가 `assetSolo`에 매핑을 하나 심으면서 처음 실행된다.
+     *
+     * 즉 이 한 줄의 변경이 「값이 바뀌었다」가 아니라 **「없던 갈래가 생겼다」**다.
+     */
+    expect(options[0].hasPriceProvider).toBe(true)
+  })
+
+  it('★ 매핑이 없는 자산은 `hasPriceProvider`가 false다 — 반대 갈래', async () => {
+    /*
+     * 위 케이스만 두면 이번에는 **`false` 갈래가 미실행**이 된다(부호만 뒤집힌 같은
+     * 공백이다). 둘을 나란히 두어 파생이 실제로 «가른다»는 것을 고정한다 —
+     * 그래서 시나리오가 `assetSolo`에만 매핑을 심는다.
+     */
+    const options = await s.asA.searchAssets('쌍자산1')
+    expect(options).toHaveLength(1)
     expect(options[0].hasPriceProvider).toBe(false)
   })
 

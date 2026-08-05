@@ -21,6 +21,13 @@ export type AssetPriceView = {
   source: 'AUTO' | 'MANUAL' | null
   usedByActiveProducts: number
   isStale: boolean
+  /**
+   * 이 자산의 공급자 매핑 (P5a 컷 2b — §4.5).
+   *
+   * ★ **빈 배열이 「미매핑」이며 그것은 실패가 아니다** — ADR-007이 수동 입력을 설계된
+   * 정상 경로로 못박았다. 화면은 그 상태를 「자동 수집 안 함」으로 말한다(오류가 아니다).
+   */
+  providerSymbols: Array<{ provider: string; symbol: string }>
 }
 
 export type AssetOption = {
@@ -67,6 +74,15 @@ export function makeAssetQueries(ctx: QueryContext) {
         source: latest?.source ?? null,
         usedByActiveProducts: activeUsage.get(asset.id) ?? 0,
         isStale: isStale({ asOfDate: latest?.as_of_date ?? null, asOf: ctx.asOf }),
+        /*
+         * 이름을 `provider_symbol` → `symbol`로 좁힌다 — 뷰의 필드가 이미
+         * `providerSymbols` 안이라 접두사가 두 번이 된다. 열 이름을 그대로 나르는 것보다
+         * 읽는 쪽에서 짧은 편이 낫고, 그 매핑이 여기 한 줄로 남는다.
+         */
+        providerSymbols: asset.asset_provider_symbols.map((row) => ({
+          provider: row.provider,
+          symbol: row.provider_symbol,
+        })),
       }
     })
   }

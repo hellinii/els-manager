@@ -156,6 +156,30 @@ export async function seedPrice(params: {
   )
 }
 
+/**
+ * 공급자 심볼 매핑 (P5a 컷 2b).
+ *
+ * ★ **이 픽스처가 없으면 §4.5 `providerSymbols`의 형식이 «영구히 미검증»이다.**
+ * `formats.test.ts`의 대조는 «관측된 잎»을 기준으로 하므로, 배열이 항상 비어 있으면
+ * 잎이 0개이고 ②(미분류 검사)에 걸리지 않는다 — 필드가 계약에 있는데 형식을 아무도
+ * 보지 않는 채로 초록이 된다. 그 파일의 머리글이 막으려는 상태가 바로 그것이다.
+ *
+ * `asset_provider_symbols.asset_id`는 CASCADE이므로 `resetFixtures`가 자산을 지울 때
+ * 함께 사라진다 — 명시 삭제를 넣지 않는 이유다(`asset_prices`는 의도를 남기려고 명시했다).
+ */
+export async function seedProviderSymbol(params: {
+  assetId: string
+  provider?: string
+  providerSymbol: string
+}): Promise<void> {
+  await sql(
+    `insert into public.asset_provider_symbols (asset_id, provider, provider_symbol)
+     values ($1, $2, $3)
+     on conflict (asset_id, provider) do update set provider_symbol = excluded.provider_symbol`,
+    [params.assetId, params.provider ?? 'KIWOOM_ES040', params.providerSymbol],
+  )
+}
+
 export async function seedProduct(params: {
   id: string
   ownerId: string

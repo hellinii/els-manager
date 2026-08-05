@@ -267,6 +267,14 @@ const ASSET_PRICE: Record<string, Spec> = {
   source: PRICE_SOURCES,
   usedByActiveProducts: 'NUMBER',
   isStale: 'BOOL',
+  /*
+   * P5a 컷 2b. **분류와 픽스처는 «함께» 와야 한다** — 분류만 넣으면 ③(죽은 분류)이,
+   * 픽스처만 넣으면 ②(미분류)가 빨간불이다. 그리고 **둘 다 없으면 조용히 통과**한다:
+   * 배열이 비면 잎이 0개라 어느 단언도 걸리지 않고, 필드가 계약에 있는데 형식을
+   * 아무도 보지 않는다.
+   */
+  'providerSymbols[].provider': 'TEXT',
+  'providerSymbols[].symbol': 'TEXT',
 }
 
 /** §4.6 세금 */

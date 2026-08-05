@@ -1,7 +1,11 @@
 'use server'
 
-import { createAsset, refreshPrices, saveManualPrice } from '@/app/actions'
-import { parseAssetForm, parseManualPriceForm } from '@/lib/forms/parse'
+import { createAsset, refreshPrices, saveManualPrice, saveProviderSymbol } from '@/app/actions'
+import {
+  parseAssetForm,
+  parseManualPriceForm,
+  parseProviderSymbolForm,
+} from '@/lib/forms/parse'
 import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
 
 /**
@@ -23,6 +27,7 @@ import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
 /** 수동 시세 입력의 칸 이름. `toFormState`가 미매칭 오류를 가르는 기준이다. */
 const PRICE_FIELDS = ['assetId', 'asOfDate', 'price'] as const
 const ASSET_FIELDS = ['name', 'assetType', 'market', 'currency'] as const
+const PROVIDER_SYMBOL_FIELDS = ['assetId', 'provider', 'providerSymbol'] as const
 
 export async function saveManualPriceAction(
   _prev: FormState,
@@ -59,4 +64,27 @@ export async function refreshPricesAction(
 ): Promise<FormState> {
   const result = await refreshPrices()
   return toFormState(result, {}, [], '시세를 갱신했다.')
+}
+
+/**
+ * §5.12 — 공급자 심볼 매핑. 빈 칸이 «해제»다(`parseProviderSymbolForm`).
+ *
+ * ★ 성공해도 입력을 **비우지 않는다** — `createAssetAction`과 반대다. 저장된 값이
+ * 그 칸의 현재 상태이므로 비우면 「저장했더니 사라졌다」로 읽히고, 해제한 경우에는
+ * 이미 비어 있다. 즉 어느 갈래에서도 비울 이유가 없다.
+ */
+export async function saveProviderSymbolAction(
+  _prev: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const result = await saveProviderSymbol(parseProviderSymbolForm(form))
+  return toFormState(
+    result,
+    valuesOf(form),
+    PROVIDER_SYMBOL_FIELDS,
+    // 해제와 저장을 같은 문구로 말하지 않는다 — 사용자가 한 조작이 다르다
+    form.get('providerSymbol')?.toString().trim() === ''
+      ? '자동 수집을 해제했다.'
+      : '공급자 매핑을 저장했다.',
+  )
 }

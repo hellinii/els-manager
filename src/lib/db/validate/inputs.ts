@@ -4,6 +4,7 @@ import type {
   AssetInput,
   ManualPriceInput,
   ProductInput,
+  ProviderSymbolInput,
   RealizedProductInput,
   RedemptionInput,
   ScheduleInput,
@@ -32,6 +33,7 @@ import {
 } from './primitives'
 import {
   V12_maturityLossZero,
+  V21_knownProvider,
   validateProductCrossFields,
   validateRedemptionCrossFields,
 } from './rules'
@@ -539,6 +541,61 @@ export function parseManualPriceInput(p: Problems, raw: unknown): ManualPriceInp
 
   if (!allPresent([assetId, asOfDate, price])) return null
   return { assetId: assetId!, asOfDate: asOfDate!, price: price! }
+}
+
+/**
+ * §5.12 — 공급자 심볼 매핑.
+ *
+ * ★ **`providerSymbol`은 `null`을 «정상 값»으로 받는다**(해제). 그래서 `allPresent`에
+ * 넣지 않는다 — 넣으면 해제 요청이 「입력 누락」으로 거부된다.
+ *
+ * ★★ **`provider`는 형식이 아니라 «소속»을 본다 (V-21).** 열이 `varchar(30)`이므로 아무
+ * 문자열이나 저장되는데, 어느 수집기도 모르는 값은 그 매핑을 **영구히 쓰이지 않는 행**으로
+ * 만든다 — 화면은 「자동 수집됨」으로 읽히고 수집은 되지 않으며 `unmapped`도 세지 않는다.
+ * 오타 하나가 만드는 조용한 상태다.
+ *
+ * ★★★ 반대로 **`providerSymbol`의 «내용»은 검증하지 않는다.** 그것은 공급자만 아는 값이고,
+ * 화면이 판단자가 되면 「공급자 목록에 있는데 화면이 거부한다」가 생긴다. 없는 코드는
+ * 공급자가 0건으로 답하고 그것이 `NO_DATA`(→ 「매핑을 고친다」)다 — DQ-02가 그 경로를
+ * 이미 설계했다. **소속은 우리가 알고 내용은 공급자가 안다.**
+ */
+export function parseProviderSymbolInput(
+  p: Problems,
+  raw: unknown,
+): ProviderSymbolInput | null {
+  if (!isPlainObject(raw)) {
+    p.add('V-19', 'provider', '입력 형식이 올바르지 않다.')
+    return null
+  }
+
+  const assetId = requireUuid(p, 'V-19', 'assetId', raw.assetId, '기초자산')
+  const provider = requireString(p, 'V-19', 'provider', raw.provider, {
+    label: '공급자',
+    max: LENGTH_LIMITS.provider,
+  })
+  if (provider != null) V21_knownProvider(p, provider)
+
+  // `null`·`undefined`는 해제다. 문자열이면 길이·공백을 본다
+  let providerSymbol: string | null = null
+  if (raw.providerSymbol != null) {
+    providerSymbol = requireString(p, 'V-19', 'providerSymbol', raw.providerSymbol, {
+      label: '공급자 심볼',
+      max: LENGTH_LIMITS.providerSymbol,
+    })
+    /*
+     * 앞뒤 공백을 «거부»한다(잘라내지 않는다). 잘라내면 사용자가 넣은 것과 저장된 것이
+     * 달라지고, 공급자 심볼은 그 차이가 조용히 조회 실패로 나타나는 값이다.
+     */
+    if (providerSymbol != null && providerSymbol !== providerSymbol.trim()) {
+      p.add('V-19', 'providerSymbol', '공급자 심볼에 앞뒤 공백을 넣을 수 없다.')
+      providerSymbol = null
+      return null
+    }
+  }
+
+  // ★ `providerSymbol`을 넣지 않는다 — `null`이 정상 값이다
+  if (!allPresent([assetId, provider])) return null
+  return { assetId: assetId!, provider: provider!, providerSymbol }
 }
 
 export function parseAssetInput(p: Problems, raw: unknown): AssetInput | null {

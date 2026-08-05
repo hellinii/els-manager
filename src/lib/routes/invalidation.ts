@@ -170,6 +170,21 @@ export const INVALIDATION = {
 
   // §5.10 — 자산 목록을 읽는 곳만. 시세 목록과 등록·수정 화면의 자동완성이다.
   createAsset: { affects: ['listAssetPrices', 'searchAssets'] },
+
+  /*
+   * §5.12 — 공급자 매핑. **`createAsset`과 같은 둘이며 그 사실에 근거가 있다.**
+   *
+   * ⓐ `listAssetPrices` — SCR-302의 뷰가 `providerSymbols`를 담는다(§4.5)
+   * ⓑ `searchAssets` — 그쪽의 `hasPriceProvider`가 **바로 이 테이블의 행 수에서
+   *    파생된다**(`queries/prices.ts`). 매핑을 넣거나 지우면 그 boolean이 뒤집히므로
+   *    빠뜨리면 등록 화면의 자동완성이 낡은 값을 보여 준다
+   *
+   * ★ **시세·상품·세금 축에는 미치지 «않는다».** 매핑은 「어디서 값을 가져올지」이고
+   * `asset_prices`의 값을 바꾸지 않는다 — 판정 입력이 그대로이므로 워스트오브·조건
+   * 판정·세금이 움직일 이유가 없다. `PRICE_WIDE`를 쓰면 다섯 개를 헛되게 무효화한다.
+   * (매핑을 넣은 «결과»로 시세가 들어오는 것은 §5.8의 몫이고 그쪽이 `PRICE_WIDE`다.)
+   */
+  saveProviderSymbol: { affects: ['listAssetPrices', 'searchAssets'] },
 } as const satisfies Record<MutationName, InvalidationRule>
 
 /**

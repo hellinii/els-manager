@@ -4,9 +4,11 @@ import { useActionState } from 'react'
 
 import { saveManualPriceAction } from '@/app/(app)/prices/actions'
 import { Badge } from '@/components/display/Badge'
+import { ProviderSymbolForm } from '@/components/prices/ProviderSymbolForm'
 import { INPUT_CLASS } from '@/components/form/Field'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import type { AssetPriceView } from '@/lib/db/queries/prices'
+import { KNOWN_PROVIDER_IDS } from '@/lib/providers/types'
 import {
   PRICE_SOURCE_LABELS,
   STALE_GRADE,
@@ -45,7 +47,7 @@ export function PriceRow({ asset, asOf }: { asset: AssetPriceView; asOf: string 
   const failed = state.status === 'ERROR'
 
   return (
-    <li className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.6fr)] lg:items-center">
+    <li className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.5fr)] lg:items-center">
       {/* ① 자산 */}
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{asset.name}</p>
@@ -74,7 +76,7 @@ export function PriceRow({ asset, asOf }: { asset: AssetPriceView; asOf: string 
         )}
       </div>
 
-      {/* ③ 출처·경과 */}
+      {/* ③ 출처·경과·자동 수집 여부 */}
       <div className="flex flex-wrap items-center gap-1.5">
         {asset.source != null && (
           <Badge grade="neutral">{PRICE_SOURCE_LABELS[asset.source]}</Badge>
@@ -84,13 +86,34 @@ export function PriceRow({ asset, asOf }: { asset: AssetPriceView; asOf: string 
             {STALE_LABEL}
           </Badge>
         )}
+        {/*
+         * ★ **미매핑 표식 — `neutral`이고 «오류가 아니다».** ADR-007이 수동 입력을
+         * 「폴백이 아니라 설계된 정상 경로」로 못박았으므로 `attention`·`defect`를 쓰면
+         * 화면이 정상 상태를 결함으로 말한다(DOC-005 §6.3이 그 둘을 「사용자가 조치한다」·
+         * 「데이터를 고친다」로 정의한다 — 여기는 둘 다 아니다).
+         *
+         * ★★ 그리고 **표식이 «있는» 것이 요점이다.** 없으면 「자동 수집되지 않는 것」과
+         * 「자동 수집되는데 아직 값이 없는 것」이 화면에서 같게 보이고, 그러면 사용자가
+         * 감시되고 있다고 오해한다 — DOC-008 SQ-08이 지목한 ST-06의 형태다.
+         */}
+        {asset.providerSymbols.length === 0 && (
+          <Badge grade="neutral" title="공급자 매핑이 없어 자동 수집 대상이 아니다">
+            자동 수집 안 함
+          </Badge>
+        )}
       </div>
 
       {/* ④ 수동 입력 — ST-03의 폴백 경로가 목록 안에 있다 */}
       <form action={formAction} className="flex flex-col gap-1.5" noValidate>
         <input type="hidden" name="assetId" value={asset.assetId} />
 
-        <div className="flex items-center gap-1.5">
+        {/*
+         * `flex-wrap`이다 — 줄이 좁아지면 **버튼이 아래로 내려간다.** `min-w-0`을
+         * 쓰면 대신 시세 칸이 줄어드는데, 옆의 두 요소가 고정폭(`w-36` + 버튼)이라
+         * 좁아지는 쪽은 항상 시세 칸 하나다. 실측으로 6px까지 줄었다 — 입력한
+         * 숫자가 보이지 않는다. 폭을 조이는 압력이 **줄바꿈으로** 빠져나가게 한다.
+         */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <input
             id={`price-${asset.assetId}`}
             name="price"
@@ -100,7 +123,12 @@ export function PriceRow({ asset, asOf }: { asset: AssetPriceView; asOf: string 
             aria-invalid={priceError != null}
             defaultValue={state.values.price ?? ''}
             placeholder="시세 입력"
-            className={`${INPUT_CLASS} min-w-0 flex-1`}
+            /*
+             * `min-w-32`(8rem)가 바닥이다. 저장하는 값은 `numeric(18,6)`이므로
+             * `44000.000000`처럼 소수점 6자리가 그대로 들어올 수 있다 — 그게 다
+             * 보이는 폭을 최소로 잡고, 남는 자리는 `flex-1`로 가져간다.
+             */
+            className={`${INPUT_CLASS} min-w-32 flex-1 tabular-nums`}
           />
           <input
             name="asOfDate"
@@ -136,6 +164,33 @@ export function PriceRow({ asset, asOf }: { asset: AssetPriceView; asOf: string 
           </p>
         ))}
       </form>
+
+      {/*
+       * ⑤ 공급자 매핑 — **공급자마다 한 폼**이다.
+       *
+       * `KNOWN_PROVIDER_IDS`를 도는 것은 공급자가 둘이 되는 날 코드가 그대로 맞기
+       * 위해서다(`UNIQUE(asset_id, provider)`이므로 자산당 공급자별로 한 행이다).
+       * 지금은 하나이므로 폼도 하나다.
+       *
+       * ★ **`PRICE_PROVIDERS`(수집 레지스트리)가 아니라 전체 명부를 돈다.** 그쪽은
+       * 컷 3까지 비어 있으므로 그것을 쓰면 **이 화면에 아무 폼도 나오지 않는다** —
+       * 즉 매핑을 미리 넣어 둘 수 없고 수집기가 첫 실행부터 대상을 갖지 못한다.
+       * 두 명부를 가른 이유가 이것이다(`providers/types.ts`의 각주).
+       *
+       * ★★ **`import`가 값이지만 무겁지 않다** — `providers/types.ts`는 `DecimalValue`를
+       * `import type`으로만 가져오므로 이 배열 외에 클라이언트 번들에 실리는 것이 없다.
+       */}
+      {KNOWN_PROVIDER_IDS.map((provider) => (
+        <ProviderSymbolForm
+          key={provider}
+          assetId={asset.assetId}
+          assetName={asset.name}
+          provider={provider}
+          current={
+            asset.providerSymbols.find((m) => m.provider === provider)?.symbol ?? null
+          }
+        />
+      ))}
 
       {/*
         자산 유형(`assetType`)은 **표시하지 않는다.** `AssetPriceView`에 그 필드가

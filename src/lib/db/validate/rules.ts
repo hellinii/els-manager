@@ -1,4 +1,5 @@
 import { dec } from '@/lib/decimal'
+import { isKnownProvider } from '@/lib/providers/types'
 
 import type {
   ProductInput,
@@ -49,6 +50,33 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-18': 'kiTouchedAt — kiBarrier 부재 시 입력 불가 (I-15)',
   'V-19': '문자열 — 열 선언 길이 이내, currency는 정확히 3자',
   'V-20': '정수 — smallint 범위, evaluationPeriodMonths ≥ 1, year 4자리',
+  'V-21': 'provider — 코드가 아는 공급자 id (형식만 보지 않는다)',
+}
+
+// ---------------------------------------------------------------------------
+// 공급자 매핑
+// ---------------------------------------------------------------------------
+
+/**
+ * V-21 — `provider`가 **코드가 아는 공급자**여야 한다 (§5.12).
+ *
+ * ★ **대조 대상이 「수집에 켜진 것」이 아니라 「코드가 아는 것」이다.** P5a 컷 1이 어댑터를
+ * 세웠으나 `PRICE_PROVIDERS`에 등재하지 않았으므로(수집기가 없어 CR-08이 된다) 레지스트리를
+ * 보면 **매핑 화면이 컷 3까지 아무 값도 저장할 수 없다.** 전체 명부를 보면 매핑을 미리
+ * 넣어 둘 수 있고 수집기가 첫 실행부터 대상을 갖는다 — 그 분리가 `providers/types.ts`의
+ * `KNOWN_PROVIDER_IDS`와 `PRICE_PROVIDERS`다.
+ *
+ * ★★ `lib/db`가 `lib/providers`를 import하는 것은 새 방향이 아니다 —
+ * `mutations/prices.ts`가 이미 그렇게 한다(`els/db-layer`는 `next` import만 막는다).
+ */
+export function V21_knownProvider(p: Problems, provider: string): void {
+  if (!isKnownProvider(provider)) {
+    p.add(
+      'V-21',
+      'provider',
+      `«${provider}»는 이 앱이 아는 공급자가 아니다. 매핑이 저장되어도 수집되지 않는다.`,
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import {
   parseAssetInput,
   parseManualPriceInput,
   parseProductInput,
+  parseProviderSymbolInput,
   parseRedemptionInput,
   parseTaxProfileInput,
   parseTouchedAt,
@@ -492,6 +493,25 @@ const CASES: Case[] = [
       return p
     },
   },
+  {
+    rule: 'V-21',
+    what: '코드가 모르는 공급자 — 형식은 맞고 소속이 틀렸다',
+    run: () => {
+      /*
+       * ★ 이 케이스의 요점은 «형식이 통과한다»는 것이다. `varchar(30)` 이내의 평범한
+       * 문자열이므로 V-19는 걸리지 않는다. 그런데 어느 수집기도 모르는 값이므로 그
+       * 매핑은 **영구히 쓰이지 않는 행**이 되고, 화면은 「자동 수집됨」으로 읽히면서
+       * 수집은 되지 않고 `unmapped`도 세지 않는다 — 오타 하나가 만드는 조용한 상태다.
+       */
+      const p = new Problems()
+      parseProviderSymbolInput(p, {
+        assetId: ASSET_A,
+        provider: 'KIWOOM_ES04', // 마지막 0이 빠졌다
+        providerSymbol: '3:AAPL',
+      })
+      return p
+    },
+  },
 ]
 
 describe.each(CASES)('$rule — $what', ({ rule, run }) => {
@@ -655,6 +675,9 @@ describe('V-19의 길이 상한이 스키마와 일치한다', () => {
     ['assets.name', LENGTH_LIMITS.assetName],
     ['assets.market', LENGTH_LIMITS.market],
     ['assets.currency', LENGTH_LIMITS.currency],
+    // P5a 컷 2b — §5.12가 쓰는 두 열. 리터럴로 두면 이 대조 «밖»이 된다
+    ['asset_provider_symbols.provider', LENGTH_LIMITS.provider],
+    ['asset_provider_symbols.provider_symbol', LENGTH_LIMITS.providerSymbol],
   ])('%s = %i', (column, expected) => {
     expect(lengths.get(column)).toBe(expected)
   })

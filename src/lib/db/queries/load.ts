@@ -2,6 +2,7 @@ import {
   ASSET_COLUMNS,
   ELS_PRODUCT_COLUMNS,
   PRICE_COLUMNS,
+  PROVIDER_SYMBOL_COLUMNS,
   REDEMPTION_COLUMNS,
   SCHEDULE_COLUMNS,
   TAX_BRACKET_COLUMNS,
@@ -46,6 +47,10 @@ import type { QueryContext } from './context'
 export type UserRow = SelectedRow<'users', typeof USER_COLUMNS>
 export type AssetRow = SelectedRow<'assets', typeof ASSET_COLUMNS>
 export type PriceRow = SelectedRow<'asset_prices', typeof PRICE_COLUMNS>
+export type ProviderSymbolRow = SelectedRow<
+  'asset_provider_symbols',
+  typeof PROVIDER_SYMBOL_COLUMNS
+>
 export type ScheduleRow = SelectedRow<
   'redemption_schedules',
   typeof SCHEDULE_COLUMNS
@@ -239,6 +244,22 @@ export type LatestPrice = {
 type AssetWithPricesRow = AssetRow & { asset_prices: PriceRow[] }
 
 /**
+ * §4.5 전용 — 공급자 매핑까지 함께 읽은 행 (P5a 컷 2b).
+ *
+ * ★ **`AssetWithPricesRow`에 얹지 «않는다».** 그 타입은 `loadLatestPrices`가 «공유»하는데
+ * 그쪽은 매핑을 임베드하지 않으면서 `overrideTypes<…, { merge: false }>`로 셰이프를
+ * **단언한다.** 얹으면 그 단언이 사실과 어긋나 «거짓 타입»이 되고 — 지금은 그 필드를 읽는
+ * 코드가 없어 **컴파일도 테스트도 전부 초록이다.**
+ *
+ * 즉 조용한 상태이며, 다음 사람이 「이 로더가 심볼을 준다」고 읽고 `row.asset_provider_symbols`를
+ * 쓰는 날 **런타임에 `undefined`**가 된다(`.map()`이 터진다). 초안에서 실제로 그렇게 얹었고
+ * 원장 열거가 잡았다. **부류: 공유 타입에 한쪽 경로의 필드를 얹으면 다른 경로가 거짓을 말한다.**
+ */
+type AssetWithPricesAndSymbolsRow = AssetWithPricesRow & {
+  asset_provider_symbols: ProviderSymbolRow[]
+}
+
+/**
  * 자산별 최신 시세. **`as_of_date <= asOf` 상한을 반드시 건다** — D6.
  *
  * 상한이 없으면 `order desc limit 1`이 `asOf` 이후 날짜의 시세를 고르고, 그
@@ -290,20 +311,31 @@ export async function loadLatestPrices(
  */
 export async function loadAllAssetsWithLatestPrice(
   ctx: QueryContext,
-): Promise<AssetWithPricesRow[]> {
+): Promise<AssetWithPricesAndSymbolsRow[]> {
   const { data, error } = await ctx.db
     .from('assets')
     .select(
-      [selectList(ASSET_COLUMNS), embed('asset_prices', selectList(PRICE_COLUMNS))].join(
-        ',',
-      ),
+      [
+        selectList(ASSET_COLUMNS),
+        embed('asset_prices', selectList(PRICE_COLUMNS)),
+        /*
+         * ★ **왕복이 늘지 않는다** — 임베드는 같은 요청 안에서 온다. `terms`(§4.2 v3.1)와
+         * 같은 근거이며, 그래서 §4.0의 왕복 수 표가 움직이지 않는다.
+         *
+         * ★★ 자식에 `limit`을 걸지 «않는다». 자산당 공급자 매핑은
+         * `UNIQUE(asset_id, provider)` 아래에서 **공급자 수만큼**이고 그 수는 코드가 정한다
+         * (`KNOWN_PROVIDER_IDS`, 현재 1). 즉 절단이 구조적으로 불가능하므로
+         * `asset_prices`처럼 부모별 `limit(1)`을 둘 이유가 없다.
+         */
+        embed('asset_provider_symbols', selectList(PROVIDER_SYMBOL_COLUMNS)),
+      ].join(','),
     )
     .lte('asset_prices.as_of_date', ctx.asOf)
     .order('as_of_date', { referencedTable: 'asset_prices', ascending: false })
     .limit(1, { referencedTable: 'asset_prices' })
     .order('name')
     .limit(TRUNCATION_PROBE_LIMIT)
-    .overrideTypes<AssetWithPricesRow[], { merge: false }>()
+    .overrideTypes<AssetWithPricesAndSymbolsRow[], { merge: false }>()
 
   if (error != null) fail('시세 목록', error)
   assertNotTruncated(data, '시세 목록')

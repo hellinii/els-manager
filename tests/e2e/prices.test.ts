@@ -59,15 +59,28 @@ const PRICE = `${STAMP}.5`
  */
 const PRICE_SHOWN = priceDisplay(`${PRICE}00000`)
 
+/**
+ * 매핑 `<details>`의 `<summary>`만 잘라낸다 — 거기에 «저장된 현재값»이 렌더된다.
+ *
+ * 행 전체로 심볼 문자열을 물으면 입력의 `placeholder`·안내 문구가 그 단언을 항상
+ * 참으로 만든다(실제로 그렇게 빨간불이 났다). 행 단위로 좁히는 `rowFor`와 같은 논거를
+ * 한 단계 더 적용한다.
+ */
+function summaryOf(row: string): string {
+  return /<summary\b[\s\S]*?<\/summary>/.exec(row)?.[0] ?? ''
+}
+
 describe('자산 등록 → 시세 입력', () => {
   let jar: ReturnType<typeof cookieJar>
   let createAssetId: string
   let savePriceId: string
+  let saveMappingId: string
 
   beforeAll(async () => {
     jar = await authenticatedJar()
     createAssetId = actionIdOf('createAssetAction')
     savePriceId = actionIdOf('saveManualPriceAction')
+    saveMappingId = actionIdOf('saveProviderSymbolAction')
   })
 
   it('자산을 등록하면 목록에 나타난다', async () => {
@@ -158,6 +171,114 @@ describe('자산 등록 → 시세 입력', () => {
     expect(rendered).toContain('기준일')
     // 입력값 보존 — 거부된 값이 칸에 남는다(W-03의 존재 이유).
     expect(rendered).toContain('2099-12-31')
+  })
+
+  it('매핑이 없으면 「자동 수집 안 함」 표식이 그 줄에 있다 — SQ-08의 자리', async () => {
+    /*
+     * ★ **표식이 «있는» 것이 확인 대상이다.** 없으면 「자동 수집되지 않는 것」과
+     * 「자동 수집되는데 값이 아직 없는 것」이 화면에서 같게 보이고 사용자가 감시되고
+     * 있다고 오해한다 — ST-06의 형태이며 DOC-008 SQ-08이 지목한 자리다.
+     */
+    const html = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    expect(html).toContain('자동 수집 안 함')
+  })
+
+  it('매핑을 저장하면 표식이 사라지고 값이 그 줄에 남는다', async () => {
+    const html = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    const assetId = hiddenValue(html, saveMappingId, 'assetId')
+    const provider = hiddenValue(html, saveMappingId, 'provider')
+    // 히든이 실제로 공급자 id를 나른다 — 화면이 그 값을 만들어 낸다는 것의 확인
+    expect(provider).toBe('KIWOOM_ES040')
+
+    const res = await submitAction(PATHS.prices, jar, [
+      ...formFieldsFor(html, saveMappingId),
+      ['assetId', assetId],
+      ['provider', provider],
+      ['providerSymbol', '3:AAPL'],
+    ])
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('공급자 매핑을 저장했다.')
+
+    const after = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    /*
+     * ★ **`<summary>`에서 «렌더된 현재값»을 읽는다 — 행 전체를 묻지 않는다.**
+     * 처음에는 `after`에 `'3:AAPL'`이 있는지 물었는데, 그것은 입력의 `placeholder`
+     * 예시에도 있어서 **저장 여부와 무관하게 항상 참**이었다(해제 케이스가 그것으로
+     * 빨간불이 났다). 계기가 명제를 판별하지 못한 자리이며, 좁히는 것이 답이다.
+     */
+    expect(summaryOf(after)).toContain('3:AAPL')
+    // 표식이 사라진다 — 저장된 상태가 화면에 반영된다
+    expect(after).not.toContain('자동 수집 안 함')
+  })
+
+  it('★ 빈 칸으로 제출하면 «해제»다 — 지우기 버튼 없이 삭제된다', async () => {
+    const html = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    const res = await submitAction(PATHS.prices, jar, [
+      ...formFieldsFor(html, saveMappingId),
+      ['assetId', hiddenValue(html, saveMappingId, 'assetId')],
+      ['provider', hiddenValue(html, saveMappingId, 'provider')],
+      ['providerSymbol', ''],
+    ])
+    expect(res.status).toBe(200)
+    // 해제와 저장을 같은 문구로 말하지 않는다 — 사용자가 한 조작이 다르다
+    expect(await res.text()).toContain('자동 수집을 해제했다.')
+
+    const after = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    expect(summaryOf(after)).not.toContain('3:AAPL')
+    expect(after).toContain('자동 수집 안 함')
+  })
+
+  it('두 번 해제해도 오류가 아니다 — 이미 없는 것을 없애는 요청', async () => {
+    /*
+     * §5.12가 해제에 `requireAffected`를 걸지 «않는» 이유의 확인이다. 걸면 0행이
+     * `CONFLICT`가 되고 그 오류에는 사용자가 고칠 것이 없다(§5.9가 같은 판단).
+     */
+    const html = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    const res = await submitAction(PATHS.prices, jar, [
+      ...formFieldsFor(html, saveMappingId),
+      ['assetId', hiddenValue(html, saveMappingId, 'assetId')],
+      ['provider', hiddenValue(html, saveMappingId, 'provider')],
+      ['providerSymbol', ''],
+    ])
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('자동 수집을 해제했다.')
+  })
+
+  it('모르는 공급자는 V-21이 거부한다 — 형식은 맞고 소속이 틀렸다', async () => {
+    /*
+     * 이 요청은 히든의 값을 «바꿔» 보낸다 — 화면은 옳은 값을 넣지만 계약이 그것에
+     * 기대지 않는다는 것의 확인이다. 저장되면 그 매핑은 영구히 쓰이지 않는 행이 되고
+     * 화면은 「자동 수집됨」으로 읽힌다.
+     */
+    const html = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    /*
+     * ★ **히든을 «걸러내고» 넣는다 — 뒤에 덧붙이면 덮이지 않는다.**
+     *
+     * 처음에는 `...formFieldsFor(...)` 뒤에 `['provider', 'KIWOOM_ES04']`를 덧붙였다.
+     * 그런데 `FormData`에 같은 키가 둘이면 `form.get()`은 **첫 번째**를 준다 —
+     * 즉 화면의 «옳은» 값이 이기고 저장이 **성공**했다. 그 상태에서 이 케이스는
+     * 「V-21이 거부한다」를 단언하면서 실제로는 정상 저장을 시험하고 있었다.
+     *
+     * **부류: 덮어쓰려는 의도가 조용히 무효가 됐다.** 빨간불이 난 것이 다행이며,
+     * 만약 단언이 「저장되지 않았다」쪽만 있었다면 그것도 통과했을 수 있다.
+     */
+    const withoutProvider = formFieldsFor(html, saveMappingId).filter(
+      ([key]) => key !== 'provider',
+    )
+    const res = await submitAction(PATHS.prices, jar, [
+      ...withoutProvider,
+      ['assetId', hiddenValue(html, saveMappingId, 'assetId')],
+      ['provider', 'KIWOOM_ES04'], // 마지막 0이 빠졌다
+      ['providerSymbol', '3:AAPL'],
+    ])
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain('아는 공급자가 아니다')
+
+    // 저장되지 «않았다» — 요약에 심볼이 없고 표식이 그대로다
+    const after = rowFor(await (await get(PATHS.prices, jar)).text(), ASSET_NAME)
+    expect(summaryOf(after)).not.toContain('3:AAPL')
+    expect(after).toContain('자동 수집 안 함')
   })
 
   it('공급자가 없으므로 전체 갱신은 폴백 안내다 — ST-03', async () => {
