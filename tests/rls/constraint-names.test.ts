@@ -47,6 +47,35 @@ const RAISE_ONLY = [
   'redemptions_round_no_required',
 ] as const
 
+/**
+ * **사용자 입력에서 도달할 수 없는 `CHECK`** — 사상하지 않는 것이 옳다.
+ *
+ * ## 아래 역방향 단언의 «전제»가 P5a 컷 2a에서 거짓이 됐다
+ *
+ * 그 단언은 「`CHECK`는 전부 사용자 입력에서 도달 가능하다」를 근거로 **모든** `CHECK`가
+ * `MAPPED_CONSTRAINTS`에 있어야 한다고 요구한다. `cron_runs`의 둘은 그렇지 않다 —
+ * **배치만 그 테이블에 쓴다.** 화면에도 계약 입력에도 그 값을 넣는 자리가 없다.
+ *
+ * ## 그러면 왜 사상하지 «않는» 것이 옳은가
+ *
+ * `BY_CONSTRAINT`에 넣으면 **DOC-011 §3.2.1 표에도 넣어야 한다**(`tests/db/docs-contract.test.ts`가
+ * 양방향으로 대조한다). 그 표는 「계약 계층이 사용자에게 **필드 오류로** 보여주는 제약」의
+ * 목록이고, 가리킬 필드가 없는 제약을 거기 넣으면 **그 표가 거짓을 서술한다.**
+ * 배치의 집계 위반은 사용자 오류가 아니라 **수집기 결함**이며 그 진단은 로그와
+ * `cron_runs` 자신이다.
+ *
+ * ## 그래서 제외하되 «조용히» 제외하지 않는다
+ *
+ * 아래 단언이 이 목록의 이름들이 **카탈로그에 실재하는지** 함께 본다. 실재하지 않으면
+ * 오타로 제외가 넓어진 것이므로 빨간불이다 — 「제외했다」와 「이름을 틀렸다」를 가른다.
+ */
+const NOT_USER_REACHABLE: Record<string, string> = {
+  cron_runs_counts_check:
+    'I-19. 배치만 쓰는 테이블이고 가리킬 입력 필드가 없다 — 위반은 수집기 결함이다',
+  cron_runs_interval_check:
+    'I-20. 같은 이유. `started_at`·`finished_at`은 배치가 자기 시계로 넣는다',
+}
+
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')
 
 function migrationText(): string {
@@ -113,8 +142,25 @@ describe('모든 CHECK 제약에 사상이 있다 — 역방향', () => {
     const unmapped = result.rows
       .map((row) => row.conname)
       .filter((name) => !MAPPED_CONSTRAINTS.includes(name))
+      .filter((name) => !(name in NOT_USER_REACHABLE))
 
     expect(unmapped).toEqual([])
+  })
+
+  it('제외 목록이 실재하는 제약만 담는다 — 오타로 제외가 넓어지지 않게', async () => {
+    /*
+     * 위 필터가 이름 문자열로 동작하므로, 오타가 있으면 **그 오타는 아무것도 제외하지
+     * 않으면서** 목록은 그대로 남는다(그 상태는 조용하다 — 단언이 여전히 초록일 수 있다).
+     * 그래서 반대 방향을 본다: 제외 목록의 모든 이름이 카탈로그에 있어야 한다.
+     */
+    const catalog = await catalogConstraints()
+    const missing = Object.keys(NOT_USER_REACHABLE).filter((name) => !catalog.has(name))
+    expect(missing).toEqual([])
+  })
+
+  it('제외 목록과 사상 목록이 겹치지 않는다 — 한 제약이 두 부류일 수 없다', () => {
+    const both = Object.keys(NOT_USER_REACHABLE).filter((n) => MAPPED_CONSTRAINTS.includes(n))
+    expect(both).toEqual([])
   })
 
   it('I-17의 네 제약이 실재한다 — 마이그레이션 적용 확인', async () => {

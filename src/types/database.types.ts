@@ -103,6 +103,59 @@ export type Database = {
         }
         Relationships: []
       }
+      cron_runs: {
+        Row: {
+          actor_id: string
+          caller: Database["public"]["Enums"]["cron_caller"]
+          created_at: string
+          failed: Json
+          finished_at: string
+          id: string
+          outcome: Database["public"]["Enums"]["cron_outcome"]
+          skipped: number
+          started_at: string
+          succeeded: number
+          target_count: number
+          unmapped: number
+        }
+        Insert: {
+          actor_id: string
+          caller: Database["public"]["Enums"]["cron_caller"]
+          created_at?: string
+          failed?: Json
+          finished_at: string
+          id?: string
+          outcome: Database["public"]["Enums"]["cron_outcome"]
+          skipped: number
+          started_at: string
+          succeeded: number
+          target_count: number
+          unmapped: number
+        }
+        Update: {
+          actor_id?: string
+          caller?: Database["public"]["Enums"]["cron_caller"]
+          created_at?: string
+          failed?: Json
+          finished_at?: string
+          id?: string
+          outcome?: Database["public"]["Enums"]["cron_outcome"]
+          skipped?: number
+          started_at?: string
+          succeeded?: number
+          target_count?: number
+          unmapped?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cron_runs_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       els_products: {
         Row: {
           account_type: Database["public"]["Enums"]["account_type"]
@@ -446,6 +499,8 @@ export type Database = {
     Enums: {
       account_type: "GENERAL" | "TAX_FREE"
       asset_type: "STOCK" | "INDEX" | "ETF"
+      cron_caller: "BATCH" | "MANUAL_REFRESH"
+      cron_outcome: "OK" | "PROVIDER_UNAVAILABLE" | "INTERNAL"
       health_insurance_type: "EMPLOYEE" | "REGIONAL" | "DEPENDENT" | "NONE"
       ki_observation: "CONTINUOUS" | "CLOSING"
       price_source: "AUTO" | "MANUAL"
@@ -580,6 +635,8 @@ export const Constants = {
     Enums: {
       account_type: ["GENERAL", "TAX_FREE"],
       asset_type: ["STOCK", "INDEX", "ETF"],
+      cron_caller: ["BATCH", "MANUAL_REFRESH"],
+      cron_outcome: ["OK", "PROVIDER_UNAVAILABLE", "INTERNAL"],
       health_insurance_type: ["EMPLOYEE", "REGIONAL", "DEPENDENT", "NONE"],
       ki_observation: ["CONTINUOUS", "CLOSING"],
       price_source: ["AUTO", "MANUAL"],

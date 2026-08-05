@@ -99,7 +99,7 @@ describe('카탈로그 — 정책 누락을 구조적으로 막는다', () => {
     expect(disabled.rows.map((r) => r.relname)).toEqual([])
   })
 
-  it('DOC-002 §3의 12개 엔티티가 모두 존재한다', async () => {
+  it('DOC-002 §3의 13개 엔티티가 모두 존재한다', async () => {
     const present = await asOwner<{ relname: string }>(
       `select c.relname
          from pg_class c
@@ -140,9 +140,20 @@ describe('카탈로그 — 정책 누락을 구조적으로 막는다', () => {
   })
 
   it('변경 정책이 없는 테이블은 쓰기 권한도 회수되어 있다', async () => {
-    // 정책 부재만으로는 UPDATE·DELETE가 조용히 0행으로 끝난다.
-    // 참조 데이터와 공급자 매핑은 권한 자체를 회수해 42501로 실패해야 한다
-    const readOnly = ['tax_years', 'tax_brackets', 'tax_constants', 'asset_provider_symbols']
+    /*
+     * 정책 부재만으로는 UPDATE·DELETE가 조용히 0행으로 끝난다.
+     * 참조 데이터는 권한 자체를 회수해 42501로 실패해야 한다.
+     *
+     * ★ **`asset_provider_symbols`가 이 목록에서 빠졌다 (P5a 컷 2a).** 그 테이블은
+     * 이제 사용자가 쓴다 — 매핑 화면이 서므로(DOC-011 §5.12) 「변경 없음」이 아니다.
+     * 종전 근거 둘이 다 무효가 됐다: `service_role`은 0 DML이고(AQ-57 = ⓐ) 편집 화면이
+     * 실재한다.
+     *
+     * ★ **`cron_runs`는 여기 «넣지 않는다» — 넣으면 거짓이 된다.** 그 테이블에는
+     * INSERT 정책이 있으므로 「변경 정책이 없는 테이블」이 아니다. 대신 그것의
+     * 「UPDATE·DELETE 없음」은 아래 권한 매트릭스와 `cron-runs.test.ts`가 본다.
+     */
+    const readOnly = ['tax_years', 'tax_brackets', 'tax_constants']
     const grants = await asOwner<{ table_name: string; privilege_type: string }>(
       `select table_name, privilege_type
          from information_schema.role_table_grants

@@ -198,25 +198,71 @@ describe('asset_provider_symbols — 조회 전용', () => {
     expect(seen.rowCount).toBe(1)
   })
 
-  it('인증 사용자는 매핑을 추가·수정·삭제할 수 없다', async () => {
-    // ADR-004 — 도메인 코드는 공급자 심볼을 알지 못하고, 편집 화면도 없다.
-    // 변경은 마이그레이션과 수집 배치(service_role) 전용이다
+  /**
+   * ★ **이 케이스가 뒤집혔다 (P5a 컷 2a).** 종전 명제는 「인증 사용자는 매핑을
+   * 추가·수정·삭제할 수 «없다»」였고 근거는 「도메인 코드는 공급자 심볼을 알지 못하고
+   * 편집 화면도 없다. 변경은 마이그레이션과 수집 배치(`service_role`) 전용이다」였다.
+   *
+   * **그 근거 둘이 다 무효가 됐다** — ⓐ `service_role`은 0 DML이고 AQ-57이 ⓐ(전용
+   * 서비스 계정)로 닫혔으므로 배치가 `authenticated`로 돈다. 즉 「배치 전용」 경로가
+   * 애초에 없다 ⓑ 매핑 화면이 선다(DOC-011 §5.12).
+   *
+   * **지우지 않고 뒤집는다** — 케이스를 삭제하면 「그 제약이 있었다」와 「없었다」가
+   * 구별되지 않고, 무엇보다 **DELETE가 열린 것이 «판단»이었다는 기록이 사라진다.**
+   */
+  it('인증 사용자가 매핑을 추가·수정·삭제할 수 있다 (P5a 컷 2a에서 열렸다)', async () => {
     const asset = await seedAsset({ name: '테슬라' })
 
-    await expectPermissionDenied(() =>
-      actingAs(USER_A).query(
-        `insert into public.asset_provider_symbols (asset_id, provider, provider_symbol)
-         values ($1, 'stub', 'TSLA')`,
-        [asset.id],
-      ),
+    await actingAs(USER_A).query(
+      `insert into public.asset_provider_symbols (asset_id, provider, provider_symbol)
+       values ($1, 'KIWOOM_ES040', '3:TSLA')`,
+      [asset.id],
+    )
+
+    // 다른 사용자도 고칠 수 있다 — 시세는 공용 데이터이고 정책이 `using (true)`다
+    await actingAs(USER_B).query(
+      `update public.asset_provider_symbols set provider_symbol = '3:TSLA2'
+        where asset_id = $1`,
+      [asset.id],
+    )
+    const seen = await actingAs(USER_A).query<{ provider_symbol: string }>(
+      'select provider_symbol from public.asset_provider_symbols where asset_id = $1',
+      [asset.id],
+    )
+    expect(seen.rows[0]?.provider_symbol).toBe('3:TSLA2')
+
+    /*
+     * ★ DELETE가 «필요하다» — 「이 자산은 자동 수집하지 않는다」로 되돌릴 유일한
+     * 수단이다. `UNIQUE(asset_id, provider)` 아래에서 UPDATE로는 매핑을 없앨 수 없다.
+     * `assets`·`asset_prices`가 DELETE를 닫은 것과 비대칭이며 그 사유는 마이그레이션
+     * 주석에 있다(매핑은 관측이 아니다).
+     */
+    await actingAs(USER_B).query('delete from public.asset_provider_symbols where asset_id = $1', [
+      asset.id,
+    ])
+    const gone = await actingAs(USER_A).query(
+      'select 1 from public.asset_provider_symbols where asset_id = $1',
+      [asset.id],
+    )
+    expect(gone.rowCount).toBe(0)
+  })
+
+  it('그래도 `assets`·`asset_prices`의 DELETE는 여전히 닫혀 있다 — 음성 대조', async () => {
+    /*
+     * 위 케이스가 뒤집혔다는 사실이 「공용 데이터의 삭제가 전부 열렸다」로 읽히지
+     * 않게 한다. 비대칭이 «의도»임을 같은 파일에서 증명한다.
+     */
+    const asset = await seedAsset({ name: '엔비디아' })
+    await actingAs(USER_A).query(
+      `insert into public.asset_prices (asset_id, as_of_date, price, source)
+       values ($1, '2026-08-04', 100, 'MANUAL')`,
+      [asset.id],
     )
     await expectPermissionDenied(() =>
-      actingAs(USER_A).query(
-        `update public.asset_provider_symbols set provider_symbol = 'X'`,
-      ),
+      actingAs(USER_A).query('delete from public.asset_prices where asset_id = $1', [asset.id]),
     )
     await expectPermissionDenied(() =>
-      actingAs(USER_A).query('delete from public.asset_provider_symbols'),
+      actingAs(USER_A).query('delete from public.assets where id = $1', [asset.id]),
     )
   })
 })

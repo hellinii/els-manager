@@ -107,10 +107,21 @@ export const TABLE_PRIVILEGES = {
     authenticated: ['INSERT', 'SELECT', 'UPDATE'],
     service_role: NONE,
   },
-  // 조회 전체 / 변경 없음 (마이그레이션 전용). 배치는 **읽기만** 한다
+  /**
+   * **전 DML이 됐다 (P5a 컷 2a).** 종전 주석은 「조회 전체 / 변경 없음(마이그레이션
+   * 전용). 배치는 읽기만 한다」였고 근거 둘이 다 무효가 됐다 —
+   * ⓐ `service_role`이 0 DML이고 AQ-57이 ⓐ(전용 서비스 계정)로 닫혔으므로 배치는
+   * `authenticated`로 돈다. 즉 「배치 전용」 경로가 없다
+   * ⓑ 매핑 «화면»이 선다 (DOC-011 §5.12 `saveProviderSymbol`)
+   *
+   * ★ **DELETE를 포함한다 — `assets`·`asset_prices`와 비대칭이고 그것이 의도다.**
+   * 매핑은 관측이 아니므로 지워도 잃는 것이 없고, 「이 자산은 자동 수집하지 않는다」로
+   * 되돌릴 유일한 수단이다. `UNIQUE(asset_id, provider)` 아래에서 UPDATE로는 매핑을
+   * 없앨 수 없다. 마이그레이션 주석이 그 표를 담는다.
+   */
   asset_provider_symbols: {
     anon: NONE,
-    authenticated: ['SELECT'],
+    authenticated: ALL_DML,
     service_role: NONE,
   },
   // 조회 전체 / 변경 소유자
@@ -122,6 +133,22 @@ export const TABLE_PRIVILEGES = {
   tax_years: { anon: NONE, authenticated: ['SELECT'], service_role: NONE },
   tax_brackets: { anon: NONE, authenticated: ['SELECT'], service_role: NONE },
   tax_constants: { anon: NONE, authenticated: ['SELECT'], service_role: NONE },
+  /**
+   * 배치 실행 기록 (P5a 컷 2a — DOC-002 §4.11).
+   *
+   * ★ **`SELECT`·`INSERT`만이다. UPDATE·DELETE가 없는 것이 이 셀의 요점이다** —
+   * 고칠 수 있는 관측 기록은 기록이 아니다. 정책도 두 개(SELECT 전체 · INSERT 본인)뿐이라
+   * 두 겹이며, 위 「변경 정책이 없는 테이블」 목록에는 **넣지 않는다**(INSERT 정책이
+   * 있으므로 그 명제가 거짓이 된다).
+   *
+   * `service_role`은 여전히 비어 있다 — 배치가 `authenticated`로 돌기 때문이고,
+   * 그래서 P5b 컷 2의 「0 DML」이 **영구 상태**가 된다 (AQ-57 = ⓐ의 결과).
+   */
+  cron_runs: {
+    anon: NONE,
+    authenticated: ['INSERT', 'SELECT'],
+    service_role: NONE,
+  },
 } as const satisfies Record<string, Record<Role, readonly DmlPrivilege[]>>
 
 /**

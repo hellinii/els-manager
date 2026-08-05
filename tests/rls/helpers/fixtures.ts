@@ -30,4 +30,6 @@ export const RLS_TABLES = [
   'tax_years',
   'tax_brackets',
   'tax_constants',
+  // P5a 컷 2a — 시세 배치 실행 기록. 12 → 13 (DOC-002 §4.11 · AQ-51 종결)
+  'cron_runs',
 ] as const
