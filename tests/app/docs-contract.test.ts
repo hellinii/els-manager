@@ -148,3 +148,73 @@ describe('문서 버전 삼자 대조 — DOC-000 컷 9 후보', () => {
     expect(noHeader).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// DOC-010 §7 권한 정책 요약 ↔ `authz-matrix.ts` — P5a 컷 4
+// ---------------------------------------------------------------------------
+
+/**
+ * **원장이 둘인데 대조가 없었다 — 그래서 한쪽이 낡았다.**
+ *
+ * `tests/rls/`의 카탈로그 대조는 `authz-matrix.ts`를 실제 GRANT와 양방향으로 맞춘다.
+ * 그런데 DOC-010 §7의 「권한 정책 요약」 표는 **아무도 보지 않았고**, 컷 2a가
+ * `asset_provider_symbols`에 전 DML을 부여한 뒤에도 그 표는 「없음(마이그레이션 전용)」인
+ * 채였다. `cron_runs` 행은 아예 없었다. **모든 스위트가 초록인 채로 문서가 거짓이었다.**
+ *
+ * AQ-11 자신이 「권한 표를 데이터로 박는다」를 방어의 정본으로 삼았으므로 이 낡음은
+ * 방어의 근거를 갉아먹는다 — **fail-open이 아니라 「근거 문서가 거짓」**이라는 다른 부류다.
+ *
+ * ## 왜 상시 스위트인가
+ *
+ * 대조 대상 둘이 **파일**이다(마크다운 + TS 상수). DB가 필요 없으므로 `tests/rls/`에 두면
+ * 인프라가 있는 사람만 이 거짓을 보게 된다 — 그것이 이 낡음이 오래 살아남은 이유이기도 하다.
+ *
+ * ## 이름만 본다 — 권한 «내용»은 대조하지 않는다
+ *
+ * 표의 「조회」·「변경」 칸은 **산문**이고(「상품 소유자」·「관측 좌표는 불변」) 원장은
+ * `['INSERT','SELECT']` 같은 집합이다. 그 둘을 문자열로 맞추려 하면 문서를 코드처럼 쓰게
+ * 되고, 그러면 사람이 읽는 값이 사라진다. **집합이 갈리는 것을 잡는 층은 카탈로그 대조이며
+ * 여기서 잡는 것은 「행이 빠졌다」다** — 실제로 낡은 방식이 그것이었다.
+ */
+describe('DOC-010 §7 권한 표 ↔ 권한 원장', () => {
+  const DOC_010 = join(process.cwd(), 'docs', '10_아키텍처_및_기술결정.md')
+
+  /** 표의 첫 열에서 백틱 이름을 전부 뽑는다 — 한 행이 여러 테이블을 담을 수 있다 */
+  const documented = (() => {
+    const lines = readFileSync(DOC_010, 'utf8').split('\n')
+    const at = lines.indexOf('| 테이블 | 조회 | 변경 |')
+    expect(at, '§7 권한 정책 요약 표를 찾지 못했다').toBeGreaterThan(-1)
+    expect(lines.indexOf('| 테이블 | 조회 | 변경 |', at + 1), '같은 헤더가 둘 이상이다').toBe(-1)
+    expect(lines[at + 1]).toMatch(/^\|(?:-+\|)+$/)
+
+    const names = new Set<string>()
+    let rows = 0
+    for (const line of lines.slice(at + 2)) {
+      if (!line.startsWith('|')) break
+      rows += 1
+      const firstCell = line.replace(/^\|/, '').split('|', 1)[0]!
+      for (const m of firstCell.matchAll(/`([a-z_]+)`/g)) names.add(m[1]!)
+    }
+    expect(rows, '표를 0행 파싱했다').toBeGreaterThan(0)
+    return names
+  })()
+
+  it('파서가 이름을 실제로 뽑았다 — 0개를 뽑고 초록이 되는 것을 막는다', () => {
+    expect(documented.size).toBeGreaterThan(5)
+    expect(documented).toContain('users')
+  })
+
+  it('문서의 테이블 집합이 원장과 «정확히» 같다', async () => {
+    /*
+     * ★ **정확 일치다 — 부분집합이 아니다.** 부분집합으로 두면 ⓐ 새 테이블이 원장에만
+     * 들어오는 것(= 컷 2a에서 실제로 일어난 일)과 ⓑ 문서에만 남은 낡은 이름이 **둘 다**
+     * 통과한다. 「겹치지 않는가」를 세는 열거는 「빠지지 않았는가」에 답하지 못한다.
+     *
+     * ★★ 그래서 표의 행을 「`els_products` 및 하위」로 «묶을 수 없다** — 그 표현이
+     * 이름을 숨긴다. 하위 둘을 명시하게 만든 것이 이 단언의 부수 효과이며, 표가 더
+     * 정확해졌다.
+     */
+    const { TABLE_PRIVILEGES } = await import('../rls/helpers/authz-matrix')
+    expect([...documented].sort()).toEqual(Object.keys(TABLE_PRIVILEGES).sort())
+  })
+})
