@@ -1,4 +1,5 @@
 import type { HealthInsuranceType } from '@/lib/tax'
+import type { FailureClass } from '@/lib/providers/types'
 
 /**
  * 변경 계약의 입력 타입 — DOC-011 §5가 정본이다
@@ -119,5 +120,32 @@ export type ProviderSymbolInput = {
 /** §5.8 `refreshPrices`의 반환 */
 export type RefreshPricesResult = {
   succeeded: number
-  failed: Array<{ assetId: string; assetName: string; reason: string }>
+  /** 기준일 행이 이미 있어 건너뛴 수 (CR-05). v3.6 — 아래 ★ */
+  skipped: number
+  /** 공급자 매핑이 없는 수. **실패가 아니다** (ADR-007) */
+  unmapped: number
+  failed: Array<{
+    assetId: string
+    assetName: string
+    reason: string
+    /** 두 부류가 층을 넘어 살아남는 자리 — 화면이 문구를 파싱하지 않게 한다 */
+    failure: FailureClass
+  }>
+}
+
+/**
+ * ★ `skipped`·`unmapped`가 없으면 화면이 「정상」과 「고장」을 가르지 못한다 (DOC-011 §5.8).
+ *
+ * `{succeeded, failed}`만으로는 「이미 최신이다」와 「아무 일도 하지 못했다」가 **둘 다**
+ * `succeeded: 0, failed: []`다. 그리고 CR-05가 뒤집힌 뒤로 그것이 SCR-302의 **흔한** 경우다 —
+ * 배치가 14:00~14:59 KST에 돌고 사용자는 그 뒤에 누른다.
+ */
+export type CronResult = {
+  /** ISO 8601. **인자로 받는다** — 순수 모듈이 시계를 읽지 않는다 */
+  executedAt: string
+  targetCount: number
+  succeeded: number
+  skipped: number
+  unmapped: number
+  failed: Array<{ assetId: string; reason: string; failure: FailureClass }>
 }

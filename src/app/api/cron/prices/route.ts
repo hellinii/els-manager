@@ -1,6 +1,12 @@
-import { decide } from '@/lib/cron/decide'
-import { cronSecret } from '@/lib/db/env'
-import { PRICE_PROVIDERS } from '@/lib/providers/types'
+import { decide, isRefusal } from '@/lib/cron/decide'
+import { toCronResult } from '@/lib/cron/report'
+import { refusalResponse, resultResponse } from '@/lib/cron/respond'
+import { batchContext } from '@/lib/db/batch'
+import { cronSecret, cronServiceAccount, missingProviderCredentials } from '@/lib/db/env'
+import { collectAndRecord } from '@/lib/db/mutations/collect'
+import { fail, ok } from '@/lib/db/mutations/result'
+import { today } from '@/lib/db/today'
+import { PRICE_PROVIDERS, PROVIDER_CREDENTIALS } from '@/lib/providers/types'
 
 /**
  * 시세 배치 수집 — DOC-011 §7.1, DOC-013 §6
@@ -38,26 +44,29 @@ import { PRICE_PROVIDERS } from '@/lib/providers/types'
  * 그 비대칭이 스스로를 숨긴다 — 로컬에서 「빌드가 왜 깨지지」로 보이고 운영에서는
  * 아무 신호가 없다. 요청 안에서 읽고, 부재는 **응답으로** 답한다(CR-06).
  *
- * ## 판정은 여기 없다 → `lib/cron/decide.ts`
+ * ## 판정도 사상도 여기 없다 → `lib/cron/decide.ts` · `lib/cron/respond.ts`
  *
  * 이 파일은 어느 상시 스위트의 import 그래프에도 없다(Next가 실행한다). 분기표를 여기
  * 두면 아무도 전수로 읽지 못하므로 **판정은 순수 모듈**이고 이 파일은 ⓐ 환경 읽기
- * ⓑ 레지스트리 세기 ⓒ 헤더 싣기만 한다. 그 셋이 e2e가 HTTP로 보는 전부다.
+ * ⓑ 시계 읽기 ⓒ 조립 순서만 한다. 응답의 형태는 `respond.ts`가 값으로 만든다.
+ *
+ * ## 200 경로가 생겼다 (P5a 컷 3)
+ *
+ * 배포 첫날부터 이 라우트는 401·500·503만 냈다 — 공급자가 0개였기 때문이다. 지금은
+ * ⓐ 서비스 계정으로 로그인해 `MutationContext`를 조립하고 ⓑ §5.8과 **같은 구현**
+ * (`collectAndRecord`)을 부르고 ⓒ 그 결과를 `CronResult`로 투영한다.
+ *
+ * ★ **「§5.8을 호출한다」보다 정확한 서술은 「둘이 같은 구현을 호출한다」다.** 두 계약의
+ * 반환 필드 집합이 갈리므로(`targetCount` vs `assetName`) 한쪽이 다른 쪽을 부를 수 없고,
+ * 공통 코어 하나 + 투영 둘이 §5.8 각주가 요구한 형태다.
+ *
+ * ★★ **`revalidatePath`를 부르지 않는다.** 이 라우트는 화면을 렌더하지 않고, `server.ts`의
+ * 실측이 그대로다 — 라우트 핸들러에서 부르면 그 무효화가 어느 요청의 캐시에도 닿지
+ * 않는다. 화면은 다음 방문에서 `asOf` 기준으로 다시 읽는다. **빠뜨린 것이 아니라 뺀
+ * 것이므로 사유를 적는다.**
  */
 
 export const dynamic = 'force-dynamic'
-
-/**
- * CR-09의 세 헤더. **값을 여기 박는 것이 옳다** — `@supabase/ssr`이 쿠키를 실을 때
- * 주는 것과 같은 세 값이지만(`lib/db/client.ts`) 그것은 라이브러리의 것이고 이 응답에는
- * 쿠키가 없다. 같은 값을 두 곳에서 쓰는 대가로 **계약이 요구하는 값**을 계약 문서와
- * 나란히 읽을 수 있게 둔다(§7.1 CR-09가 이 세 줄을 문자 그대로 적는다).
- */
-const NO_STORE: Record<string, string> = {
-  'Cache-Control': 'private, no-cache, no-store, must-revalidate, max-age=0',
-  Expires: '0',
-  Pragma: 'no-cache',
-}
 
 /**
  * 부재를 예외에서 값으로 바꾼다 — `decide()`의 CR-06 갈래가 그것을 받는다.
@@ -75,29 +84,83 @@ function readSecret(): string | null {
   }
 }
 
+/**
+ * 부재한 자격증명의 **이름들** — CR-10의 두 출처를 합친다.
+ *
+ * ⓐ 전용 서비스 계정 ⓑ 자격증명을 요구하는 공급자의 키. **둘 다 배포 결함이고 고치는
+ * 사람이 같으므로** 한 규칙으로 답한다. 오늘 ⓑ는 비어 있다(키움 es040은 자격증명이
+ * 없다) — 그 사실이 `PROVIDER_CREDENTIALS`에 값으로 적혀 있다.
+ *
+ * ★ **응답 본문에 이 이름들을 싣지 않는다.** 배포 구성의 정보이므로 서버 로그로만 간다.
+ */
+function missingCredentials(): readonly string[] {
+  const providerNames = PRICE_PROVIDERS.flatMap((f) => PROVIDER_CREDENTIALS[f.id] ?? [])
+  return [...cronServiceAccount().missing, ...missingProviderCredentials(providerNames)]
+}
+
 export async function GET(request: Request): Promise<Response> {
+  const startedAt = new Date().toISOString()
+
   const verdict = decide({
     header: request.headers.get('authorization'),
     secret: readSecret(),
-    providerCount: PRICE_PROVIDERS.length,
+    missingCredentials: missingCredentials(),
   })
 
-  /*
-   * 500만 로그한다. 401은 외부 호출이므로 고칠 것이 없고(로그하면 스캐너가 로그를
-   * 채운다), 503은 **설계된 상태**이며 그 보고는 응답 상태 자체다(DOC-013 §6.4).
-   * 500 둘은 배포 결함이므로 `rule`을 함께 남긴다 — CR-06과 CR-08이 같은 상태 코드다.
-   */
-  if (verdict.status === 500) {
-    console.error(`[cron] ${verdict.rule}: ${verdict.message}`)
+  if (isRefusal(verdict)) {
+    /*
+     * 500만 로그한다. 401은 외부 호출이므로 고칠 것이 없고(로그하면 스캐너가 로그를
+     * 채운다), 500 둘은 배포 결함이므로 `rule`을 함께 남긴다 — CR-06과 CR-10이 같은
+     * 상태 코드이고 `code`도 같은 `INTERNAL`이라 **`rule` 없이는 갈리지 않는다.**
+     */
+    if (verdict.status === 500) {
+      console.error(`[cron] ${verdict.rule}: ${verdict.message}`)
+      if (verdict.rule === 'CR-10') {
+        // 이름만 남긴다(값이 아니다 — SEC-05). 이것이 CR-10의 진단 내용 전부다.
+        console.error(`[cron] 부재한 자격증명: ${missingCredentials().join(', ')}`)
+      }
+    }
+
+    const response = refusalResponse(verdict)
+    return Response.json(response.body, {
+      status: response.status,
+      headers: response.headers,
+    })
   }
 
   /*
-   * 본문의 스키마는 §7.1이 정의하지 않았다(성공의 `CronResult`만 있다). 그래서 **어휘를
-   * 새로 만들지 않는다** — `code`는 §3.2의 것이고 `rule`은 §7.1의 ID다. 진단에 필요한
-   * 것이 정확히 이 둘이다: 상태 코드는 CR-06과 CR-08을 구분하지 못한다.
+   * ★ **기준일을 여기서 «한 번» 읽는다** — Q-02·W-02가 요구하는 「요청당 한 번」이다.
+   * `today()`가 KST를 준다(`lib/db/today.ts`). 공급자가 주는 `as_of_date`와는 다른 값이며
+   * 그것이 설계다: 이 값은 **창의 상한**이고 저장되는 날짜는 **관측된 것**이다.
    */
-  return Response.json(
-    { code: verdict.code, message: verdict.message, rule: verdict.rule },
-    { status: verdict.status, headers: NO_STORE },
-  )
+  const asOf = today()
+
+  const result = await (async () => {
+    const ctx = await batchContext(asOf)
+    if (!ctx.ok) return fail(ctx.error.code, ctx.error.message)
+
+    /*
+     * `loadTargets`가 던지면(대상을 열거하지 못했다) 여기서 잡아 CR-08로 답한다 —
+     * 부분이 없는 실행은 CR-02의 대상이 아니다. **삼키지 않고 남긴다.**
+     */
+    try {
+      const collected = await collectAndRecord(ctx.data, 'BATCH', {
+        startedAt,
+        finishedAt: () => new Date().toISOString(),
+      })
+      if (!collected.ok) return fail(collected.error.code, collected.error.message)
+      return ok(toCronResult(collected.data, startedAt))
+    } catch (error) {
+      console.error(
+        `[cron] 수집이 예외로 끝났다: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return fail('INTERNAL', '처리 중 오류가 발생했다.')
+    }
+  })()
+
+  const response = resultResponse(result, startedAt)
+  return Response.json(response.body, {
+    status: response.status,
+    headers: response.headers,
+  })
 }

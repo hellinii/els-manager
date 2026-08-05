@@ -1,5 +1,6 @@
 import type {
   CountingColumn,
+  IsExactlyNumber,
   TableInsert,
   TableName,
   TableUpdate,
@@ -49,9 +50,11 @@ import type {
 /**
  * 금액·비율 열 — 즉 문자열로 실어야 하는 열.
  *
- * 판정은 읽기 쪽 `MustCastColumn`과 **글자 그대로 같다**: 생성 타입이 `number`인데
- * `CountingColumn`이 아닌 열. 두 방향이 `CountingColumn` 하나를 공유하므로 어느
- * 열이 금액인가에 대해 갈릴 수 없다.
+ * 판정은 읽기 쪽 `MustCastColumn`과 **글자 그대로 같다**: 생성 타입이 «정확히»
+ * `number`인데 `CountingColumn`이 아닌 열. 두 방향이 `CountingColumn`과
+ * `IsExactlyNumber` **둘을** 공유하므로 어느 열이 금액인가에 대해 갈릴 수 없다
+ * (P5a 컷 3에서 `IsExactlyNumber`가 생겼다 — `jsonb`가 금액으로 분류되던 것을 고쳤고,
+ * 그 판정을 두 곳에 복제하지 않으려고 `select.ts`에 두었다).
  *
  * ★ `Shape`에 제약(`extends Record<string, unknown>`)을 걸지 않는다. 그 제약을
  *   만족시키려고 `TableInsert<T> & Record<string, unknown>`으로 교차시키면
@@ -64,7 +67,7 @@ import type {
 type MoneyColumnIn<Shape> = {
   [K in keyof Shape]-?: K extends CountingColumn
     ? never
-    : number extends NonNullable<Shape[K]>
+    : IsExactlyNumber<Shape[K]> extends true
       ? K
       : never
 }[keyof Shape]

@@ -281,11 +281,22 @@ describe('자산 등록 → 시세 입력', () => {
     expect(after).toContain('자동 수집 안 함')
   })
 
-  it('공급자가 없으므로 전체 갱신은 폴백 안내다 — ST-03', async () => {
+  it('★ 전체 갱신이 «실제로 수집한다» — 결과가 문구가 되고 경보가 아니다', async () => {
     /*
-     * §5.8은 공급자 0개인 동안 `PROVIDER_UNAVAILABLE`을 준다. 그것이 **오류로
-     * 표시되면 안 된다** — 문구가 수동 입력을 가리키고 `role`이 `alert`가 아니어야
-     * 한다. 「오류 = 빨간 박스」를 먼저 만들면 되돌려야 하는 자리였다(계획 §3).
+     * ★ **이 케이스는 종전 「공급자가 없으므로 폴백 안내다 — ST-03」이었다.**
+     * §5.8이 `PROVIDER_UNAVAILABLE`을 주던 동안 「수동 입력으로 갱신한다」를 단언했고,
+     * 컷 3이 키움을 등재하면서 **그 갈래가 사라졌다** — 이 케이스가 빨간불이 된 것이
+     * 그 신호였다(`expected … to contain '수동 입력으로 갱신한다'`).
+     *
+     * ST-03의 요구는 살아 있다: 이 문구는 **경보가 아니다.** 부분 실패도 `ok`이므로
+     * (CR-02) `role`이 `status`여야 하고, 그것을 `alert`로 바꾸면 **건강한 부분 실패가
+     * 전면 실패로 보인다.**
+     *
+     * ## 건수를 단언하지 «않는다»
+     *
+     * `loadProducts`가 전역이므로(모든 SELECT 정책이 `using (true)`) 대상 수가 **다른 e2e
+     * 파일의 실행 여부에 달려 있다.** 그것을 값으로 단언하면 파일 순서가 데이터가 되고,
+     * 그것이 AQ-34가 전용 사용자를 만든 이유 그 자체다. 그래서 **문구의 «형태»만** 본다.
      */
     const html = await (await get(PATHS.prices, jar)).text()
     const refreshId = actionIdOf('refreshPricesAction')
@@ -293,21 +304,31 @@ describe('자산 등록 → 시세 입력', () => {
     const res = await submitAction(PATHS.prices, jar, [
       ...formFieldsFor(html, refreshId),
     ])
+    expect(res.status).toBe(200)
     const rendered = await res.text()
 
-    expect(rendered).toContain('수동 입력으로 갱신한다')
+    // ① 폴백 갈래가 «사라졌다» — 공급자가 등재되어 있다는 것의 HTTP 관측
+    expect(rendered).not.toContain('수동 입력으로 갱신한다')
 
     /*
-     * 폴백 안내는 `status`다 — 이 문구가 `alert`로 나가면 스크린리더가 경보로 읽고
-     * 사용자가 자기 잘못이라고 이해한다(ST-03이 막으려는 것).
+     * ② `refreshSummary`가 낼 수 있는 형태 전부를 열거해 그중 하나인 `<p>`를 찾는다.
      *
-     * **렌더된 요소를 잡아야 한다.** 처음에는 문구의 첫 등장 앞 300자를 봤는데,
-     * 그 첫 등장은 `$ACTION_*` 히든 필드에 직렬화된 `FormState`였다 — 다음 제출을
-     * 위해 상태가 폼에 실리기 때문이다. 태그로 잡으면 그 혼동이 없다.
+     * **태그로 잡아야 한다** — 문구의 첫 등장은 `$ACTION_*` 히든 필드에 직렬화된
+     * `FormState`일 수 있다(다음 제출을 위해 상태가 폼에 실린다). 그리고 열거를 손으로
+     * 적으므로, `refreshSummary`에 다섯째 형태가 생기면 여기가 빨간불이 된다.
      */
-    const paragraph = /<p[^>]*>[^<]*수동 입력으로 갱신한다[^<]*<\/p>/.exec(rendered)?.[0]
-    expect(paragraph, '문구가 렌더된 <p>에 없다 — 히든 필드에만 있다').toBeDefined()
-    expect(paragraph).toContain('role="status"')
-    expect(paragraph).not.toContain('role="alert"')
+    const SHAPES = /^(?:갱신 대상이 없다\.|새로 \d+건|이미 최신 \d+건|자동 수집 안 함 \d+건|실패 \d+건)/
+    const paragraphs = [...rendered.matchAll(/<p\b[^>]*>([^<]*)<\/p>/g)]
+    const summary = paragraphs.find((m) => SHAPES.test(m[1]!.trim()))
+
+    expect(summary, `갱신 결과 문구를 찾지 못했다: ${paragraphs.map((m) => m[1]).join(' | ')}`)
+      .toBeDefined()
+
+    /*
+     * ③ 폴백이든 성공이든 `status`다 — 이 문구가 `alert`로 나가면 스크린리더가 경보로
+     * 읽고 사용자가 자기 잘못이라고 이해한다(ST-03이 막으려는 것).
+     */
+    expect(summary![0]).toContain('role="status"')
+    expect(summary![0]).not.toContain('role="alert"')
   })
 })

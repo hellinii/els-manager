@@ -343,6 +343,72 @@ export async function loadAllAssetsWithLatestPrice(
 }
 
 // ---------------------------------------------------------------------------
+// 수집 배치 — P5a 컷 3
+// ---------------------------------------------------------------------------
+
+/**
+ * 자산 → 이 공급자에서의 심볼. 없는 자산은 **키가 없다**(미매핑).
+ *
+ * 왕복 하나다 — 자산별로 묻지 않는다.
+ */
+export async function loadProviderSymbols(
+  ctx: QueryContext,
+  provider: string,
+  assetIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (assetIds.length === 0) return new Map()
+
+  const { data, error } = await ctx.db
+    .from('asset_provider_symbols')
+    .select('asset_id,provider_symbol')
+    .eq('provider', provider)
+    .in('asset_id', [...new Set(assetIds)])
+    .limit(TRUNCATION_PROBE_LIMIT)
+
+  if (error != null) fail('공급자 심볼', error)
+  assertNotTruncated(data, '공급자 심볼')
+  return new Map(data.map((row) => [row.asset_id, row.provider_symbol]))
+}
+
+/**
+ * 자산 → 창 안에 **이미 저장된** `as_of_date`들. CR-05 사전 확인의 재료다.
+ *
+ * ★ **`to` 상한을 반드시 건다** — `loadLatestPrices`가 D6에서 같은 것을 하는 이유와 같다.
+ * 상한이 없으면 미래 일자 행이 「이미 있다」로 세어져 **정상 수집이 조용히 건너뛰어진다.**
+ *
+ * ★★ **튜플 `IN`을 쓰지 않는다 — PostgREST에 그 문법이 없다.** `.in(assets).in(dates)`는
+ * **교차곱**이 되어 실제로 없는 `(자산, 날짜)` 조합까지 「있다」로 만들고, 그러면 수집이
+ * 건너뛰어진다(위와 같은 조용한 결과). 창이 며칠이므로 **범위 형태가 정확하다.**
+ */
+export async function loadPriceDatesInWindow(
+  ctx: QueryContext,
+  assetIds: readonly string[],
+  from: string,
+  to: string,
+): Promise<Map<string, Set<string>>> {
+  if (assetIds.length === 0) return new Map()
+
+  const { data, error } = await ctx.db
+    .from('asset_prices')
+    .select('asset_id,as_of_date')
+    .in('asset_id', [...new Set(assetIds)])
+    .gte('as_of_date', from)
+    .lte('as_of_date', to)
+    .limit(TRUNCATION_PROBE_LIMIT)
+
+  if (error != null) fail('기존 시세 날짜', error)
+  assertNotTruncated(data, '기존 시세 날짜')
+
+  const out = new Map<string, Set<string>>()
+  for (const row of data) {
+    const set = out.get(row.asset_id) ?? new Set<string>()
+    set.add(row.as_of_date)
+    out.set(row.asset_id, set)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // 세금 — 연도 컨텍스트와 프로필
 // ---------------------------------------------------------------------------
 

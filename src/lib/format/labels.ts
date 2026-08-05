@@ -3,6 +3,7 @@ import type { AttentionReason, IntegrityIssue, ProductListItem, RedemptionView }
 import type { AssetPriceView } from '@/lib/db/queries/prices'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import type { AssetInput, ProductInput } from '@/lib/db/mutations/types'
+import type { FailureClass } from '@/lib/providers/types'
 
 /**
  * 열거형 → 한글 표시 문자열 — **DOC-005 §6.1이 정본이다** (절대 규칙 #9)
@@ -113,6 +114,41 @@ export const ATTENTION_REASON_LABELS: Record<AttentionReason, string> = {
 }
 
 /**
+ * 시세 수집 실패의 **부류** — DOC-005 §6.1 `priceFailure` (P5a 컷 3).
+ *
+ * ## 문구가 «조치»다 — 부류 이름이 아니다
+ *
+ * `NO_DATA`와 `CALL_FAILED`를 그대로 「데이터 없음」·「호출 실패」로만 적으면 사용자가
+ * 무엇을 할지 알 수 없다. 그래서 조치를 라벨에 넣는다 — `integrityIssue`가
+ * 「— 수정 필요」를 붙인 것과 같은 형태다.
+ *
+ * ★★ **조치의 «정본»은 DOC-011 §7.1의 표이고 그것을 옮겨 적는다 — 추측하지 않는다.**
+ *
+ * | 부류 | §7.1이 정한 조치 |
+ * |---|---|
+ * | `NO_DATA` | **매핑을 고친다**(SCR-302) **또는 그냥 정상**(휴장) |
+ * | `CALL_FAILED` | **기다린다.** 고칠 것이 없다 |
+ *
+ * 「데이터 없음」이 **심볼 오류를 포함하기 때문**에 그렇다(휴장·상장폐지·심볼 오류가 한
+ * 부류다 — 공급자가 그 심볼의 그날 데이터를 «주지 않았다»가 공통이다). 반대로 호출이
+ * 실패한 것은 사용자의 데이터와 무관하다.
+ *
+ * ★★★ **초안이 이 둘을 «정반대로» 적었고 종단 실측이 잡았다.** `NO_DATA`에
+ * 「기다린다」를 붙였는데, 매핑을 `1:SPX`로 잘못 넣은 상태(올바른 코드는 `1:_SPX`)에서
+ * 화면이 정확히 그 문구를 말했다 — **고칠 것은 사용자의 매핑이었다.** 계약은 처음부터
+ * 옳았고 §6.1로 옮겨 적는 단계에서 뒤집혔다. **부류가 아니라 라벨이 틀리는 부류의 결함이며,
+ * 어느 타입도 어느 전수 대조도 그것을 잡지 못한다**(라벨은 문자열이고 축 집합은 맞았다).
+ *
+ * ★ **이 라벨이 존재할 수 있는 것은 어댑터가 두 부류를 «값»으로 주기 때문이다**
+ * (ADR-004 보정의 `failure`). 부류가 `reason` 문구 안에만 있으면 화면이 **문구를 파싱**해야
+ * 두 조치를 가를 수 있고, 그러면 어댑터의 문구를 바꾸는 것이 화면을 조용히 깨뜨린다.
+ */
+export const PRICE_FAILURE_LABELS: Record<FailureClass, string> = {
+  NO_DATA: '데이터 없음 — 매핑 확인(휴장일 수 있다)',
+  CALL_FAILED: '호출 실패 — 기다린다',
+}
+
+/**
  * 건강보험 가입 유형 — **`NONE`은 「해당 없음」이 아니라 「미입력」이다** (DOC-005 §5·§6.1)
  *
  * 다른 셋은 제도상의 자격이고 이 값만 **입력의 부재**다. DOC-011 §4.6이 프로필 행이
@@ -147,6 +183,7 @@ export const LABEL_AXES = {
   priceSource: PRICE_SOURCE_LABELS,
   integrityIssue: INTEGRITY_ISSUE_LABELS,
   attentionReason: ATTENTION_REASON_LABELS,
+  priceFailure: PRICE_FAILURE_LABELS,
   healthInsuranceType: HEALTH_INSURANCE_TYPE_LABELS,
 } as const satisfies Record<string, Record<string, string>>
 

@@ -2,7 +2,7 @@ import type { CookieMethodsServer } from '@supabase/ssr'
 import type { AuthError } from '@supabase/supabase-js'
 
 import { createSessionClient } from '@/lib/db/client'
-import { fail, okVoid, type ActionResult } from '@/lib/db/mutations/result'
+import { fail, ok, okVoid, type ActionResult } from '@/lib/db/mutations/result'
 
 /**
  * 로그인·로그아웃 — SCR-001 / SCR-502 (DOC-011 §8)
@@ -93,6 +93,81 @@ export async function signIn(
   })
 
   return error == null ? okVoid() : mapAuthError(error)
+}
+
+/**
+ * 배치의 로그인 — AQ-57 ⓐ, DOC-011 §7.1 · DOC-013 §7.
+ *
+ * ## `signIn`과 갈라 두는 이유 셋
+ *
+ * ① **쿠키가 없다.** 배치는 브라우저가 아니므로 세션을 어디에도 저장하지 않는다.
+ * 어댑터를 `getAll: () => []` · `setAll: 무연산`으로 주면 GoTrue는 응답 본문의
+ * `session`만 주고 그것이 필요한 전부다 — 즉 **한 요청 안에서 태어나고 죽는 세션**이다.
+ * `signIn`에 「쿠키 없음」 갈래를 만들면 그 함수가 두 용도를 겸하게 되고, 화면 쪽에서
+ * 실수로 그 갈래를 타면 **로그인이 성공했는데 쿠키가 없다**(사용자는 로그인 화면으로
+ * 되돌아온다).
+ *
+ * ② **필요한 것이 `void`가 아니라 토큰과 사용자 id다.** `createTokenClient(token)`에
+ * 넣을 토큰과 `cron_runs.actor_id`에 적을 id 둘이다. 후자를 「나중에 `getUser()`로
+ * 얻는다」로 두면 왕복이 하나 늘고, 무엇보다 `createTokenClient`의 `.auth`는
+ * **접근하면 던지는 Proxy**다(`client.ts`) — 그 경로가 애초에 없다.
+ *
+ * ③ **오류 문구가 사용자용이 아니다.** `mapAuthError`는 이메일 열거를 막기 위해
+ * 「이메일 또는 비밀번호가 올바르지 않다」를 주는데, 배치의 그 상태는 **배포 결함**이고
+ * 읽는 사람이 민서 자신이다. 그래서 문구를 갈아 원인을 지목한다 — 단, **값은 적지 않는다.**
+ *
+ * ## 반환은 `ActionResult`다 — 새 어휘를 만들지 않는다
+ *
+ * 라우트가 이것을 CR-08(500)로 옮긴다. `INTERNAL` 하나로 접는 이유는 배치의 로그인
+ * 실패에 **사용자가 고칠 것이 없다**는 점에서 갈래가 하나이기 때문이다.
+ */
+export async function signInServiceAccount(params: {
+  email: string
+  password: string
+}): Promise<ActionResult<{ accessToken: string; userId: string }>> {
+  /*
+   * `readOnlyCookieAdapter`를 쓰지 않고 손으로 적는다 — 그쪽은 「서버 컴포넌트에서
+   * 쿠키를 쓸 수 없다」는 «제약»의 표현이고 이쪽은 「쿠키를 쓰지 «않는다»」는 «결정»이다.
+   * 같은 형태를 재사용하면 그 구분이 사라지고, 나중에 그 함수가 로그를 남기게 되면
+   * 배치가 매일 그 로그를 찍는다.
+   */
+  const db = createSessionClient({
+    getAll: () => [],
+    setAll: () => {
+      // 무연산. 배치의 세션은 이 요청 안에서만 산다 — 위 ①
+    },
+  })
+
+  const { data, error } = await db.auth.signInWithPassword({
+    email: params.email.trim(),
+    password: params.password,
+  })
+
+  if (error != null) {
+    console.error(
+      `[cron] 서비스 계정 로그인 실패: ${error.code ?? '-'} ${error.message} — ` +
+        'CRON_SERVICE_EMAIL·CRON_SERVICE_PASSWORD와 그 계정의 실재를 확인한다 (DOC-013 §7).',
+    )
+    return fail('INTERNAL', '처리 중 오류가 발생했다.')
+  }
+
+  const session = data.session
+  const user = data.user
+
+  /*
+   * ★ **`error == null`이 세션을 «보장하지 않는다».** GoTrue는 확인 대기 등 몇 갈래에서
+   * 오류 없이 `session: null`을 준다. 그것을 검사하지 않으면 아래에서
+   * `createTokenClient('')`가 던지고 — 던지기는 하나 — **원인이 로그인이 아니라 클라이언트
+   * 조립으로 보인다.** 실패의 자리를 원인 옆에 둔다.
+   */
+  if (session == null || user == null) {
+    console.error(
+      '[cron] 서비스 계정 로그인이 오류 없이 세션을 주지 않았다 — 계정 상태를 확인한다.',
+    )
+    return fail('INTERNAL', '처리 중 오류가 발생했다.')
+  }
+
+  return ok({ accessToken: session.access_token, userId: user.id })
 }
 
 /**

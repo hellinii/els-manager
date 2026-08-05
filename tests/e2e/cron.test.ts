@@ -18,7 +18,7 @@ import { BASE_URL } from './helpers/server'
  * (갱신이 일어나지 않으면 그렇다. 그 조건은 정직하지만 보장은 아니다). cron 응답은
  * 핸들러가 **항상** 싣기 때문에 무조건 단언이 가능한 유일한 자리다.
  *
- * ③ **정적 최적화되지 않았다.** 같은 URL이 `Authorization`에 따라 401과 503으로 갈리는
+ * ③ **정적 최적화되지 않았다.** 같은 URL이 `Authorization`에 따라 401과 200으로 갈리는
  * 것이 그 증거다 — 빌드에 구워진 응답은 요청 헤더를 볼 수 없다.
  *
  * ## 여기서 보지 않는 것
@@ -26,7 +26,20 @@ import { BASE_URL } from './helpers/server'
  * **「`CRON_SECRET` 미설정 → 500」(CR-06)은 이 층에서 결정적이지 않다** — `next start`가
  * `.env.local`을 읽으므로 개발자 기계에 달려 있다. 그래서 스위트가 값을 주입해 「설정됨」을
  * 고정하고(`helpers/cron.ts`) 그 갈래는 `tests/app/cron.decide.test.ts`가 전수로 본다.
- * **CR-02(부분 실패)도 없다** — 공급자 0개에서는 부분 실패가 존재하지 않는다(P5a 컷 3).
+ * **CR-10(자격증명 부재)도 같다** — 스위트가 시드 계정을 주입하므로 그쪽도 「설정됨」이다.
+ *
+ * ## ★ 이 파일은 «네트워크에 나갈 수 있다** — 그 사실을 숨기지 않는다 (P5a 컷 3)
+ *
+ * 200 경로는 실제 수집이므로, 매핑된 자산이 하나라도 있으면 라우트가 **키움 es040에
+ * 실제로 요청한다.** 즉 이 파일은 다른 e2e 파일과 달리 **완전히 봉인되어 있지 않다.**
+ *
+ * 그래서 **단언을 네트워크 결과와 무관하게** 짠다: 상태 코드 · 본문의 «형태» · 불변식
+ * (`targetCount === succeeded + skipped + unmapped + failed.length`) · 재호출의 멱등성.
+ * 「몇 건이 성공했는가」는 단언하지 «않는다» — 그것을 단언하면 휴장일이나 원천 장애에
+ * 스위트가 빨간불이 되고, 그 빨간불은 **우리 코드에 대해 아무것도 말하지 않는다.**
+ *
+ * 값의 검증은 다른 층이 한다: 어댑터 파싱은 `tests/providers/kiwoom.test.ts`(고정 픽스처),
+ * 분기표는 `tests/cron/collect.test.ts`(스텁), 왕복은 `tests/integration/collect.test.ts`.
  */
 
 type ErrorBody = { code: string; message: string; rule: string }
@@ -74,48 +87,102 @@ describe('인증 — CR-01', () => {
   })
 })
 
-describe('공급자 0개 — CR-07', () => {
-  it('맞는 토큰은 503이다 — 200 + 빈 결과가 아니다', async () => {
+type CronBody = {
+  executedAt: string
+  targetCount: number
+  succeeded: number
+  skipped: number
+  unmapped: number
+  failed: Array<{ assetId: string; reason: string; failure: string }>
+}
+
+describe('수집 — 200 경로 (P5a 컷 3)', () => {
+  it('맞는 토큰은 200이고 본문이 `CronResult`다', async () => {
     /*
-     * 배포 첫날부터 P5a가 공급자를 등록할 때까지 **매일 이 응답**이며, 그것이 R-05의
-     * 의도된 이탈이다(DOC-013 §6.4). 200으로 답하면 「할 일이 없었다」와 「공급자가
-     * 없다」가 같게 보인다.
+     * ★ **이 케이스는 종전 「503 · CR-07」이었고, 그것이 배포 첫날부터 P5a까지의
+     * «설계된 정상 응답»이었다**(DOC-013 §6.4 — R-05의 의도된 이탈). 컷 3이 공급자를
+     * 등재하면서 그 갈래가 사라졌고, **이 케이스가 빨간불이 된 것이 그 신호였다.**
+     *
+     * CR-07 자체는 살아 있다(레지스트리를 비우고 배포하는 경로가 있다). 그 사상표는
+     * `tests/cron/respond.test.ts`가 전수로 보고, 여기서는 **실제 배포 형상**을 본다.
      */
     const res = await getCron(`Bearer ${E2E_CRON_SECRET}`)
-    expect(res.status).toBe(503)
+    expect(res.status).toBe(200)
 
-    const body = (await res.json()) as ErrorBody
-    expect(body.rule).toBe('CR-07')
-    expect(body.code).toBe('PROVIDER_UNAVAILABLE')
-    // 이유가 본문에 있다 — 상태 코드만으로는 「무엇이 없는지」가 남지 않는다.
-    expect(body.message).toContain('공급자')
+    const body = (await res.json()) as CronBody
+
+    // 형태 — 여섯 필드가 «전부» 있다. 하나가 없으면 화면·모니터링이 조용히 갈린다
+    expect(typeof body.executedAt).toBe('string')
+    expect(typeof body.targetCount).toBe('number')
+    expect(typeof body.succeeded).toBe('number')
+    expect(typeof body.skipped).toBe('number')
+    expect(typeof body.unmapped).toBe('number')
+    expect(Array.isArray(body.failed)).toBe(true)
+
+    /*
+     * ★★ **불변식을 실 HTTP에서 본다.** DB는 이것을 **부등식으로만** 잡고(I-19 —
+     * `failed`가 JSONB라 단일 행 CHECK에서 길이를 셀 수 없다) 등식을 강제하는 층이
+     * `lib/cron/collect.ts`뿐이다. 즉 이 한 줄이 그 순수 함수가 **실제 배포 형상에서도**
+     * 성립하는지 보는 유일한 자리다.
+     */
+    expect(body.succeeded + body.skipped + body.unmapped + body.failed.length).toBe(
+      body.targetCount,
+    )
   })
 
-  it('재호출이 같은 응답을 준다 — CR-04 ⓑ의 진단이 여기 기댄다', async () => {
+  it('★ 재호출이 «상태를 바꾸지 않는다» — 같은 응답이 아니다', async () => {
     /*
-     * 로그 보존이 1시간이므로 진단은 **재호출**이다(멱등성, CR-03). 그 재호출이 상태를
-     * 바꾸지 않는다는 것이 전제이며, 공급자 0개 경로는 **DB를 아예 건드리지 않는다**
-     * (그것이 DOC-013 §9의 일시정지 위험과 같은 사실의 다른 면이다).
+     * ★ **종전 문언은 「재호출이 같은 응답을 준다」였고 그것이 설계상 «거짓»이 됐다.**
+     * ⓐ `executedAt`이 다르다 ⓑ CR-05가 첫 호출의 `succeeded`를 둘째 호출에서
+     * `skipped`로 바꾼다. 그래서 **패치할 테스트가 아니라 증거다** — CR-04 ⓑ가 「지금」을
+     * 알려 주고 「그때」를 알려 주지 않는다는 것의 실측이며, `cron_runs`의 첫 번째 근거를
+     * 보강한다(응답은 재현되지 않고 기록만 남는다).
+     *
+     * 멱등성(CR-03)이 말하는 것은 **응답의 동일성이 아니라 상태의 불변**이다.
+     * 관측 가능한 그 형태는 「대상 수가 같다」와 「새로 쓴 것이 늘지 않는다」다.
      */
-    const first = await getCron(`Bearer ${E2E_CRON_SECRET}`)
-    const second = await getCron(`Bearer ${E2E_CRON_SECRET}`)
-    expect(second.status).toBe(first.status)
-    expect(await second.json()).toEqual(await first.json())
+    const first = (await (await getCron(`Bearer ${E2E_CRON_SECRET}`)).json()) as CronBody
+    const second = (await (await getCron(`Bearer ${E2E_CRON_SECRET}`)).json()) as CronBody
+
+    expect(second.targetCount).toBe(first.targetCount)
+    /*
+     * 둘째 호출은 **아무것도 새로 쓰지 않는다** — 첫 호출이 쓴 좌표가 이미 있으므로
+     * CR-05의 사전 확인이 걸린다. 그래서 `succeeded`가 0이고, 첫 호출의 성공분이
+     * `skipped`로 옮겨 간다.
+     */
+    expect(second.succeeded).toBe(0)
+    expect(second.skipped).toBeGreaterThanOrEqual(first.skipped)
+    expect(second.unmapped).toBe(first.unmapped)
+
+    // `executedAt`은 «다르다» — 그것이 위 ★의 내용이다
+    expect(second.executedAt).not.toBe(first.executedAt)
+  })
+
+  it('부분 실패도 200이다 — 비2xx로 바꾸지 않는다 (CR-02)', async () => {
+    /*
+     * `failed[]`가 비어 있지 않아도 응답은 `ok`다. 매핑이 없으면 `unmapped`이고 그것도
+     * 실패가 아니다(ADR-007 — 수동 입력은 설계된 정상 경로). **어느 쪽이든 200이며**,
+     * 그래서 이 단언은 네트워크 결과와 무관하다.
+     */
+    const res = await getCron(`Bearer ${E2E_CRON_SECRET}`)
+    expect(res.status).toBe(200)
   })
 })
 
 describe('캐시 금지 헤더 — CR-09 (무조건 단언)', () => {
   it.each([
     ['토큰 없음(401)', undefined],
-    ['맞는 토큰(503)', `Bearer ${E2E_CRON_SECRET}`],
+    ['맞는 토큰(200)', `Bearer ${E2E_CRON_SECRET}`],
   ] as const)('%s 응답에 세 헤더가 실린다', async (_why, authorization) => {
     /*
      * ★ **조건 없이 단언한다.** 캐시되면 ⓐ 배치가 조용히 안 돌고 ⓑ **Vercel 로그에도
      * 남지 않는다**(실측 ⑤) — 즉 캐시 사고는 자기 흔적을 지운다. 그래서 이 세 줄이 이
      * 파일에서 가장 비싼 값을 갖는다.
      *
-     * 갈래마다 본다: 헤더를 성공 경로에만 실으면 401·503이 캐시될 수 있고, cron이 받는
-     * 응답은 (P5a 전까지) **전부 그 둘**이다.
+     * 갈래마다 본다: 헤더를 성공 경로에만 실으면 401·5xx가 캐시될 수 있다. 그래서
+     * `respond.ts`가 헤더를 **반환값의 일부**로 만들고 라우트는 그것을 그대로 싣는다 —
+     * 라우트가 갈래마다 고르면 한 갈래에서 빠질 수 있다(`tests/cron/respond.test.ts`가
+     * 여섯 갈래 전부에서 같은 세 헤더를 단언한다).
      */
     const res = await getCron(authorization)
     for (const [name, value] of Object.entries(NO_STORE_HEADERS)) {

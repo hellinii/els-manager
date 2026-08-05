@@ -485,14 +485,48 @@ describe('어댑터 — 던지지 않는다 (계약 의무 ①)', () => {
   })
 })
 
-describe('레지스트리 — 어댑터가 있어도 아직 등재하지 않는다', () => {
-  it('PRICE_PROVIDERS가 비어 있다 (P5a 컷 3에서 등재한다)', async () => {
+describe('레지스트리 — 컷 3이 등재했다', () => {
+  it('PRICE_PROVIDERS에 키움 하나가 있다', async () => {
     const { PRICE_PROVIDERS } = await import('@/lib/providers/types')
     /*
-     * 등재하면 `providerCount > 0`이 되고 수집기가 없으므로 §5.8이 CR-08(`INTERNAL`)로
-     * 끝난다 — 「배포 결함」 상태이며 503(설계된 상태)보다 나쁘다. R-05를 지키려면
-     * 등재는 수집기와 같은 컷이어야 한다. **이 케이스가 그 결정의 기록이다.**
+     * ★ **종전 이 케이스는 `toEqual([])`이었고, 그것이 결정의 기록이었다.**
+     * 컷 1 시점에 등재하면 `providerCount > 0`이 되고 수집기가 없으므로 §5.8이
+     * CR-08(`INTERNAL`)로 끝난다 — 「배포 결함」 상태이며 503(설계된 상태)보다 나쁘다.
+     * R-05를 지키려면 등재가 수집기와 **같은 컷**이어야 했고 그것이 컷 3이다.
+     *
+     * 즉 이 케이스가 빨간불이 된 것이 「컷 3이 왔다」의 신호였다. 뒤집어 적는다.
      */
-    expect(PRICE_PROVIDERS).toEqual([])
+    expect(PRICE_PROVIDERS.map((f) => f.id)).toEqual(['KIWOOM_ES040'])
+  })
+
+  it('★ 하나뿐이다 — 둘이 되는 순간 대조 원천의 처리가 정의되어야 한다', async () => {
+    const { PRICE_PROVIDERS } = await import('@/lib/providers/types')
+    /*
+     * `[0]`이 주 원천이고 두 번째는 «대조»다(컷 1c의 `data.go.kr`). `collectAndRecord`가
+     * 둘 이상이면 **수집하지 않고 `INTERNAL`을 낸다** — 조용히 첫 것만 쓰면 컷 1c의
+     * 등재가 아무 일도 하지 않으면서 초록이 된다. 이 단언이 그 시점을 잡는다.
+     */
+    expect(PRICE_PROVIDERS).toHaveLength(1)
+  })
+
+  it('PRICE_PROVIDERS ⊆ KNOWN_PROVIDER_IDS — 두 명부가 반대로 자라지 않는다', async () => {
+    const { PRICE_PROVIDERS, KNOWN_PROVIDER_IDS } = await import('@/lib/providers/types')
+    for (const factory of PRICE_PROVIDERS) {
+      expect(KNOWN_PROVIDER_IDS, factory.id).toContain(factory.id)
+    }
+  })
+
+  it('아는 공급자 전부가 자격증명 원장에 있다 — 빠지면 CR-10에 세어지지 않는다', async () => {
+    const { KNOWN_PROVIDER_IDS, PROVIDER_CREDENTIALS } = await import('@/lib/providers/types')
+    /*
+     * ★ **양방향이다.** 원장에 항목이 없는 공급자는 그 키 부재가 `missingCredentials`에
+     * 들어가지 않으므로 CR-10이 도달하지 않고, 배치는 매일 `AUTH` 실패를 낸다 —
+     * 「고칠 것이 환경변수 하나인데 사용자는 공급자 장애로 읽는다」가 CR-10의 존재 이유다.
+     * 반대로 원장에만 있는 id는 낡은 항목이다.
+     */
+    expect(Object.keys(PROVIDER_CREDENTIALS).sort()).toEqual([...KNOWN_PROVIDER_IDS].sort())
+
+    // 키움 es040은 자격증명이 «없다» — 미인증 공개 엔드포인트다(ADR-008 §2.3)
+    expect(PROVIDER_CREDENTIALS.KIWOOM_ES040).toEqual([])
   })
 })

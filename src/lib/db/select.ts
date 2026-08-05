@@ -81,11 +81,51 @@ export type CountingColumn =
   | 'evaluation_period_months'
   | 'tax_year'
   | 'sequence'
+  /*
+   * `cron_runs`의 집계 넷 (P5a 컷 3). 세는 값이므로 float64 위험이 없다 —
+   * 대상 자산은 두 자릿수이고 `integer` 열이다. 그리고 **여기 적지 않으면
+   * `target_count: '3'`을 요구하게 되어** 불변식
+   * (`targetCount === succeeded + skipped + unmapped + failed.length`)을
+   * 값으로 계산할 수 없다.
+   */
+  | 'target_count'
+  | 'succeeded'
+  | 'skipped'
+  | 'unmapped'
+
+/**
+ * `V`가 **정확히** 수치인가 — 「수치를 받을 수 있는가」가 아니다.
+ *
+ * ## ★ 방향을 하나 더 요구하는 이유가 `jsonb`다 (P5a 컷 3)
+ *
+ * 종전 판정은 `number extends NonNullable<V>` 한 방향이었다. 그것은 「`V`가 수치를
+ * **받아들이는가**」이고, 생성 타입이 `jsonb`를 `Json`(= `string | number | boolean |
+ * Json[] | {…} | null`)으로 내므로 **`jsonb` 열이 전부 금액으로 분류된다.**
+ *
+ * 그 결과가 조용하지 않다 — `cron_runs.failed`에 `string`을 요구하게 되고, 배열을
+ * 넣으려면 `JSON.stringify`를 해야 하는데 그러면 **PostgREST가 그것을 「JSON 문자열을
+ * 담은 jsonb」로 저장**한다(배열이 아니라 문자열 하나). 즉 방어가 자기 목적과 반대로
+ * 값을 망가뜨린다.
+ *
+ * 그래서 **양방향**을 요구한다: `V ⊇ number` **그리고** `V ⊆ number`.
+ * `number`·`number | null`은 통과하고 `Json`·`unknown`은 걸리지 않는다.
+ *
+ * ★★ **약해지는 지점을 적어 둔다.** 열이 `any`·`unknown`으로 생성되면 종전에는
+ * 금액으로 분류돼(과잉이지만) 문자열이 강제됐고 이제는 아니다. 그런데 **`jsonb`가
+ * 아닌 열이 그렇게 생성되는 경로가 없고**(`numeric`은 `number`, `text`는 `string`),
+ * `jsonb`는 애초에 금액일 수 없다. 즉 잃는 것은 «금액이 될 수 없는 열에 대한
+ * 과잉 방어»다.
+ */
+export type IsExactlyNumber<V> = number extends NonNullable<V>
+  ? NonNullable<V> extends number
+    ? true
+    : false
+  : false
 
 type MustCastColumn<T extends TableName> = {
   [K in keyof TableRow<T>]-?: K extends CountingColumn
     ? never
-    : number extends NonNullable<TableRow<T>[K]>
+    : IsExactlyNumber<TableRow<T>[K]> extends true
       ? K
       : never
 }[keyof TableRow<T>]

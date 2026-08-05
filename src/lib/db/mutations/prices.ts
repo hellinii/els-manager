@@ -1,13 +1,14 @@
-import { PRICE_PROVIDERS } from '@/lib/providers/types'
+import { toRefreshResult } from '@/lib/cron/report'
 
 import { parseManualPriceInput, parseProviderSymbolInput } from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V17_notFuture } from '../validate/rules'
 import { requireAffected } from './access'
+import { collectAndRecord } from './collect'
 import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toInsert } from './payload'
-import { failWith, okVoid, type ActionResult } from './result'
+import { failWith, ok, okVoid, type ActionResult } from './result'
 import type { ManualPriceInput, ProviderSymbolInput, RefreshPricesResult } from './types'
 
 /** §5.7·§5.8 — 수동 시세 입력·시세 수동 갱신 */
@@ -51,33 +52,35 @@ export function makePriceMutations(ctx: MutationContext) {
   }
 
   /**
-   * §5.8 — 등록 공급자가 0개인 동안 **`PROVIDER_UNAVAILABLE`이다.**
+   * §5.8 — **공통 코어의 한 투영이다** (P5a 컷 3).
    *
-   * `ok: true` + `succeeded: 0`이 아니다. 둘의 차이는 화면 처리다: 전자는
-   * ST-03(수동 입력 폴백)으로 유도하고 후자는 "갱신했으나 대상이 없었다"로
-   * 읽힌다. 공급자 선정은 ADR-007(AQ-01)로 분리되어 있고 아직 미결이다.
+   * ## 이 함수에 수집 로직이 «없는» 것이 설계다
    *
-   * 컨텍스트를 쓰지 않는 유일한 계약이지만 서명은 다른 계약과 같은 자리에 둔다 —
-   * 공급자가 붙으면 대상 자산 조회에 `ctx`가 필요해진다.
+   * 같은 수집을 §7.1의 배치도 한다. 그런데 두 반환의 필드 집합이 갈리므로
+   * (`targetCount`·`executedAt` vs `assetName`) **한쪽이 다른 쪽을 부를 수 없다.**
+   * 그래서 구현을 `collectAndRecord`에 하나 두고 투영을 `lib/cron/report.ts`에 둘 둔다 —
+   * §5.8의 각주가 요구한 「구현은 하나이고 투영이 둘」이 코드에서 참이 되는 자리다.
+   *
+   * 종전(v0.9~컷 2b)에는 여기에 CR-08 갈래가 있었다 — 「공급자는 등록됐는데 수집 로직이
+   * 없다」. **컷 3이 그 상태를 없앴으므로 그 갈래도 사라진다**(등록과 수집이 같은 컷에
+   * 왔다 — 그것이 R-05의 이행이었다). 남는 실패는 공급자 0개(`PROVIDER_UNAVAILABLE`)와
+   * 대상 조회 실패(던진다 → 상위가 `INTERNAL`)뿐이다.
+   *
+   * ## 시계를 여기서 읽는다
+   *
+   * `ctx.asOf`는 **날짜**이고 `cron_runs`는 **시각**을 요구한다(`started_at`·`finished_at`).
+   * 순수 모듈이 아니므로 읽어도 되지만, 수집이 몇십 초 걸릴 수 있으므로 **끝 시각은
+   * 함수로 넘긴다** — 시작 시각으로 둘을 채우면 `finished_at >= started_at` CHECK는
+   * 통과하면서 소요 시간이 항상 0이 되고, 그 거짓은 아무 제약도 잡지 못한다.
    */
   async function refreshPrices(): Promise<ActionResult<RefreshPricesResult>> {
-    if (PRICE_PROVIDERS.length === 0) {
-      return failWith({
-        code: 'PROVIDER_UNAVAILABLE',
-        message: '시세 공급자가 등록되어 있지 않다. 수동 입력으로 갱신한다.',
-      })
-    }
-    // 여기 닿았다면 공급자가 **등록되었는데 수집 로직이 없는** 상태다 — 배포
-    // 결함이므로 조용히 넘기지 않는다. 스텁 값을 `asset_prices`에 넣어 "성공"을
-    // 만들지 않는 것이 ADR-004 v0.7의 결정이다.
-    console.error(
-      `[공급자] ${PRICE_PROVIDERS.length}개가 등록되었으나 수집 로직이 구현되지 않았다 ` +
-        '(DOC-011 §5.8, ADR-007 미결). 스텁 값을 저장하지 않는다.',
-    )
-    return failWith({
-      code: 'INTERNAL',
-      message: '처리 중 오류가 발생했다.',
+    const collected = await collectAndRecord(ctx, 'MANUAL_REFRESH', {
+      startedAt: new Date().toISOString(),
+      finishedAt: () => new Date().toISOString(),
     })
+
+    if (!collected.ok) return failWith(collected.error)
+    return ok(toRefreshResult(collected.data))
   }
 
   /**

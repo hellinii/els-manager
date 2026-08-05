@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { makeCollectPorts } from '@/lib/db/mutations/collect'
 import { createMutations, type Mutations } from '@/lib/db/mutations/context'
+import { dec } from '@/lib/decimal'
 import type { ForecastRow } from '@/lib/db/queries/forecast'
 import { toInsert } from '@/lib/db/mutations/payload'
 import type { ActionResult } from '@/lib/db/mutations/result'
@@ -1076,6 +1078,108 @@ describe('§5.7 saveManualPrice', () => {
   })
 })
 
+describe('AQ-31 (b) — 배치의 AUTO INSERT가 MANUAL 행을 «건드리지 못한다» (P5a 컷 3)', () => {
+  /**
+   * ## 종전 명제는 항진명제였다
+   *
+   * AQ-31(b)의 원 문언은 「`source='AUTO'` **UPSERT**가 I-16을 통과한다」였고, 그것은
+   * CR-05가 「자동값 우선」이던 시절의 것이다. v2.7이 CR-05를 뒤집으면서 **배치가
+   * `asset_prices`에 UPDATE를 하지 않게 됐고**, I-16은 `BEFORE UPDATE` 트리거이므로
+   * **INSERT만 하는 배치는 그 트리거에 애초에 닿지 않는다** — 무엇을 하든 초록인 케이스다.
+   *
+   * 아래 셋이 실제로 걸리는 명제이며, 셋이 함께 **「I-16은 살아 있고 배치는 그것을
+   * 필요로 하지 않는다」**를 증명한다.
+   */
+  const AS_OF_DATE = '2026-06-15'
+  const MANUAL_PRICE = '111.111111'
+
+  beforeAll(async () => {
+    dataOf(
+      await a.write.saveManualPrice({ assetId: assetId2, asOfDate: AS_OF_DATE, price: MANUAL_PRICE }),
+    )
+  })
+
+  /** 그 좌표의 행 전체 — `::text`로 읽어 float64를 지나지 않는다 */
+  async function rowAt(): Promise<{ price: string; source: string; provider: string | null }> {
+    const { data, error } = await a.db
+      .from('asset_prices')
+      .select('price::text,source,provider')
+      .eq('asset_id', assetId2)
+      .eq('as_of_date', AS_OF_DATE)
+      .single()
+      .overrideTypes<{ price: string; source: string; provider: string | null }, { merge: false }>()
+
+    expect(error).toBeNull()
+    expect(data).not.toBeNull()
+    return data!
+  }
+
+  it('ⓐ 같은 좌표의 AUTO INSERT는 `23505`이고 «기존 행이 바이트 동일하게 남는다»', async () => {
+    const before = await rowAt()
+
+    const { error } = await a.db.from('asset_prices').insert(
+      toInsert('asset_prices', {
+        asset_id: assetId2,
+        as_of_date: AS_OF_DATE,
+        price: '999.999999',
+        source: 'AUTO',
+        provider: 'KIWOOM_ES040',
+      }),
+    )
+
+    /*
+     * ★ 제약 «이름»까지 본다 — `23505`만 보면 다른 UNIQUE(예: `assets_name_market_key`)가
+     * 나도 통과한다. 그리고 이 이름이 CR-05의 최종 보장 그 자체다.
+     */
+    expect(error!.code).toBe('23505')
+    expect(error!.message).toContain('asset_prices_asset_id_as_of_date_key')
+
+    // ★★ **MANUAL이 이긴다** — 세 열이 전부 그대로다. 이것이 CR-05의 실체다.
+    expect(await rowAt()).toEqual(before)
+    expect(before).toEqual({ price: MANUAL_PRICE, source: 'MANUAL', provider: null })
+  })
+
+  it('ⓑ 그 `23505`가 `failed`가 아니라 `skipped`로 세어진다', async () => {
+    /*
+     * 경합이 **정확히 CR-05의 상태**다(다른 호출자가 먼저 썼다). 실패로 보고하면
+     * 건강한 동시 실행이 고장으로 보인다.
+     *
+     * ★ 여기서는 그 사상이 **값**임을 확인한다 — 포트가 `23505`를 `'ALREADY_EXISTS'`로
+     * 답하고 순수 오케스트레이션이 그것을 `skipped`에 넣는다. 분기표의 전수는
+     * `tests/cron/collect.test.ts`가 스텁으로 보고, 여기서는 **SQLSTATE가 실제로 그
+     * 문자열로 온다**는 절반을 본다(그것이 갈리면 위 분기가 `failed`로 새어 나간다).
+     */
+    const ports = makeCollectPorts(
+      { db: a.db, asOf: AS_OF, viewerId: ITG_USER_A },
+      'KIWOOM_ES040',
+    )
+
+    const outcome = await ports.writeQuote({
+      assetId: assetId2,
+      asOfDate: AS_OF_DATE,
+      price: dec('999.999999'),
+      providerId: 'KIWOOM_ES040',
+    })
+
+    expect(outcome).toBe('ALREADY_EXISTS')
+  })
+
+  it('ⓒ 음성 대조 — 좌표를 바꾸는 UPDATE는 «여전히» `23514`다', async () => {
+    /*
+     * ★ **이 케이스가 없으면 위 둘이 「트리거가 사라져서」 통과하는 것과 구별되지 않는다.**
+     * I-16이 살아 있음을 확인하고, 동시에 **배치가 그 경로를 쓰지 않음**을 위 둘이 말한다.
+     */
+    const { error } = await a.db
+      .from('asset_prices')
+      .update({ as_of_date: '2026-06-16' })
+      .eq('asset_id', assetId2)
+      .eq('as_of_date', AS_OF_DATE)
+
+    expect(error!.code).toBe('23514')
+    expect(error!.details).toBe('constraint=asset_prices_coordinates_immutable')
+  })
+})
+
 describe('§5.6 saveTaxProfile', () => {
   it('UPSERT이며 본인 것으로 저장된다', async () => {
     dataOf(
@@ -1580,8 +1684,37 @@ describe('계약별 왕복 수', () => {
     ).toEqual({ assets: 1 })
   })
 
-  it('§5.8 refreshPrices — 공급자 0개이므로 왕복 0', async () => {
-    expect(await measure(() => a.write.refreshPrices())).toEqual({})
+  it('§5.8 refreshPrices — 왕복 «다섯»이며 공급자 호출은 0이다 (P5a 컷 3)', async () => {
+    /*
+     * ★ **종전 이 단언은 `{}`(왕복 0)이었다.** 공급자가 0개라 계약이 DB에 닿기 전에
+     * 끝났기 때문이며, 컷 3이 어댑터를 등재하면서 그 전제가 사라졌다.
+     *
+     * 다섯이 무엇인지를 값으로 고정한다 — **N+1이 이 자리에서 가장 쉽게 생긴다.**
+     * 자산별로 심볼을 묻거나 기존 날짜를 묻는 구현은 자산 수만큼 왕복하고, 그 비용은
+     * 자산이 두 자릿수인 동안 **관측되지 않는다.**
+     *
+     * | 경로 | 왜 |
+     * |---|---|
+     * | `els_products` | 미상환 판정 — `loadProducts` + `redemptionMarkOf` (정의를 두 번 적지 않는다) |
+     * | `assets` | `failed[].assetName` — 화면이 id를 읽을 수 없다 |
+     * | `asset_provider_symbols` | 매핑. 자산 «전부»를 한 번에 (`.in()`) |
+     * | `asset_prices` | CR-05 사전 확인 — 창 안의 기존 날짜, 한 번에 |
+     * | `cron_runs` | 실행 기록 1행 (AQ-51) |
+     *
+     * ★★ **공급자 호출이 0이다.** 이 스위트의 픽스처에는 매핑이 하나도 없으므로 전부
+     * `unmapped`로 세어지고 `fetchDailyClose`가 **불리지 않는다** — 그래서 이 케이스가
+     * 네트워크에 나가지 않고 결정적이다. 그 성질은 우연이 아니라 「미매핑을 공급자에게
+     * 묻지 않는다」의 결과이며(`lib/cron/collect.ts`), 그것이 없으면 여기서 `SYMBOL_SCHEME`
+     * 실패가 나고 스위트가 외부 원천에 묶인다.
+     */
+    const paths = await measure(() => a.write.refreshPrices())
+    expect(paths).toEqual({
+      els_products: 1,
+      assets: 1,
+      asset_provider_symbols: 1,
+      asset_prices: 1,
+      cron_runs: 1,
+    })
   })
 
   it('§5.9 setKiTouched — 사전 조회 1 + 갱신 1', async () => {

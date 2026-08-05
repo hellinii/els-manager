@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { requireAffected, staleState } from '@/lib/db/mutations/access'
+import { collectAndRecord } from '@/lib/db/mutations/collect'
 import type { UserSessionClient } from '@/lib/db/client'
 import {
   createMutations,
@@ -169,17 +170,52 @@ describe('W-05 둘째 겹 — 영향 행 0을 성공으로 넘기지 않는다',
   })
 })
 
-describe('§5.8 refreshPrices — 공급자 0개', () => {
+describe('§5.8 refreshPrices — 레지스트리 게이트', () => {
   /**
-   * `ok: true` + `succeeded: 0`이 아니다. 둘의 차이는 화면 처리다 — 전자는
-   * ST-03(수동 입력 폴백)으로 유도하고 후자는 "갱신했으나 대상이 없었다"로 읽힌다.
-   * DB에 닿지 않으므로 이 스위트에서 본다.
+   * ★ **이 블록의 형태가 컷 3에서 뒤집혔다.**
+   *
+   * 종전에는 「공급자 0개 → `PROVIDER_UNAVAILABLE`」을 `createMutations(CONTEXT)`로
+   * 직접 확인했고, 그것이 가능했던 이유는 **레지스트리가 실제로 비어 있었기 때문**이다.
+   * 컷 3이 키움을 등재하면서 그 호출은 이제 `STUB_DB.from`을 부르려 하고 —
+   * 실제로 `TypeError: ctx.db.from is not a function`으로 빨간불이 됐다 —
+   * 그것이 「등재됐다」의 정직한 신호였다.
+   *
+   * 게이트 자체는 살아 있다(레지스트리를 비우고 배포하는 경로가 있다). 그래서 그것을
+   * **`collectAndRecord`의 `factories` 인자**로 본다 — 모듈 상수를 mock하지 않고,
+   * 그러면 `PROVIDER_CREDENTIALS`까지 가짜가 되는 부작용도 없다.
    */
-  it('PROVIDER_UNAVAILABLE을 반환하고 DB에 닿지 않는다', async () => {
-    const result = await createMutations(CONTEXT).refreshPrices()
+  it('공급자 0개 — PROVIDER_UNAVAILABLE이고 DB에 닿지 않는다', async () => {
+    const result = await collectAndRecord(CONTEXT, 'MANUAL_REFRESH', {
+      startedAt: '2026-06-30T05:00:00.000Z',
+      finishedAt: () => '2026-06-30T05:00:01.000Z',
+      factories: [],
+    })
 
     expect(result.ok).toBe(false)
     if (result.ok) return
+    /*
+     * `ok: true` + `succeeded: 0`이 아니다. 둘의 차이는 화면 처리다 — 전자는
+     * ST-03(수동 입력 폴백)으로 유도하고 후자는 「갱신했으나 대상이 없었다」로 읽힌다.
+     * `STUB_DB`에 `from`이 없으므로 **DB에 닿지 않았다는 것이 값이 아니라 구조로** 참이다.
+     */
     expect(result.error.code).toBe('PROVIDER_UNAVAILABLE')
+  })
+
+  it('★ 둘 이상 — 조용히 첫 것을 쓰지 않고 INTERNAL이다 (컷 1c의 강제 장치)', async () => {
+    /*
+     * 대조 원천이 등재되는 날 이 갈래가 실제로 발화한다. 그때 「주 원천만 쓴다」를
+     * 명시하지 않으면 배치가 멈추고, 그것이 **조용히 첫 것만 쓰는 것보다 낫다** —
+     * 후자는 컷 1c의 등재가 아무 일도 하지 않으면서 초록인 상태다.
+     */
+    const stub = { id: 'X', create: () => { throw new Error('불려서는 안 된다') } }
+    const result = await collectAndRecord(CONTEXT, 'BATCH', {
+      startedAt: '2026-06-30T05:00:00.000Z',
+      finishedAt: () => '2026-06-30T05:00:01.000Z',
+      factories: [stub, { ...stub, id: 'Y' }],
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error.code).toBe('INTERNAL')
   })
 })

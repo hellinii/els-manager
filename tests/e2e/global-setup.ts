@@ -2,7 +2,11 @@ import { execFileSync } from 'node:child_process'
 
 import { injectEnv, resolveAnonKey, resolveApiUrl } from '../integration/helpers/env'
 import { ITG_EMAIL, ITG_PASSWORD, ITG_USER_A } from '../integration/helpers/fixtures'
-import { E2E_CRON_SECRET } from './helpers/cron'
+import {
+  CRON_SERVICE_EMAIL,
+  CRON_SERVICE_PASSWORD,
+  E2E_CRON_SECRET,
+} from './helpers/cron'
 import { startServer, stopServer } from './helpers/server'
 
 /**
@@ -20,6 +24,14 @@ export default async function setup(): Promise<() => Promise<void>> {
    * `startServer()`가 `env: process.env`로 넘기므로 이 줄이 그보다 앞이어야 한다.
    */
   process.env.CRON_SECRET = E2E_CRON_SECRET
+
+  /*
+   * 서비스 계정 둘 (P5a 컷 3). 없으면 라우트가 **CR-10(500)**으로 답하므로 200 경로가
+   * 통째로 사라진다 — 그리고 그 실패는 「배치가 고장났다」가 아니라 「이 줄을 빠뜨렸다」다.
+   * 비밀과 달리 값을 «고르는» 것이 아니라 시드 계정을 **가리킨다**(`helpers/cron.ts`의 ★).
+   */
+  process.env.CRON_SERVICE_EMAIL = CRON_SERVICE_EMAIL
+  process.env.CRON_SERVICE_PASSWORD = CRON_SERVICE_PASSWORD
 
   const apiUrl = resolveApiUrl()
   const anonKey = resolveAnonKey()

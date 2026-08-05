@@ -23,6 +23,19 @@ export const E2E_CRON_SECRET = 'e2e-cron-Kx7Qm2pR9vLn4Ts8'
 
 export const CRON_PATH = '/api/cron/prices'
 
+/**
+ * 배치 서비스 계정 — `supabase/seed/05_cron_service_user.sql`이 만든다 (P5a 컷 3).
+ *
+ * ★ **비밀과 달리 이 둘은 스위트가 «정할» 수 없다** — 시드가 만든 계정과 «같아야» 하고,
+ * 다르면 GoTrue가 `invalid_credentials`를 주어 라우트가 CR-08(500)로 답한다. 즉 이 상수는
+ * 주입값이 아니라 **시드의 사본**이며, 갈리면 e2e가 「200이 아니다」로 그것을 말한다.
+ *
+ * 그래서 시드 파일과 여기 두 곳에 같은 값이 있다. 대안(시드를 파싱)은 SQL 파서를
+ * 요구하므로 두지 않고, **갈림이 조용하지 않다는 것**으로 대신한다.
+ */
+export const CRON_SERVICE_EMAIL = 'cron@example.test'
+export const CRON_SERVICE_PASSWORD = 'cron-service-password'
+
 /** CR-09의 세 헤더 — §7.1이 문자 그대로 적은 값이다. */
 export const NO_STORE_HEADERS: Record<string, string> = {
   'cache-control': 'private, no-cache, no-store, must-revalidate, max-age=0',

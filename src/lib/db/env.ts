@@ -25,6 +25,8 @@
 const SUPABASE_URL = 'NEXT_PUBLIC_SUPABASE_URL'
 const SUPABASE_ANON_KEY = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
 const CRON_SECRET = 'CRON_SECRET'
+const CRON_SERVICE_EMAIL = 'CRON_SERVICE_EMAIL'
+const CRON_SERVICE_PASSWORD = 'CRON_SERVICE_PASSWORD'
 
 export type SupabaseEnv = {
   url: string
@@ -80,4 +82,69 @@ export function supabaseEnv(): SupabaseEnv {
  */
 export function cronSecret(): string {
   return require_(CRON_SECRET, CRON_HINT)
+}
+
+/**
+ * 부재를 **던지지 않고** `null`로 답한다 — `require_`와 짝인 반대편.
+ *
+ * 빈 문자열을 부재로 다루는 규약은 같다. 비밀번호가 `''`이면 GoTrue가 그것을
+ * `invalid_credentials`로 답하는데, 그 문구는 「변수를 채워라」가 아니라 「비밀번호가
+ * 틀렸다」로 읽힌다 — 부재를 여기서 잡아야 CR-10이 그 원인을 말할 수 있다.
+ */
+function optional_(name: string): string | null {
+  const value = process.env[name]
+  return value == null || value.trim() === '' ? null : value
+}
+
+/** 배치가 로그인할 GoTrue 계정 — AQ-57 ⓐ */
+export type CronServiceAccount = { email: string; password: string }
+
+/**
+ * 배치의 정체성 — AQ-57 ⓐ, DOC-010 §7.2, DOC-011 §7.1 CR-10.
+ *
+ * ## 던지지 않는다 — `cronSecret()`과 «반대»이며 그것이 의도다
+ *
+ * `cronSecret()`은 던지고 라우트가 잡는다. 이쪽은 **부재한 변수의 이름들을 값으로**
+ * 돌려준다. 이유는 CR-10의 답이 CR-06과 다르기 때문이다: CR-06은 「비밀이 없다」 하나이고
+ * 여기는 **어느 변수가 없는지**가 진단의 내용이다. 예외로 만들면 그 목록이 문구 안으로
+ * 들어가고, 문구를 파싱하는 소비자가 생긴다.
+ *
+ * ★ **이름만 나간다. 값은 절대 나가지 않는다**(SEC-05). 반환된 이름들은 서버 로그로만
+ * 가고 **응답 본문에는 실리지 않는다** — 미인증 호출자가 배포 구성을 알게 될 이유가 없고,
+ * 그래서 `decide()`가 CR-10을 인증 «뒤»에 둔다.
+ *
+ * ★★ **부분 설정을 성공으로 만들지 않는다.** 하나만 있으면 `account`가 `null`이고
+ * `missing`에 그 하나가 남는다 — 이메일만 넣고 비밀번호를 빠뜨린 배포가 「로그인 실패」가
+ * 아니라 「변수 하나가 없다」로 보고되는 것이 이 형태의 목적이다.
+ */
+export function cronServiceAccount(): {
+  account: CronServiceAccount | null
+  missing: readonly string[]
+} {
+  const email = optional_(CRON_SERVICE_EMAIL)
+  const password = optional_(CRON_SERVICE_PASSWORD)
+
+  const missing = [
+    ...(email == null ? [CRON_SERVICE_EMAIL] : []),
+    ...(password == null ? [CRON_SERVICE_PASSWORD] : []),
+  ]
+
+  if (email == null || password == null) return { account: null, missing }
+  return { account: { email, password }, missing }
+}
+
+/**
+ * 공급자가 요구하는 변수 중 **설정되지 않은 것들의 이름** — CR-10의 두 번째 출처.
+ *
+ * 목록 자체는 `providers/types.ts`의 `PROVIDER_CREDENTIALS`가 소유한다(그쪽이 어느 공급자가
+ * 무엇을 요구하는지 아는 자리다). 이 함수는 **읽기만** 한다 — `process.env`에 닿는 파일이
+ * 하나여야 하므로 그 판정이 여기 있고, 그 성질은 `tests/db/no-service-role.test.ts`의
+ * 정확 일치 단언이 지킨다.
+ *
+ * ★ 오늘 이 함수는 **빈 배열을 받아 빈 배열을 돌려준다**(키움 es040은 자격증명이 없다).
+ * 그래도 두는 이유는 다음 공급자가 키를 요구하는 날 **여기를 만들지 않아도 되게** 하는
+ * 것이고, 그 상태에서 이 함수가 없으면 그 공급자의 키 부재가 CR-10에 세어지지 않는다.
+ */
+export function missingProviderCredentials(names: readonly string[]): readonly string[] {
+  return names.filter((name) => optional_(name) == null)
 }

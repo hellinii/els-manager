@@ -6,6 +6,7 @@ import {
   parseManualPriceForm,
   parseProviderSymbolForm,
 } from '@/lib/forms/parse'
+import { refreshSummary } from '@/lib/format'
 import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
 
 /**
@@ -48,22 +49,30 @@ export async function createAssetAction(
 }
 
 /**
- * §5.8 — 공급자가 0개인 동안 **항상 `PROVIDER_UNAVAILABLE`이다.**
- *
- * 그것이 오류로 표시되면 안 된다(ST-03). 인자를 쓰지 않는데도 `(prev, formData)`
- * 서명을 지키는 이유는 **하이드레이션 전에도 동작해야** 하기 때문이다 —
- * `useActionState`에 클라이언트 화살표 함수(`() => refreshPricesAction()`)를 넘기면
- * 그것은 서버 액션 참조가 아니므로 React가 폼을
+ * §5.8 — 인자를 쓰지 않는데도 `(prev, formData)` 서명을 지키는 이유는 **하이드레이션
+ * 전에도 동작해야** 하기 때문이다 — `useActionState`에 클라이언트 화살표 함수
+ * (`() => refreshPricesAction()`)를 넘기면 그것은 서버 액션 참조가 아니므로 React가 폼을
  * `action="javascript:throw new Error('React form unexpectedly submitted.')"`로
  * 렌더한다. **JS 없이 누르면 아무 일도 일어나지 않는다.** 실측으로 확인했고
  * (`tests/e2e/prices.test.ts`가 그 형태를 잡았다) 서명을 맞춰 고쳤다.
+ *
+ * ## ★ 결과를 «버리지 않는다» (P5a 컷 3)
+ *
+ * 종전 문구는 고정된 「시세를 갱신했다.」였고 그래서 `succeeded`·`skipped`·`unmapped`·
+ * `failed[]` 넷에 **표시 표면이 없었다.** 공급자가 0개인 동안 그 갈래에 닿지 않아
+ * 무해했으므로 — 즉 **수집기가 오는 순간 실재하는 결함이 되는 부류**였고 같은 컷에서
+ * 고친다. 문구 조립은 순수 모듈(`refreshSummary`)이 하며 상시 스위트가 그 분기표를 본다
+ * (이 파일은 `server.ts`를 끌어오므로 어떤 스위트의 그래프에도 들어갈 수 없다 — AQ-23).
+ *
+ * `PROVIDER_UNAVAILABLE`은 여전히 **오류가 아니다**(ST-03) — 그 판정은 `code`로 하고
+ * 화면(`RefreshButton`)이 등급을 고른다.
  */
 export async function refreshPricesAction(
   _prev: FormState,
   _form: FormData,
 ): Promise<FormState> {
   const result = await refreshPrices()
-  return toFormState(result, {}, [], '시세를 갱신했다.')
+  return toFormState(result, {}, [], result.ok ? refreshSummary(result.data) : undefined)
 }
 
 /**

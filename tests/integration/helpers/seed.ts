@@ -123,6 +123,19 @@ export async function resetFixtures(): Promise<void> {
   await sql('delete from public.tax_profiles where user_id = any($1::uuid[])', [
     [ITG_USER_A, ITG_USER_B],
   ])
+
+  /**
+   * 배치 실행 기록 (P5a 컷 3). `refreshPrices`를 부르는 케이스가 매 실행에 한 행씩
+   * 남기므로 지운다 — **오늘 그것을 세는 단언은 없지만** 커밋하는 픽스처 DB에
+   * 무한히 쌓이는 것을 두면 나중에 이 테이블의 건수를 보려는 사람이 그 잔재를
+   * 데이터로 읽는다(`db:reset` 없이 여러 번 돌린 이력이 값이 된다).
+   *
+   * `actor_id`로 필터한다 — `on delete cascade`가 있지만 사용자를 지우지 않으므로
+   * 발화하지 않고, 다른 사용자(e2e·배치 계정)의 기록은 건드리지 않는다.
+   */
+  await sql('delete from public.cron_runs where actor_id = any($1::uuid[])', [
+    [ITG_USER_A, ITG_USER_B],
+  ])
 }
 
 export async function seedAsset(params: {

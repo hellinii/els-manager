@@ -75,12 +75,26 @@ export function ProviderSymbolForm({
          * 표기 규약을 화면이 «말한다». 형태를 모르면 사용자가 티커만 넣게 되고 그러면
          * `SYMBOL_SCHEME`으로 거부되는데, 그 오류 문구만으로는 「1·2·3이 무엇인지」를
          * 알 수 없다. 여기 적어 두는 것이 그 왕복을 없앤다.
+         *
+         * ★ **해외 지수 예를 «반드시» 넣는다 — 종단 실측이 그 필요를 만들었다** (컷 3).
+         * 국내 지수 예(`1:201`)만 두면 사용자가 S&P500을 `1:SPX`로 넣는데 올바른 코드는
+         * **`1:_SPX`**(선행 밑줄)이고, 그 상태의 결과는 `NO_DATA`다 — 즉 **오류가 아니라
+         * 「데이터 없음」으로 보고되고** 조치가 매핑 수정임을 문구에서 읽어야 한다.
+         * 실제로 그 경로를 밟았고(응답: 「거래소 코드가 비어 있다」) 그것이 이 한 줄의 근거다.
          */}
         <p className="text-xs text-neutral-500">
           형태는 <span className="font-mono">분류:코드</span> — 1 지수 · 2 국내주식 · 3 해외주식
           (예: <span className="font-mono">1:201</span> ·{' '}
+          <span className="font-mono">1:_SPX</span> ·{' '}
           <span className="font-mono">2:A005930</span> ·{' '}
           <span className="font-mono">3:AAPL</span>)
+        </p>
+        <p className="text-xs text-neutral-500">
+          해외 지수는 <strong>선행 밑줄</strong>이 붙는다 —{' '}
+          <span className="font-mono">1:_SPX</span> ·{' '}
+          <span className="font-mono">1:_SX5E</span> ·{' '}
+          <span className="font-mono">1:_HK#HIDX</span> ·{' '}
+          <span className="font-mono">1:_JP#NI225</span>
         </p>
 
         {state.message != null && (

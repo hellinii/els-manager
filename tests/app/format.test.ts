@@ -13,11 +13,13 @@ import {
   percent,
   percentPoint,
   priceDisplay,
+  refreshSummary,
   signedWon,
   withCommas,
   won,
   ymd,
 } from '@/lib/format'
+import { PRICE_FAILURE_LABELS } from '@/lib/format/labels'
 
 /**
  * 표시 형식 — DOC-005 §9 표준 표기 · §6.2 날짜·D-Day 표기
@@ -158,6 +160,58 @@ describe('시세', () => {
     // 자릿수를 고정해 자르면 지수(350.12)나 환산값(1.0825) 한쪽이 반드시 망가진다.
     expect(priceDisplay('12345.678900')).toBe('12,345.6789')
     expect(priceDisplay('0.000000')).toBe('0')
+  })
+})
+
+describe('갱신 결과 문구 — SCR-302 (P5a 컷 3)', () => {
+  const base = { succeeded: 0, skipped: 0, unmapped: 0, failed: [] }
+
+  it('0건인 축을 «생략한다» — 넷을 항상 적으면 0이 셋 보인다', () => {
+    expect(refreshSummary({ ...base, succeeded: 2 })).toBe('새로 2건.')
+    expect(refreshSummary({ ...base, skipped: 6 })).toBe('이미 최신 6건.')
+    expect(refreshSummary({ ...base, succeeded: 2, skipped: 3 })).toBe('새로 2건 · 이미 최신 3건.')
+  })
+
+  it('★ 전부 0이면 「갱신했다」가 아니라 「대상이 없다」다', () => {
+    /*
+     * 미상환 상품이 없거나 기초자산이 없는 상태다. 「갱신했다」로 적으면 사용자는
+     * 뭔가 됐다고 읽는데 아무 일도 일어나지 않았다 — ST-06이 금지한 형태다.
+     */
+    expect(refreshSummary(base)).toBe('갱신 대상이 없다.')
+  })
+
+  it('미매핑은 «실패가 아닌» 말로 적는다 — ADR-007의 설계된 정상 경로다', () => {
+    expect(refreshSummary({ ...base, unmapped: 2 })).toBe('자동 수집 안 함 2건.')
+  })
+
+  it('실패는 부류 라벨로 말한다 — `reason`을 그대로 쏟지 않는다', () => {
+    const summary = refreshSummary({
+      ...base,
+      succeeded: 1,
+      failed: [
+        { assetId: 'a', assetName: '테슬라', reason: '호출 실패 — 401 …', failure: 'CALL_FAILED' },
+        { assetId: 'b', assetName: '삼성전자', reason: '데이터 없음 — 0행', failure: 'NO_DATA' },
+      ],
+    })
+
+    expect(summary).toBe(
+      '새로 1건 · 실패 2건 — ' +
+        '테슬라: 호출 실패 — 기다린다 · 삼성전자: 데이터 없음 — 매핑 확인(휴장일 수 있다)',
+    )
+    /*
+     * ★ **조치가 §7.1의 표와 같은 방향이다.** 초안은 이 둘을 정반대로 적었고
+     * (`NO_DATA` = 「기다린다」) 종단 실측이 그것을 잡았다 — 매핑을 `1:SPX`로 잘못 넣은
+     * 상태에서 화면이 「기다린다」를 말했는데 고칠 것은 사용자의 매핑이었다.
+     * 「데이터 없음」이 **심볼 오류를 포함**하는 부류라는 것이 그 방향의 근거다.
+     */
+    expect(PRICE_FAILURE_LABELS.NO_DATA).toContain('매핑')
+    expect(PRICE_FAILURE_LABELS.CALL_FAILED).toContain('기다린다')
+    /*
+     * ★ 진단 문자열이 «새지 않는다». `reason`이 담는 401·SQLSTATE가 화면 문구가 되면
+     * 「기다린다」와 「고친다」가 구별되지 않는다(그것이 `failure`를 값으로 만든 목적이다).
+     */
+    expect(summary).not.toContain('401')
+    expect(summary).not.toContain('0행')
   })
 })
 

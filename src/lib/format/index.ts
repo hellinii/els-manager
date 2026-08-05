@@ -12,7 +12,7 @@
 
 export { amount, koreanAmount, koreanWon, signedWon, withCommas, won } from './money'
 export { barrierGap, percent, percentPoint } from './ratio'
-export { priceDisplay } from './price'
+export { priceDisplay, refreshSummary } from './price'
 export { dDayLabel, korDate, korMonth, monthKey, ymd } from './date'
 export {
   ACCOUNT_TYPE_LABELS,
