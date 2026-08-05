@@ -261,6 +261,16 @@ const NOT_A_VERDICT: Record<string, string> = {
   'CR-04': '감지·진단의 배정. SCR-302와 재호출이 담당한다',
   'CR-05': '기준일 행 사전 확인. 수집기의 규칙이다 — P5a',
   'CR-09': '응답 헤더. 판정이 아니라 라우트가 항상 싣는다(e2e가 무조건 단언한다)',
+  /*
+   * **아직 판정이 아니다 — 도달할 수 없기 때문이다.** CR-10은 「공급자는 등록됐으나 그
+   * 자격증명이 없다」이고, `PRICE_PROVIDERS`가 빈 동안 그 상태는 **존재하지 않는다**
+   * (CR-07이 먼저 걸린다 — §7.1이 순서를 규칙으로 못박았다).
+   *
+   * 도달 불가한 갈래를 지금 `CASES`에 넣으면 그것을 시험하는 케이스가 아무것도 증명하지
+   * 않는다 — `decide.ts`의 머리글이 200 갈래에 대해 적은 것과 같은 논거다.
+   * **P5a 컷 3에서 `CASES`로 옮긴다.**
+   */
+  'CR-10': '공급자 자격증명 부재. 공급자 0개인 동안 도달 불가다 — P5a 컷 3',
 }
 
 describe('§7.1 동작 규칙 표 ↔ 판정', () => {
@@ -294,7 +304,7 @@ describe('§7.1 동작 규칙 표 ↔ 판정', () => {
     expect(documented.every((id) => /^CR-\d{2}$/.test(id))).toBe(true)
   })
 
-  it('문서의 ID가 판정 넷과 비판정 다섯으로 정확히 갈린다', () => {
+  it('문서의 ID가 판정 넷과 비판정 여섯으로 정확히 갈린다', () => {
     /*
      * **양방향이다.** ⓐ `decide`가 문서에 없는 ID를 내지 않는다 ⓑ 문서의 모든 ID가
      * 판정이거나 위 표에 사유와 함께 등재되어 있다. ⓑ가 없으면 §7.1에 CR-10이 추가되어도
@@ -304,7 +314,7 @@ describe('§7.1 동작 규칙 표 ↔ 판정', () => {
     const classified = new Set([...verdicts, ...Object.keys(NOT_A_VERDICT)])
 
     expect([...documented].sort()).toEqual([...classified].sort())
-    expect(documented).toHaveLength(9) // CR-01 ~ CR-09
+    expect(documented).toHaveLength(10) // CR-01 ~ CR-10 (CR-10은 v3.5 신설)
   })
 
   it('판정 넷의 규칙 문언이 이 구현을 서술한다', () => {
