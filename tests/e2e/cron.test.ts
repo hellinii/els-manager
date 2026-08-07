@@ -39,7 +39,8 @@ import { BASE_URL } from './helpers/server'
  * 스위트가 빨간불이 되고, 그 빨간불은 **우리 코드에 대해 아무것도 말하지 않는다.**
  *
  * 값의 검증은 다른 층이 한다: 어댑터 파싱은 `tests/providers/kiwoom.test.ts`(고정 픽스처),
- * 분기표는 `tests/cron/collect.test.ts`(스텁), 왕복은 `tests/integration/collect.test.ts`.
+ * 분기표는 `tests/cron/collect.test.ts`(스텁), 왕복은 `tests/integration/mutations.test.ts`의
+ * `AQ-31 (b)` 블록.
  */
 
 type ErrorBody = { code: string; message: string; rule: string }

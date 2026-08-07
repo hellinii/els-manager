@@ -134,7 +134,12 @@ export function actingAs(userId: string | null): Actor {
 }
 
 /**
- * 수집 배치의 롤(`service_role`)로 문장 하나를 실행한다 — DOC-010 §7.1
+ * `service_role`로 문장 하나를 실행한다 — DOC-010 §7.1
+ *
+ * ★ **이 롤은 «수집 배치의 롤이 아니다»** (P5a 컷 3·4). 배치는 `service_role`을 한
+ * 글자도 쓰지 않고 GoTrue 계정으로 로그인해 `authenticated`로 돈다(AQ-57 = ⓐ).
+ * 이 헬퍼가 남는 이유는 **그 롤의 권한이 0임을 증명**하기 위해서이며, 즉 여기서
+ * 가장하는 것은 「배치」가 아니라 **「쓰이지 않는 롤」**이다.
  *
  * **이 롤에서 관측되는 것은 권한 층뿐이다.** `service_role`은
  * `rolbypassrls = t`이므로(실측) 정책 32개가 통째로 적용되지 않는다. 즉
@@ -143,9 +148,14 @@ export function actingAs(userId: string | null): Actor {
  * `expectNoRowsAffected`는 **아무것도 증명하지 않는다**(USING 필터가 없으므로
  * 0행은 행이 없다는 뜻일 뿐이다).
  *
- * `sub`을 담지 않는다. 배치에는 사용자가 없고 `auth.uid()`는 null이다 —
- * 그것이 이 롤에서 정책이 방어가 될 수 없는 두 번째 이유다(설령 RLS가
+ * `sub`을 담지 않는다. **이 롤로 도는 경로에는** 사용자가 없고 `auth.uid()`는
+ * null이다 — 그것이 이 롤에서 정책이 방어가 될 수 없는 두 번째 이유다(설령 RLS가
  * 적용된다 해도 `owner_id = null`은 NULL로 평가된다).
+ *
+ * ★ **「배치에는 사용자가 없다」로 읽지 않는다** — 그 명제는 AQ-57 = ⓐ가 거짓으로
+ * 만들었다(배치는 로그인해 세션을 갖고 `auth.uid()`가 그 계정을 가리키며, 그것이
+ * `cron_runs`의 INSERT 정책이 성립하는 전제다). 여기서 참인 것은 **이 헬퍼**에
+ * 사용자가 없다는 것뿐이다.
  */
 export function actingAsServiceRole(): Actor {
   return actor('service_role', { role: 'service_role', aud: 'authenticated' })

@@ -187,7 +187,7 @@ export const PRICE_PROVIDERS: readonly ProviderFactory[] = [KIWOOM_ES040]
  * 공개 엔드포인트이므로(ADR-008 §2.3 — 쿠키를 «보내면» 오히려 막힌다) 오늘 CR-10은
  * 서비스 계정 축에서만 도달한다. 그 사실을 **빈 배열로 적어 두는 것**과 「아무 데도
  * 안 적는 것」은 다르다 — 다음 공급자가 키를 요구할 때 채울 자리가 여기 있고,
- * `tests/providers/registry.test.ts`가 **모든 `KNOWN_PROVIDER_IDS`에 항목이 있는지**
+ * `tests/providers/kiwoom.test.ts`가 **모든 `KNOWN_PROVIDER_IDS`에 항목이 있는지**
  * 본다(빠뜨리면 그 공급자의 키 부재가 CR-10에 세어지지 않는다).
  *
  * ★★ **값이 아니라 이름이다**(SEC-05). 이 상수는 클라이언트 번들에도 실릴 수 있다.

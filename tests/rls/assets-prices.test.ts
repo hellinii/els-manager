@@ -182,7 +182,7 @@ describe('미인증 접근 (SEC-03)', () => {
   })
 })
 
-describe('asset_provider_symbols — 조회 전용', () => {
+describe('asset_provider_symbols — 조회 전체 · 변경 전체(DELETE 포함)', () => {
   it('인증 사용자는 매핑을 조회한다 (DOC-011 §4.9)', async () => {
     const asset = await seedAsset({ name: '테슬라' })
     await asOwner(

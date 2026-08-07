@@ -44,7 +44,7 @@ import { initialFormState, toFormState, type FormState } from './state'
  * 숫자만 줄어들고 「화면이 섰다」로 읽힌다.
  *
  * 그래서 화면 **안의** 미완성을 여기서 센다. 조각이 서면 이 표에서 지우고,
- * `tests/app/steps.test.ts`가 표와 실제를 대조한다(지우지 않으면 빨간불).
+ * `tests/app/productForm.test.ts`가 표와 실제를 대조한다(지우지 않으면 빨간불).
  *
  * > **원장이 두 번 비었다.** 컷 4a가 셋(③·④·저장)을 등재하고 컷 4b가 비웠으며,
  * > 컷 5가 SCR-202의 셋(상환 처리·상환 취소·KI 터치 확정)을 등재하고 **컷 6이
