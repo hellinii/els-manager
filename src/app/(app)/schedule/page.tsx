@@ -7,10 +7,13 @@ import { ScheduleRow } from '@/components/schedule/ScheduleRow'
 import { ViewSwitch } from '@/components/schedule/ViewSwitch'
 import { EmptyState } from '@/components/state/EmptyState'
 import type { ScheduleItem } from '@/lib/db/queries/map'
-import { getAsOf, getQueries } from '@/lib/db/server'
+import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
 import { groupByMonth, korDate, splitByPast, type MonthGroup } from '@/lib/format'
 import {
+  isScheduleMineOnly,
   isScheduleNarrowed,
+  OWNER_ALL,
+  OWNER_MINE,
   parseScheduleFilter,
   parseScheduleView,
   scheduleQuery,
@@ -62,10 +65,17 @@ import { PATHS } from '@/lib/routes/paths'
  *
  * ## 왕복
  *
- * 기본 화면은 좁히지 않으므로 조회 1회(= **3 왕복**: 차수 + 시세 + 세율 연도).
+ * ~~기본 화면은 좁히지 않으므로 조회 1회(= **3 왕복**: 차수 + 시세 + 세율 연도).
  * 필터가 걸리면 2회다.
  * 기본이 「전체 기간」인 것이 그 조건을 만든다 — 기본을 「다가오는」으로 두면 첫
- * 렌더부터 좁혀진 상태이므로 소유자 선택지를 위해 **항상** 두 번 불러야 한다.
+ * 렌더부터 좁혀진 상태이므로 소유자 선택지를 위해 **항상** 두 번 불러야 한다.~~
+ *
+ * ★ **v2.6에서 그 조건이 무너졌다 — 소유자 축이 기간과 «같은» 일을 한다.** 기본이
+ * 「전체 기간」인 것은 그대로지만 소유자 기본값이 **본인**이 되어 첫 렌더부터 좁혀진
+ * 상태이고, 그래서 위 문단이 경고한 그 상태(「소유자 선택지를 위해 **항상** 두 번」)가
+ * 정확히 발생한다. **경고문이 예측한 대로 깨졌으므로 지우지 않고 남긴다.** 조회는
+ * 항상 2회이며 좁히지 않은 화면은 소유자 「전체」를 고른 경우뿐이다. 대가와 그것을
+ * 받아들이는 근거는 DOC-008 §5 SCR-201 ★★ ⓐ에 있다.
  */
 
 export const metadata: Metadata = {
@@ -79,18 +89,18 @@ export default async function SchedulePage({
   searchParams: Promise<QueryValues>
 }) {
   const params = await searchParams
-  const filter = parseScheduleFilter(params)
+  const [queries, viewerId] = await Promise.all([getQueries(), getViewerId()])
+  const filter = parseScheduleFilter(params, viewerId)
   const view = parseScheduleView(params)
-  const queries = await getQueries()
   // 화면과 계약이 **같은 기준일**을 본다(Q-02) — 기간 조건이 여기서 나온다.
   const asOf = getAsOf()
 
   const narrowed = isScheduleNarrowed(filter)
   const [items, pool] = await Promise.all([
-    queries.listSchedule(toScheduleParams(filter, asOf)),
+    queries.listSchedule(toScheduleParams(filter, asOf, viewerId)),
     narrowed ? queries.listSchedule({}) : null,
   ])
-  // 좁히지 않았으면 첫 조회가 곧 전체다.
+  // 좁히지 않았으면(= 소유자 「전체」 + 기본 기간) 첫 조회가 곧 전체다.
   const all = pool ?? items
 
   const { past, upcoming } = splitByPast(items)
@@ -119,10 +129,14 @@ export default async function SchedulePage({
         <ViewSwitch filter={filter} view={view} />
       </header>
 
-      <ScheduleFilters filter={filter} owners={ownersOf(all)} view={view} />
+      <ScheduleFilters filter={filter} owners={ownersOf(all, viewerId)} view={view} />
 
       {items.length === 0 ? (
-        <ScheduleEmpty narrowed={narrowed} view={view} />
+        <ScheduleEmpty
+          narrowed={narrowed}
+          mineOnly={isScheduleMineOnly(filter)}
+          view={view}
+        />
       ) : view === 'PRODUCT' ? (
         <div className="flex flex-col gap-3">
           {/*
@@ -237,26 +251,48 @@ function Section({
 }
 
 /**
- * 빈 상태 **둘** — 셋째는 절 안에 있다(위 `emptyNote`).
+ * 빈 상태 ~~**둘**~~ **셋** — 넷째는 절 안에 있다(위 `missingUpcoming`).
  *
- * 여기서 갈리는 것은 「아무 평가일정도 없다」와 「조건에 맞는 것이 없다」이며
- * SCR-201과 같은 구조다. 다음 행동이 다르므로 한 문구로 뭉칠 수 없다 — 좁힌 쪽에
- * 「상품 등록」을 붙이면 사용자는 필터가 걸린 것을 모른 채 상품을 하나 더 만들고
- * 그것도 목록에 나타나지 않는다.
+ * 여기서 갈리는 것은 「아무 평가일정도 없다」·「내 것이 없다」·「조건에 맞는 것이
+ * 없다」이며 SCR-201과 같은 구조다. 다음 행동이 다르므로 한 문구로 뭉칠 수 없다 —
+ * 좁힌 쪽에 「상품 등록」을 붙이면 사용자는 필터가 걸린 것을 모른 채 상품을 하나 더
+ * 만들고 그것도 목록에 나타나지 않는다.
+ *
+ * ## ★ 순서가 `mineOnly` → `narrowed`다 (v2.6)
+ *
+ * `products/page.tsx`의 `ListEmpty`와 **같은 이유·같은 순서**다: 뒤의 판정이 앞을
+ * 포함하므로 뒤집으면 「내 평가일정이 없다」가 영원히 나타나지 않고, 그 상태가
+ * 「필터 초기화」로 떨어지면 **초기화된 주소가 곧 본인 보기라 눌러도 같은 화면**이다.
  */
 function ScheduleEmpty({
   narrowed,
+  mineOnly,
   view,
 }: {
   narrowed: boolean
+  mineOnly: boolean
   /** 초기화 링크가 보기를 보존하므로 필요하다 — 필터 자체는 되돌릴 값이 상수다 */
   view: ScheduleView
 }) {
+  if (mineOnly) {
+    return (
+      <EmptyState
+        title="내 평가일정이 없다"
+        description="다른 사람의 일정까지 보려면 소유자를 「전체」로 바꾼다."
+        /* 전체 보기로 가되 **보기는 보존한다** — 아래 초기화와 같은 규약이다 */
+        action={{
+          label: '전체 보기',
+          href: `${PATHS.schedule}${scheduleQuery({ ...ALL_OWNERS_FILTER }, view)}`,
+        }}
+      />
+    )
+  }
+
   if (narrowed) {
     return (
       <EmptyState
         title="조건에 맞는 평가일이 없다"
-        description="필터를 해제하면 전체 일정이 보인다."
+        description="필터를 해제하면 내 일정이 보인다."
         /*
          * ★ 초기화가 **보기를 보존한다** — 필터를 되돌리는 것과 표현을 되돌리는
          * 것은 다른 일이고, 섞으면 시간순에서 잘못 좁힌 사용자가 말없이 상품별로
@@ -264,7 +300,7 @@ function ScheduleEmpty({
          */
         action={{
           label: '필터 초기화',
-          href: `${PATHS.schedule}${scheduleQuery(NO_FILTER, view)}`,
+          href: `${PATHS.schedule}${scheduleQuery(DEFAULT_FILTER, view)}`,
         }}
       />
     )
@@ -280,8 +316,22 @@ function ScheduleEmpty({
   )
 }
 
-/** 좁히지 않은 필터를 되돌리는 지점 — 보기는 여기 없다 */
-const NO_FILTER: ScheduleFilter = { ownerId: null, range: 'ALL', activeOnly: false }
+/**
+ * 「필터 초기화」가 되돌리는 지점 — 보기는 여기 없다.
+ *
+ * ★ **v2.6부터 이것은 「좁히지 않은」 필터가 아니다** — 소유자가 `MINE`이므로 여전히
+ * 좁혀져 있다. 초기화의 뜻이 「전부 보기」가 아니라 **「기본값으로 되돌리기」**로
+ * 바뀌었고, 그 기본값이 본인이다. 이름을 `NO_FILTER`에서 바꾼 이유가 그것이다 —
+ * 종전 이름은 이제 거짓을 말한다.
+ */
+const DEFAULT_FILTER: ScheduleFilter = {
+  owner: OWNER_MINE,
+  range: 'ALL',
+  activeOnly: false,
+}
+
+/** 소유자만 「전체」로 연 상태 — 둘째 빈 상태의 다음 행동이 가리키는 곳 */
+const ALL_OWNERS_FILTER: ScheduleFilter = { ...DEFAULT_FILTER, owner: OWNER_ALL }
 
 /**
  * 셋째 빈 상태를 **상품별 보기의 자리**에 낸다 — 문구는 시간순과 바이트 동일하다.
@@ -305,10 +355,17 @@ function MissingUpcoming({ note }: { note: string }) {
  * 같다). `ownerId`·`ownerName` 둘 다 뷰가 담으므로(v1.8) 사용자 목록을 얻기 위한
  * 별 조회가 없다 — **그 둘 중 앞의 것이 이 컷에서 신설되었다.** 없으면 이름을
  * UUID로 되돌릴 방법이 없어 이 함수를 쓸 수 없다.
+ *
+ * ★ **보는 사람 자신은 빼고 낸다** (v2.6) — 근거는 `products/page.tsx`의 같은
+ * 함수와 동일하다(기본 항목 「내 일정」과 같은 뜻의 항목이 둘이 된다).
  */
-function ownersOf(items: readonly ScheduleItem[]): OwnerOption[] {
+function ownersOf(
+  items: readonly ScheduleItem[],
+  viewerId: string,
+): OwnerOption[] {
   const byId = new Map<string, string>()
   for (const item of items) {
+    if (item.ownerId === viewerId) continue
     if (!byId.has(item.ownerId)) byId.set(item.ownerId, item.ownerName)
   }
   return [...byId.entries()]

@@ -5,11 +5,14 @@ import { ProductFilters, type OwnerOption } from '@/components/products/ProductF
 import { ProductRow } from '@/components/products/ProductRow'
 import { EmptyState } from '@/components/state/EmptyState'
 import type { ProductListItem } from '@/lib/db/queries/map'
-import { getQueries } from '@/lib/db/server'
+import { getQueries, getViewerId } from '@/lib/db/server'
 import { KI_STATUS_LABELS, paginate } from '@/lib/format'
 import type { KiStatus } from '@/lib/domain'
 import {
+  FILTER_KEYS,
+  isMineOnly,
   isNarrowed,
+  OWNER_ALL,
   pageQuery,
   parsePage,
   parseProductFilter,
@@ -36,8 +39,15 @@ import { PATHS } from '@/lib/routes/paths'
  * 그 선택지가 자기 자신에 의해 지워지면 근거가 무너진다.
  *
  * **좁히는 필터가 없으면 두 번째 조회를 하지 않는다** — 그때는 첫 조회가 이미
- * 전체다. 기본 화면의 왕복은 그대로 2다(DOC-011 §4.0). 필터가 걸릴 때만 4가 되고
+ * 전체다. ~~기본 화면의 왕복은 그대로 2다(DOC-011 §4.0).~~ 필터가 걸릴 때만 4가 되고
  * `Promise.all`이므로 대기는 한 파다.
+ *
+ * > ★ **그 「기본 화면의 왕복 2」가 v2.6에서 깨졌다** — 소유자 기본값이 본인이 되면서
+ * > 기본 화면이 **이미 좁혀진 상태**이므로 두 번째 조회가 **항상** 돈다(왕복 4).
+ * > 좁히지 않은 화면은 이제 소유자 「전체」를 고른 경우뿐이다. DOC-008 §5 SCR-201
+ * > ★★ ⓐ가 그 대가를 등재했고, 받아들이는 근거는 A-01 규모다(상품 12건·사용자 셋).
+ * > **깨진 문장을 지우지 않고 취소선으로 둔다** — 지우면 다음 사람이 왕복 2를 여전히
+ * > 성립하는 전제로 읽는다.
  *
  * 필터가 걸린 렌더에서는 **무결성 결함 로그도 두 번 찍힌다**(`judge()`가 상품마다
  * 한 번 기록한다). 계약 여럿이 한 요청에서 판정하면 이미 그런 상태이므로 새로운
@@ -74,15 +84,15 @@ export default async function ProductsPage({
   searchParams: Promise<QueryValues>
 }) {
   const params = await searchParams
-  const filter = parseProductFilter(params, KI_STATUS_VALUES)
-  const queries = await getQueries()
+  const [queries, viewerId] = await Promise.all([getQueries(), getViewerId()])
+  const filter = parseProductFilter(params, KI_STATUS_VALUES, viewerId)
 
   const narrowed = isNarrowed(filter)
   const [matched, pool] = await Promise.all([
-    queries.listProducts(toListParams(filter)),
+    queries.listProducts(toListParams(filter, viewerId)),
     narrowed ? queries.listProducts({}) : null,
   ])
-  // 좁히지 않았으면 첫 조회가 곧 전체다.
+  // 좁히지 않았으면(= 소유자 「전체」) 첫 조회가 곧 전체다.
   const all = pool ?? matched
 
   /*
@@ -135,10 +145,10 @@ export default async function ProductsPage({
         </div>
       </header>
 
-      <ProductFilters filter={filter} owners={ownersOf(all)} />
+      <ProductFilters filter={filter} owners={ownersOf(all, viewerId)} />
 
       {items.length === 0 ? (
-        <ListEmpty narrowed={narrowed} />
+        <ListEmpty narrowed={narrowed} mineOnly={isMineOnly(filter)} />
       ) : (
         <div className="flex flex-col gap-3">
           {/*
@@ -182,19 +192,44 @@ export default async function ProductsPage({
 }
 
 /**
- * 빈 상태 **둘** — DOC-008 §6이 구분을 요구하고 ST-02가 다음 행동을 요구한다.
+ * 빈 상태 ~~**둘**~~ **셋** — DOC-008 §6이 구분을 요구하고 ST-02가 다음 행동을 요구한다.
  *
  * `EmptyState`의 `action`이 필수 prop이므로 다음 행동 없는 빈 상태는 컴파일되지
- * 않는다. 그 타입이 여기서 실제로 두 개의 다른 행동을 강제한다 — 「조건에 맞는
+ * 않는다. 그 타입이 여기서 실제로 세 개의 다른 행동을 강제한다 — 「조건에 맞는
  * 상품 없음」에 `+ 등록`을 붙이면 사용자는 필터가 걸린 것을 모른 채 상품을 하나 더
  * 만들고 그것도 목록에 나타나지 않는다.
+ *
+ * ## ★ 셋째가 v2.6에서 «필연»으로 생겼다 — 순서가 이 함수의 내용이다
+ *
+ * 소유자 기본값이 본인이 되면서 아무것도 고르지 않은 화면이 이미 좁혀진 상태다.
+ * `mineOnly`를 **먼저** 보지 않으면 그 상태가 「조건에 맞는 상품이 없다 → 필터
+ * 초기화」로 떨어지는데, **초기화된 주소(`PATHS.products`)가 곧 본인 보기이므로
+ * 눌러도 같은 화면**이다. 다음 행동이 아무 일도 하지 않는 빈 상태는 ST-02 위반이며,
+ * `EmptyState`의 타입은 **행동이 있는지**만 강제하고 **그 행동이 무언가를 바꾸는지**는
+ * 강제하지 못한다 — 타입이 닿지 못하는 자리라 순서를 각주로 못박는다.
+ *
+ * `narrowed`가 `mineOnly`를 **포함하므로** 순서를 뒤집으면 셋째가 영원히 나타나지
+ * 않는다. 문구·행동은 SCR-101의 `MINE`과 같은 부류다(DOC-008 §6 각주).
  */
-function ListEmpty({ narrowed }: { narrowed: boolean }) {
+function ListEmpty({ narrowed, mineOnly }: { narrowed: boolean; mineOnly: boolean }) {
+  if (mineOnly) {
+    return (
+      <EmptyState
+        title="내 상품이 없다"
+        description="다른 사람의 상품까지 보려면 소유자를 「전체」로 바꾼다."
+        action={{
+          label: '전체 보기',
+          href: `${PATHS.products}?${FILTER_KEYS.owner}=${OWNER_ALL}`,
+        }}
+      />
+    )
+  }
+
   if (narrowed) {
     return (
       <EmptyState
         title="조건에 맞는 상품이 없다"
-        description="필터를 해제하면 전체 목록이 보인다."
+        description="필터를 해제하면 내 상품 목록이 보인다."
         action={{ label: '필터 초기화', href: PATHS.products }}
       />
     )
@@ -217,10 +252,20 @@ function ListEmpty({ narrowed }: { narrowed: boolean }) {
  * 상태인지 구분되지 않는다.
  *
  * `ownerName`은 뷰가 이미 담고 있다(§4.2) — 이름을 얻기 위한 별 조회가 없다.
+ *
+ * ★ **보는 사람 자신은 빼고 낸다** (v2.6). 그 사람은 선택지의 **기본 항목**(「내
+ * 상품」 = 주소에서 키 없음)으로 이미 있으므로, 여기서도 내면 **같은 뜻의 항목이
+ * 둘**이 된다 — 사용자는 둘 중 어느 것이 지금 상태인지 알 수 없고 `<select>`는
+ * 하나만 선택된 것으로 그린다. 파서가 자기 UUID를 `MINE`으로 정규화하는 것과
+ * **같은 사실의 반대편**이다.
  */
-function ownersOf(items: readonly ProductListItem[]): OwnerOption[] {
+function ownersOf(
+  items: readonly ProductListItem[],
+  viewerId: string,
+): OwnerOption[] {
   const byId = new Map<string, string>()
   for (const item of items) {
+    if (item.ownerId === viewerId) continue
     if (!byId.has(item.ownerId)) byId.set(item.ownerId, item.ownerName)
   }
   return [...byId.entries()]

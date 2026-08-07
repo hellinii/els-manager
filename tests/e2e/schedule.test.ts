@@ -6,13 +6,14 @@ import {
 } from '@/lib/domain'
 import { STATUS_LABELS, korMonth, percent, priceDisplay, ymd } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
-import { SCHEDULE_KEYS } from '@/lib/forms/query'
+import { OWNER_ALL, SCHEDULE_KEYS } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 import { actionIdOf, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get } from './helpers/server'
+import { E2E_EMPTY } from './helpers/users'
 
 /**
  * SCR-301 평가일정 — **Next를 지나야 존재하는 것들** (P4 컷 7)
@@ -32,9 +33,15 @@ import { cookieJar, get } from './helpers/server'
  * 모두 채워진다.** 그 성질이 이 화면의 기본 상태를 만드는 조건이므로, 날짜를 손으로
  * 적지 않고 `generateEvaluationDates`로 파생시킨다(앱이 저장할 때 쓴 함수와 같다).
  *
- * 다만 목록은 **전역**이다(모든 SELECT 정책이 `using (true)`). 그래서 단언은 문서
+ * ~~다만 목록은 **전역**이다(모든 SELECT 정책이 `using (true)`).~~ 그래서 단언은 문서
  * 전체가 아니라 **내 상품의 줄**을 잘라 본다 — 다른 상품의 값에 우연히 맞는 단언을
  * 만들지 않는다(컷 4a의 「기초자산 1」, 컷 5의 「상환 실적」과 같은 함정).
+ *
+ * ★ **v2.6에서 앞 절반이 정확하지 않게 됐다.** 계약과 정책은 여전히 전역이지만
+ * (RLS는 한 줄도 바뀌지 않았다) **화면의 기본 소유자 축이 「본인」**이므로 맨 주소는
+ * 내 것만 낸다. 전역 목록은 `ownerId=ALL`을 고른 주소에서만 나온다. 줄을 잘라 보는
+ * 규율은 그대로 유지한다 — 「전체」 주소를 쓰는 단언이 여전히 있고, 무엇보다 그
+ * 규율은 소유자 축과 무관한 이유(우연한 일치)로 서 있다.
  */
 
 /** 존재할 수 없는 소유자. 어떤 DB 상태에서도 이 필터의 결과는 0건이다. */
@@ -184,28 +191,90 @@ describe('SCR-301 평가일정', () => {
      * 남는지 본다. `ownerId`를 렌더만 하고 필터로 쓰지 못하는 상태(예: 이름을 값으로
      * 실어 보내는 구현)는 이 단언에서 죽는다.
      */
-    const html = await (await get(timeline(), jar)).text()
+    /*
+     * ## ★★ 보는 쪽이 «일정이 없는 사용자»다 — 전제를 이 파일이 만든다
+     *
+     * `jar`로 보면 선택지의 「다른 소유자」가 **다른 파일이 무엇을 먼저 만들었는지**에
+     * 달린다. `db:reset` 직후에는 0이었다(실측). 방향을 뒤집으면 전제가 구조가 된다:
+     * 이 describe의 `beforeAll`이 `jar`의 상품을 **반드시** 만들었으므로, 자기 일정이
+     * 0인 사용자에게는 다른 소유자가 **적어도 하나** 실재한다.
+     *
+     * 선택지는 좁히지 않은 목록에서 나오므로 어느 주소에서 읽어도 같지만, 아래에서
+     * 「그 값으로 좁히면 그 사람 것이 남는다」를 확인하려면 대상이 보이는 주소가
+     * 편하다 — `ownerId=ALL`에서 읽는다.
+     */
+    const empty = await authenticatedJar(E2E_EMPTY)
+    const html = await (
+      await get(timeline(`${SCHEDULE_KEYS.owner}=${OWNER_ALL}`), empty)
+    ).text()
     const select = /<select name="ownerId"[\s\S]*?<\/select>/.exec(html)?.[0]
     expect(select, '소유자 선택 상자가 없다').toBeDefined()
 
-    const values = [...select!.matchAll(/value="([^"]*)"/g)]
-      .map((m) => m[1]!)
-      .filter((value) => value !== '')
-    expect(values.length, '소유자 선택지가 없다').toBeGreaterThan(0)
+    const values = [...select!.matchAll(/value="([^"]*)"/g)].map((m) => m[1]!)
+
+    /*
+     * ★ 선택지의 «모양»이 v2.6에서 바뀌었다 — 값이 셋이다.
+     *
+     * 빈 값 = 「내 일정」(기본) · `ALL` = 「전체」 · 나머지 = 다른 소유자의 UUID.
+     * **보는 사람 자신은 없다** — 기본 항목이 이미 그 사람이므로 두면 같은 뜻의
+     * 항목이 둘이 된다(`page.tsx`의 `ownersOf`가 뺀다).
+     */
+    expect(values.filter((v) => v === '')).toHaveLength(1)
+    expect(values.filter((v) => v === OWNER_ALL)).toHaveLength(1)
+
+    const others = values.filter((v) => v !== '' && v !== OWNER_ALL)
+    /*
+     * 이 단언이 아래 셋을 «항진명제가 아니게» 만든다. `others`가 0이면 「남으로
+     * 좁히면 내 것이 사라진다」가 한 번도 실행되지 않는데 초록이다 — 픽스처가
+     * 다른 소유자를 실제로 만들고 있는지를 먼저 못박는다.
+     */
+    expect(others.length, '다른 소유자 선택지가 없다 — 픽스처를 확인한다').toBeGreaterThan(0)
     // 값이 UUID다 — 이름이 실려 있으면 계약이 `22P02`로 죽는다(형식 가드가 버린다).
-    for (const value of values) {
+    for (const value of others) {
       expect(value).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
     }
 
-    // 그 값들 중 **정확히 하나**가 내 상품을 남긴다(나머지는 다른 소유자다).
+    /*
+     * ★★ 그 값들 중 **정확히 하나**가 `beforeAll`이 만든 상품을 남긴다. 이 왕복이
+     * 「`ownerId`를 렌더만 하고 필터로 쓰지 못하는 구현」을 죽인다 — 이름을 값으로
+     * 실어 보내면 계약이 `22P02`로 죽고 어느 값도 그 상품을 남기지 못한다.
+     */
     const kept: string[] = []
-    for (const value of values) {
+    for (const value of others) {
       const filtered = await (
-        await get(timeline(`${SCHEDULE_KEYS.ownerId}=${value}`), jar)
+        await get(timeline(`${SCHEDULE_KEYS.owner}=${value}`), empty)
       ).text()
       if (rowsOf(filtered, seeded.productName).length > 0) kept.push(value)
     }
     expect(kept).toHaveLength(1)
+  })
+
+  it('★ 기본 화면이 남의 일정을 «섞지 않는다» — v2.6의 요구 그 자체다', async () => {
+    /*
+     * 이 케이스가 없으면 소유자 기본값이 되돌아가도 스위트가 초록이다. 위 케이스는
+     * 「고른 값이 필터로 동작하는가」를 보고, 이것은 **아무것도 고르지 않았을 때
+     * 무엇이 보이는가**를 본다 — 서로 다른 명제다.
+     *
+     * ★ 보는 쪽이 **일정이 없는 사용자**인 것이 요점이다. `jar`로 「전체가 본인보다
+     * 많다」를 재면 `db:reset` 직후 다른 소유자가 없어 두 값이 같고(실측 3 = 3),
+     * 결과가 **다른 파일의 실행 순서에 달린다.** 이 방향에서는 전제(`jar`의 상품)를
+     * 이 describe의 `beforeAll`이 **반드시** 만든다.
+     */
+    const empty = await authenticatedJar(E2E_EMPTY)
+
+    const mine = await (await get(timeline(), empty)).text()
+    const all = await (
+      await get(timeline(`${SCHEDULE_KEYS.owner}=${OWNER_ALL}`), empty)
+    ).text()
+
+    expect(rowsOf(mine, seeded.productName)).toHaveLength(0)
+    expect(rowsOf(all, seeded.productName).length).toBeGreaterThan(0)
+
+    // 그리고 그 사용자에게는 빈 상태 «둘째»가 뜬다 — 다음 행동이 전체 보기다.
+    expect(mine).toContain('내 평가일정이 없다')
+    expect(mine).not.toContain(EMPTY_TOTAL)
+    expect(mine).not.toContain(EMPTY_NARROWED)
+    expect(mine).toContain('전체 보기')
   })
 
   it('★ 두 절이 갈리고 차수가 자기 절에 들어간다', async () => {
@@ -369,7 +438,7 @@ describe('SCR-301 평가일정', () => {
 
   it('빈 상태 두 갈래를 구분한다 — 실재하지 않는 소유자로 좁힌다', async () => {
     const html = await (
-      await get(timeline(`${SCHEDULE_KEYS.ownerId}=${GHOST_OWNER}`), jar)
+      await get(timeline(`${SCHEDULE_KEYS.owner}=${GHOST_OWNER}`), jar)
     ).text()
 
     expect(html).toContain(EMPTY_NARROWED)

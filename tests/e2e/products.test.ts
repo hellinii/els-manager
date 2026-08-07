@@ -10,7 +10,7 @@ import {
   won,
 } from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
-import { FILTER_KEYS } from '@/lib/forms/query'
+import { FILTER_KEYS, OWNER_ALL } from '@/lib/forms/query'
 import { PRODUCT_ID_FIELD, productFieldNames } from '@/lib/forms/productForm'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -28,6 +28,7 @@ import {
 import { authenticatedJar } from './helpers/auth'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get, locationPath } from './helpers/server'
+import { E2E_EMPTY } from './helpers/users'
 
 /**
  * SCR-201 목록 · SCR-202 상세 — **Next를 지나야 존재하는 것들** (P4 컷 2·3)
@@ -307,7 +308,7 @@ describe('SCR-201 목록', () => {
      * 결과 0건이 **데이터와 무관하게 보장된다**는 것이 이 픽스처를 고른 이유다.
      */
     const html = await (
-      await get(`${PATHS.products}?${FILTER_KEYS.ownerId}=${GHOST_OWNER}`, jar)
+      await get(`${PATHS.products}?${FILTER_KEYS.owner}=${GHOST_OWNER}`, jar)
     ).text()
 
     expect(html).toContain(EMPTY_NARROWED)
@@ -317,16 +318,78 @@ describe('SCR-201 목록', () => {
   })
 
   it('조작된 주소가 오류가 되지 않는다', async () => {
-    // 링크 하나가 앱을 막지 않는다. 인식하지 못한 값은 그 축이 「전체」가 된다.
+    /*
+     * 링크 하나가 앱을 막지 않는다. 인식하지 못한 값은 그 축이 「전체」가 되고,
+     * ★ **소유자만 다르다 — 「전체」가 아니라 「본인」으로 떨어진다** (v2.6).
+     * 조작된 주소 하나가 기본값을 무력화하면 안 되기 때문이다.
+     */
     const res = await get(
       `${PATHS.products}?status=BOGUS&kiStatus=NOPE&sortBy=NAME&ownerId=zzz`,
       jar,
     )
     expect(res.status).toBe(200)
     const html = await res.text()
-    // 좁혀지지 않았으므로 「조건에 맞는 상품 없음」이 나올 수 없다.
+    // 이 사용자는 자기 상품을 가지고 있으므로(위 `beforeAll`) 목록이 비지 않는다.
     expect(html).not.toContain(EMPTY_NARROWED)
     expect(html).toContain(STATUS_LABELS.ACTIVE)
+  })
+
+  it('★ 기본 화면이 남의 상품을 «섞지 않는다» — v2.6의 요구 그 자체다', async () => {
+    /*
+     * 소유자 기본값이 되돌아가면 이 케이스만 빨간불이 된다. 위 케이스들은 「고른
+     * 값이 필터로 동작하는가」를 보고 이것은 **아무것도 고르지 않았을 때 무엇이
+     * 보이는가**를 본다 — 서로 다른 명제이며 앞의 것으로 뒤를 증명할 수 없다.
+     *
+     * ## ★★ 보는 쪽을 «상품이 없는 사용자»로 둔다 — 전제를 이 파일이 만든다
+     *
+     * 처음에는 `jar`로 보면서 「전체가 본인보다 많다」를 쟀는데, `db:reset` 직후에는
+     * **다른 소유자의 상품이 아직 없어서** 두 값이 같았다(실측: 10 = 10). 그 형태는
+     * 다른 파일이 무엇을 먼저 만들었는지에 결과가 달린다 — **실행 순서에 의존하는
+     * 빨간불이며 초록불만큼 나쁘다.**
+     *
+     * 방향을 뒤집으면 전제가 구조가 된다: 이 describe의 `beforeAll`이 `jar`의 상품을
+     * **반드시** 만들었으므로, 「상품이 0인 사용자」에게 그 상품이 기본 화면에서
+     * 안 보이고 「전체」에서 보이면 그것으로 명제가 닫힌다.
+     */
+    const empty = await authenticatedJar(E2E_EMPTY)
+
+    const mine = await (await get(PATHS.products, empty)).text()
+    const all = await (
+      await get(`${PATHS.products}?${FILTER_KEYS.owner}=${OWNER_ALL}`, empty)
+    ).text()
+
+    // 남의 상품이므로 기본 화면에 없다. 「전체」에서만 나타난다.
+    expect(mine).not.toContain(product.productName)
+    expect(all).toContain(product.productName)
+  })
+
+  it('★ 빈 상태 «셋째» — 내 것만 없을 때 다음 행동이 전체 보기다', async () => {
+    /*
+     * ★ 이 케이스가 없으면 v2.6이 **막다른 골목**을 만든 것을 아무도 보지 못한다.
+     * 셋째를 두지 않으면 이 상태가 「조건에 맞는 상품이 없다 → 필터 초기화」로
+     * 떨어지는데, **초기화된 주소가 곧 본인 보기라 눌러도 같은 화면**이다.
+     * 다음 행동이 아무 일도 하지 않는 빈 상태는 ST-02 위반이다.
+     *
+     * 상품이 하나도 없는 전용 사용자를 쓴다 — 한 소유자의 데이터를 전부 통제해야
+     * 관측되는 상태이며 AQ-34가 이 사용자들을 만든 이유가 그것이다.
+     */
+    const empty = await authenticatedJar(E2E_EMPTY)
+    const html = await (await get(PATHS.products, empty)).text()
+
+    expect(html).toContain('내 상품이 없다')
+    // 첫째·둘째 어느 것도 아니다 — 셋이 서로 다른 문구여야 구분이 성립한다.
+    expect(html).not.toContain(EMPTY_TOTAL)
+    expect(html).not.toContain(EMPTY_NARROWED)
+    // ST-02 — 다음 행동이 «실제로 다른 화면»을 가리킨다.
+    expect(html).toContain('전체 보기')
+    expect(html).toContain(`${FILTER_KEYS.owner}=${OWNER_ALL}`)
+
+    // 그리고 그 링크를 따라가면 상품이 실제로 보인다(막다른 골목이 아니다).
+    const all = await (
+      await get(`${PATHS.products}?${FILTER_KEYS.owner}=${OWNER_ALL}`, empty)
+    ).text()
+    expect(all).not.toContain('내 상품이 없다')
+    expect(all).not.toContain(EMPTY_TOTAL)
   })
 
   it('`+ 등록`이 404로 가지 않는다', async () => {

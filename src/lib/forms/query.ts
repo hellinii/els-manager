@@ -33,17 +33,85 @@ export type QueryValues = Record<string, string | string[] | undefined>
 
 export type SortKey = NonNullable<ListProductsParams['sortBy']>
 
+// ---------------------------------------------------------------------------
+// 소유자 축 — 값이 «셋»이다 (DOC-008 §5 SCR-201 ★ · §9 SQ-03, v2.6)
+// ---------------------------------------------------------------------------
+
+/**
+ * **부재 = 본인 · `ALL` = 전체 · UUID = 그 사람.**
+ *
+ * ## 왜 `string | null`이 아닌가 — 그 형태가 이 결함을 만들었다
+ *
+ * 종전에는 `ownerId: string | null`이었고 **`null`이 「전체」**였다. 운영 계정이
+ * 하나인 동안 「본인」과 「전체」가 같은 화면을 내므로 **두 뜻이 한 값에 겹쳐 있는
+ * 것이 관측되지 않았고**, Secondary 계정이 서자마자(2026-08-07) 기본 화면이 남의
+ * 상품을 섞어 보여 줬다. 축을 셋으로 가르는 것이 그 겹침을 없애는 유일한 방법이다.
+ *
+ * ## 왜 태그 유니온이 아니라 문자열인가
+ *
+ * 이 값은 **주소에 그대로 실린다.** 태그 유니온이면 인코딩·디코딩 한 쌍이 더 생기고
+ * 그 쌍이 갈릴 수 있다. 대신 배타성을 **형식으로** 보장한다 — 두 상수는 UUID 형식이
+ * 아니므로 사용자 id와 절대 충돌하지 않으며, `tests/app/query.test.ts`가 그것을
+ * 단언한다(상수를 UUID처럼 생긴 것으로 바꾸면 빨간불이다).
+ *
+ * `DashboardScope`(`'MINE' | 'ALL'`)와 **같은 어휘**다 — SCR-101이 SQ-03에서 이미
+ * 쓰던 말이고, 이 컷이 그 판단을 두 화면으로 넓힌 것이므로 이름도 같아야 한다.
+ */
+export type OwnerScope = string
+
+/** 본인. **기본값이며 주소에 싣지 않는다** */
+export const OWNER_MINE = 'MINE'
+/** 전체. 사용자가 선택지에서 골라야만 되는 값이다 */
+export const OWNER_ALL = 'ALL'
+
+/** 특정 사용자로 좁힌 상태인가 — 그때만 `scope`가 UUID다 */
+export function isUserScope(scope: OwnerScope): boolean {
+  return scope !== OWNER_MINE && scope !== OWNER_ALL
+}
+
+/**
+ * 계약에 넘길 `ownerId`. **`null`이면 소유자로 좁히지 않는다**(= 전체).
+ *
+ * 「본인」을 여기서 실제 id로 바꾸는 것이 요점이다 — 파서는 순수 모듈이라 로그인한
+ * 사람을 모르고, 그 지식은 화면에만 있다(`getViewerId`). 그래서 **주소에는 상징이
+ * 실리고 계약에는 id가 간다.**
+ */
+export function ownerParam(scope: OwnerScope, viewerId: string): string | null {
+  if (scope === OWNER_ALL) return null
+  return scope === OWNER_MINE ? viewerId : scope
+}
+
+/**
+ * 주소값 → 축. **인식하지 못한 값은 기본값(본인)이다.**
+ *
+ * 자기 UUID는 `MINE`으로 **정규화한다** — 같은 화면을 가리키는 주소가 둘이면 공유된
+ * 링크가 어느 쪽인지에 따라 달라 보이고, `<select>`의 어느 항목이 선택되는지도
+ * 갈린다(`dashboardQuery`가 기본값을 싣지 않는 규약과 같은 자리).
+ */
+function parseOwnerScope(raw: string, viewerId: string): OwnerScope {
+  if (raw === OWNER_ALL) return OWNER_ALL
+  if (!isUuid(raw)) return OWNER_MINE
+  return raw === viewerId ? OWNER_MINE : raw
+}
+
 export type ProductFilter = {
-  ownerId: string | null
+  /** 소유자 축. **`null`이 없다** — 위 `OwnerScope`의 각주가 그 이유다 */
+  owner: OwnerScope
   status: 'ACTIVE' | 'REDEEMED' | null
   kiStatus: KiStatus | null
   /** 정렬은 「없음」이 아니라 기본값을 갖는다 — 근거는 `SORT_DEFAULT`. */
   sortBy: SortKey
 }
 
-/** 필터의 질의 문자열 키. 화면의 `<select name>`이 이 값을 쓴다. */
+/**
+ * 필터의 질의 문자열 키. 화면의 `<select name>`이 이 값을 쓴다.
+ *
+ * **소유자의 «키 이름»은 `ownerId` 그대로다** — 타입의 필드명만 `owner`로 바꿨다.
+ * 뜻이 「id 또는 없음」에서 「축」으로 달라졌으므로 필드명은 따라가야 하지만,
+ * 주소 키를 바꾸면 §7.4가 그린 전이로 공유된 링크가 전부 죽는다.
+ */
 export const FILTER_KEYS = {
-  ownerId: 'ownerId',
+  owner: 'ownerId',
   status: 'status',
   kiStatus: 'kiStatus',
   sortBy: 'sortBy',
@@ -74,11 +142,12 @@ const STATUS_VALUES = ['ACTIVE', 'REDEEMED'] as const
 export function parseProductFilter(
   values: QueryValues,
   kiStatusValues: readonly KiStatus[],
+  viewerId: string,
 ): ProductFilter {
   return {
     // UUID 형식만 확인한다. 실재 여부는 조회 결과가 말한다 — 없는 소유자로
     // 필터하면 0건이고 그것이 「조건에 맞는 상품 없음」의 정상 경로다.
-    ownerId: uuidOr(one(values[FILTER_KEYS.ownerId])),
+    owner: parseOwnerScope(one(values[FILTER_KEYS.owner]), viewerId),
     status: oneOf(one(values[FILTER_KEYS.status]), STATUS_VALUES),
     kiStatus: oneOf(one(values[FILTER_KEYS.kiStatus]), kiStatusValues),
     sortBy: oneOf(one(values[FILTER_KEYS.sortBy]), SORT_KEYS) ?? SORT_DEFAULT,
@@ -137,9 +206,13 @@ export function pageQuery(filter: ProductFilter, page: number): string {
  * `exactOptionalPropertyTypes`에서 `undefined`를 넘기는 것과 키가 없는 것이
  * 다르고, 계약의 `params.x != null` 분기는 후자를 전제한다.
  */
-export function toListParams(filter: ProductFilter): ListProductsParams {
+export function toListParams(
+  filter: ProductFilter,
+  viewerId: string,
+): ListProductsParams {
   const params: ListProductsParams = { sortBy: filter.sortBy }
-  if (filter.ownerId != null) params.ownerId = filter.ownerId
+  const owner = ownerParam(filter.owner, viewerId)
+  if (owner != null) params.ownerId = owner
   if (filter.status != null) params.status = filter.status
   if (filter.kiStatus != null) params.kiStatus = filter.kiStatus
   return params
@@ -158,7 +231,31 @@ export function toListParams(filter: ProductFilter): ListProductsParams {
  * 나타나지 않는다.
  */
 export function isNarrowed(filter: ProductFilter): boolean {
-  return filter.ownerId != null || filter.status != null || filter.kiStatus != null
+  return (
+    filter.owner !== OWNER_ALL || filter.status != null || filter.kiStatus != null
+  )
+}
+
+/**
+ * **소유자 축만 기본값(본인)이고 나머지는 걸리지 않은 상태인가** — 빈 상태 셋째의
+ * 판정이다 (DOC-008 §5 SCR-201 ★★ ⓑ, v2.6).
+ *
+ * ## 이 함수가 없으면 「필터 초기화」가 자기 자신을 가리킨다
+ *
+ * 기본값이 좁히는 값이 되면서 **아무것도 고르지 않은 화면이 이미 좁혀진 상태**가
+ * 됐다. 그때 0건이면 `isNarrowed`만 보는 화면은 「조건에 맞는 상품이 없다 → 필터
+ * 초기화」를 내는데, **초기화된 주소가 곧 본인 보기이므로 눌러도 같은 화면**이다.
+ * 다음 행동이 아무 일도 하지 않는 빈 상태는 ST-02 위반이다.
+ *
+ * ## 판정 순서가 이것 → `isNarrowed`다
+ *
+ * 뒤집으면 이 상태가 **영원히 나타나지 않는다** — `isNarrowed`가 이 상태를 포함하기
+ * 때문이다(본인 보기도 좁힌 것이다). 화면이 두 분기를 그 순서로 쓴다.
+ */
+export function isMineOnly(filter: ProductFilter): boolean {
+  return (
+    filter.owner === OWNER_MINE && filter.status == null && filter.kiStatus == null
+  )
 }
 
 /**
@@ -172,7 +269,8 @@ export function filterQuery(
   override: Partial<Record<keyof ProductFilter, string | null>> = {},
 ): string {
   const merged: Record<string, string | null> = {
-    [FILTER_KEYS.ownerId]: filter.ownerId,
+    // 본인이 기본값이므로 싣지 않는다 — 아래 `sortBy`와 같은 규약이다.
+    [FILTER_KEYS.owner]: filter.owner === OWNER_MINE ? null : filter.owner,
     [FILTER_KEYS.status]: filter.status,
     [FILTER_KEYS.kiStatus]: filter.kiStatus,
     // 기본값은 주소에 싣지 않는다 — 아무것도 고르지 않은 상태의 URL이 깨끗해야
@@ -253,7 +351,8 @@ export function dashboardQuery(scope: DashboardScope): string {
 export type ScheduleRange = 'ALL' | 'PAST' | 'UPCOMING'
 
 export type ScheduleFilter = {
-  ownerId: string | null
+  /** SCR-201과 **같은 축·같은 기본값**이다 — `OwnerScope`의 각주 */
+  owner: OwnerScope
   range: ScheduleRange
   /** DOC-008 §5의 「미상환만 보기」. `false`가 「전체」다 */
   activeOnly: boolean
@@ -264,7 +363,7 @@ export type ScheduleFilter = {
  * 같은 뜻이므로 주소에서도 같아야 한다(한쪽 링크를 다른 화면에 붙여도 축이 산다).
  */
 export const SCHEDULE_KEYS = {
-  ownerId: FILTER_KEYS.ownerId,
+  owner: FILTER_KEYS.owner,
   range: 'range',
   activeOnly: 'activeOnly',
   /** ★ 보기 축. **`ScheduleFilter`에 들어 있지 않다** — 아래 `parseScheduleView` */
@@ -275,9 +374,12 @@ export const SCHEDULE_RANGE_DEFAULT: ScheduleRange = 'ALL'
 
 const SCHEDULE_RANGES = ['ALL', 'PAST', 'UPCOMING'] as const
 
-export function parseScheduleFilter(values: QueryValues): ScheduleFilter {
+export function parseScheduleFilter(
+  values: QueryValues,
+  viewerId: string,
+): ScheduleFilter {
   return {
-    ownerId: uuidOr(one(values[SCHEDULE_KEYS.ownerId])),
+    owner: parseOwnerScope(one(values[SCHEDULE_KEYS.owner]), viewerId),
     range:
       oneOf(one(values[SCHEDULE_KEYS.range]), SCHEDULE_RANGES) ??
       SCHEDULE_RANGE_DEFAULT,
@@ -303,12 +405,14 @@ export function parseScheduleFilter(values: QueryValues): ScheduleFilter {
 export function toScheduleParams(
   filter: ScheduleFilter,
   asOf: string,
+  viewerId: string,
 ): ListScheduleParams {
   const params: ListScheduleParams = {}
 
   if (filter.range === 'UPCOMING') params.from = asOf
   if (filter.range === 'PAST') params.to = asOf
-  if (filter.ownerId != null) params.ownerId = filter.ownerId
+  const owner = ownerParam(filter.owner, viewerId)
+  if (owner != null) params.ownerId = owner
   if (filter.activeOnly) params.activeOnly = true
 
   return params
@@ -318,14 +422,34 @@ export function toScheduleParams(
  * **좁히는 필터가 걸려 있는가** — 빈 상태 셋 중 앞의 둘을 가른다.
  *
  * SCR-201의 `isNarrowed`와 같은 자리이며 **기간도 좁힌다**(정렬과 다르다 — 순서를
- * 바꾸는 것이 아니라 행을 뺀다). 기본값 `ALL`이 아무것도 빼지 않으므로 기본 화면은
- * 「좁히지 않음」이고 조회가 한 번이다.
+ * 바꾸는 것이 아니라 행을 뺀다). ~~기본값 `ALL`이 아무것도 빼지 않으므로 기본 화면은
+ * 「좁히지 않음」이고 조회가 한 번이다.~~
+ *
+ * ★ **그 마지막 문장이 v2.6에서 거짓이 됐다** — 소유자 기본값이 본인이므로 **기본
+ * 화면이 좁혀진 상태**이고 조회가 **항상 두 번**이다(왕복 2 → 4). DOC-008 §5
+ * SCR-201 ★★ ⓐ가 그 대가를 등재했다. 받아들이는 근거는 A-01 규모이고 되돌리기는
+ * 기본값 한 줄이다. **깨진 성질을 각주에서 지우지 않는다** — 지우면 다음 사람이
+ * 왕복 2를 여전히 성립하는 전제로 읽는다.
  */
 export function isScheduleNarrowed(filter: ScheduleFilter): boolean {
   return (
-    filter.ownerId != null ||
+    filter.owner !== OWNER_ALL ||
     filter.activeOnly ||
     filter.range !== SCHEDULE_RANGE_DEFAULT
+  )
+}
+
+/**
+ * **소유자 축만 기본값(본인)인가** — 빈 상태 둘째의 판정 (DOC-008 §5 SCR-301, v2.6).
+ *
+ * `isMineOnly`와 같은 일을 하며 근거도 같다. 판정 순서도 같다 — 이것이
+ * `isScheduleNarrowed`보다 **먼저**다.
+ */
+export function isScheduleMineOnly(filter: ScheduleFilter): boolean {
+  return (
+    filter.owner === OWNER_MINE &&
+    !filter.activeOnly &&
+    filter.range === SCHEDULE_RANGE_DEFAULT
   )
 }
 
@@ -376,7 +500,8 @@ export function parseScheduleView(values: QueryValues): ScheduleView {
 export function scheduleQuery(filter: ScheduleFilter, view: ScheduleView): string {
   const pairs: Array<[string, string]> = []
 
-  if (filter.ownerId != null) pairs.push([SCHEDULE_KEYS.ownerId, filter.ownerId])
+  // 본인이 기본값이므로 싣지 않는다(`filterQuery`와 같은 규약).
+  if (filter.owner !== OWNER_MINE) pairs.push([SCHEDULE_KEYS.owner, filter.owner])
   if (filter.range !== SCHEDULE_RANGE_DEFAULT) {
     pairs.push([SCHEDULE_KEYS.range, filter.range])
   }
@@ -553,8 +678,4 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  */
 export function isUuid(raw: string): boolean {
   return UUID.test(raw.trim())
-}
-
-function uuidOr(raw: string): string | null {
-  return isUuid(raw) ? raw : null
 }

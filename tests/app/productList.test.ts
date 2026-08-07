@@ -14,6 +14,7 @@ import {
 } from '@/lib/format'
 import {
   filterQuery,
+  OWNER_MINE,
   PAGE_KEY,
   pageQuery,
   parsePage,
@@ -489,7 +490,8 @@ describe('paginate — 거른 뒤의 목록을 자른다', () => {
 
 describe('주소의 페이지 축 — 필터와 분리되어 있다', () => {
   const BASE: ProductFilter = {
-    ownerId: null,
+    // v2.6: 소유자 축의 기본값이 「본인」이며 주소에는 실리지 않는다.
+    owner: OWNER_MINE,
     status: null,
     kiStatus: null,
     sortBy: 'EVALUATION_DATE',

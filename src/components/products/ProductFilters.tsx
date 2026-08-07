@@ -2,7 +2,12 @@ import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
 import { KI_STATUS_LABELS, STATUS_LABELS } from '@/lib/format'
-import { FILTER_KEYS, type ProductFilter } from '@/lib/forms/query'
+import {
+  FILTER_KEYS,
+  OWNER_ALL,
+  OWNER_MINE,
+  type ProductFilter,
+} from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
@@ -57,11 +62,24 @@ export function ProductFilters({
       className="flex flex-col gap-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3"
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/*
+          ★ 소유자만 **빈 값의 뜻이 다르다** (v2.6). 다른 셋은 「빈 값 = 좁히지
+          않음 = 전체」인데, 소유자는 **빈 값이 「내 상품」**이고 전체는 `ALL`이라는
+          고른 값이다 — 그것이 DOC-008 §5 SCR-201 ★가 정한 기본값이다. 그래서
+          `emptyLabel`이 「전체」가 아니라 「내 상품」이고 「전체」가 항목으로 온다.
+
+          **자기 자신은 `owners`에 없다** — `page.tsx`의 `ownersOf`가 뺀다. 두면
+          같은 뜻의 항목이 둘이 되고 어느 것이 지금 상태인지 사용자가 알 수 없다.
+        */}
         <Select
-          name={FILTER_KEYS.ownerId}
+          name={FILTER_KEYS.owner}
           label="소유자"
-          value={filter.ownerId ?? ''}
-          options={owners.map((owner) => [owner.id, owner.name])}
+          value={filter.owner === OWNER_MINE ? '' : filter.owner}
+          options={[
+            [OWNER_ALL, '전체'],
+            ...owners.map((owner): readonly [string, string] => [owner.id, owner.name]),
+          ]}
+          emptyLabel="내 상품"
         />
         <Select
           name={FILTER_KEYS.status}
@@ -86,8 +104,8 @@ export function ProductFilters({
           label="정렬"
           value={filter.sortBy}
           options={Object.entries(SORT_LABELS)}
-          /* 정렬에는 「전체」가 없다 — 순서는 언제나 하나로 정해진다 */
-          allLabel={null}
+          /* 정렬에는 빈 값이 없다 — 순서는 언제나 하나로 정해진다 */
+          emptyLabel={null}
         />
       </div>
 
@@ -116,14 +134,20 @@ function Select({
   label,
   value,
   options,
-  allLabel = '전체',
+  emptyLabel = '전체',
 }: {
   name: string
   label: string
   value: string
   options: ReadonlyArray<readonly [string, string]>
-  /** `null`이면 「전체」 선택지를 두지 않는다. */
-  allLabel?: string | null
+  /**
+   * **빈 값(`value=""`)의 라벨**이다. `null`이면 그 항목을 두지 않는다.
+   *
+   * ★ 이름이 `allLabel`이었는데 v2.6에서 고쳤다 — 소유자 축에서 **빈 값이 「전체」가
+   * 아니라 「내 상품」**이 되면서 그 이름이 거짓이 됐다. 한 낱말이 두 뜻을 갖는 것이
+   * 이 컷이 고치는 결함 자체이므로 같은 형태를 컴포넌트에 남기지 않는다.
+   */
+  emptyLabel?: string | null
 }) {
   return (
     <label className="flex flex-col gap-1.5">
@@ -134,7 +158,7 @@ function Select({
         넘기므로 인식하지 못한 주소값은 자동으로 「전체」로 표시된다.
       */}
       <select name={name} defaultValue={value} className={INPUT_CLASS}>
-        {allLabel != null && <option value="">{allLabel}</option>}
+        {emptyLabel != null && <option value="">{emptyLabel}</option>}
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue}>
             {optionLabel}

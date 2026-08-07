@@ -626,7 +626,7 @@ describe('SCR-101 홈', () => {
      * **AQ-34가 관측하는 «상태»는 보기와 무관하다** — 아래 마지막 단언이 그것을
      * 상품별 주소에서 다시 확인한다.
      */
-    const query = `${SCHEDULE_KEYS.ownerId}=${E2E_PAST}`
+    const query = `${SCHEDULE_KEYS.owner}=${E2E_PAST}`
     const html = await (
       await get(`${PATHS.schedule}?${query}&${SCHEDULE_KEYS.view}=TIME`, past)
     ).text()

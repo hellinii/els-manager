@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { INPUT_CLASS } from '@/components/form/Field'
 import type { OwnerOption } from '@/components/products/ProductFilters'
 import {
+  OWNER_ALL,
+  OWNER_MINE,
   SCHEDULE_KEYS,
   SCHEDULE_VIEW_DEFAULT,
   scheduleQuery,
@@ -49,8 +51,17 @@ import { PATHS } from '@/lib/routes/paths'
  * 잘못 좁힌 사용자가 말없이 상품별로 던져진다.
  */
 
-/** 초기화가 되돌리는 지점 — 「아무것도 좁히지 않음」이며 보기는 여기 없다 */
-const NO_FILTER: ScheduleFilter = { ownerId: null, range: 'ALL', activeOnly: false }
+/**
+ * 초기화가 되돌리는 지점 — ~~「아무것도 좁히지 않음」~~ **「기본값」**이며 보기는 여기 없다.
+ *
+ * ★ v2.6부터 소유자가 `MINE`이라 **여전히 좁혀진 상태**다. `page.tsx`의 같은 상수와
+ * 뜻이 같아야 하므로 둘의 값이 갈리면 초기화 링크가 화면마다 다른 곳으로 간다.
+ */
+const DEFAULT_FILTER: ScheduleFilter = {
+  owner: OWNER_MINE,
+  range: 'ALL',
+  activeOnly: false,
+}
 
 const RANGE_LABELS: Record<ScheduleRange, string> = {
   ALL: '전체 기간',
@@ -81,12 +92,18 @@ export function ScheduleFilters({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-neutral-600">소유자</span>
+          {/*
+            ★ **빈 값이 「전체」가 아니라 「내 일정」이다** (v2.6) — SCR-201의 소유자
+            선택과 바이트 동일한 구조이며 근거도 같다(DOC-008 §5 SCR-201 ★).
+            「전체」는 고른 값(`ALL`)이고, 자기 자신은 `owners`에 없다.
+          */}
           <select
-            name={SCHEDULE_KEYS.ownerId}
-            defaultValue={filter.ownerId ?? ''}
+            name={SCHEDULE_KEYS.owner}
+            defaultValue={filter.owner === OWNER_MINE ? '' : filter.owner}
             className={INPUT_CLASS}
           >
-            <option value="">전체</option>
+            <option value="">내 일정</option>
+            <option value={OWNER_ALL}>전체</option>
             {owners.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.name}
@@ -139,7 +156,7 @@ export function ScheduleFilters({
           적용
         </button>
         <Link
-          href={`${PATHS.schedule}${scheduleQuery(NO_FILTER, view)}`}
+          href={`${PATHS.schedule}${scheduleQuery(DEFAULT_FILTER, view)}`}
           className="text-sm text-neutral-600 underline"
         >
           초기화
