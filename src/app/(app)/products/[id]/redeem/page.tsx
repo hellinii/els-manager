@@ -107,8 +107,20 @@ export default async function ProductRedeemPage({
               평가일정이 0건이다. 증권사 거래내역을 보고 직접 입력한다.
             </p>
           ) : (
+            /*
+             * ★ **차수 번호를 여기 박지 않는다** (v2.7). 종전에는
+             * 「{appliedRoundNo}차 평가 기준의 추정값을 채웠다」였는데, 이 문단은
+             * **서버 렌더**라 사용자가 차수를 바꿔도 그대로 남는다 — 화면이 1차를
+             * 말하면서 폼은 2차의 금액을 담는 상태가 된다. 차수를 말하는 것은
+             * 선택을 따라가는 **칸의 안내**이고(`RedemptionForm`) 여기는 규칙만 적는다.
+             *
+             * 그리고 「다음 도래 차수」라고 적는 것이 정확하다 — 적용 차수는
+             * `nextEvaluation`이 내므로(RD-02) 보통 **아직 오지 않은** 차수다.
+             * 방금 지난 차수를 기록하러 온 사용자는 차수를 바꿔야 한다.
+             */
             <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
-              {projection.appliedRoundNo}차 평가 기준의 <strong>추정값</strong>을 채웠다.
+              다음 도래 차수 기준의 <strong>추정값</strong>을 채웠다.{' '}
+              <strong>차수를 바꾸면 상환일·실수령액·과세 금융소득을 그 차수 기준으로 다시 채운다.</strong>{' '}
               증권사 거래내역의 실제 값으로 고친다 — 저장되는 것은 여기 적힌 값이다.
             </p>
           )}

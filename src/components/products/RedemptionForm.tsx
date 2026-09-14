@@ -8,6 +8,7 @@ import { SubmitButton } from '@/components/form/SubmitButton'
 import { REDEMPTION_TYPE_LABELS, korDate } from '@/lib/format'
 import {
   REDEMPTION_ID_FIELD,
+  roundFillOf,
   taxableIncomeLocked,
   type RoundOption,
 } from '@/lib/forms/redemption'
@@ -44,6 +45,41 @@ import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
  * 식의 `key`로 두고, `useState`는 DOM을 몰지 않고 **파생 표시(만기손실 고정)만**
  * 먹인다. 값의 정본은 DOM이고 서버 왕복 때 `key`가 둘을 함께 맞춘다.
  *
+ * ## 차수를 고르면 세 칸을 다시 채운다 (v2.7)
+ *
+ * DOC-008 §5의 「차수를 고치면 다시 채운다」 각주다. **적용 차수는 정의상 「다음 도래」
+ * 차수이므로**(DOC-007 RD-02) 평가가 일어난 뒤 기록하러 온 사용자에게 폼은 이미 다음
+ * 차수를 가리킨다 — 차수를 옳게 고쳐도 금액이 따라오지 않으면 「차수 2 / 1차의 금액」이
+ * 저장되고 그 행은 §4.6 집계의 입력이다.
+ *
+ * **산출은 여기 없다.** `roundFillOf`가 문자열을 골라 줄 뿐이고 이 파일에는 산술이 0이다
+ * — 화면은 어떤 스위트의 import 그래프에도 없으므로(AQ-23) 세액에 닿는 판단을 여기 두면
+ * 아무도 보지 못한다.
+ *
+ * ## 가드 셋이 «각각 다른 것»을 막는다
+ *
+ * | 가드 | 막는 것 |
+ * |---|---|
+ * | `picked != null` | **첫 렌더**가 `initialValues`를 덮지 않는다. SCR-202에서 그것은 증권사 확정값이고(A-04) 덮으면 조용한 변경이 된다 |
+ * | `picked.on === values` | **서버 왕복**이 채움을 놓는다. 실패 응답의 `values`는 사용자가 실제로 보낸 값이며 그 위를 추정값이 덮으면 DOC-008 §6(입력값 보존)이 깨진다 |
+ * | `locked`가 채움보다 세다 | 만기손실의 과세 금융소득이 `0`으로 남는다(V-12·I-08·절대 규칙 #8) |
+ *
+ * 둘째 가드가 `values` **참조**를 비교하는 이유: `toFormState`가 `valuesOf(form)`으로
+ * 매번 새 객체를 만들고 그 객체는 경계를 넘어 역직렬화되므로, 왕복이 있었는지가
+ * 참조 동일성 하나로 갈린다. 값 비교로는 「같은 값을 다시 보냈다」와 구분되지 않는다.
+ *
+ * ## `key`가 필요한 이유 — AQ-64의 «반대쪽 절반»
+ *
+ * AQ-64의 소스 대조는 `<select>`와 달리 **`<input>`은 갱신마다 `defaultValue` 속성이
+ * 다시 쓰인다**고 적는다. 그래서 `key` 없이도 될 것 같지만 아니다 — 사용자가 한 번이라도
+ * 타이핑한 `<input>`은 HTML의 **dirty value flag**가 서서 속성 변경이 표시를 바꾸지
+ * 않는다. 결정이 「덮어쓴다(차수가 정본)」이므로 **고친 칸도 바뀌어야** 하고, 그것을
+ * 하는 것은 remount뿐이다(새 요소는 flag가 내려간 채로 마운트된다).
+ *
+ * 그리고 AQ-64가 적은 **제출 시 자동 폼 초기화**가 둘째 가드와 맞물린다: 응답이 오면
+ * 채움이 풀려 `defaultValue`가 사용자가 보낸 값이 되고, `form.reset()`이 그 값으로
+ * 복원한다. 순서가 맞아 입력값 보존이 성립한다.
+ *
  * ## 증권사 용어를 인라인으로 안내한다
  *
  * DOC-008 §5의 「입력 지원」이며 DOC-005 §7의 대응표다: 거래금액 → 실수령액,
@@ -78,7 +114,34 @@ export function RedemptionForm({
    * (`values`가 그것을 나른다) 그러지 않으면 만기손실 고정이 풀린다.
    */
   const [type, setType] = useState(values.redemptionType ?? '')
+
+  /*
+   * 「방금 고른 차수」 — 값만이 아니라 **그 선택이 어느 응답 위에서 일어났는가**를
+   * 함께 담는다. 머리글의 가드 표 참조.
+   */
+  const [picked, setPicked] = useState<{
+    on: Record<string, string>
+    roundNo: string
+  } | null>(null)
+
+  const fill =
+    picked != null && picked.on === values
+      ? roundFillOf(rounds, picked.roundNo, type)
+      : null
+
   const locked = taxableIncomeLocked(type)
+
+  /*
+   * 채우지 못하는 유형에서는 **비운다** — `values`로 되돌리면 직전 차수의 금액이
+   * 이 차수에 붙는다(만기손실로 바꿨는데 2차의 이익 금액이 남는 형태).
+   * 「채움이 서지 않았다」(`fill == null`)와 「채울 값이 없다」(`amounts == null`)는
+   * 다른 상태이고, 그 둘을 가르는 것이 이 세 줄이다.
+   */
+  const dateValue = fill == null ? (values.redemptionDate ?? '') : fill.redemptionDate
+  const grossValue =
+    fill == null ? (values.grossAmount ?? '') : (fill.amounts?.grossAmount ?? '')
+  const taxableValue =
+    fill == null ? (values.taxableIncome ?? '') : (fill.amounts?.taxableIncome ?? '')
 
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>
@@ -124,13 +187,25 @@ export function RedemptionForm({
           name="roundNo"
           label="차수"
           error={fieldErrors.roundNo}
-          hint="조기·리자드 상환은 필수. 만기 상환은 비운다"
+          hint={
+            fill != null && type === 'LIZARD' && fill.amounts == null
+              ? '이 차수에는 리자드 조건이 정의되어 있지 않다 — 저장이 거부된다(V-14)'
+              : '조기·리자드 상환은 필수. 만기 상환은 비운다'
+          }
         >
           {(props) => (
             <select
               {...props}
               key={values.roundNo ?? ''}
               defaultValue={values.roundNo ?? ''}
+              /*
+               * 제어 컴포넌트로 만들지 않는다 — AQ-64가 그것을 「해결이 아니라
+               * 악화」로 실측했다(어떤 옵션도 `selected`를 받지 못해 제출마다 첫
+               * 옵션으로 떨어진다). `onChange`는 DOM을 몰지 않고 파생 표시만 먹인다.
+               */
+              onChange={(event) =>
+                setPicked({ on: values, roundNo: event.target.value })
+              }
               className={INPUT_CLASS}
             >
               <option value="">해당 없음 (만기)</option>
@@ -151,13 +226,18 @@ export function RedemptionForm({
           name="redemptionDate"
           label="상환일"
           error={fieldErrors.redemptionDate}
-          hint="귀속연도와 원천징수 세율이 이 날짜에서 나온다"
+          hint={
+            fill == null
+              ? '귀속연도와 원천징수 세율이 이 날짜에서 나온다'
+              : `${fill.roundNo}차 평가일 + 5일이다 — 연휴에 걸리면 하루이틀 밀릴 수 있으니 거래내역의 날짜로 고친다`
+          }
         >
           {(props) => (
             <input
               {...props}
               type="date"
-              defaultValue={values.redemptionDate ?? ''}
+              key={dateValue}
+              defaultValue={dateValue}
               className={INPUT_CLASS}
             />
           )}
@@ -167,14 +247,15 @@ export function RedemptionForm({
           name="grossAmount"
           label="실수령액 (원)"
           error={fieldErrors.grossAmount}
-          hint="증권사 거래내역의 「거래금액」. 원금을 포함한다"
+          hint={grossHint({ fill, type })}
         >
           {(props) => (
             <input
               {...props}
               type="text"
               inputMode="numeric"
-              defaultValue={values.grossAmount ?? ''}
+              key={grossValue}
+              defaultValue={grossValue}
               className={INPUT_CLASS}
             />
           )}
@@ -198,12 +279,14 @@ export function RedemptionForm({
               type="text"
               inputMode="numeric"
               /*
-               * `key`를 유형에 묶는다 — `defaultValue`는 다시 읽히지 않으므로
-               * 유형을 만기손실로 바꿔도 칸의 값이 그대로 남는다. 그러면 읽기
-               * 전용인 칸에 0이 아닌 값이 보이고 저장이 V-12로 거부된다.
+               * `key`를 «표시할 값»에 묶는다 — 사용자가 타이핑한 `<input>`은
+               * dirty value flag 때문에 `defaultValue` 속성이 바뀌어도 표시가
+               * 따라오지 않는다(머리글의 AQ-64 절). remount만이 그것을 바꾼다.
+               * 고정이 채움보다 세므로 `locked`일 때 key가 `'locked'`로 «고정»되어
+               * 차수를 아무리 바꿔도 `'0'`이 유지된다.
                */
-              key={locked ? 'locked' : 'open'}
-              defaultValue={locked ? '0' : (values.taxableIncome ?? '')}
+              key={locked ? 'locked' : `open:${taxableValue}`}
+              defaultValue={locked ? '0' : taxableValue}
               readOnly={locked}
               className={`${INPUT_CLASS}${locked ? ' bg-neutral-100 text-neutral-600' : ''}`}
             />
@@ -231,13 +314,19 @@ export function RedemptionForm({
       {/*
         ST-05 — 확정/추정의 구분이 이 체크박스다. 기본이 거짓인 이유는
         「증권사가 제공한 실제 값」이 기본이면 추정값이 확정값으로 저장되기 때문이다.
+
+        ★ **채움이 서면 «끈다».** ST-05는 기본값만 끄고 이후 상호작용을 보지 않았다 —
+        사용자가 체크해 둔 뒤 차수를 고르면 화면이 채운 추정값이 **확정 표식을 달고**
+        저장된다. SCR-202(수정)에서는 저장된 `true`가 그대로 뒤집히는데, 그때 금액도
+        추정값으로 바뀌었으므로 **표식과 값이 함께 움직이는 것이 맞다.**
       */}
       <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
           name="isConfirmed"
           value="on"
-          defaultChecked={(values.isConfirmed ?? '') !== ''}
+          key={fill == null ? 'kept' : 'estimated'}
+          defaultChecked={fill == null && (values.isConfirmed ?? '') !== ''}
           className="mt-0.5 size-4"
         />
         <span>
@@ -264,4 +353,33 @@ export function RedemptionForm({
       </div>
     </form>
   )
+}
+
+/**
+ * 실수령액 칸의 안내 — **어느 가정의 값인지 말한다.**
+ *
+ * 칸 이름은 「실수령액」(확정 축)이고 채운 수는 추정값이므로(DOC-005 §4가 두 용어를
+ * 가른다) 그 구분을 문구가 진다. 새 합성어를 만들지 않는다(절대 규칙 #9).
+ *
+ * ★ **셋째 분기가 잔여 위험 하나를 덮는다.** 채움의 방아쇠는 차수 `<select>` 하나이므로
+ * 차수를 한 번도 건드리지 않고 유형만 리자드로 바꾸면 칸에는 조기상환 가정의 금액이
+ * 남는다(과대). 방아쇠를 유형에도 달면 SCR-202에서 「비고만 고치려다 유형을
+ * 바로잡았는데 확정 금액이 바뀌었다」가 되므로, 방아쇠는 하나로 두고 **그 경우를
+ * 말로 덮는다.**
+ */
+function grossHint({
+  fill,
+  type,
+}: {
+  fill: ReturnType<typeof roundFillOf>
+  type: string
+}): string {
+  if (fill?.amounts != null) {
+    const assumed = type === 'LIZARD' ? '리자드' : '조기'
+    return `${fill.roundNo}차 ${assumed}상환 가정의 추정값이다 — 거래내역의 실제 값으로 고친다`
+  }
+  if (type === 'LIZARD') {
+    return '리자드 상환은 금액이 다르다 — 차수를 다시 골라 채우거나 거래내역 값으로 고친다'
+  }
+  return '증권사 거래내역의 「거래금액」. 원금을 포함한다'
 }
