@@ -86,6 +86,24 @@ export function roundToUnit(
   return value.div(u).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).times(u)
 }
 
+/**
+ * 금액 문자열 — 원 단위 반올림 정수. DOC-007 §2 「화면 표시 금액: 원 단위 반올림」.
+ *
+ * **저장 축과 같은 형식이다.** `numeric(15,0)`이고 V-19·V-11이 `/^\d+$/`를 요구하므로
+ * 이 함수의 출력이 곧 계약이 받는 모양이다 — 조회가 내는 값과 폼이 채우는 값이 같은
+ * 식을 지나야 한다는 뜻이다.
+ *
+ * **여기 있는 이유가 그것이다.** 종전에는 `lib/db/queries/map.ts`에 있었고 조회 계층만
+ * 썼다. 폼 계층(`lib/forms`)이 차수별 추정값을 채우면서 같은 형식이 필요해졌는데,
+ * 그쪽은 `lib/db`를 **타입으로만** import한다(값으로 끌면 조회·판정·시세가 통째로
+ * 클라이언트 번들에 실린다 — `els/component-boundaries`가 `src/components`에 건 규율과
+ * 같은 이유). 사본을 만들면 반올림 규약이 둘이 되고 **그 둘이 갈리는 것은 금액에서만
+ * 드러난다.** 그래서 올렸고 `map.ts`는 같은 이름으로 재수출한다.
+ */
+export function amountString(value: DecimalValue): string {
+  return roundToUnit(value, '1').toFixed(0)
+}
+
 /** 개수를 세는 정수 인자의 검증. 차수·개월수 등에 사용한다. */
 export function assertPositiveInteger(value: number, name: string): void {
   if (!Number.isInteger(value) || value <= 0) {

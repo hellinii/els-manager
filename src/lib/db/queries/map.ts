@@ -1,4 +1,5 @@
 import {
+  amountString,
   dec,
   roundToUnit,
   type DecimalValue,
@@ -62,10 +63,14 @@ import type {
 // Q-07 — 문자열 형식
 // ---------------------------------------------------------------------------
 
-/** 금액: 정수 문자열. DOC-007 §2의 "화면 표시 금액 원 단위 반올림"을 따른다. */
-export function amountString(value: DecimalValue): string {
-  return roundToUnit(value, '1').toFixed(0)
-}
+/**
+ * 금액: 정수 문자열. DOC-007 §2의 "화면 표시 금액 원 단위 반올림"을 따른다.
+ *
+ * **정의는 `lib/decimal`에 있다** — 폼 계층이 같은 형식을 쓰는데 그쪽은 `lib/db`를
+ * 값으로 import할 수 없다. 이름을 여기서 재수출해 기존 호출부(`queries/forecast.ts`·
+ * `dashboard.ts`·`tax.ts`)가 그대로 산다.
+ */
+export { amountString }
 
 /** 비율: 소수 4자리 고정. 저장 정밀도 `numeric(6,4)`와 일치한다. */
 export function ratioString(value: DecimalValue): string {
