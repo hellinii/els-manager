@@ -280,6 +280,8 @@ export type ExternalLookupName = keyof KiwoomProductSource
 
 export const ROUTE_EXTERNAL_LOOKUPS: Record<string, readonly ExternalLookupName[]> = {
   [PATHS.productNew]: ['searchKiwoomProducts', 'getKiwoomProductTerms', 'listKiwoomAssets'],
+  // 수정 화면도 같은 셋이다(DOC-008 v2.12 · DOC-011 v4.6) — 소유 확인 뒤, 상환 처리된 상품에서는 부르지 않는다
+  '/products/[id]/edit': ['searchKiwoomProducts', 'getKiwoomProductTerms', 'listKiwoomAssets'],
 }
 
 /**

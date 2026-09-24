@@ -175,6 +175,29 @@ describe('SCR-203 상환 처리', () => {
     expect(inputNamesOf(html).has(REDEMPTION_FIELDS[0])).toBe(false)
   })
 
+  it('★ 상환 처리된 상품의 수정 화면에는 불러오기 구획이 없다 — 주소에 상품 코드가 있어도 (DOC-008 v2.12)', async () => {
+    /*
+     * 저장이 `CONFLICT`이므로 채울 이유가 없고 키움도 부르지 않는다(DOC-011 X-01 v4.6). 형식이 맞는
+     * 코드를 싣는 것이 요점이다 — 페이지가 주소를 읽으면 상세 조회가 나가고 구획이 선다. 그래서 이
+     * 케이스가 빨간불이 되는 날에는 키움 요청도 한 번 나간다(회귀의 대가이며 초록일 때는 0이다).
+     */
+    const product = await registerProduct(jar, { label: '수정불러오기' })
+    await submitRedemption(
+      PATHS.productRedeem(product.productId),
+      jar,
+      'redemptionFormAction',
+      maturityGain(`${product.issueDate.slice(0, 4)}-07-02`),
+    )
+
+    const res = await get(`${PATHS.productEdit(product.productId)}?q=4000&code=E04000`, jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('상환 처리된 상품이다 — 저장은 거부된다')
+    expect(html).not.toContain('키움 ELS 불러오기')
+    // 폼은 그대로 있다 — 막는 것은 저장이다(§5.2)
+    expect(html).toContain(`value="${product.productName}"`)
+  })
+
   it('★ 타인의 상환 주소는 SCR-902다 — 소유자 전용 라우트 둘째', async () => {
     // 계획 §5가 902의 도달 경로를 둘로 셌다: 수정(컷 5)과 이 화면이다.
     const product = await registerProduct(jar, { label: '권한' })

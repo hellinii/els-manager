@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { IMPORT_PANEL_STATES, importPanelStateOf } from '@/lib/format/importNotice'
+import {
+  IMPORT_EDIT_MESSAGES,
+  IMPORT_PANEL_STATES,
+  importPanelMessageOf,
+  importPanelStateOf,
+} from '@/lib/format/importNotice'
 
 /**
  * 불러오기 구획의 상태 일곱 ↔ DOC-008 SCR-204 (v2.9)
@@ -55,5 +60,20 @@ describe('상태 판정', () => {
     expect(importPanelStateOf({ ...base, fill: { kind: 'REFUSED' } })).toBe('REFUSED')
     expect(importPanelStateOf({ ...base, fill: { failed: true } })).toBe('LOOKUP_FAILED')
     expect(importPanelStateOf({ ...base, fill: null })).toBe('LOOKUP_FAILED')
+  })
+})
+
+describe('수정 화면의 문구 (DOC-008 v2.12)', () => {
+  it('★ 문구 넷이 다르고 판정은 같다 — 저장값이 있는 폼에 「적는다」·「직접 입력한다」를 말하지 않는다', () => {
+    expect(Object.keys(IMPORT_EDIT_MESSAGES).sort()).toEqual(['FILLED', 'LOOKUP_FAILED', 'PARTIAL', 'REFUSED'])
+    for (const message of Object.values(IMPORT_EDIT_MESSAGES)) {
+      expect(message).not.toMatch(/투자원금·계좌유형을 적/)
+      expect(message).not.toContain('직접 입력한다')
+    }
+    for (const state of Object.keys(IMPORT_PANEL_STATES) as Array<keyof typeof IMPORT_PANEL_STATES>) {
+      expect(importPanelMessageOf(state, 'NEW')).toBe(IMPORT_PANEL_STATES[state].message)
+      expect(importPanelMessageOf(state, 'EDIT')).toBe(IMPORT_EDIT_MESSAGES[state] ?? IMPORT_PANEL_STATES[state].message)
+    }
+    expect(importPanelMessageOf('IDLE', 'EDIT')).toBeNull()
   })
 })

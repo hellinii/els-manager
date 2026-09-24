@@ -622,6 +622,31 @@ describe('SCR-204 수정 모드 (컷 5)', () => {
     expect(form).toContain('value="50"') // KI 배리어 50%
   })
 
+  it('★ 불러오기 구획이 수정 화면에도 선다 — 검색이 수정 경로로 가고, 조작된 코드는 버려져 폼은 저장값이다', async () => {
+    /*
+     * DOC-008 v2.12(SQ-10). 키움을 부르는 갈래는 e2e가 밟지 않는다(DOC-010 AQ-75) — 여기서 보는 것은
+     * **네트워크 전에 끝나는 갈래**와 주소다. 검색 폼의 `action`이 등록 경로이면 수정 화면의 검색이
+     * 빈 등록 폼으로 새고 저장값이 사라진다 — 그 오류는 서버 HTML에 있다.
+     */
+    const editPath = PATHS.productEdit(seeded.productId)
+    const res = await get(`${editPath}?code=${encodeURIComponent('bad!')}`, jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+
+    expect(html).toContain('키움 ELS 불러오기')
+    const search = /<form(?=[^>]*method="GET")[^>]*>/i.exec(html)?.[0] ?? ''
+    expect(search, '검색 폼이 없다').not.toBe('')
+    expect(search).toContain(`action="${editPath}"`)
+    // 수정 화면의 설명 — 원천에 없는 칸은 저장값이 남는다
+    expect(html).toContain('저장값이 남고')
+    // 조작된 코드는 버려졌다 — 상세의 흔적이 없다
+    expect(html).not.toContain('불러오기 취소')
+
+    const form = formHtmlFor(html, actionIdOf('productEditFormAction'))
+    expect(form).toContain(`value="${seeded.productName}"`)
+    expect(form).toContain('value="123456789012345"')
+  })
+
   it('★ 상품명만 고쳐 저장하면 나머지가 그대로 남는다', async () => {
     /*
      * ★ **전체 교체의 실측이다.** 한 칸만 고치고 저장한 뒤 상세에서 나머지를 확인한다 —

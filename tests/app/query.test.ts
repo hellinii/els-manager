@@ -12,7 +12,9 @@ import {
   TAX_KEYS,
   SORT_DEFAULT,
   filterQuery,
+  IMPORT_NEW,
   importHref,
+  importTargetPath,
   isMineOnly,
   isNarrowed,
   isScheduleMineOnly,
@@ -838,12 +840,20 @@ describe('SCR-204 불러오기 주소 — 주소가 상태다 (DOC-008 v2.9)', (
   })
 
   it('주소 왕복 — null은 싣지 않는다', () => {
-    expect(importHref({ query: null, code: null })).toBe(PATHS.productNew)
-    expect(importHref({ query: '4000회', code: null })).toBe(
+    expect(importHref(IMPORT_NEW, { query: null, code: null })).toBe(PATHS.productNew)
+    expect(importHref(IMPORT_NEW, { query: '4000회', code: null })).toBe(
       `${PATHS.productNew}?q=${encodeURIComponent('4000회').replace(/%20/g, '+')}`,
     )
-    const href = importHref({ query: '4000', code: 'E04000' })
+    const href = importHref(IMPORT_NEW, { query: '4000', code: 'E04000' })
     const back = parseImportQuery(Object.fromEntries(new URL(href, 'http://x').searchParams))
     expect(back).toEqual({ query: '4000', code: 'E04000' })
+  })
+
+  it('★ 수정 화면의 주소는 대상 상품의 수정 경로다 — 쿼리 없는 주소가 「불러오기 취소」다 (DOC-008 v2.12)', () => {
+    const id = '00000000-0000-4000-8000-000000000001'
+    const target = { kind: 'EDIT', productId: id } as const
+    expect(importTargetPath(target)).toBe(PATHS.productEdit(id))
+    expect(importHref(target, { query: null, code: null })).toBe(PATHS.productEdit(id))
+    expect(importHref(target, { query: '4000', code: 'E04000' })).toBe(`${PATHS.productEdit(id)}?q=4000&code=E04000`)
   })
 })

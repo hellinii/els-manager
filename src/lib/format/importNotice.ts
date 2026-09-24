@@ -65,6 +65,27 @@ export const IMPORT_PANEL_STATES: Readonly<
   },
 }
 
+/**
+ * 수정 화면에서 문구가 다른 상태 넷 (DOC-008 SCR-204 v2.12 「수정 화면의 불러오기」)
+ *
+ * **판정은 같고 문구만 다르다.** 등록의 「투자원금·계좌유형을 적는다」·「직접 입력한다」는 저장값이
+ * 이미 있는 폼에 맞지 않는다 — 수정 화면에서 그 칸들은 저장값 그대로다. 이름 집합(DOC-008 표와의
+ * 대조)은 `IMPORT_PANEL_STATES` 하나가 진다.
+ */
+export const IMPORT_EDIT_MESSAGES: Readonly<Partial<Record<ImportPanelState, string>>> = {
+  FILLED:
+    '조건 칸을 불러온 값으로 바꿨다 — 투자원금·계좌유형·관찰방식·비고는 저장값 그대로다. 투자설명서와 대조한 뒤 저장한다.',
+  PARTIAL:
+    '채울 수 있는 것만 바꿨다. 아래 안내의 빈 칸을 채우고 저장한다 — 투자원금·계좌유형·비고는 저장값 그대로다.',
+  REFUSED: '이 상품은 불러오지 않았다 — 폼은 저장값 그대로다. 아래 사유를 투자설명서로 확인한다.',
+  LOOKUP_FAILED: '키움 조회에 실패했다 — 잠시 뒤 다시 찾거나 직접 고친다.',
+}
+
+/** 구획 머리의 문구 — 화면(등록·수정)에 따라 */
+export function importPanelMessageOf(state: ImportPanelState, target: 'NEW' | 'EDIT'): string | null {
+  return (target === 'EDIT' ? IMPORT_EDIT_MESSAGES[state] : undefined) ?? IMPORT_PANEL_STATES[state].message
+}
+
 /** 항상 붙는 한 줄 — 불러온 값의 권위(DOC-005 「불러온 값」) */
 export const IMPORT_AUTHORITY_NOTE =
   '불러온 값은 키움 안내 화면의 값이다. 정본은 투자설명서이며 저장 전에 대조한다.'

@@ -2,9 +2,11 @@
 
 import { redirect } from 'next/navigation'
 
-import { updateProduct } from '@/app/actions'
+import { createAsset, saveProviderSymbol, updateProduct } from '@/app/actions'
+import { parseImportAssetForm, runImportAsset, type ImportAssetState } from '@/lib/forms/import'
 import { formOfValues, parseProductForm, text } from '@/lib/forms/parse'
 import { PRODUCT_ID_FIELD, intentState, submitState, transition } from '@/lib/forms/productForm'
+import { importHref, isUuid } from '@/lib/forms/query'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -50,4 +52,25 @@ export async function productEditFormAction(
   if (result.ok) redirect(PATHS.product(result.data.id))
 
   return submitState(result, next)
+}
+
+/**
+ * 수정 화면 불러오기의 형제 폼 — 기존 자산에 연결 / 자산 추가 (DOC-008 SCR-204 v2.12)
+ *
+ * 등록 어댑터(`products/new/actions.ts`의 `importAssetAction`)와 **복귀 주소만 다르다** — 규칙과 두
+ * 계약(§5.10 → §5.12)은 같은 `runImportAsset`이 부른다. 대상 id는 폼에서 읽고(`PRODUCT_ID_FIELD` —
+ * 위 어댑터와 같은 이유) **쓰기 전에** 형식을 본다: 자산을 만든 뒤에 복귀 주소를 만들 수 없음을
+ * 알면 사용자는 성공한 쓰기에 실패 문구를 받는다. 소유는 여기서 보지 않는다 — 두 계약은 상품에
+ * 닿지 않고, 복귀한 수정 화면이 소유를 다시 판정한다(비소유자는 SCR-902).
+ */
+export async function importAssetEditAction(
+  _prev: ImportAssetState,
+  form: FormData,
+): Promise<ImportAssetState> {
+  const productId = text(form, PRODUCT_ID_FIELD)
+  if (!isUuid(productId)) return { message: '어느 상품의 수정인지 알 수 없는 제출이다 — 수정 화면을 다시 연다.' }
+
+  const outcome = await runImportAsset(parseImportAssetForm(form), { createAsset, saveProviderSymbol })
+  if (outcome.ok) redirect(importHref({ kind: 'EDIT', productId }, outcome.back))
+  return { message: outcome.message }
 }

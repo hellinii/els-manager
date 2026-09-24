@@ -726,15 +726,30 @@ export function parseImportQuery(values: QueryValues): ImportQuery {
 }
 
 /**
- * 불러오기 주소 — 후보 링크·「다른 후보 보기」·자산 추가 뒤의 복귀가 쓴다.
+ * 불러오기가 채우는 폼 — 등록(빈 폼 위) 또는 수정(저장값 위, DOC-008 v2.12 · SQ-10)
+ *
+ * 주소의 경로 부분이 여기서 나온다. 수정은 대상 id가 경로에 있으므로 종류와 id를 한 값으로 둔다 —
+ * 둘을 따로 넘기면 「수정인데 id가 없는」 조합이 표현된다.
+ */
+export type ImportTarget = { kind: 'NEW' } | { kind: 'EDIT'; productId: string }
+
+export const IMPORT_NEW: ImportTarget = { kind: 'NEW' }
+
+export function importTargetPath(target: ImportTarget): string {
+  return target.kind === 'NEW' ? PATHS.productNew : PATHS.productEdit(target.productId)
+}
+
+/**
+ * 불러오기 주소 — 검색 폼의 대상·후보 링크·「다른 후보 보기」·「불러오기 취소」·자산 추가 뒤의 복귀가 쓴다.
  *
  * **서명이 하나다** — 부르는 곳마다 조합하면 한쪽이 `q`를 빠뜨려 「다른 후보 보기」가 빈
  * 검색으로 돌아가는 날이 온다. `null`은 주소에 싣지 않는다(`dashboardQuery`와 같은 규약).
  */
-export function importHref(state: ImportQuery): string {
+export function importHref(target: ImportTarget, state: ImportQuery): string {
+  const base = importTargetPath(target)
   const params = new URLSearchParams()
   if (state.query != null) params.set(IMPORT_KEYS.query, state.query)
   if (state.code != null) params.set(IMPORT_KEYS.code, state.code)
   const query = params.toString()
-  return query === '' ? PATHS.productNew : `${PATHS.productNew}?${query}`
+  return query === '' ? base : `${base}?${query}`
 }

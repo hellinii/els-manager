@@ -5,7 +5,7 @@ import { ImportedProductForm } from '@/components/products/ImportedProductForm'
 import { getQueries } from '@/lib/db/server'
 import { productDefaults } from '@/lib/forms/defaults'
 import { importPanelOf } from '@/lib/forms/importPanel'
-import { parseImportQuery, type QueryValues } from '@/lib/forms/query'
+import { IMPORT_NEW, parseImportQuery, type QueryValues } from '@/lib/forms/query'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 
 import { importAssetAction, productFormAction } from './actions'
@@ -75,6 +75,7 @@ export default async function ProductNewPage({
   ])
 
   const panel = importPanelOf({
+    target: IMPORT_NEW,
     query: importQuery,
     search,
     terms,

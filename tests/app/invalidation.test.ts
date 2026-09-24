@@ -946,6 +946,42 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
     for (const route of Object.keys(ROUTE_EXTERNAL_LOOKUPS)) expect(documentedRoutes).toContain(route)
   })
 
+  it('★ 페이지가 실제로 부르는 외부 조회와 `ROUTE_EXTERNAL_LOOKUPS`가 **라우트 단위로** 같다 — `page.tsx`를 훑는다', () => {
+    /*
+     * 위 대조는 화면 단위 **합집합**이다. SCR-204가 두 라우트이므로 수정 라우트가 키움을 부르면서
+     * 원장에서 빠져도 등록 라우트가 같은 셋을 채워 합집합이 같다 — **실측으로 초록이었다**
+     * (DOC-008 v2.12, 원장에서 `/products/[id]/edit`을 지우고 41건 통과). 「겹치지 않는가」를 세는
+     * 대조가 「빠지지 않았는가」에 답하지 못한 것이다(CLAUDE.md 절대 규칙 #6의 교훈).
+     *
+     * 그래서 원장의 좌변을 **페이지 소스**에서 읽는다. X-01이 외부 조회를 페이지가 직접 부르게 하므로
+     * (`getQueries()`와 소유 확인 뒤라는 순서가 페이지에 있어야 한다) `page.tsx`의 `.이름(` 호출이
+     * 곧 그 라우트의 외부 조회다. 다른 모듈로 옮겨 부르면 이 단언이 빨간불이 되고, 그것은 X-01의
+     * 순서가 페이지 밖으로 나갔다는 신호이므로 옳은 빨간불이다.
+     */
+    const called: Record<string, string[]> = {}
+    const walk = (dir: string, prefix: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name === 'page.tsx') {
+          const source = readFileSync(join(dir, entry.name), 'utf8')
+          const names = EXTERNAL_NAMES.filter((name) => new RegExp(`\\.${name}\\(`).test(source))
+          if (names.length > 0) called[prefix === '' ? '/' : prefix] = names.sort()
+          continue
+        }
+        if (!entry.isDirectory()) continue
+        const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`
+        walk(join(dir, entry.name), `${prefix}${segment}`)
+      }
+    }
+    walk(APP, '')
+
+    const ledger = Object.fromEntries(
+      Object.entries(ROUTE_EXTERNAL_LOOKUPS).map(([route, names]) => [route, [...names].sort()]),
+    )
+    expect(called).toEqual(ledger)
+    // 스캐너가 무언가를 봤다 — 빈 대조는 아무것도 증명하지 않는다
+    expect(Object.keys(called).sort()).toEqual(['/products/[id]/edit', '/products/new'])
+  })
+
   it('화면이 읽는 계약과 `ROUTE_QUERIES`가 일치한다', () => {
     /*
      * §8은 **화면 단위**이고 `ROUTE_QUERIES`는 **라우트 단위**다. SCR-204가 두

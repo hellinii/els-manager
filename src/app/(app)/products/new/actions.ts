@@ -10,7 +10,7 @@ import {
 } from '@/lib/forms/import'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { intentState, submitState, transition } from '@/lib/forms/productForm'
-import { importHref } from '@/lib/forms/query'
+import { IMPORT_NEW, importHref } from '@/lib/forms/query'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -75,6 +75,6 @@ export async function importAssetAction(
   form: FormData,
 ): Promise<ImportAssetState> {
   const outcome = await runImportAsset(parseImportAssetForm(form), { createAsset, saveProviderSymbol })
-  if (outcome.ok) redirect(importHref(outcome.back))
+  if (outcome.ok) redirect(importHref(IMPORT_NEW, outcome.back))
   return { message: outcome.message }
 }

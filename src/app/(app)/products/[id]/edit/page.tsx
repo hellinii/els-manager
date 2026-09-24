@@ -2,14 +2,17 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
-import { ProductForm } from '@/components/products/ProductForm'
+import { ImportedProductForm } from '@/components/products/ImportedProductForm'
+import { KiwoomImport } from '@/components/products/KiwoomImport'
 import { AccessDenied } from '@/components/system/AccessDenied'
 import { getQueries } from '@/lib/db/server'
-import { isUuid } from '@/lib/forms/query'
+import { importPanelOf } from '@/lib/forms/importPanel'
+import { isUuid, parseImportQuery, type QueryValues } from '@/lib/forms/query'
 import { productValuesOf } from '@/lib/forms/values'
+import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 import { PATHS } from '@/lib/routes/paths'
 
-import { productEditFormAction } from './actions'
+import { importAssetEditAction, productEditFormAction } from './actions'
 
 /**
  * SCR-204 ELS 수정 — **등록과 같은 화면, 다른 초기값** (P4 컷 5, DOC-008 §5)
@@ -37,14 +40,29 @@ import { productEditFormAction } from './actions'
  * `ROUTE_QUERIES['/products/[id]/edit']`가 처음부터 그 둘을 적고 있었다(컷 1b).
  * 자산 목록이 필요한 이유는 ②의 선택 상자가 등록과 같기 때문이다 — 기초자산을
  * **바꾸는** 수정이 정상 경로이고(§5.2가 전체 교체다) 목록이 없으면 그 칸이 비어 보인다.
+ *
+ * ## 키움 불러오기 — 등록과 같은 구획, 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)
+ *
+ * 조립은 `importPanelOf`가 한다(`target: EDIT`). 이 파일에 남는 것은 **부르는 순서**이고 등록보다
+ * 문지기가 둘 많다(DOC-011 X-01 v4.6):
+ *
+ * 1. `getQueries()` — 미인증이면 던진다
+ * 2. `getProduct` + **소유 확인** — 비소유자는 SCR-902이고 키움을 부르지 않는다
+ * 3. **상환 처리된 상품은 부르지 않는다** — 저장이 `CONFLICT`이므로 채울 이유가 없다. 주소에
+ *    `?code=`가 있어도 버린다(구획도 그리지 않는다)
+ *
+ * 그 뒤의 조회 넷(자산 목록 + 주소가 요구하는 키움 조회)은 서로 독립이므로 한 물결이다.
+ * `ROUTE_EXTERNAL_LOOKUPS`가 이 라우트의 외부 조회 셋을 적는다.
  */
 
 export const metadata: Metadata = { title: 'ELS 수정 · 언제들어오나' }
 
 export default async function ProductEditPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<QueryValues>
 }) {
   const { id } = await params
   // 형식 검사가 먼저다 — 없으면 `getProduct('abc')`가 `22P02`로 던져 404가 500이 된다
@@ -59,8 +77,29 @@ export default async function ProductEditPage({
     return <AccessDenied what="이 상품을 수정할" productId={id} />
   }
 
-  const assets = await queries.searchAssets('')
   const redeemed = view.product.status === 'REDEEMED'
+  // X-01 — 여기까지 왔으면 인증·소유가 확인됐다. 상환된 상품은 불러오지 않으므로 주소를 읽지도 않는다
+  const importQuery = redeemed ? { query: null, code: null } : parseImportQuery(await searchParams)
+  const source = createKiwoomProductSource({ fetchImpl: fetch })
+
+  const [assets, search, terms, listed] = await Promise.all([
+    queries.searchAssets(''),
+    importQuery.code == null && importQuery.query != null
+      ? source.searchKiwoomProducts(importQuery.query)
+      : null,
+    importQuery.code != null ? source.getKiwoomProductTerms(importQuery.code) : null,
+    importQuery.code != null ? source.listKiwoomAssets() : null,
+  ])
+
+  const panel = importPanelOf({
+    target: { kind: 'EDIT', productId: id },
+    query: importQuery,
+    search,
+    terms,
+    listed,
+    options: assets,
+    defaults: productValuesOf(view),
+  })
 
   return (
     <section className="flex flex-col gap-5">
@@ -90,10 +129,19 @@ export default async function ProductEditPage({
         </p>
       )}
 
-      <ProductForm
+      {!redeemed && <KiwoomImport panel={panel} assetAction={importAssetEditAction} />}
+
+      {/*
+        불러온 값이 바뀌면 폼을 다시 세운다 — 등록 화면과 같은 규칙이다(`ImportedProductForm`).
+        불러오지 않은 렌더의 키는 「blank」이고 초기값은 저장값이다 — 「불러오기 취소」가 그 상태로 돌아간다.
+      */}
+      <ImportedProductForm
+        formKey={panel.formKey}
+        keepPreviousKey={panel.keepPreviousKey}
         assets={assets}
         action={productEditFormAction}
-        initialValues={productValuesOf(view)}
+        initialValues={panel.initialValues}
+        fieldNotes={panel.fieldNotes}
         productId={id}
       />
     </section>

@@ -18,17 +18,30 @@ import {
   type LinkChoice,
 } from './import'
 import { resolveImportAssets, type AssetResolution } from './importAssets'
-import { importFillOf } from './importFill'
-import type { ImportQuery } from './query'
+import { importFillOf, type ImportNote } from './importFill'
+import {
+  EDIT_REDEEMED_NOTE,
+  KEPT_OBSERVATION_NOTE,
+  hasImportGaps,
+  importOverStored,
+  storedChangesOf,
+} from './importMerge'
+import type { ImportQuery, ImportTarget } from './query'
 
 /**
- * SCR-204 등록 화면의 불러오기 — **페이지가 할 조립 전부** (DOC-008 §5 SCR-204 v2.9)
+ * SCR-204의 불러오기 — **페이지가 할 조립 전부** (DOC-008 §5 SCR-204 v2.9 · 수정 화면 v2.12)
  *
- * 페이지(`products/new/page.tsx`)는 조회를 부르고 이 함수에 넘긴 뒤 결과를 그린다. 조립을 페이지에
- * 두면 「상세가 실패하면 무엇을 보이는가」·「자산 목록을 못 받으면 채움이 어떻게 되는가」가 어떤
- * 스위트에도 없다(AQ-23 — 페이지는 `server.ts`를 끌어온다).
+ * 페이지(`products/new/page.tsx`·`products/[id]/edit/page.tsx`)는 조회를 부르고 이 함수에 넘긴 뒤
+ * 결과를 그린다. 조립을 페이지에 두면 「상세가 실패하면 무엇을 보이는가」·「자산 목록을 못 받으면
+ * 채움이 어떻게 되는가」가 어떤 스위트에도 없다(AQ-23 — 페이지는 `server.ts`를 끌어온다).
  *
  * **입력은 이미 부른 조회의 결과뿐이다** — 이 함수는 부르지 않는다(DOC-011 §4.10은 화면이 부른다).
+ *
+ * ## 등록과 수정이 갈리는 곳은 채운 뒤 하나다
+ *
+ * `defaults`가 등록에서는 기본값, 수정에서는 **저장값**이다. 검색·거부·조회 실패는 `defaults`를 그대로
+ * 폼에 두므로 두 화면이 같다. 채웠을 때만 다르다 — 등록은 기본값 위에 얹고, 수정은 원천에 없는 칸만
+ * 저장값에서 가져온다(`importOverStored` — 칸 단위로 합치지 않는 이유가 그 파일에 있다).
  */
 
 export type UnresolvedAsset = {
@@ -54,6 +67,8 @@ export type UnresolvedAsset = {
 }
 
 export type ImportPanel = {
+  /** 불러오기가 채우는 폼 — 구획의 주소(검색 폼·링크·형제 폼의 복귀)가 여기서 나온다 */
+  target: ImportTarget
   state: ImportPanelState
   query: string | null
   code: string | null
@@ -70,7 +85,7 @@ export type ImportPanel = {
   /** 스칼라 칸의 안내 — `ProductForm`이 그 칸의 힌트에 덧붙인다 */
   fieldNotes: Record<string, string>
   unresolved: UnresolvedAsset[]
-  /** 폼의 초기값 — 채웠으면 기본값 위에 불러온 값, 아니면 기본값 그대로 */
+  /** 폼의 초기값 — 채웠으면 불러온 값(수정은 원천에 없는 칸만 저장값), 아니면 `defaults` 그대로 */
   initialValues: Record<string, string>
   /** `ProductForm`의 `key` */
   formKey: string
@@ -83,15 +98,19 @@ export type ImportPanel = {
 }
 
 export function importPanelOf(input: {
+  target: ImportTarget
   query: ImportQuery
   search: LookupOutcome<KiwoomProductCandidate[]> | null
   terms: LookupOutcome<KiwoomProductTerms> | null
   listed: LookupOutcome<ListedAsset[]> | null
   options: readonly AssetOption[]
+  /** 폼의 출발점 — 등록은 `productDefaults()`, 수정은 `productValuesOf(view)`(저장값) */
   defaults: Record<string, string>
 }): ImportPanel {
   const { query, code } = input.query
+  const editing = input.target.kind === 'EDIT'
   const base: ImportPanel = {
+    target: input.target,
     state: 'IDLE',
     query,
     code,
@@ -156,25 +175,43 @@ export function importPanelOf(input: {
   }
 
   const fill = importFillOf(product, resolutions)
-  const state = importPanelStateOf({ query, code, search: null, fill: { kind: fill.kind } })
+  // 화면에 따라 갈리는 안내 — 수정 화면에는 상품이 이미 있다(DOC-008 v2.12)
+  const textOf = (note: ImportNote) =>
+    editing && note.topic === 'KIWOOM_REDEEMED' ? EDIT_REDEEMED_NOTE : note.text
 
   if (fill.kind === 'REFUSED') {
     return {
       ...base,
-      state,
+      state: importPanelStateOf({ query, code, search: null, fill: { kind: fill.kind } }),
       productName: product.name,
       prospectusUrl,
       reasons: fill.reasons,
-      notes: [...notes, ...fill.notes.filter((n) => n.field == null).map((n) => n.text)],
+      notes: [...notes, ...fill.notes.filter((n) => n.field == null).map(textOf)],
     }
   }
 
   const fieldNotes: Record<string, string> = {}
   for (const note of fill.notes) {
-    if (note.field == null) notes.push(note.text)
+    if (note.field == null) notes.push(textOf(note))
     else fieldNotes[note.field] = note.text
   }
-  const initialValues = { ...input.defaults, ...fill.values }
+
+  let initialValues: Record<string, string>
+  let kind = fill.kind
+  if (editing) {
+    initialValues = importOverStored(input.defaults, fill.values)
+    // 저장값의 관찰방식이 「관찰방식 미정」을 메운다 — 다른 빈 곳이 없으면 불러옴이다
+    if (kind === 'PARTIAL' && !hasImportGaps(initialValues)) kind = 'FILLED'
+    if (initialValues.kiObservation !== '') fieldNotes.kiObservation = KEPT_OBSERVATION_NOTE
+    const changes = storedChangesOf(input.defaults, initialValues)
+    notes.unshift(changes.summary)
+    for (const [field, text] of Object.entries(changes.fieldNotes)) {
+      fieldNotes[field] = fieldNotes[field] == null ? text : `${fieldNotes[field]} · ${text}`
+    }
+  } else {
+    initialValues = { ...input.defaults, ...fill.values }
+  }
+  const state = importPanelStateOf({ query, code, search: null, fill: { kind } })
 
   return {
     ...base,

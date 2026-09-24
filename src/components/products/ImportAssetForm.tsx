@@ -11,7 +11,8 @@ import {
   type ImportAssetState,
 } from '@/lib/forms/import'
 import type { UnresolvedAsset } from '@/lib/forms/importPanel'
-import { IMPORT_KEYS } from '@/lib/forms/query'
+import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
+import { IMPORT_KEYS, type ImportTarget } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
@@ -29,13 +30,20 @@ import { PATHS } from '@/lib/routes/paths'
  * (DOC-008 v1.8 (3), AQ-64). 값과 같은 식의 `key`로 다시 마운트해 표시를 맞춘다.
  *
  * 성공하면 어댑터가 같은 주소로 리다이렉트한다 — 페이지가 다시 불러오고 해결된 자산이 상품 폼에 들어간다.
+ *
+ * ## 수정 화면에서는 대상 상품 id를 싣는다 (DOC-008 v2.12)
+ *
+ * 복귀 주소가 `/products/[id]/edit`인데 라우트 파라미터는 서버 액션에 오지 않는다 — 상품 폼의
+ * `PRODUCT_ID_FIELD`와 같은 이유이고 같은 이름을 쓴다. 조작된 id는 어댑터가 쓰기 **전에** 거른다.
  */
 export function ImportAssetForm({
   asset,
+  target,
   back,
   action,
 }: {
   asset: UnresolvedAsset
+  target: ImportTarget
   back: { query: string | null; code: string | null }
   action: (prev: ImportAssetState, form: FormData) => Promise<ImportAssetState>
 }) {
@@ -48,6 +56,7 @@ export function ImportAssetForm({
       {back.query != null && <input type="hidden" name={IMPORT_KEYS.query} value={back.query} />}
       {back.code != null && <input type="hidden" name={IMPORT_KEYS.code} value={back.code} />}
       {offer != null && <input type="hidden" name="providerSymbol" value={offer.symbol} />}
+      {target.kind === 'EDIT' && <input type="hidden" name={PRODUCT_ID_FIELD} value={target.productId} />}
     </>
   )
 

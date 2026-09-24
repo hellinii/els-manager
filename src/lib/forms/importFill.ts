@@ -46,6 +46,11 @@ export type ImportNote = {
   /** 안내를 붙일 스칼라 칸. `null`이면 구획 머리의 안내다 */
   field: string | null
   text: string
+  /**
+   * 화면에 따라 문구가 갈리는 안내의 표식 — 지금은 「키움에서 상환됨」 하나다. 등록은 기실현 등재로,
+   * 수정은 상환 처리로 보낸다(DOC-008 v2.12). 문구를 비교해 고르면 문구를 고친 날 조용히 빠진다
+   */
+  topic?: 'KIWOOM_REDEEMED'
 }
 
 export type ImportFill =
@@ -233,6 +238,7 @@ function fill(
     notes.push({
       field: null,
       text: '이미 상환된 상품이다 — 과거 이력을 옮기는 것이면 기실현 등재(SCR-205)가 맞다.',
+      topic: 'KIWOOM_REDEEMED',
     })
   }
   for (const d of discrepancies) {
