@@ -12,11 +12,13 @@ import {
   TAX_KEYS,
   SORT_DEFAULT,
   filterQuery,
+  importHref,
   isMineOnly,
   isNarrowed,
   isScheduleMineOnly,
   isScheduleNarrowed,
   isUuid,
+  parseImportQuery,
   parseProductFilter,
   parseScheduleFilter,
   parseScheduleView,
@@ -27,6 +29,7 @@ import {
   type ProductFilter,
   type ScheduleFilter,
 } from '@/lib/forms/query'
+import { PATHS } from '@/lib/routes/paths'
 
 /**
  * SCR-201의 필터 파서 — **주소가 상태다** (P4 컷 2)
@@ -809,5 +812,38 @@ describe('세금 필터 (SCR-401)', () => {
       HEALTH_TYPES,
     )
     expect(filter).toEqual({ year: 2026, override: null })
+  })
+})
+
+describe('SCR-204 불러오기 주소 — 주소가 상태다 (DOC-008 v2.9)', () => {
+  it('검색어와 상품 코드를 읽는다 — 코드는 대문자로 맞춘다', () => {
+    expect(parseImportQuery({ q: ' 4000 ', code: 'e04000' })).toEqual({ query: '4000', code: 'E04000' })
+    expect(parseImportQuery({ q: '1740', code: 'EM1740' })).toEqual({ query: '1740', code: 'EM1740' })
+  })
+
+  it('★ 형식이 아닌 코드는 버린다 — 네트워크에 나가지 않는다', () => {
+    for (const code of ['bad!', 'E0400', 'E040000', 'X04000', '../x', 'E04000;', '']) {
+      expect(parseImportQuery({ code }).code, code).toBeNull()
+    }
+  })
+
+  it('검색어는 1~30자이고 제어 문자는 지운다', () => {
+    expect(parseImportQuery({ q: '' }).query).toBeNull()
+    expect(parseImportQuery({ q: '   ' }).query).toBeNull()
+    expect(parseImportQuery({ q: 'a'.repeat(30) }).query).toHaveLength(30)
+    expect(parseImportQuery({ q: 'a'.repeat(31) }).query).toBeNull()
+    expect(parseImportQuery({ q: '40\u000000회' }).query).toBe('4000회')
+    // 같은 키가 둘이면 버린다 — 폼이 만들 수 없는 형태이므로 조작된 주소다(이 파일의 `one` 규약)
+    expect(parseImportQuery({ q: ['795', '1740'] }).query).toBeNull()
+  })
+
+  it('주소 왕복 — null은 싣지 않는다', () => {
+    expect(importHref({ query: null, code: null })).toBe(PATHS.productNew)
+    expect(importHref({ query: '4000회', code: null })).toBe(
+      `${PATHS.productNew}?q=${encodeURIComponent('4000회').replace(/%20/g, '+')}`,
+    )
+    const href = importHref({ query: '4000', code: 'E04000' })
+    const back = parseImportQuery(Object.fromEntries(new URL(href, 'http://x').searchParams))
+    expect(back).toEqual({ query: '4000', code: 'E04000' })
   })
 })

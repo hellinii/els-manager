@@ -1,6 +1,7 @@
 import type { ListProductsParams } from '@/lib/db/queries/products'
 import type { ListScheduleParams } from '@/lib/db/queries/schedule'
 import type { KiStatus } from '@/lib/domain'
+import { PATHS } from '@/lib/routes/paths'
 
 /**
  * URL 질의 문자열 → 계약 입력 — **순수**하다. `next`도 `react`도 모른다
@@ -678,4 +679,62 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  */
 export function isUuid(raw: string): boolean {
   return UUID.test(raw.trim())
+}
+
+// ---------------------------------------------------------------------------
+// SCR-204 불러오기 — 회차 검색 · 상품 선택 (DOC-008 §5 SCR-204 v2.9, S-12)
+// ---------------------------------------------------------------------------
+
+/**
+ * 불러오기의 주소 — **주소가 상태다.** 검색은 GET 폼(`q`), 선택은 링크(`code`)다.
+ *
+ * 서버 액션이 아닌 이유는 DOC-011 §1.2·§4.10에 있다 — JS 없이 동작하고, 뒤로 가기가
+ * 후보 목록으로 돌아가며, 주소로 다시 열 수 있다.
+ */
+export const IMPORT_KEYS = { query: 'q', code: 'code' } as const
+
+export type ImportQuery = {
+  /** 회차 검색어(상품명 일부). 없거나 버려지면 `null` */
+  query: string | null
+  /** 키움 상품 코드(`E04000`·`EM1740`). 형식이 아니면 `null` — 네트워크에 나가지 않는다 */
+  code: string | null
+}
+
+/** 검색어 상한 — 어댑터의 `QUERY_MAX_LENGTH`(30)와 같다. 더 길면 버린다 */
+const IMPORT_QUERY_MAX = 30
+
+/** 키움 상품 코드 — 어댑터의 `PRODUCT_CODE`와 같은 형식. 화면이 먼저 거른다 */
+const IMPORT_CODE = /^E[0-9A-Z]{5}$/
+
+/**
+ * `?q=…&code=…` → 불러오기 상태.
+ *
+ * **인식하지 못한 값은 버린다**(이 파일의 규약) — 조작된 `code`에 오류를 내면 링크 하나가
+ * 등록 화면을 막는다. 버리면 그 축이 「없음」이 되고 화면은 빈 폼을 그린다. 어댑터도 같은
+ * 형식을 다시 검사하지만(`SYMBOL_SCHEME`) **화면이 먼저 걸러야 네트워크에 나가지 않는다.**
+ *
+ * 검색어는 제어 문자를 지우고 앞뒤 공백을 잘라 1~30자만 받는다.
+ */
+export function parseImportQuery(values: QueryValues): ImportQuery {
+  const rawQuery = one(values[IMPORT_KEYS.query]).replace(/[\u0000-\u001f\u007f]/g, '').trim()
+  const rawCode = one(values[IMPORT_KEYS.code]).trim().toUpperCase()
+
+  return {
+    query: rawQuery.length >= 1 && rawQuery.length <= IMPORT_QUERY_MAX ? rawQuery : null,
+    code: IMPORT_CODE.test(rawCode) ? rawCode : null,
+  }
+}
+
+/**
+ * 불러오기 주소 — 후보 링크·「다른 후보 보기」·자산 추가 뒤의 복귀가 쓴다.
+ *
+ * **서명이 하나다** — 부르는 곳마다 조합하면 한쪽이 `q`를 빠뜨려 「다른 후보 보기」가 빈
+ * 검색으로 돌아가는 날이 온다. `null`은 주소에 싣지 않는다(`dashboardQuery`와 같은 규약).
+ */
+export function importHref(state: ImportQuery): string {
+  const params = new URLSearchParams()
+  if (state.query != null) params.set(IMPORT_KEYS.query, state.query)
+  if (state.code != null) params.set(IMPORT_KEYS.code, state.code)
+  const query = params.toString()
+  return query === '' ? PATHS.productNew : `${PATHS.productNew}?${query}`
 }
