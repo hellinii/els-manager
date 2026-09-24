@@ -72,6 +72,19 @@ export function Field({
   )
 }
 
+/**
+ * 칸의 힌트 + 덧붙일 안내(불러오기의 `fieldNotes`, DOC-008 v2.9). 둘 다 없으면 `undefined`다 —
+ * 힌트 줄을 그리지 않는다(빈 `<p>`가 `aria-describedby`에 걸리지 않게).
+ */
+export function hintWith(
+  hint: string | undefined,
+  notes: Readonly<Record<string, string>> | undefined,
+  name: string,
+): string | undefined {
+  const parts = [hint, notes?.[name]].filter((part): part is string => part != null && part !== '')
+  return parts.length === 0 ? undefined : parts.join(' · ')
+}
+
 /** 공통 입력 스타일. 칸마다 클래스를 적으면 한 칸이 다르게 보이는 날이 온다. */
 export const INPUT_CLASS =
   'rounded-md border border-neutral-300 px-3 py-2 text-sm focus:border-neutral-900 focus:outline-none aria-[invalid=true]:border-red-400'

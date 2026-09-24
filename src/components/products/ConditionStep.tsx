@@ -1,6 +1,6 @@
 'use client'
 
-import { Field, INPUT_CLASS } from '@/components/form/Field'
+import { Field, INPUT_CLASS, hintWith } from '@/components/form/Field'
 import { KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import {
@@ -41,7 +41,14 @@ import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productFor
  * (CLAUDE.md 코딩 규약: 「비율은 입력 계층에서 변환」).
  */
 
-export function ConditionStep({ state }: { state: FormState }) {
+export function ConditionStep({
+  state,
+  fieldNotes,
+}: {
+  state: FormState
+  /** 불러오기의 칸 안내(관찰방식 등) — `ProductForm`의 각주 */
+  fieldNotes?: Readonly<Record<string, string>>
+}) {
   const { values, fieldErrors } = state
   const rounds = roundCountOf(values)
   // 산식을 계산할 수 있는가 — 차수표 위 안내에만 쓴다(칸별 판정은 힌트가 한다)
@@ -65,7 +72,7 @@ export function ConditionStep({ state }: { state: FormState }) {
           name="evaluationPeriodMonths"
           label="평가주기 (개월)"
           error={fieldErrors.evaluationPeriodMonths}
-          hint="통상 6"
+          hint={hintWith('통상 6', fieldNotes, 'evaluationPeriodMonths')}
         >
           {(props) => (
             <input
@@ -99,7 +106,7 @@ export function ConditionStep({ state }: { state: FormState }) {
           name="annualCouponRate"
           label="연쿠폰율 (%)"
           error={fieldErrors.annualCouponRate}
-          hint="연 환산"
+          hint={hintWith('연 환산', fieldNotes, 'annualCouponRate')}
         >
           {(props) => (
             <input
@@ -119,7 +126,7 @@ export function ConditionStep({ state }: { state: FormState }) {
           name="kiBarrier"
           label="KI 배리어 (%)"
           error={fieldErrors.kiBarrier}
-          hint="노낙인 상품은 비운다"
+          hint={hintWith('노낙인 상품은 비운다', fieldNotes, 'kiBarrier')}
         >
           {(props) => (
             <input
@@ -142,7 +149,7 @@ export function ConditionStep({ state }: { state: FormState }) {
           name="kiObservation"
           label="관찰방식"
           error={fieldErrors.kiObservation}
-          hint="KI 배리어가 있으면 고른다"
+          hint={hintWith('KI 배리어가 있으면 고른다', fieldNotes, 'kiObservation')}
         >
           {(props) => (
             <select

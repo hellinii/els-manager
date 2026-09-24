@@ -1,8 +1,12 @@
 import type { Metadata } from 'next'
 
+import { KiwoomImport } from '@/components/products/KiwoomImport'
 import { ProductForm } from '@/components/products/ProductForm'
 import { getQueries } from '@/lib/db/server'
 import { productDefaults } from '@/lib/forms/defaults'
+import { importPanelOf } from '@/lib/forms/importPanel'
+import { parseImportQuery, type QueryValues } from '@/lib/forms/query'
+import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 
 import { productFormAction } from './actions'
 
@@ -30,15 +34,54 @@ import { productFormAction } from './actions'
  *
  * 조회는 여기서 하고 폼만 클라이언트다. 자산 목록을 props로 내리므로 `lib/db`가
  * 클라이언트 번들에 실리지 않는다(린트가 값 import를 막는다).
+ *
+ * ## 키움 불러오기 (S-12, DOC-008 v2.9 · DOC-011 §4.10)
+ *
+ * 주소가 상태다 — `?q=`이면 검색, `?q&code=`이면 상세. 이 파일에 남는 것은 **부르는 순서**뿐이고
+ * 조립은 `importPanelOf`(순수)가 한다.
+ *
+ * - **X-01 — `getQueries()`가 먼저다.** 미인증이면 거기서 던지므로(Q-04) 키움 요청이 나가지 않는다.
+ *   외부 조회는 세션이 필요 없어서 이 순서가 유일한 문지기다(프록시가 우회되어도)
+ * - 부르는 것은 주소가 요구하는 것뿐이다 — 검색이면 검색 하나, 상세면 상세 + 기초자산 목록.
+ *   셋이 서로 독립이므로 자산 목록과 함께 한 물결로 부른다
+ * - **X-02 — 던지지 않는다.** 어댑터가 실패를 값으로 주고 `importPanelOf`가 「조회 실패」로 접는다.
+ *   여기서 던지면 `app/error.tsx`가 수동 등록까지 막는다
+ * - `ROUTE_EXTERNAL_LOOKUPS`(`lib/routes/invalidation.ts`)가 이 라우트의 외부 조회 셋을 적는다
+ *   — DOC-011 §8과 양방향으로 대조된다
  */
 
 export const metadata: Metadata = {
   title: 'ELS 등록 · 언제들어오나',
 }
 
-export default async function ProductNewPage() {
+export default async function ProductNewPage({
+  searchParams,
+}: {
+  // Next 16의 searchParams는 Promise다.
+  searchParams: Promise<QueryValues>
+}) {
+  // X-01 — 인증이 먼저다. 미인증이면 여기서 던지고 아래의 키움 요청은 나가지 않는다.
   const queries = await getQueries()
-  const assets = await queries.searchAssets('')
+  const importQuery = parseImportQuery(await searchParams)
+  const source = createKiwoomProductSource({ fetchImpl: fetch })
+
+  const [assets, search, terms, listed] = await Promise.all([
+    queries.searchAssets(''),
+    importQuery.code == null && importQuery.query != null
+      ? source.searchKiwoomProducts(importQuery.query)
+      : null,
+    importQuery.code != null ? source.getKiwoomProductTerms(importQuery.code) : null,
+    importQuery.code != null ? source.listKiwoomAssets() : null,
+  ])
+
+  const panel = importPanelOf({
+    query: importQuery,
+    search,
+    terms,
+    listed,
+    options: assets,
+    defaults: productDefaults(),
+  })
 
   return (
     <section className="flex flex-col gap-5">
@@ -49,14 +92,21 @@ export default async function ProductNewPage() {
         </p>
       </header>
 
+      <KiwoomImport panel={panel} />
+
       {/*
         같은 컴포넌트가 수정에도 쓰인다(컷 5). 다른 것은 초기값·대상 id·액션 셋뿐이며
         등록은 id가 없다 — 그 부재가 곧 「새로 만든다」다.
+
+        불러온 값이 바뀌면 폼을 다시 마운트한다 — `initialValues`는 마운트 때 한 번 읽힌다.
+        키에 해결된 자산 id가 들어가므로 같은 주소에서 자산을 추가해도 새 값을 받는다.
       */}
       <ProductForm
+        key={panel.formKey}
         assets={assets}
         action={productFormAction}
-        initialValues={productDefaults()}
+        initialValues={panel.initialValues}
+        fieldNotes={panel.fieldNotes}
       />
     </section>
   )

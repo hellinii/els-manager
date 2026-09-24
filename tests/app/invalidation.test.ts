@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest'
 import type { UserSessionClient } from '@/lib/db/client'
 import { createMutations } from '@/lib/db/mutations/context'
 import { createQueries } from '@/lib/db/queries/context'
+import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 import {
   INVALIDATION,
   PENDING_ROUTES,
+  ROUTE_EXTERNAL_LOOKUPS,
   ROUTE_QUERIES,
   staleRoutesFor,
   type MutationName,
@@ -859,6 +861,21 @@ function identifiers(cell: string): string[] {
   return [...cell.matchAll(/`([A-Za-z][A-Za-z0-9_]*)`/g)].map((m) => m[1]!)
 }
 
+/**
+ * 외부 조회의 이름 — **어댑터 객체에서 실행 시점에 파생한다** (DOC-011 §4.10, v4.4)
+ *
+ * `MUTATION_NAMES`가 `createMutations`의 키에서 나오는 것과 같은 형태다. 목록을 여기 다시 적으면
+ * 어댑터에 조회가 늘어도 이 파일은 모른다(「빠지지 않았는가」에 답하지 못한다). 가짜 `fetch`는
+ * 던진다 — 키만 읽고 부르지 않는다.
+ */
+const EXTERNAL_NAMES = Object.keys(
+  createKiwoomProductSource({
+    fetchImpl: (async () => {
+      throw new Error('외부 조회 이름만 읽는다 — 부르지 않는다')
+    }) as unknown as typeof fetch,
+  }),
+)
+
 describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
   const rows = tableAfterHeader(DOC_011, '| 화면 | 조회 계약 | 변경 계약 |')
 
@@ -891,12 +908,42 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
 
     for (const query of documented) {
       // `listUserSummaries`는 계약으로 남지만 화면을 만들지 않는다(SQ-01) —
-      // 실재하는 계약이므로 `QUERY_NAMES`에 있다.
+      // 실재하는 계약이므로 `QUERY_NAMES`에 있다. 외부 조회(§4.10)는 셋째 부류다.
       expect(
-        QUERY_NAMES.includes(query as QueryName) || planned.has(query),
-        `${query}가 계약도 아니고 미구현 등재도 아니다`,
+        QUERY_NAMES.includes(query as QueryName) || planned.has(query) || EXTERNAL_NAMES.includes(query),
+        `${query}가 계약도 아니고 미구현 등재도 아니고 외부 조회도 아니다`,
       ).toBe(true)
     }
+  })
+
+  it('★ 외부 조회 — 이름이 조회 계약과 겹치지 않고, 원장의 값이 전부 실재한다', () => {
+    expect(EXTERNAL_NAMES.sort()).toEqual(['getKiwoomProductTerms', 'listKiwoomAssets', 'searchKiwoomProducts'])
+    for (const name of EXTERNAL_NAMES) expect(QUERY_NAMES as readonly string[]).not.toContain(name)
+    for (const names of Object.values(ROUTE_EXTERNAL_LOOKUPS)) {
+      for (const name of names) expect(EXTERNAL_NAMES).toContain(name)
+    }
+  })
+
+  it('★ 화면이 부르는 외부 조회와 `ROUTE_EXTERNAL_LOOKUPS`가 일치한다 — 양방향', () => {
+    /*
+     * `ROUTE_QUERIES` 대조와 같은 합집합 규칙이다(아래 케이스의 각주). 한쪽에만 이름이 있으면
+     * — 문서에만: 화면이 부른다고 적었는데 원장이 모른다 / 원장에만: 문서가 모르는 외부 요청을
+     * 화면이 보낸다(ADR-009 §5의 「부르는 요청 수」가 거짓이 된다).
+     */
+    const routesOfScreen = screenRoutes()
+    const documentedRoutes = new Set<string>()
+    for (const [screen, queries] of rows.map(([cell, q]) => [cell ?? '', q ?? ''])) {
+      const id = /SCR-\d+/.exec(screen)?.[0]
+      if (id == null || id in UNBUILT_SCREENS) continue
+      const routes = routesOfScreen[id]
+      if (routes == null) continue
+      const fromDoc = new Set(identifiers(queries).filter((q) => EXTERNAL_NAMES.includes(q)))
+      const fromCode = new Set(routes.flatMap((route) => ROUTE_EXTERNAL_LOOKUPS[route] ?? []))
+      expect([...fromCode].sort(), `${id}가 부르는 외부 조회`).toEqual([...fromDoc].sort())
+      if (fromDoc.size > 0) routes.forEach((r) => documentedRoutes.add(r))
+    }
+    // 원장의 라우트가 전부 문서의 화면에 속한다 — 속하지 않으면 위 대조가 그 라우트를 보지 않는다
+    for (const route of Object.keys(ROUTE_EXTERNAL_LOOKUPS)) expect(documentedRoutes).toContain(route)
   })
 
   it('화면이 읽는 계약과 `ROUTE_QUERIES`가 일치한다', () => {

@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.3 |
+| 버전 | 4.4 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.4 | 2026-09-24 | 민서 | **§8 SCR-204 행에 외부 조회 셋과 `saveProviderSymbol`을 올린다 — 코드 원장과 같은 커밋이다.** v4.3이 「§8은 코드 원장과 양방향으로 대조되므로 원장과 같은 커밋에서 올린다」고 적은 그 커밋이다. **(1) 원장이 둘이 됐다** — `ROUTE_QUERIES`(조회 계약, 무효화 축 안)와 `ROUTE_EXTERNAL_LOOKUPS`(외부 조회, 축 밖 — §4.10 X-05). `tests/app/invalidation.test.ts`가 §8의 백틱 식별자를 **세 부류**(조회 계약 · 미구현 등재 · 외부 조회)로 가르고, 외부 조회는 화면별로 원장과 양방향 대조한다. **(2) 외부 조회의 이름은 어댑터 객체에서 실행 시점에 파생한다** — `MUTATION_NAMES`가 `createMutations`의 키에서 나오는 것과 같은 형태이며, 목록을 테스트에 다시 적으면 어댑터에 조회가 늘어도 대조가 모른다(「빠지지 않았는가」에 답하지 못한다). 음성 대조: 원장에서 `listKiwoomAssets`를 빼면 양방향 케이스가 빨간불이다. **(3) `saveProviderSymbol`을 SCR-204에 배정한다** — 불러오기의 「자산 추가」 둘째 단계와 「기존 자산에 연결」(§5.12 v4.3의 배정). 변경 계약 수는 13 그대로다 |
 | 4.3 | 2026-09-24 | 민서 | **§4.10 외부 조회 신설 — 상품 조건 불러오기(DOC-001 S-12). §1.1·§1.2·§4.9·§5.10·§5.12 보충, §9에 AQ-73·74 신설. 변경 계약 수는 13 그대로다. 본 버전은 선행 명세다.** **(1) ★ 조회 계약이 아니다** — DB를 읽지 않으므로 `Queries` 묶음과 무효화 축 밖에 둔다. 넣으면 `_queryAxisIsExhaustive`가 가짜 `affects`를 요구한다. 대신 규칙 X-01~06을 세웠다. **X-02가 Q-06과 반대 방향인 이유**를 적었다 — 조회 계약은 잘린 목록을 옳은 것처럼 보이지 않으려고 던지고, 외부 조회는 원천 장애가 **수동 등록 화면까지** 죽이지 않도록 값을 돌려준다. **(2) X-01은 순서 규칙이다** — 외부 조회는 세션이 필요 없으므로 앞선 `getQueries()`가 유일한 문지기다. **(3) §4.9 `AssetOption.providerSymbols`** — 불러온 기초자산을 앱 자산과 **심볼로** 잇는 데 필요하다. 이름으로 잇지 않는다(사용자가 쓴 이름이다). **(4) §5.10·§5.12를 SCR-204 불러오기에도 배정했다** — 둘을 순서대로 부르며 원자적이지 않다. 중간 상태(자산은 있고 매핑이 없다)가 곧 **미매핑 자산**이고 ADR-007이 그것을 정상 상태로 정했으므로 14번째 계약(RPC)을 만들지 않는다(AQ-74). **(5) §8의 외부 조회 칸은 이 버전에서 쓰지 않는다** — §8은 코드 원장과 양방향으로 대조되므로(`tests/app/invalidation.test.ts`) 이름을 먼저 적으면 그 커밋이 빨간불이다. 원장과 같은 커밋에서 올린다(DOC-005 v1.1이 코드에 묶인 표에 대해 내린 판단과 같다) |
 | 4.2 | 2026-09-24 | 민서 | **§5.1·§5.2 — 평가일이 차수별 입력값이 된 것을 계약 쪽에 적는다. 서명·검증 규칙 변경 0, `src/` 0줄. 본 버전은 선행 명세다.** 선행은 DOC-002 v1.6·DOC-008 v2.8이다. **(1) `ProductInput.schedules[].evaluationDate`는 원래 입력이었다** — 서명이 그것을 받았고 V-07(형식·증가·발행일 이상)이 칸 단위 키로 검사했다. 달라진 것은 **값의 출처**다: 종전에는 파서가 산식으로 만들어 넣었고 이제는 칸의 값이다. 산식으로 빈 칸을 채우는 것은 **입력 계층의 일**이며 계약은 날짜만 받는다 — 배리어 일괄 입력의 파싱이 입력 계층에 있는 것(§5.1 동작 셋째 줄)과 같은 자리다. **(2) ★ §5.2 전체 교체가 평가일을 보존하는 근거를 바꿨다.** 종전(DOC-002 v0.9)에는 「재생성이 멱등」이었고, 이제는 **수정 폼이 저장값을 싣는다**(`productValuesOf`). 계약 쪽 예외는 두지 않는다 — 교체는 여전히 전체 교체이고, 교체되는 값이 이전과 같을 뿐이다. **(3) 부수 효과 — V-07 오류가 칸에 붙는다.** 종전에는 짝지을 칸이 없어 `schedules[i].evaluationDate` 오류가 상단 요약으로 밀렸다 |
 | 4.1 | 2026-09-14 | 민서 | **§4.3 `schedules[].expectedGross`의 타입 드리프트를 정정한다. 계약 변경이 아니라 «문서가 구현을 따라잡는» 정정이며 `src/` 0줄이다.** 문서는 `string`인데 구현은 **`string | null`**이다(`src/lib/db/queries/map.ts:706·L825`). `null`의 뜻은 「연쿠폰율이 없어 산출할 수 없다」이고 `expectedGrossOf`가 그 규약을 **독블록으로 이미 적고 있었다**(D-07 기실현 등재 · 계약 밖 경로 AQ-14·AQ-65). ★ **조용했던 이유가 기록할 가치가 있다** — 같은 절의 `projection.expectedGross`는 진짜로 `string`이고(`projectionOf`가 `null`이면 `projection` 전체를 `null`로 낸다) **같은 이름이 한 절 안에서 두 타입을 갖는다.** 읽는 사람이 옆 필드를 보고 맞다고 판단하기 쉬운 형태다. **DOC-008 v2.7의 차수별 채움이 이 필드를 전 차수에서 읽으면서 드러났다** — 그 기능이 `null` 분기를 실제로 밟는 첫 소비자다. |
@@ -1983,7 +1984,7 @@ type CronResult = {
 | SCR-201 목록 | `listProducts` | — |
 | SCR-202 상세 | `getProduct` | `deleteProduct`, `deleteRedemption`, `updateRedemption`, `setKiTouched` |
 | SCR-203 상환 | `getProduct` | `createRedemption` |
-| SCR-204 등록·수정 | `getProduct`, `searchAssets` | `createProduct`, `updateProduct`, `createAsset` |
+| SCR-204 등록·수정 | `getProduct`, `searchAssets` · 외부 조회(§4.10, 등록만) `searchKiwoomProducts`, `getKiwoomProductTerms`, `listKiwoomAssets` | `createProduct`, `updateProduct`, `createAsset`, `saveProviderSymbol`(불러오기의 자산 추가·연결 — v4.4) |
 | **SCR-205 기실현 등재** | **—** | **`createRealizedProduct`** (§5.11) |
 | SCR-301 일정 | `listSchedule` | — |
 | SCR-302 시세 | `listAssetPrices` | `saveManualPrice`, `refreshPrices` (**공급자 미등재 — §5.8**), **`createAsset`**, **`saveProviderSymbol`** (v3.6) |

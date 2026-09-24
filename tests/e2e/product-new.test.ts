@@ -144,6 +144,25 @@ describe('SCR-204 단일 페이지 폼', () => {
     }
   })
 
+  it('★ 불러오기 구획이 서고, 조작된 상품 코드는 버려져 빈 폼이 된다 — 키움에 나가지 않는다', async () => {
+    /*
+     * 검색·상세는 키움을 부르므로 e2e가 밟지 않는다(DOC-010 AQ-75 — 외부 호출은 스위트를
+     * 비결정적으로 만든다). 여기서 보는 것은 **네트워크 전에 끝나는 갈래**다: 형식이 아닌 `code`는
+     * `parseImportQuery`가 버리므로 상세 조회가 일어나지 않고 화면은 「검색 전」이다.
+     */
+    const res = await get(`${PATHS.productNew}?code=${encodeURIComponent('bad!')}`, jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('키움 ELS 불러오기')
+    expect(html).toContain('name="q"')
+    // 후보·상세의 흔적이 없다
+    expect(html).not.toContain('불러올 상품을 고른다')
+    expect(html).not.toContain('불러오기 취소')
+    // 상품 폼은 기본값 그대로다
+    const form = formHtmlFor(html, actionId)
+    expect(/<input[^>]*name="evaluationPeriodMonths"[^>]*>/.exec(form)?.[0]).toContain('value="6"')
+  })
+
   it('기본값이 화면에 닿는다 — 평가주기 6', async () => {
     // DOC-005 §3이 「통상 6」으로 등재한 유일한 기본값이다.
     const form = formHtmlFor(await (await get(PATHS.productNew, jar)).text(), actionId)

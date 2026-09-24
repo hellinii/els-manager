@@ -3,7 +3,7 @@
 import { useActionState } from 'react'
 
 import { AssetForm } from '@/components/prices/AssetForm'
-import { Field, INPUT_CLASS } from '@/components/form/Field'
+import { Field, INPUT_CLASS, hintWith } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import { ConditionStep } from '@/components/products/ConditionStep'
@@ -76,6 +76,7 @@ export function ProductForm({
   action,
   initialValues,
   productId,
+  fieldNotes,
 }: {
   assets: readonly AssetOption[]
   /** 이 폼을 받는 어댑터. 등록은 `productFormAction`, 수정은 `productEditFormAction` */
@@ -84,6 +85,11 @@ export function ProductForm({
   initialValues: Record<string, string>
   /** 수정 모드에서만 있다. 히든으로 실려 어댑터가 대상을 안다 */
   productId?: string
+  /**
+   * 불러오기(S-12)가 스칼라 칸에 붙이는 안내 — 그 칸의 힌트 뒤에 덧붙는다(DOC-008 v2.9).
+   * 배열 행에는 붙이지 않는다 — 행은 사용자가 지우면 번호가 밀린다.
+   */
+  fieldNotes?: Readonly<Record<string, string>>
 }) {
   const [state, formAction] = useActionState(action, initialFormState(initialValues))
 
@@ -108,7 +114,7 @@ export function ProductForm({
         )}
 
         <FormSection title="기본 정보">
-          <BasicFields state={state} />
+          <BasicFields state={state} fieldNotes={fieldNotes} />
         </FormSection>
 
         <FormSection title="기초자산">
@@ -120,7 +126,7 @@ export function ProductForm({
         </FormSection>
 
         <FormSection title="평가 조건">
-          <ConditionStep state={state} />
+          <ConditionStep state={state} fieldNotes={fieldNotes} />
         </FormSection>
 
         <div className="flex flex-wrap gap-2">
@@ -182,15 +188,20 @@ function FormSection({
   )
 }
 
-type StepProps = { state: FormState }
+type StepProps = { state: FormState; fieldNotes?: Readonly<Record<string, string>> }
 
 /** 기본 정보 — DOC-008 §5의 입력 항목 + 비고(아래 각주) */
-function BasicFields({ state }: StepProps) {
+function BasicFields({ state, fieldNotes }: StepProps) {
   const { values, fieldErrors } = state
 
   return (
     <div className="flex flex-col gap-4">
-      <Field name="name" label="상품명" error={fieldErrors.name}>
+      <Field
+        name="name"
+        label="상품명"
+        error={fieldErrors.name}
+        hint={hintWith(undefined, fieldNotes, 'name')}
+      >
         {(props) => (
           <input
             {...props}
@@ -203,7 +214,12 @@ function BasicFields({ state }: StepProps) {
       </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field name="issuer" label="발행사" error={fieldErrors.issuer} hint="선택">
+        <Field
+          name="issuer"
+          label="발행사"
+          error={fieldErrors.issuer}
+          hint={hintWith('선택', fieldNotes, 'issuer')}
+        >
           {(props) => (
             <input
               {...props}
@@ -218,7 +234,7 @@ function BasicFields({ state }: StepProps) {
           name="issueDate"
           label="발행일"
           error={fieldErrors.issueDate}
-          hint="평가일 생성의 기준이다"
+          hint={hintWith('평가일 산식의 기준이다', fieldNotes, 'issueDate')}
         >
           {(props) => (
             <input

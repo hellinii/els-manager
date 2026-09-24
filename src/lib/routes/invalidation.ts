@@ -1,5 +1,6 @@
 import type { Mutations } from '@/lib/db/mutations/context'
 import type { Queries } from '@/lib/db/queries/context'
+import type { KiwoomProductSource } from '@/lib/providers/kiwoom/terms-types'
 
 import { PATHS } from './paths'
 
@@ -265,6 +266,20 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   [PATHS.tax]: ['getTaxSummary'],
   [PATHS.forecast]: ['getForecast'],
   [PATHS.settings]: [],
+}
+
+/**
+ * 라우트별 **외부 조회** — DB가 아니므로 무효화 축 밖이다 (DOC-011 §4.10 X-05, v4.3)
+ *
+ * `ROUTE_QUERIES`에 넣지 않는 이유: 그 표의 값은 `QueryName`이고 `_queryAxisIsExhaustive`가 모든
+ * `QueryName`이 어느 변경의 `affects`에 있기를 요구한다. 키움 조회를 낡게 하는 변경은 없다 — 넣으려면
+ * 가짜 `affects`를 지어내야 한다. 그래서 **따로 원장을 두고** DOC-011 §8과만 대조한다
+ * (`tests/app/invalidation.test.ts` — 이름 집합은 어댑터 객체에서 실행 시점에 파생한다).
+ */
+export type ExternalLookupName = keyof KiwoomProductSource
+
+export const ROUTE_EXTERNAL_LOOKUPS: Record<string, readonly ExternalLookupName[]> = {
+  [PATHS.productNew]: ['searchKiwoomProducts', 'getKiwoomProductTerms', 'listKiwoomAssets'],
 }
 
 /**
