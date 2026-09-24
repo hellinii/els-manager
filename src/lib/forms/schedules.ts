@@ -3,7 +3,7 @@ import {
   generateEvaluationDates,
 } from '@/lib/domain'
 
-import { MAX_ROUNDS, countOf, roundCountOf } from './productForm'
+import { MAX_ROUNDS, countOf, roundCountOf } from './rounds'
 
 /**
  * 차수표의 파생값 — **평가일은 입력이 아니라 생성값이다** (DOC-008 §5 SCR-204)

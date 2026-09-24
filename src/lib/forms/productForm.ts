@@ -3,6 +3,14 @@ import type { ActionResult } from '@/lib/db/mutations/result'
 import { barrierNotice, parseBarrierList } from './barriers'
 import { parseFieldPath, path } from './fieldPath'
 import { initialFormState, toFormState, type FormState } from './state'
+import { MAX_ROUNDS, roundCountOf } from './rounds'
+
+/**
+ * 차수 계수는 `./rounds`에 있고 여기서 재수출한다 — 소비자의 import 경로가 그대로 산다.
+ * 옮긴 이유는 순환이다: `schedules.ts`가 이 셋을 쓰고 `transition`이 `schedules.ts`의
+ * 평가일 채움을 쓴다(DOC-008 v2.8). 순환은 린트가 막지 않지만 지금 트리에 하나도 없다.
+ */
+export { MAX_ROUNDS, countOf, roundCountOf } from './rounds'
 
 /**
  * SCR-204의 폼 기계 — **순수**하다. `next`도 `react`도 모른다
@@ -74,16 +82,6 @@ export const PRODUCT_ID_FIELD = 'productId'
 
 /** 배열 필드의 행 상한 — 한 상품의 기초자산 수 (DOC-007 §3.1은 N종을 허용한다) */
 export const MAX_UNDERLYINGS = 10
-
-/**
- * 차수 상한 — **미리보기와 차수표의 행 수**다.
- *
- * V-20이 `smallint` 범위까지 허용하므로 조작된 값(`32767`)이 오면 그만큼의 행을
- * 렌더하게 된다. 계약이 거부하기 **전에** 우리 렌더가 죽으므로 화면 쪽 상한이
- * 따로 필요하다. 60은 5년 만기 매월 평가이며, 그보다 긴 상품이 나오면 이 값을
- * 올린다 — 계약의 상한이 아니라 표의 상한이다.
- */
-export const MAX_ROUNDS = 60
 
 // ---------------------------------------------------------------------------
 // 단계 전이
@@ -221,31 +219,6 @@ export function rowCountOf(values: Record<string, string>, field: string): numbe
     if (parsed.index > max) max = parsed.index
   }
   return Math.max(1, max + 1)
-}
-
-/**
- * 차수표의 행 수 — `totalRounds` 입력에서 나온다.
- *
- * 키에서 파생시키지 않는 이유는 잔재다(총 차수를 6→3으로 줄이면 `schedules[3..5]`의
- * 키가 남는다). 사용자가 지운 것을 우리가 되살리면 V-03이 「6건이 총 차수 3과
- * 다르다」를 내고 원인이 화면에 없다. `parse.ts`가 같은 규칙을 쓴다.
- */
-export function roundCountOf(values: Record<string, string>): number {
-  const parsed = countOf(values.totalRounds)
-  return Number.isNaN(parsed) ? 0 : Math.min(parsed, MAX_ROUNDS)
-}
-
-/**
- * 개수를 세는 정수의 단일 해석 — 차수·개월수. **금액이 아니다.**
- *
- * `parse.ts`(FormData)와 화면(값 맵)이 같은 함수를 쓴다. 갈리면 화면이 6행을 그리는데
- * 파서가 다른 수를 읽는 상태가 되고, 그 어긋남은 저장 시점에야 V-03으로 드러난다.
- *
- * 형식이 아니면 `NaN`이다 — 오류 문구는 계약이 낸다(V-20).
- */
-export function countOf(raw: string | undefined): number {
-  const trimmed = (raw ?? '').trim()
-  return /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : Number.NaN
 }
 
 /** 행 추가 — 빈 값으로 이름을 만든다. 상한을 넘으면 그대로 둔다 */
