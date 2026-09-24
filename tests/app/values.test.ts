@@ -6,12 +6,15 @@ import {
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
 } from '@/lib/domain'
-import { parseProductForm, percentToRatio, ratioToPercent } from '@/lib/forms/parse'
+import { formOfValues, parseProductForm, percentToRatio, ratioToPercent } from '@/lib/forms/parse'
 import {
+  INTENT_FIELD,
   productFieldNames,
   roundCountOf,
   rowCountOf,
+  transition,
 } from '@/lib/forms/productForm'
+import { EVALUATION_DATE_BASIS_FIELD } from '@/lib/forms/schedules'
 import { productValuesOf } from '@/lib/forms/values'
 
 import { ASSET_1, ASSET_2, OWNER, priceMap, productRow, schedule } from '../db/helpers/rows'
@@ -216,23 +219,19 @@ describe('왕복 — 뷰 → 폼 값 → 계약 입력', () => {
     ] satisfies ProductInput['schedules'])
   })
 
-  it('수정 저장은 평가일을 **재생성한다** — 저장된 날짜가 산식과 다르면 바뀐다', () => {
+  it('★ 저장된 평가일을 그대로 싣는다 — 산식과 달라도 (DOC-008 v2.8)', () => {
     /*
-     * 평가일은 입력이 아니라 생성값이다(DOC-008 §5 SCR-204). 그래서 폼 값 맵에
-     * 담지 않고 `발행일 + n×주기 − 1일`에서 다시 나온다 — 결과로 저장된 날짜가 그
-     * 산식과 다른 상품을 수정하면 날짜가 산식대로 **바뀐다.**
-     *
-     * 히든으로 나르는 대안이 더 나쁜 이유는 컷 4a가 적었다(발행일을 고친 뒤 평가
-     * 조건 단계를 지나지 않고 저장하면 **고치기 전 날짜**가 저장된다). 그 상태는
-     * 단일 페이지화 이후 존재할 수 없고, 대신 이 재생성이 일어난다 — 조용히 두지
-     * 않고 케이스로 박는다.
+     * v2.7까지 이 자리의 케이스는 「수정 저장은 평가일을 **재생성한다**」였다 — 평가일이
+     * 생성값이던 동안의 사실이다. 평가일이 차수별 입력값이 되면서(DOC-002 §4.8 v1.6)
+     * 뒤집혔다: 산식과 다른 날짜(불러온 실제 날짜, E04000의 휴장일 조정)가 수정 저장에서
+     * 산식으로 바뀌면 **§5.2 전체 교체가 그 날짜를 조용히 지운다.**
      */
     const drifted = toProductDetailView(
       productRow({
         issue_date: ISSUE,
         evaluation_period_months: PERIOD,
         redemption_schedules: [
-          // 손으로 정해진 날짜. 산식은 2026-07-01이다(발행일 + 6개월 − 1일).
+          // 산식은 2026-07-01이다(발행일 + 6개월 − 1일). 저장값은 그와 다르다.
           schedule({ round_no: 1, evaluation_date: '2026-07-15' }),
         ],
       }),
@@ -241,29 +240,64 @@ describe('왕복 — 뷰 → 폼 값 → 계약 입력', () => {
       OWNER,
     )
 
-    expect(drifted.schedules[0]!.evaluationDate).toBe('2026-07-15')
-    const back = parseProductForm(formOf(productValuesOf(drifted)))
-    expect(back.schedules[0]!.evaluationDate).toBe(DATES[0])
+    const values = productValuesOf(drifted)
+    expect(values['schedules[0].evaluationDate']).toBe('2026-07-15')
+
+    // 저장 제출을 지나도 그대로다 — 어댑터가 부르는 경로 그대로(`transition` → 파서)
+    const next = transition(formOf({ ...values, [INTENT_FIELD]: 'SUBMIT' }))
+    expect(next.saveHeld).toBe(false)
+    expect(parseProductForm(formOfValues(next.values)).schedules[0]!.evaluationDate).toBe(
+      '2026-07-15',
+    )
+    // 음성 대조 — 산식이었다면 다른 날이다
     expect(DATES[0]).toBe('2026-07-01')
   })
 
-  it('★ 재생성이 멱등이다 — 규약대로 저장된 날짜는 수정 저장에서 그대로다', () => {
-    /*
-     * DOC-002 §4.8 v0.9의 load-bearing 성질이다. v0.7은 「RD-03이 조정 경로를
-     * 만들면 DOC-011 §5.2의 전체 교체와 충돌한다(조정한 날짜가 다음 수정 저장에서
-     * 되돌아간다)」고 경고했는데, **규약이 전역이므로 그 충돌이 발생하지 않는다** —
-     * 저장값이 이미 산식의 결과이므로 재생성이 같은 값을 다시 낸다.
-     *
-     * 그래서 이 프로젝트는 차수별 평가일 입력 칸을 만들지 않았고 §5.2에 예외도 두지
-     * 않았다. 그 판단이 옳은지가 이 케이스에 달려 있다 — 여기가 빨간불이면 운영
-     * 데이터의 SQL 정정도 되돌아간다.
-     */
+  it('★ 왕복이 항등이다 — 산식대로 저장된 날짜(운영 11건)는 수정 저장에서 그대로다', () => {
     const view = viewOf()
-    const once = parseProductForm(formOf(productValuesOf(view)))
-    expect(once.schedules.map((s) => s.evaluationDate)).toEqual([...DATES])
+    const values = productValuesOf(view)
+    const once = transition(formOf({ ...values, [INTENT_FIELD]: 'SUBMIT' }))
+    expect(parseProductForm(formOfValues(once.values)).schedules.map((s) => s.evaluationDate)).toEqual([
+      ...DATES,
+    ])
+    const twice = transition(formOf({ ...once.values, [INTENT_FIELD]: 'SUBMIT' }))
+    expect(twice.values).toEqual(once.values)
+  })
 
-    // 두 번째 왕복도 같다 — 재생성이 값을 옮기지 않는다
-    const twice = parseProductForm(formOf(productValuesOf(view)))
-    expect(twice.schedules.map((s) => s.evaluationDate)).toEqual([...DATES])
+  it('★ 산식대로이던 날짜는 발행일을 고친 저장에서 따라간다 — 기준을 싣기 때문이다', () => {
+    /*
+     * 가장 흔한 수정 경로다(운영 11건이 전부 산식대로). 기준(`evaluationDateBasis`)을
+     * 싣지 않으면 판정이 **현재** 발행일과 대조해 산식대로이던 날짜를 「실제 날짜」로
+     * 읽고, 날짜를 옮기지 않은 채 저장을 보류한다 — 사용자가 고친 발행일과 어긋난
+     * 날짜가 재제출로 저장된다.
+     */
+    const values = productValuesOf(viewOf())
+    expect(values[EVALUATION_DATE_BASIS_FIELD]).toBe(`${ISSUE}|${PERIOD}`)
+
+    const next = transition(formOf({ ...values, issueDate: '2026-02-02', [INTENT_FIELD]: 'SUBMIT' }))
+    expect(next.saveHeld).toBe(false)
+    expect([0, 1, 2].map((i) => next.values[`schedules[${i}].evaluationDate`])).toEqual([
+      '2026-08-01',
+      '2027-02-01',
+      '2027-08-01',
+    ])
+  })
+
+  it('실제 날짜의 상품은 발행일을 고친 저장이 한 번 보류된다', () => {
+    const drifted = toProductDetailView(
+      productRow({
+        issue_date: ISSUE,
+        evaluation_period_months: PERIOD,
+        redemption_schedules: [schedule({ round_no: 1, evaluation_date: '2026-07-15' })],
+      }),
+      priceMap([]),
+      ASOF,
+      OWNER,
+    )
+    const next = transition(
+      formOf({ ...productValuesOf(drifted), issueDate: '2026-02-02', [INTENT_FIELD]: 'SUBMIT' }),
+    )
+    expect(next.saveHeld).toBe(true)
+    expect(next.values['schedules[0].evaluationDate']).toBe('2026-07-15')
   })
 })

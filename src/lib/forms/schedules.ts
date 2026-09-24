@@ -6,21 +6,20 @@ import {
 } from '@/lib/domain'
 
 import { MAX_ROUNDS, countOf, roundCountOf } from './rounds'
+import type { SCHEDULE_SUBS } from './productForm'
 
 /**
- * 차수표의 파생값 — **평가일은 입력이 아니라 생성값이다** (DOC-008 §5 SCR-204)
+ * 평가일 산식과 그 적용 규칙 — **산식은 빈 칸의 기본값이다** (DOC-008 §5 SCR-204 v2.8)
  *
- * 차수표가 그 값을 보여주므로 사용자는 발행일·평가주기·총 차수를
- * 적고 평가일은 보기만 한다. 생성 규칙은 `lib/domain`의 `generateEvaluationDates`
- * 하나이며(`issue_date + evaluation_period_months × n`, 말일 클램핑) 여기서 다시
- * 구현하지 않는다 — 화면이 자기 방식으로 날짜를 더하면 2월 클램핑에서 계약과
- * 다른 날을 저장한다.
+ * v2.7까지 평가일은 생성값이었다 — 화면과 파서가 `previewDatesOf` 하나를 같은 입력에
+ * 불러 「본 것과 다른 것이 저장된다」가 불가능했다. 키움 공개 상품 페이지의 실제 평가일이
+ * 상품마다 다른 규약으로 산식과 어긋나(DOC-002 §4.8 v1.6 — E04000 5/5) 평가일이 차수별
+ * 입력값이 되었고, 이 파일은 이제 두 가지를 한다:
  *
- * ## 왜 히든 필드로 나르지 않는가
- *
- * 값을 히든에 실으면 ①의 발행일을 고친 뒤 ③을 지나지 않고 저장할 경로가 생기고,
- * 그때 저장되는 평가일은 **고치기 전의 날짜**다. 폼에서 파생시키면 그 상태가
- * 존재할 수 없다 — 파서와 화면이 같은 함수를 같은 입력에 부른다.
+ * - `previewDates` — 산식 그 자체. 생성 규칙은 `lib/domain`의 `generateEvaluationDates`
+ *   하나이며(말일 클램핑·기산 규약) 여기서 다시 구현하지 않는다.
+ * - `applyEvaluationDates`·`evaluationDateHintsOf` — 그 산식이 **칸에 무엇을 해도 되는가**.
+ *   아래 절(「평가일 칸」)에 규칙이 있다.
  *
  * ## 던지지 않는다
  *
@@ -65,11 +64,11 @@ export function previewDates(input: {
 }
 
 /**
- * 값 맵에서 바로 — **화면과 파서가 부르는 것이 이 함수 하나다.**
+ * 값 맵에서 바로 — **산식을 부르는 곳은 전부 이 함수를 지난다** (저장 채움·힌트·화면 안내).
  *
  * 셋을 각자 뽑아 넘기면 한쪽이 `evaluationPeriodMonths`를 다르게 읽는 날이 오고,
- * 그때 ④의 미리보기와 저장되는 평가일이 **다른 날**이 된다. 사용자는 확인 화면에서
- * 본 날짜가 저장되었다고 믿는다.
+ * 그때 힌트가 말한 날짜와 저장이 채운 날짜가 **다른 날**이 된다. v2.7까지는 파서도 이
+ * 함수를 불렀다 — 이제 파서는 칸을 읽는다(DOC-008 v2.8).
  */
 export function previewDatesOf(values: Record<string, string>): string[] {
   return previewDates({
@@ -101,8 +100,8 @@ export function previewDatesOf(values: Record<string, string>): string[] {
  */
 export const EVALUATION_DATE_BASIS_FIELD = 'evaluationDateBasis'
 
-/** 차수표 칸의 하위 이름. 다음 커밋이 `SCHEDULE_SUBS`에 넣는다 */
-const DATE_SUB = 'evaluationDate'
+/** 차수표 칸의 하위 이름 — `SCHEDULE_SUBS`와 컴파일러가 대조한다(타입 import라 순환이 없다) */
+const DATE_SUB = 'evaluationDate' satisfies (typeof SCHEDULE_SUBS)[number]
 
 const dateCell = (index: number): string => `schedules[${index}].${DATE_SUB}`
 

@@ -15,6 +15,7 @@ export function Field({
   label,
   error,
   hint,
+  hintTone = 'muted',
   children,
 }: {
   name: string
@@ -22,6 +23,11 @@ export function Field({
   /** `fieldErrors[name]`을 그대로 넘긴다. */
   error?: string
   hint?: string
+  /**
+   * 힌트의 어조. `warn`은 **오류가 아니라 확인 요청**이다 — 저장을 막지 않는다
+   * (평가일이 산식과 한 달 넘게 다르다, DOC-008 v2.8). 빨간색은 오류에만 쓴다.
+   */
+  hintTone?: 'muted' | 'warn'
   /** 입력 요소. `id`·`name`·`aria-*`는 이 컴포넌트가 붙인다. */
   children: (props: {
     id: string
@@ -50,7 +56,10 @@ export function Field({
       })}
 
       {hint != null && (
-        <p id={hintId} className="text-xs text-neutral-500">
+        <p
+          id={hintId}
+          className={hintTone === 'warn' ? 'text-xs text-amber-800' : 'text-xs text-neutral-500'}
+        >
           {hint}
         </p>
       )}

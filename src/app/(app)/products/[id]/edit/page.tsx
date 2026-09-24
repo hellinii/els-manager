@@ -74,7 +74,7 @@ export default async function ProductEditPage({
           <strong className="font-medium">
             저장하면 기초자산과 평가일정이 입력한 것으로 전부 교체된다.
           </strong>{' '}
-          평가일은 발행일과 평가주기에서 다시 생성된다.
+          평가일은 칸의 날짜 그대로 저장된다 — 산식대로인 날짜만 발행일·평가주기를 따라 옮겨진다.
         </p>
       </header>
 

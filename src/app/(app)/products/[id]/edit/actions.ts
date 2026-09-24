@@ -34,7 +34,8 @@ export async function productEditFormAction(
   form: FormData,
 ): Promise<FormState> {
   const next = transition(form)
-  if (next.intent.kind !== 'SUBMIT') return intentState(next)
+  // 저장 보류(평가일 기준 변경 + 실제 날짜, DOC-008 v2.8)는 계약을 부르지 않는다 — 안내만 돌려준다.
+  if (next.intent.kind !== 'SUBMIT' || next.saveHeld) return intentState(next)
 
   const id = text(form, PRODUCT_ID_FIELD)
   // 계약 입력은 `next.values`에서 나온다 — 등록 어댑터의 각주와 같은 이유다.

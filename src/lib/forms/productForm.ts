@@ -4,11 +4,13 @@ import { barrierNotice, parseBarrierList } from './barriers'
 import { parseFieldPath, path } from './fieldPath'
 import { initialFormState, toFormState, type FormState } from './state'
 import { MAX_ROUNDS, roundCountOf } from './rounds'
+import { EVALUATION_DATE_BASIS_FIELD, applyEvaluationDates } from './schedules'
 
 /**
  * 차수 계수는 `./rounds`에 있고 여기서 재수출한다 — 소비자의 import 경로가 그대로 산다.
  * 옮긴 이유는 순환이다: `schedules.ts`가 이 셋을 쓰고 `transition`이 `schedules.ts`의
- * 평가일 채움을 쓴다(DOC-008 v2.8). 순환은 린트가 막지 않지만 지금 트리에 하나도 없다.
+ * 평가일 채움을 쓴다(DOC-008 v2.8). 순환은 린트가 막지 않지만 지금 트리에 하나도 없다
+ * (`schedules.ts`는 이 파일을 **타입으로만** import한다).
  */
 export { MAX_ROUNDS, countOf, roundCountOf } from './rounds'
 
@@ -28,9 +30,10 @@ export { MAX_ROUNDS, countOf, roundCountOf } from './rounds'
  * 그 요구를 **더 쉽게** 만족한다. 둘째 근거(「전이를 순수 모듈로 빼야 상시 스위트가
  * 본다」, AQ-32)는 **애초에 단계를 가진 비용**이었다 — 전이가 없으면 뺄 전이도 없다.
  *
- * ## 남는 것은 페이지 안의 조작 셋이다
+ * ## 남는 것은 페이지 안의 조작 넷이다
  *
- * 행 추가 · 행 삭제 · 배리어 일괄 적용. 단계 이동이 아니지만 같은 이유로 **제출**
+ * 행 추가 · 행 삭제 · 배리어 일괄 적용 · 산식으로 다시 채우기(평가일, DOC-008 v2.8).
+ * 단계 이동이 아니지만 같은 이유로 **제출**
  * 이며 버튼의 `name`·`value`가 의도를 나른다. 그래서 `Intent`와 `transition`은
  * 남고 `moveStep`·`carryNames`·`stepForErrors`는 사라졌다.
  *
@@ -92,6 +95,7 @@ export type Intent =
   | { kind: 'ADD_UNDERLYING' }
   | { kind: 'REMOVE_UNDERLYING'; index: number }
   | { kind: 'APPLY_BARRIERS' }
+  | { kind: 'APPLY_EVALUATION_DATES' }
   | { kind: 'NONE' }
 
 /**
@@ -113,6 +117,8 @@ export function parseIntent(raw: string | null | undefined): Intent {
       return { kind: 'ADD_UNDERLYING' }
     case 'APPLY_BARRIERS':
       return { kind: 'APPLY_BARRIERS' }
+    case 'APPLY_EVALUATION_DATES':
+      return { kind: 'APPLY_EVALUATION_DATES' }
     case 'REMOVE_UNDERLYING': {
       const index = /^\d+$/.test(arg) ? Number.parseInt(arg, 10) : -1
       return index < 0 ? { kind: 'NONE' } : { kind: 'REMOVE_UNDERLYING', index }
@@ -136,7 +142,11 @@ const BASIC_NAMES = [
   'note',
 ] as const
 
-/** 평가 조건 구획의 스칼라. `barriers`는 일괄 입력 칸이며 계약 필드가 아니다 */
+/**
+ * 평가 조건 구획의 스칼라. 계약 필드가 아닌 것이 둘이다 — `barriers`(일괄 입력 칸)와
+ * `evaluationDateBasis`(평가일 기준 히든, DOC-008 v2.8). 둘 다 여기 있어야 `transition`의
+ * 값 좁힘을 지나 다음 렌더와 다음 제출로 이어진다.
+ */
 const CONDITION_NAMES = [
   'evaluationPeriodMonths',
   'totalRounds',
@@ -144,11 +154,14 @@ const CONDITION_NAMES = [
   'kiBarrier',
   'kiObservation',
   'barriers',
+  EVALUATION_DATE_BASIS_FIELD,
 ] as const
 
 /** 배열 행의 하위 이름. 생성기와 파서가 이 목록을 공유한다 */
 export const UNDERLYING_SUBS = ['assetId', 'basePrice'] as const
 export const SCHEDULE_SUBS = [
+  // 입력값이다(DOC-008 v2.8) — 빈 칸은 저장이 산식으로 채운다(`applyEvaluationDates`)
+  'evaluationDate',
   'barrier',
   'lizardBarrier',
   'lizardCouponRate',
@@ -157,6 +170,18 @@ export const SCHEDULE_SUBS = [
 
 /** 일괄 배리어 입력 칸의 이름 — 계약의 필드가 아니라 화면의 도구다 */
 export const BARRIERS_FIELD = 'barriers'
+
+/**
+ * **설계상 히든인 이름의 원장** — `productFieldNames` 중 진짜 컨트롤이 아닌 것 (DOC-008 v2.8)
+ *
+ * v1.8(단계 철회)이 「선언된 이름은 전부 진짜 컨트롤이다」를 불변식으로 세웠고
+ * `tests/e2e/product-new.test.ts`가 그것을 단언한다 — 히든 이송으로 값이 조용히 사라지는
+ * 상태를 구조적으로 없앤 것이 근거다. 평가일 기준은 그 예외다: 사용자가 고칠 값이 아니라
+ * 「지금 칸의 날짜가 어떤 발행일·주기에서 나왔는가」의 **기록**이고 계약 필드도 아니다.
+ * 예외를 테스트에 적지 않고 여기 두는 이유는 늘어날 때 **이 목록이 늘어나야** 하기 때문이다
+ * — 테스트에서 빼면 다음 히든이 조용히 들어온다.
+ */
+export const HIDDEN_FIELD_NAMES: readonly string[] = [EVALUATION_DATE_BASIS_FIELD]
 
 export type RowCounts = {
   underlyings: number
@@ -332,6 +357,12 @@ export type Transition = {
   counts: RowCounts
   /** 사용자에게 알릴 것 — 오류가 아니다(일괄 적용 결과 등) */
   notice: string | null
+  /**
+   * 저장 제출이지만 **저장하지 않는다** — 평가일 기준이 바뀌었는데 실제 날짜가 섞여 있다
+   * (`applyEvaluationDates`의 `held`). 어댑터는 이것이 참이면 계약을 부르지 않고
+   * `intentState`로 안내를 돌려준다. 저장이 성공하면 리다이렉트로 안내가 사라지기 때문이다.
+   */
+  saveHeld: boolean
 }
 
 /**
@@ -351,6 +382,7 @@ export function transition(form: FormData): Transition {
 
   let raw = readAll(form)
   let notice: string | null = null
+  let saveHeld = false
 
   switch (intent.kind) {
     case 'ADD_UNDERLYING': {
@@ -376,6 +408,12 @@ export function transition(form: FormData): Transition {
       notice = applied.notice
       break
     }
+    case 'APPLY_EVALUATION_DATES': {
+      const applied = applyEvaluationDates(raw, 'OVERWRITE')
+      raw = applied.values
+      notice = applied.notice
+      break
+    }
     case 'SUBMIT': {
       /*
        * 저장도 일괄 칸을 펼친다 — 다만 **빈 칸에만**. 근거는 `applyBarriers`의
@@ -387,8 +425,15 @@ export function transition(form: FormData): Transition {
        * 여기서 `null`로 두면 「왜 이 분기만 안내가 없는가」가 설명되지 않는다.
        */
       const applied = applyBarriers(raw, 'FILL_EMPTY')
-      raw = applied.values
-      notice = applied.notice
+      /*
+       * 평가일은 배리어 **뒤**다 — 일괄 칸이 비어 있던 총 차수를 정할 수 있고, 산식은 그
+       * 차수까지 채운다. 순서를 바꾸면 「총 차수를 비우고 일괄 칸만 적고 저장」에서 평가일이
+       * 0개 채워진다.
+       */
+      const dated = applyEvaluationDates(applied.values, 'SUBMIT')
+      raw = dated.values
+      saveHeld = dated.held
+      notice = dated.notice ?? applied.notice
       break
     }
     default:
@@ -405,7 +450,7 @@ export function transition(form: FormData): Transition {
     values[name] = raw[name] ?? ''
   }
 
-  return { intent, values, counts, notice }
+  return { intent, values, counts, notice, saveHeld }
 }
 
 // ---------------------------------------------------------------------------

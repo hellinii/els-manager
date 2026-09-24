@@ -3,7 +3,12 @@
 import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
-import { previewDatesOf } from '@/lib/forms/schedules'
+import {
+  EVALUATION_DATE_BASIS_FIELD,
+  evaluationDateHintsOf,
+  previewDatesOf,
+  type EvaluationDateHint,
+} from '@/lib/forms/schedules'
 import type { FormState } from '@/lib/forms/state'
 import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productForm'
 
@@ -17,14 +22,17 @@ import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productFor
  * 표시된다. 「일괄 적용」이 차수별 칸을 채우고(`applyBarriers`, 제출이다) 그 뒤에는
  * 차수마다 고칠 수 있다. 스텝다운이 아닌 구조도 같은 칸에서 입력된다.
  *
- * ## 평가일은 여기 입력이 없다
+ * ## 평가일은 차수별 입력 칸이다 (DOC-008 v2.8)
  *
- * 생성값이며(DOC-008 §5 SCR-204) 표에 **표시만** 한다. 화면과 파서가
- * `previewDatesOf` 하나를 같은 값에 부르므로 「본 것과 다른 것이 저장된다」가
- * 구조적으로 불가능하다. 산식은 `발행일 + n × 주기 − 1일`이며 기산 규약을 포함한다
- * (`EVALUATION_DATE_OFFSET_DAYS`). 히든으로 나르지 않는 이유였던 「발행일을 고친 뒤
- * 이 단계를 지나지 않고 저장하는」 경로는 P6 컷 1에서 **존재할 수 없게 됐다** —
- * 단계가 없으므로 지나지 않을 단계도 없다.
+ * 증권사의 실제 평가일이 전역 산식과 상품마다 다르게 어긋나므로(DOC-002 §4.8 v1.6 —
+ * E04000 5/5) 칸이 정본이고 산식은 **채우는 도구**다: 저장이 빈 칸을 채우고
+ * 「산식으로 다시 채우기」가 전 차수를 덮는다(일괄 배리어와 같은 짝). 산식이 움직여도
+ * 되는지는 칸 옆 힌트와 저장이 **같은 판정**(`evaluationDatePlanOf`)에서 받는다 —
+ * 힌트가 「저장하면 채운다」고 말한 칸만 저장이 채운다.
+ *
+ * 평가일 기준(`evaluationDateBasis`)은 히든이다. 사용자가 고칠 값이 아니라 「지금 칸의
+ * 날짜가 어떤 발행일·주기에서 나왔는가」의 기록이며, 수정 화면에서 발행일을 고친 저장이
+ * 산식대로이던 날짜를 옮기고 실제 날짜는 옮기지 않게 한다.
  *
  * ## 모든 비율 칸이 퍼센트다
  *
@@ -36,10 +44,22 @@ import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productFor
 export function ConditionStep({ state }: { state: FormState }) {
   const { values, fieldErrors } = state
   const rounds = roundCountOf(values)
-  const dates = previewDatesOf(values)
+  // 산식을 계산할 수 있는가 — 차수표 위 안내에만 쓴다(칸별 판정은 힌트가 한다)
+  const computable = previewDatesOf(values).length > 0
+  const hints = evaluationDateHintsOf(values)
 
   return (
     <div className="flex flex-col gap-4">
+      {/*
+        평가일 기준 — 차수표가 없어도 그린다(총 차수 0에서도 제출마다 다음 렌더로 이어져야 한다).
+        설계상 히든이며 그 예외는 `HIDDEN_FIELD_NAMES` 원장에 있다.
+      */}
+      <input
+        type="hidden"
+        name={EVALUATION_DATE_BASIS_FIELD}
+        value={values[EVALUATION_DATE_BASIS_FIELD] ?? ''}
+      />
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Field
           name="evaluationPeriodMonths"
@@ -190,7 +210,8 @@ export function ConditionStep({ state }: { state: FormState }) {
       ) : (
         <RoundTable
           rounds={rounds}
-          dates={dates}
+          computable={computable}
+          hints={hints}
           values={values}
           fieldErrors={fieldErrors}
         />
@@ -200,7 +221,7 @@ export function ConditionStep({ state }: { state: FormState }) {
 }
 
 /**
- * 차수표 — 차수 · 평가일(생성값) · 배리어 · 리자드 조건.
+ * 차수표 — 차수 · 평가일 · 배리어 · 리자드 조건.
  *
  * 리자드 세 칸은 `<details>` 안에 있다. DOC-008 §8이 차수별 조건표를 「우선순위 낮은
  * 열을 접고 상세 펼치기로 제공」하라고 지목했고, `<details>`는 JS가 필요 없으며
@@ -209,25 +230,39 @@ export function ConditionStep({ state }: { state: FormState }) {
  */
 function RoundTable({
   rounds,
-  dates,
+  computable,
+  hints,
   values,
   fieldErrors,
 }: {
   rounds: number
-  dates: readonly string[]
+  computable: boolean
+  hints: readonly EvaluationDateHint[]
   values: Record<string, string>
   fieldErrors: Record<string, string>
 }) {
   return (
     <div className="flex flex-col gap-3">
-      {dates.length === 0 && (
-        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          발행일과 평가주기를 입력하면 평가일이 생성된다. 지금은 비어 있다.
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-neutral-600">
+          {computable
+            ? '평가일은 증권사 통지서의 날짜를 적는다. 빈 칸은 저장할 때 산식(발행일 + n × 평가주기 − 1일)으로 채워진다.'
+            : '발행일과 평가주기를 입력하면 빈 평가일은 저장할 때 산식으로 채워진다.'}
         </p>
-      )}
+        <button
+          type="submit"
+          name="intent"
+          value="APPLY_EVALUATION_DATES"
+          className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium hover:bg-neutral-100"
+        >
+          산식으로 다시 채우기
+        </button>
+      </div>
 
       <ul className="flex flex-col gap-2">
         {Array.from({ length: rounds }, (_, index) => {
+          const dateName = path('schedules', index, 'evaluationDate')
+          const hint = hints[index]
           const barrierName = path('schedules', index, 'barrier')
           const lizardBarrierName = path('schedules', index, 'lizardBarrier')
           const lizardRateName = path('schedules', index, 'lizardCouponRate')
@@ -241,9 +276,25 @@ function RoundTable({
             >
               <div className="flex flex-wrap items-end gap-3">
                 <span className="w-14 text-sm font-medium">{`${index + 1}차`}</span>
-                <span className="w-28 text-sm text-neutral-600">
-                  {dates[index] ?? '평가일 미정'}
-                </span>
+
+                <div className="w-44">
+                  <Field
+                    name={dateName}
+                    label="평가일"
+                    error={fieldErrors[dateName]}
+                    hint={hint?.text ?? undefined}
+                    hintTone={hint?.kind === 'FAR' ? 'warn' : 'muted'}
+                  >
+                    {(props) => (
+                      <input
+                        {...props}
+                        type="date"
+                        defaultValue={values[dateName] ?? ''}
+                        className={`${INPUT_CLASS} w-full`}
+                      />
+                    )}
+                  </Field>
+                </div>
 
                 <div className="w-32">
                   <Field

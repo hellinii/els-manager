@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import { productDefaults } from '@/lib/forms/defaults'
 import {
+  HIDDEN_FIELD_NAMES,
   PENDING_PARTS,
   productFieldNames,
   type RowCounts,
@@ -134,7 +135,12 @@ describe('SCR-204 단일 페이지 폼', () => {
     for (const name of productFieldNames(ONE_ROW)) {
       expect(rendered, `${name}이 렌더되지 않았다`).toContain(name)
       const tag = new RegExp(`<(?:input|select|textarea)[^>]*name="${name.replace(/[[\]]/g, '\\$&')}"[^>]*>`).exec(form)?.[0] ?? ''
-      expect(tag, `${name}이 히든이다`).not.toContain('type="hidden"')
+      // 예외는 원장 하나다(평가일 기준, DOC-008 v2.8) — 원장 밖의 히든은 여전히 빨간불이다
+      if (HIDDEN_FIELD_NAMES.includes(name)) {
+        expect(tag, `${name}은 설계상 히든이다`).toContain('type="hidden"')
+      } else {
+        expect(tag, `${name}이 히든이다`).not.toContain('type="hidden"')
+      }
     }
   })
 
@@ -215,7 +221,7 @@ describe('SCR-204 단일 페이지 폼', () => {
     expect(form).not.toContain('value="BACK"')
   })
 
-  it('일괄 적용이 차수표를 채우고 평가일이 규약대로 생성된다', async () => {
+  it('일괄 적용이 차수표를 채우고 빈 평가일 칸이 규약대로의 산식 날짜를 말한다', async () => {
     /*
      * SQ-04 — 일괄 칸은 채우는 도구이고 정본은 차수별 칸이다. 그리고 화면과 파서가
      * `previewDatesOf` 하나를 같은 값에 부르므로 「본 것과 다른 것이 저장된다」가
@@ -244,9 +250,12 @@ describe('SCR-204 단일 페이지 폼', () => {
       'value="90"',
     )
 
-    // 차수표가 생성된 평가일을 보여준다 — 기산 규약(−1일)이 실려 있다
-    expect(html).toContain('2026-02-27')
-    expect(html).toContain('2026-03-30')
+    // 평가일 칸은 비어 있고(v2.8 — 칸이 정본이다) 힌트가 저장이 채울 산식 날짜를 말한다.
+    // 기산 규약(−1일)이 그 날짜에 실려 있다.
+    expect(/<input[^>]*name="schedules\[0\]\.evaluationDate"[^>]*>/.exec(form)?.[0]).toContain('value=""')
+    expect(/<input[^>]*name="schedules\[0\]\.evaluationDate"[^>]*>/.exec(form)?.[0]).toContain('type="date"')
+    expect(html).toContain('저장하면 산식 2026-02-27')
+    expect(html).toContain('저장하면 산식 2026-03-30')
     // 음성 대조 — 규약이 실리지 않았다면 이 둘이 나온다
     expect(html).not.toContain('2026-02-28')
     expect(html).not.toContain('2026-03-31')
@@ -291,6 +300,68 @@ describe('SCR-204 단일 페이지 폼', () => {
       `저장이 리다이렉트로 끝나지 않았다 — 펼침이 없으면 200 + 배리어 오류다`,
     ).toBe(303)
     expect(saved.headers.get('location')).toMatch(/^\/products\/[0-9a-f-]{36}$/)
+  })
+
+  it('★ 산식과 다른 평가일이 적은 그대로 저장되고 상세에 보인다 (DOC-008 v2.8)', async () => {
+    /*
+     * 평가일이 차수별 입력값이 된 이유가 이것이다 — 키움 E04000의 실제 1·2차는
+     * 2026-11-30·2027-05-31이고 산식(−1일)은 2026-11-28·2027-05-28이다. 저장이 산식으로
+     * 덮으면 이 케이스가 빨간불이다. 상세(SCR-202)까지 가서 본다: 폼이 옳아도 계약·함수가
+     * 산식을 다시 적용하면 거기서야 드러난다.
+     */
+    const first = await (await get(PATHS.productNew, jar)).text()
+    const assetId =
+      /<option value="([0-9a-f-]{36})"/.exec(formHtmlFor(first, actionId))?.[1] ?? ''
+    expect(assetId).toMatch(/^[0-9a-f-]{36}$/)
+
+    const saved = await submitAction(PATHS.productNew, jar, [
+      ...formValuesFor(first, actionId),
+      ...Object.entries({
+        ...BASIC,
+        name: `[E2E] 실제평가일${STAMP}`,
+        issueDate: '2026-05-29',
+        'underlyings[0].assetId': assetId,
+        'underlyings[0].basePrice': '317000',
+        evaluationPeriodMonths: '6',
+        totalRounds: '2',
+        annualCouponRate: '32.1',
+        barriers: '85-85',
+        'schedules[0].evaluationDate': '2026-11-30',
+        'schedules[1].evaluationDate': '2027-05-31',
+      }),
+      buttonField(formHtmlFor(first, actionId), 'SUBMIT'),
+    ])
+    expect(saved.status).toBe(303)
+    const location = saved.headers.get('location') ?? ''
+    expect(location).toMatch(/^\/products\/[0-9a-f-]{36}$/)
+
+    const detail = await (await get(location, jar)).text()
+    expect(detail).toContain('2026-11-30')
+    expect(detail).toContain('2027-05-31')
+    // 음성 대조 — 산식이 덮었다면 이 둘이 보인다
+    expect(detail).not.toContain('2026-11-28')
+    expect(detail).not.toContain('2027-05-28')
+  })
+
+  it('「산식으로 다시 채우기」가 전 차수를 채우고 건수를 알린다', async () => {
+    const first = await (await get(PATHS.productNew, jar)).text()
+    const html = await submit(first, 'APPLY_BARRIERS', {
+      issueDate: '2026-05-29',
+      evaluationPeriodMonths: '6',
+      totalRounds: '2',
+      barriers: '85-85',
+    })
+    const filled = await submit(html, 'APPLY_EVALUATION_DATES', {
+      'schedules[0].evaluationDate': '2026-11-30',
+    })
+    const form = formHtmlFor(filled, actionId)
+    expect(/<input[^>]*name="schedules\[0\]\.evaluationDate"[^>]*>/.exec(form)?.[0]).toContain(
+      'value="2026-11-28"',
+    )
+    expect(/<input[^>]*name="schedules\[1\]\.evaluationDate"[^>]*>/.exec(form)?.[0]).toContain(
+      'value="2027-05-28"',
+    )
+    expect(filled).toContain('산식과 다르던 1개를 덮었다')
   })
 
   it('검증 실패는 그 칸에 오류를 붙인다 — 되돌릴 단계가 없다', async () => {

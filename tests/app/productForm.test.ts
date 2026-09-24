@@ -8,7 +8,7 @@ import {
 import { narrowAssets } from '@/lib/forms/assets'
 import { barrierNotice, parseBarrierList } from '@/lib/forms/barriers'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
-import { previewDates } from '@/lib/forms/schedules'
+import { EVALUATION_DATE_BASIS_FIELD, previewDates } from '@/lib/forms/schedules'
 import {
   INTENT_FIELD,
   MAX_ROUNDS,
@@ -97,7 +97,15 @@ describe('폼의 이름 — DOC-008 §5 SCR-204 v1.8', () => {
     expect(names).toContain('underlyings[2].basePrice')
     expect(names).not.toContain('underlyings[3].basePrice')
     expect(names).toContain('schedules[1].lizardCouponRate')
+    expect(names).toContain('schedules[1].evaluationDate')
     expect(names).not.toContain('schedules[2].barrier')
+    expect(names).not.toContain('schedules[2].evaluationDate')
+  })
+
+  it('평가일 기준은 폼의 이름이다 — 값 좁힘을 지나야 다음 제출로 이어진다', () => {
+    // 빠지면 `transition`이 기준을 걸러내고, 수정 화면에서 발행일을 고친 저장이
+    // 「기준 없음」으로 읽혀 산식대로이던 날짜를 실제 날짜로 오판한다(DOC-008 v2.8).
+    expect(productFieldNames(COUNTS)).toContain(EVALUATION_DATE_BASIS_FIELD)
   })
 
   it('원장의 항목이 무엇을·언제인지 말한다', () => {
@@ -291,7 +299,12 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
         error: {
           code: 'VALIDATION_FAILED',
           message: '입력을 확인한다.',
-          fields: { name: '상품명을 입력한다.', 'schedules[0].barrier': '배리어를 입력한다.' },
+          fields: {
+            name: '상품명을 입력한다.',
+            'schedules[0].barrier': '배리어를 입력한다.',
+            // v2.8 — 평가일이 칸이 되어 V-07이 상단 요약이 아니라 그 칸에 붙는다
+            'schedules[0].evaluationDate': '날짜를 입력한다.',
+          },
         },
       },
       next,
@@ -299,6 +312,7 @@ describe('폼 상태 — 등록과 수정이 같은 두 함수를 쓴다', () =>
 
     expect(state.fieldErrors.name).toBe('상품명을 입력한다.')
     expect(state.fieldErrors['schedules[0].barrier']).toBe('배리어를 입력한다.')
+    expect(state.fieldErrors['schedules[0].evaluationDate']).toBe('날짜를 입력한다.')
     expect(state.unmatched).toEqual([])
     // 단계를 나르는 값이 상태에 없다 — 있으면 폼이 그것을 다시 제출한다
     expect(state.values.step).toBeUndefined()
@@ -654,6 +668,85 @@ describe('SQ-04 배리어 일괄 입력', () => {
     expect(
       parseProductForm(formOfValues(next.values)).schedules.map((s) => s.barrier),
     ).toEqual(['0.9000', '0.8500'])
+
+    // 평가일도 같다 — 파서는 날짜를 만들지 않고(v2.8) 전이가 빈 칸을 산식으로 채운다.
+    expect(parseProductForm(form).schedules.map((s) => s.evaluationDate)).toEqual(['', ''])
+    expect(
+      parseProductForm(formOfValues(next.values)).schedules.map((s) => s.evaluationDate),
+    ).toEqual(['2026-07-01', '2027-01-01'])
+  })
+
+  it('★ 평가일은 배리어 뒤에 채운다 — 일괄 칸이 정한 총 차수까지', () => {
+    // 총 차수를 비우고 일괄 칸만 적어 저장하는 경로. 순서가 바뀌면 평가일이 0개 채워진다.
+    const next = transition(
+      formData({
+        [INTENT_FIELD]: 'SUBMIT',
+        issueDate: '2026-01-02',
+        evaluationPeriodMonths: '6',
+        totalRounds: '',
+        barriers: '90-85-80',
+      }),
+    )
+    expect(next.counts.rounds).toBe(3)
+    expect(
+      [0, 1, 2].map((i) => next.values[`schedules[${i}].evaluationDate`]),
+    ).toEqual(['2026-07-01', '2027-01-01', '2027-07-01'])
+  })
+
+  it('★ 불러온 실제 날짜는 저장 제출을 지나도 그대로다 — 산식과 달라도', () => {
+    // E04000(키움 ELS 4000회) 실측 — 산식(−1일)과 1~2차 모두 다르다.
+    const next = transition(
+      formData({
+        [INTENT_FIELD]: 'SUBMIT',
+        issueDate: '2026-05-29',
+        evaluationPeriodMonths: '6',
+        totalRounds: '2',
+        [EVALUATION_DATE_BASIS_FIELD]: '2026-05-29|6',
+        'schedules[0].evaluationDate': '2026-11-30',
+        'schedules[1].evaluationDate': '2027-05-31',
+      }),
+    )
+    expect(next.saveHeld).toBe(false)
+    expect(next.values['schedules[0].evaluationDate']).toBe('2026-11-30')
+    expect(next.values['schedules[1].evaluationDate']).toBe('2027-05-31')
+  })
+
+  it('★ 실제 날짜가 있는데 발행일이 바뀐 저장은 보류된다 — 어댑터가 계약을 부르지 않는다', () => {
+    const held = transition(
+      formData({
+        [INTENT_FIELD]: 'SUBMIT',
+        issueDate: '2026-05-28',
+        evaluationPeriodMonths: '6',
+        totalRounds: '1',
+        [EVALUATION_DATE_BASIS_FIELD]: '2026-05-29|6',
+        'schedules[0].evaluationDate': '2026-11-30',
+      }),
+    )
+    expect(held.intent.kind).toBe('SUBMIT')
+    expect(held.saveHeld).toBe(true)
+    const state = intentState(held)
+    expect(state.status).toBe('INITIAL')
+    expect(state.message).toContain('평가일은 옮기지 않았다')
+    // 재제출하면 저장된다 — 기준이 현재 값으로 올라갔다
+    expect(transition(formOfValues({ ...held.values, [INTENT_FIELD]: 'SUBMIT' })).saveHeld).toBe(
+      false,
+    )
+  })
+
+  it('「산식으로 다시 채우기」는 제출이고 전 차수를 덮는다', () => {
+    expect(parseIntent('APPLY_EVALUATION_DATES')).toEqual({ kind: 'APPLY_EVALUATION_DATES' })
+    const next = transition(
+      formData({
+        [INTENT_FIELD]: 'APPLY_EVALUATION_DATES',
+        issueDate: '2026-05-29',
+        evaluationPeriodMonths: '6',
+        totalRounds: '1',
+        'schedules[0].evaluationDate': '2026-11-30',
+      }),
+    )
+    expect(next.values['schedules[0].evaluationDate']).toBe('2026-11-28')
+    expect(next.notice).toBe('평가일 1개를 산식으로 채웠다 — 산식과 다르던 1개를 덮었다.')
+    expect(next.saveHeld).toBe(false)
   })
 })
 
@@ -779,11 +872,15 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
       'underlyings[0].basePrice': '2,489.55',
       'underlyings[1].assetId': '00000000-0000-4000-8000-0000000000a2',
       'underlyings[1].basePrice': '13500',
+      // 일부러 산식(발행일 + 6n − 1일)과 **다른** 날짜다 — 파서가 칸을 읽는지 산식을 만드는지 가른다
+      'schedules[0].evaluationDate': '2026-07-02',
       'schedules[0].barrier': '90',
+      'schedules[1].evaluationDate': '2027-01-04',
       'schedules[1].barrier': '85',
       'schedules[1].lizardBarrier': '60',
       'schedules[1].lizardCouponRate': '3',
       'schedules[1].lizardRequiresNoKi': 'on',
+      'schedules[2].evaluationDate': '2027-07-02',
       'schedules[2].barrier': '80',
     })
   }
@@ -815,19 +912,26 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
         },
       ],
       schedules: [
-        // 발행일 2026-01-02 + 6n − 1일 (기산 규약)
-        { roundNo: 1, evaluationDate: '2026-07-01', barrier: '0.9000' },
+        // 칸의 값 그대로다(v2.8) — 산식이면 2026-07-01 · 2027-01-01 · 2027-07-01이다
+        { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' },
         {
           roundNo: 2,
-          evaluationDate: '2027-01-01',
+          evaluationDate: '2027-01-04',
           barrier: '0.8500',
           lizardBarrier: '0.6000',
           lizardCouponRate: '0.0300',
           lizardRequiresNoKi: true,
         },
-        { roundNo: 3, evaluationDate: '2027-07-01', barrier: '0.8000' },
+        { roundNo: 3, evaluationDate: '2027-07-02', barrier: '0.8000' },
       ],
     })
+  })
+
+  it('파서는 평가일을 만들지 않는다 — 칸이 없으면 빈 값이고 V-07이 그 칸에 붙는다', () => {
+    const input = parseProductForm(
+      formData({ issueDate: '2026-01-02', evaluationPeriodMonths: '6', totalRounds: '1' }),
+    )
+    expect(input.schedules[0]!.evaluationDate).toBe('')
   })
 
   it('생성기가 만든 이름만으로 폼이 채워진다', () => {
@@ -858,6 +962,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
         note: '',
         'underlyings[0].assetId': '00000000-0000-4000-8000-0000000000a1',
         'underlyings[0].basePrice': '100',
+        'schedules[0].evaluationDate': '2026-04-01',
         'schedules[0].barrier': '95',
       }),
     )
@@ -884,6 +989,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
         issueDate: '2026-01-02',
         evaluationPeriodMonths: '6',
         totalRounds: '1',
+        'schedules[0].evaluationDate': '2026-07-01',
         'schedules[0].barrier': '90',
         'schedules[0].lizardBarrier': '',
         'schedules[0].lizardCouponRate': '3',
@@ -984,6 +1090,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
   it('차수표의 하위 이름이 파서와 같다', () => {
     // 목록이 갈리면 그 칸만 조용히 저장되지 않는다.
     expect([...SCHEDULE_SUBS]).toEqual([
+      'evaluationDate',
       'barrier',
       'lizardBarrier',
       'lizardCouponRate',

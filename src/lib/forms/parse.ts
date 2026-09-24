@@ -12,7 +12,6 @@ import type {
 } from '@/lib/db/mutations/types'
 
 import { path } from './fieldPath'
-import { previewDatesOf } from './schedules'
 import {
   SCHEDULE_SUBS,
   UNDERLYING_SUBS,
@@ -224,9 +223,6 @@ export function parseProductForm(form: FormData): ProductInput {
   const totalRounds = countOf(values.totalRounds)
   const rounds = roundCountOf(values)
 
-  // 평가일은 생성값이다 — 화면의 미리보기와 **같은 함수**를 같은 값에 부른다.
-  const dates = previewDatesOf(values)
-
   const schedules: ScheduleInput[] = []
   for (let index = 0; index < rounds; index += 1) {
     const at = (sub: (typeof SCHEDULE_SUBS)[number]): string =>
@@ -235,9 +231,10 @@ export function parseProductForm(form: FormData): ProductInput {
     const lizardBarrier = optionalRatioText(form, at('lizardBarrier'))
     const schedule: ScheduleInput = {
       roundNo: index + 1,
-      // 생성할 수 없으면 `''`이고 계약이 그 이유를 말한다(V-07). 화면은 그 전에
-      // 「발행일·평가주기를 먼저 입력한다」를 표로 보여 준다.
-      evaluationDate: dates[index] ?? '',
+      // 칸의 값이다(DOC-008 v2.8). 파서는 날짜를 만들지 않는다 — 빈 칸을 산식으로 채우는
+      // 것은 `transition`의 일이고(저장 제출이 `applyEvaluationDates`를 지난다) 여기서 또
+      // 채우면 규칙이 두 곳이 된다. 빈 채로 오면 계약이 그 칸에 V-07을 붙인다.
+      evaluationDate: text(form, at('evaluationDate')),
       barrier: percentToRatio(text(form, at('barrier'))),
     }
 

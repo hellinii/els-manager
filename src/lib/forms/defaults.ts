@@ -53,6 +53,8 @@ export function productDefaults(): Record<string, string> {
     kiBarrier: '',
     kiObservation: '',
     barriers: '',
+    // 평가일 기준 — 비어 있으면 「기준 없음」이고 첫 저장이 현재 산식과 대조한다(DOC-008 v2.8)
+    evaluationDateBasis: '',
     'underlyings[0].assetId': '',
     'underlyings[0].basePrice': '',
   }

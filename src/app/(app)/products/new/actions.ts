@@ -32,7 +32,8 @@ export async function productFormAction(
   form: FormData,
 ): Promise<FormState> {
   const next = transition(form)
-  if (next.intent.kind !== 'SUBMIT') return intentState(next)
+  // 저장 보류(평가일 기준 변경 + 실제 날짜, DOC-008 v2.8)는 계약을 부르지 않는다 — 안내만 돌려준다.
+  if (next.intent.kind !== 'SUBMIT' || next.saveHeld) return intentState(next)
 
   /*
    * 계약 입력은 **`next.values`에서 나온다** — 원본 `FormData`가 아니다. 화면은

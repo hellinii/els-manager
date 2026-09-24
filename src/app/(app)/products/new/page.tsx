@@ -45,7 +45,7 @@ export default async function ProductNewPage() {
       <header>
         <h1 className="text-xl font-semibold tracking-tight">ELS 등록</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          네 단계로 입력한다. 각 단계의 값은 이동해도 남는다.
+          한 페이지에서 입력한다. 평가일은 증권사 통지서의 날짜를 적고, 비워 두면 저장할 때 산식으로 채워진다.
         </p>
       </header>
 

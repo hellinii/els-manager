@@ -9,6 +9,7 @@ import {
   priceDisplay,
   won,
 } from '@/lib/format'
+import { EVALUATION_DATE_OFFSET_DAYS, generateEvaluationDates } from '@/lib/domain'
 import { percentToRatio } from '@/lib/forms/parse'
 import { FILTER_KEYS, OWNER_ALL } from '@/lib/forms/query'
 import { PRODUCT_ID_FIELD, productFieldNames } from '@/lib/forms/productForm'
@@ -653,6 +654,44 @@ describe('SCR-204 수정 모드 (컷 5)', () => {
     }
     // 2차의 리자드 조건도 남았다.
     expect(detail).toContain(percent(percentToRatio('60')))
+  })
+
+  it('★ 산식대로 저장된 평가일은 발행일을 고친 저장에서 따라간다 (DOC-008 v2.8)', async () => {
+    /*
+     * 평가일이 입력값이 된 뒤 **가장 흔한 수정 경로**다 — 운영 11건이 전부 산식대로다.
+     * 폼이 평가일 기준(`evaluationDateBasis`)을 나르지 않으면 이 저장이 옛 발행일 기준의
+     * 날짜를 경고 없이 남기거나(기준 없음 → 실제 날짜로 오판 → 보류 후 재제출) 한다.
+     */
+    const actionId = actionIdOf('productEditFormAction')
+    const editPath = PATHS.productEdit(seeded.productId)
+    const html = await (await get(editPath, jar)).text()
+
+    const year = Number.parseInt(seeded.issueDate.slice(0, 4), 10)
+    const movedIssue = `${year}-02-02`
+    const expected = generateEvaluationDates({
+      issueDate: movedIssue,
+      evaluationPeriodMonths: 6,
+      totalRounds: 3,
+      offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+    })
+    const before = generateEvaluationDates({
+      issueDate: seeded.issueDate,
+      evaluationPeriodMonths: 6,
+      totalRounds: 3,
+      offsetDays: EVALUATION_DATE_OFFSET_DAYS,
+    })
+
+    const saved = await submitAction(editPath, jar, [
+      ...formValuesFor(html, actionId).filter(([name]) => name !== 'issueDate'),
+      ['issueDate', movedIssue],
+      buttonField(formHtmlFor(html, actionId), 'SUBMIT'),
+    ])
+    expect([302, 303], '보류되었다면 200 + 안내다').toContain(saved.status)
+
+    const detail = await (await get(PATHS.product(seeded.productId), jar)).text()
+    for (const date of expected) expect(detail, date).toContain(date)
+    // 음성 대조 — 옮기지 않았다면 옛 1차가 남는다
+    expect(detail).not.toContain(before[0]!)
   })
 
   it('없는 상품·오타 id는 404다 — 상세와 같은 규칙이다', async () => {
