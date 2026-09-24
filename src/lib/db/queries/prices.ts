@@ -36,6 +36,13 @@ export type AssetOption = {
   market: string | null
   currency: string
   hasPriceProvider: boolean
+  /**
+   * 이 자산의 공급자 매핑 — `AssetPriceRow.providerSymbols`와 같은 형태 (DOC-011 §4.9 v4.3).
+   *
+   * 불러오기(§4.10)가 키움 기초자산을 **심볼로** 앱 자산과 잇는 데 쓴다. 이름으로 잇지 않는다 —
+   * 이름은 사용자가 쓴 값이고 틀린 연결은 자동 시세가 되어 판정에 들어간다.
+   */
+  providerSymbols: Array<{ provider: string; symbol: string }>
 }
 
 /**
@@ -114,6 +121,11 @@ export function makeAssetQueries(ctx: QueryContext) {
       currency: asset.currency,
       // 공급자 심볼이 하나라도 있으면 자동 조회가 가능하다(ADR-004)
       hasPriceProvider: asset.asset_provider_symbols.length > 0,
+      // `listAssetPrices`와 같은 이름 좁힘(`provider_symbol` → `symbol`) — 두 뷰가 한 형태다
+      providerSymbols: asset.asset_provider_symbols.map((row) => ({
+        provider: row.provider,
+        symbol: row.provider_symbol,
+      })),
     }))
   }
 

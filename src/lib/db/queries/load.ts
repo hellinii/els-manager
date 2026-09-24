@@ -695,12 +695,18 @@ export async function loadUsers(ctx: QueryContext): Promise<UserRow[]> {
   return data
 }
 
-/** §4.9의 두 경로가 함께 읽는 열 — 공급자 심볼은 존재 여부만 쓴다(`hasPriceProvider`) */
-type AssetOptionRow = AssetRow & { asset_provider_symbols: Array<{ id: string }> }
+/**
+ * §4.9의 두 경로가 함께 읽는 열.
+ *
+ * 공급자 심볼은 종전에 **존재 여부만** 썼다(`hasPriceProvider`, `id` 하나). v4.3부터 불러오기
+ * (DOC-011 §4.10)가 기초자산을 **심볼로** 앱 자산과 이으므로 `provider`·`provider_symbol`을
+ * 싣는다 — §4.5와 같은 열 목록이며 왕복은 늘지 않는다(같은 임베드의 열만 넓어진다).
+ */
+type AssetOptionRow = AssetRow & { asset_provider_symbols: ProviderSymbolRow[] }
 
 const ASSET_OPTION_SELECT = [
   selectList(ASSET_COLUMNS),
-  embed('asset_provider_symbols', 'id'),
+  embed('asset_provider_symbols', selectList(PROVIDER_SYMBOL_COLUMNS)),
 ].join(',')
 
 /**

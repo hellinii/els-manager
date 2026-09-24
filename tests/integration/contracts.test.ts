@@ -305,6 +305,12 @@ describe('§4.9 searchAssets', () => {
      * 즉 이 한 줄의 변경이 「값이 바뀌었다」가 아니라 **「없던 갈래가 생겼다」**다.
      */
     expect(options[0].hasPriceProvider).toBe(true)
+    // v4.3 — 심볼 자체가 실린다(불러오기가 이것으로 잇는다). `hasPriceProvider`와 같은 행에서 나온다
+    expect(options[0].providerSymbols.length).toBeGreaterThan(0)
+    expect(options[0].providerSymbols[0]).toEqual({
+      provider: expect.any(String),
+      symbol: expect.any(String),
+    })
   })
 
   it('★ 매핑이 없는 자산은 `hasPriceProvider`가 false다 — 반대 갈래', async () => {
@@ -316,6 +322,7 @@ describe('§4.9 searchAssets', () => {
     const options = await s.asA.searchAssets('쌍자산1')
     expect(options).toHaveLength(1)
     expect(options[0].hasPriceProvider).toBe(false)
+    expect(options[0].providerSymbols).toEqual([])
   })
 
   /**

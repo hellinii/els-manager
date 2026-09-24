@@ -761,6 +761,7 @@ describe('자산 좁힘', () => {
     market: 'KRX',
     currency: 'KRW',
     hasPriceProvider: false,
+    providerSymbols: [],
   })
   const ASSETS = [option('a1', '코스피200'), option('a2', 'S&P500'), option('a3', '테슬라')]
 

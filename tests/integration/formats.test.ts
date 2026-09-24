@@ -360,6 +360,9 @@ const ASSET_OPTION: Record<string, Spec> = {
   market: 'TEXT',
   currency: 'TEXT',
   hasPriceProvider: 'BOOL',
+  // v4.3 — 불러오기가 심볼로 잇는다(§4.10). §4.5와 같은 형태다
+  'providerSymbols[].provider': 'TEXT',
+  'providerSymbols[].symbol': 'TEXT',
 }
 
 let s: Scenario
