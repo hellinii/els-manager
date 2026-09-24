@@ -218,7 +218,13 @@ function parseDate(raw: string, expected: 8 | 14): string | ParseFailure {
   return iso
 }
 
-function isRealDate(iso: string): boolean {
+/**
+ * `YYYY-MM-DD`가 실재하는 날짜인가. **`Date`를 쓰지 않는다** — 위 `parseDate` 각주.
+ *
+ * 조건 원천(ADR-009)의 팝업 날짜(`YYYY.MM.DD`)·검색 날짜(`YYYYMMDD`)도 이것으로 본다 —
+ * 윤년 규칙을 두 벌 두면 한쪽만 고쳐지는 날이 온다.
+ */
+export function isRealDate(iso: string): boolean {
   const [y, m, d] = iso.split('-')
   const year = Number.parseInt(y!, 10)
   const month = Number.parseInt(m!, 10)

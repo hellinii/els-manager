@@ -1,4 +1,5 @@
 import { DEFAULT_LOOKBACK_DAYS, ENDPOINTS, PROVIDER_ID } from './endpoints'
+import { bodyLooksBlocked, httpFailure, message } from './http'
 import { parseChart, parseStexCode, type ParseFailure } from './parse'
 import { parseSymbol } from './symbols'
 import { FAILURE_CLASS } from '../failures'
@@ -154,35 +155,6 @@ function failure(
 
 const isFailure = (v: unknown): v is ParseFailure =>
   typeof v === 'object' && v !== null && 'code' in v
-
-/**
- * 상태 코드를 부류로 가른다. **429·401·403을 `HTTP`로 뭉개지 않는다** — 조치가 다르다
- * (한도는 기다리고, 인증은 사람이 보고, 그 밖은 스키마·경로를 본다).
- */
-function httpFailure(status: number): ParseFailure {
-  if (status === 429) return { code: 'QUOTA', detail: `한도 초과 (HTTP ${status})` }
-  if (status === 401 || status === 403) {
-    return { code: 'AUTH', detail: `접근이 거부됐다 (HTTP ${status})` }
-  }
-  /*
-   * ★ 400은 이 공급자에서 **WAF 차단의 표식**이다(쿠키를 싣거나 헤더가 어긋나면 400
-   * `{"eversafeThreat":true}`가 온다 — 실측). 일반적인 「잘못된 요청」으로 읽으면
-   * 원인에서 먼 곳을 보게 된다.
-   */
-  if (status === 400) {
-    return { code: 'BLOCKED', detail: `요청이 차단됐다 (HTTP 400 — WAF일 수 있다)` }
-  }
-  return { code: 'HTTP', detail: `비2xx 응답 (HTTP ${status})` }
-}
-
-function bodyLooksBlocked(text: string): boolean {
-  return text.includes('eversafeThreat') || text.includes('EvCrypto')
-}
-
-function message(error: unknown): string {
-  if (error instanceof Error) return `${error.name}: ${error.message}`
-  return String(error)
-}
 
 /**
  * `YYYY-MM-DD`의 전일. **`Date`를 쓰지 않는다** — UTC 이동이 있고 `lib/db/today.ts`가

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -263,7 +263,31 @@ describe('부수 응답 파싱', () => {
 
 describe('★ adjclose 단언 — 허용 목록으로 쓴다 (ADR-007 §4)', () => {
   const SRC_DIR = join(process.cwd(), 'src', 'lib', 'providers')
-  const sources = ['kiwoom/index.ts', 'kiwoom/parse.ts', 'kiwoom/endpoints.ts', 'kiwoom/symbols.ts']
+  /*
+   * ★ **목록을 손으로 적지 않고 디렉터리를 읽는다** — 종전 이 자리는 네 파일을 박아 둔
+   * 배열이었고 `http.ts`가 생기는 커밋에서 **그 파일이 검사 밖에 있는 채로 초록**이었을
+   * 것이다(CLAUDE.md 절대 규칙 #6의 다섯째와 같은 함정 — 「빠지지 않았는가」를 묻는 열거가
+   * 스스로 자라지 않는다).
+   *
+   * 그리고 읽은 결과를 **정확한 집합으로 단언한다.** `readdirSync`만 두면 파일이 늘어도
+   * 조용히 따라가므로 「새 파일이 이 검사를 지난다」는 보이지만 「누가 파일을 더했다」는
+   * 보이지 않는다 — 여기가 빨간불이 되는 것이 새 파일을 이 목록에 «의식적으로» 올리는 계기다.
+   */
+  const KIWOOM_DIR = join(SRC_DIR, 'kiwoom')
+  const sources = readdirSync(KIWOOM_DIR)
+    .filter((f) => f.endsWith('.ts'))
+    .sort()
+    .map((f) => `kiwoom/${f}`)
+
+  it('스캔 대상이 디렉터리의 .ts 전부이고 그 집합이 기대와 같다', () => {
+    expect(sources).toEqual([
+      'kiwoom/endpoints.ts',
+      'kiwoom/http.ts',
+      'kiwoom/index.ts',
+      'kiwoom/parse.ts',
+      'kiwoom/symbols.ts',
+    ])
+  })
 
   it('읽는 필드와 읽지 않는 필드가 겹치지 않는다', () => {
     const read = new Set(Object.values(READ_FIELDS))
