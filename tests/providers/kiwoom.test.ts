@@ -282,10 +282,18 @@ describe('★ adjclose 단언 — 허용 목록으로 쓴다 (ADR-007 §4)', () 
   it('스캔 대상이 디렉터리의 .ts 전부이고 그 집합이 기대와 같다', () => {
     expect(sources).toEqual([
       'kiwoom/endpoints.ts',
+      'kiwoom/html.ts',
       'kiwoom/http.ts',
       'kiwoom/index.ts',
+      'kiwoom/ladder.ts',
       'kiwoom/parse.ts',
+      'kiwoom/search-parse.ts',
       'kiwoom/symbols.ts',
+      'kiwoom/terms-check.ts',
+      'kiwoom/terms-endpoints.ts',
+      'kiwoom/terms-parse.ts',
+      'kiwoom/terms-types.ts',
+      'kiwoom/terms.ts',
     ])
   })
 

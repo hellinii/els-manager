@@ -48,7 +48,10 @@ export type ProviderFailureCode =
   | 'AUTH'
   /** 한도 초과 */
   | 'QUOTA'
-  /** 비2xx (위 둘로 분류되지 않은 것) */
+  /**
+   * 비2xx (위 둘로 분류되지 않은 것) · 3xx(따라가지 않는다) · **본문이 말하는 앱 오류 코드**
+   * (조건 원천 검색의 `resp_code` — HTTP 200에 실려 온다, ADR-009)
+   */
   | 'HTTP'
   /** `fetch`가 던졌다 · 타임아웃 · 전체 데드라인 초과 */
   | 'NETWORK'
@@ -98,6 +101,23 @@ export type ProviderFailure = {
 export type ProviderOutcome =
   | ({ ok: true } & ProviderQuote)
   | ({ ok: false } & ProviderFailure)
+
+/**
+ * **심볼 없는 조회** 하나의 결과 — 조건 원천(ADR-009)의 세 조회가 쓴다.
+ *
+ * `ProviderOutcome`과 실패 쪽 모양이 같다(`failure`·`code`·`detail`) — 실패 분류를 **새로
+ * 만들지 않고 재사용**하는 것이 설계다. 새 코드를 두면 `FAILURE_CLASS`에 항목이 늘고
+ * es040의 계약이 es040이 결코 내지 않는 코드로 넓어지는데, 그 코드가 뜻하는 것은 결국
+ * 「기다린다」(`CALL_FAILED`)다. 그래서 여기 두고 공급자에 의존하지 않는다.
+ *
+ * `symbol`만 빠진다 — 조회 대상이 `provider_symbol`이 아니다(검색어·상품 코드).
+ *
+ * `truncated` — 공급자가 「뒤가 더 있다」고 말했는데 **따라가지 않았다.** 조용히 앞 페이지만
+ * 보이면 「결과에 없다」가 「없다」로 읽힌다.
+ */
+export type LookupOutcome<T> =
+  | { ok: true; data: T; truncated?: boolean }
+  | ({ ok: false } & Omit<ProviderFailure, 'symbol'>)
 
 /**
  * 어댑터 — ADR-004 보정판.

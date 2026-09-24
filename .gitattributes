@@ -1,0 +1,3 @@
+# 키움 실응답 픽스처는 바이트 그대로 둔다 — 원본에 CRLF가 있고, 머리 주석의 sha256·바이트 수가
+# 그 원본의 것이다. 줄끝을 정규화하면 tests/providers/kiwoom-terms.test.ts의 무결성 단언이 빨갛다.
+tests/providers/fixtures/kiwoom-terms/** -text
