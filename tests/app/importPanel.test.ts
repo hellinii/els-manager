@@ -131,6 +131,8 @@ describe('상세 단계', () => {
     // 기본값 위에 불러온 값 — 평가주기 기본값(6)을 불러온 값이 덮는다
     expect(p.initialValues.evaluationPeriodMonths).toBe('6')
     expect(p.initialValues['schedules[0].evaluationDate']).toBe('2026-11-30')
+    // 조회가 전부 성공했다 — 새 키를 따른다
+    expect(p.keepPreviousKey).toBe(false)
   })
 
   it('★ 자산이 풀리면 폼 키가 바뀐다 — 같은 주소에서 자산을 추가해도 폼이 새 값을 받는다', () => {
@@ -175,6 +177,8 @@ describe('상세 단계', () => {
     expect(p.initialValues['underlyings[0].assetId']).toBe('')
     expect(p.unresolved.every((u) => u.resolution == null && u.offer == null && u.detail != null)).toBe(true)
     expect(p.notes.some((n) => n.includes('기초자산 목록을 받지 못해'))).toBe(true)
+    // ★ 해결된 id가 비어 키가 바뀐다 — 직전 키를 유지해야 앞 렌더의 해결 결과·적은 값이 남는다
+    expect(p.keepPreviousKey).toBe(true)
   })
 
   it('★ E03060 — 거부: 폼은 기본값 그대로, 사유와 투자설명서', () => {
@@ -188,8 +192,11 @@ describe('상세 단계', () => {
 
   it('없는 코드(빈 안내 화면)는 거부 · 호출 실패는 조회 실패', () => {
     expect(panel({ query: { query: null, code: 'E99999' }, terms: failed('NO_DATA') }).state).toBe('REFUSED')
-    expect(panel({ query: { query: null, code: 'E04000' }, terms: failed('CALL_FAILED') }).state).toBe(
-      'LOOKUP_FAILED',
-    )
+    const lookupFailed = panel({ query: { query: null, code: 'E04000' }, terms: failed('CALL_FAILED') })
+    expect(lookupFailed.state).toBe('LOOKUP_FAILED')
+    // ★ 일시 실패가 폼을 비우지 않는다 — 직전 키 유지 (DOC-008 v2.11)
+    expect(lookupFailed.keepPreviousKey).toBe(true)
+    // 빈 안내 화면은 기다려도 채워지지 않는다 — 유지할 이유가 없다
+    expect(panel({ query: { query: null, code: 'E99999' }, terms: failed('NO_DATA') }).keepPreviousKey).toBe(false)
   })
 })

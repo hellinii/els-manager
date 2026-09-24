@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 import { KiwoomImport } from '@/components/products/KiwoomImport'
-import { ProductForm } from '@/components/products/ProductForm'
+import { ImportedProductForm } from '@/components/products/ImportedProductForm'
 import { getQueries } from '@/lib/db/server'
 import { productDefaults } from '@/lib/forms/defaults'
 import { importPanelOf } from '@/lib/forms/importPanel'
@@ -100,9 +100,11 @@ export default async function ProductNewPage({
 
         불러온 값이 바뀌면 폼을 다시 마운트한다 — `initialValues`는 마운트 때 한 번 읽힌다.
         키에 해결된 자산 id가 들어가므로 같은 주소에서 자산을 추가해도 새 값을 받는다.
+        조회가 실패한 렌더는 직전 키를 유지한다(`ImportedProductForm`).
       */}
-      <ProductForm
-        key={panel.formKey}
+      <ImportedProductForm
+        formKey={panel.formKey}
+        keepPreviousKey={panel.keepPreviousKey}
         assets={assets}
         action={productFormAction}
         initialValues={panel.initialValues}

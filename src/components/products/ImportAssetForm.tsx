@@ -101,7 +101,12 @@ export function ImportAssetForm({
         </form>
       )}
 
-      {offer != null && offer.proposal.ok && (
+      {/*
+        동명 자산이 다른 키움 심볼에 연결되어 있으면 「자산 추가」를 그리지 않는다(DOC-008 v2.11) —
+        같은 이름·시장이면 늘 CONFLICT이고, 그 문구가 가리키는 연결 선택지에는 그 자산이 없다
+        (덮지 않으려고 뺐다). 위 안내의 시세 관리 링크만 남는다.
+      */}
+      {offer != null && offer.proposal.ok && offer.elsewhere.length === 0 && (
         <form action={formAction} className="flex flex-wrap items-center gap-2">
           {hidden}
           <input type="hidden" name="name" value={offer.proposal.asset.name} />

@@ -74,6 +74,12 @@ export type ImportPanel = {
   initialValues: Record<string, string>
   /** `ProductForm`의 `key` */
   formKey: string
+  /**
+   * 이 렌더의 조회가 실패했다 — 폼은 **직전 키를 유지**한다(DOC-008 v2.11). 불러온 화면에서 다른
+   * 변경(자산 등록 등)이 성공하면 페이지가 다시 그려지며 키움을 다시 부르는데, 그 한 번이 일시
+   * 실패하면 키가 바뀌어 불러온 값과 적은 투자원금이 사라졌다(반박 검토).
+   */
+  keepPreviousKey: boolean
 }
 
 export function importPanelOf(input: {
@@ -99,6 +105,7 @@ export function importPanelOf(input: {
     unresolved: [],
     initialValues: input.defaults,
     formKey: importFormKey(null, input.defaults),
+    keepPreviousKey: false,
   }
 
   /* ---------- 후보를 고르기 전 — 검색만 */
@@ -129,7 +136,11 @@ export function importPanelOf(input: {
         reasons: ['키움 안내 화면에 이 상품의 조건이 없다 — 상품 코드를 확인하거나 직접 입력한다.'],
       }
     }
-    return { ...base, state: importPanelStateOf({ query, code, search: null, fill: { failed: true } }) }
+    return {
+      ...base,
+      state: importPanelStateOf({ query, code, search: null, fill: { failed: true } }),
+      keepPreviousKey: true,
+    }
   }
 
   const product = terms.data
@@ -177,6 +188,8 @@ export function importPanelOf(input: {
     ),
     initialValues,
     formKey: importFormKey(code, initialValues),
+    // 기초자산 목록만 실패해도 해결된 id가 비어 키가 바뀐다 — 같은 이유로 직전 키를 유지한다
+    keepPreviousKey: listed?.ok !== true,
   }
 }
 
