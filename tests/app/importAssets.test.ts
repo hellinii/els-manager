@@ -111,6 +111,20 @@ describe('키움 목록의 행 찾기', () => {
     })
   })
 
+  it('★ 티커와 이름이 목록의 다른 행을 가리키면 모호다 — 열 순서가 어긋난 티커를 조용히 받지 않는다', () => {
+    // 두 자산의 티커가 바뀌어 왔다(해외기초자산 정보 표의 열 순서가 자산 표와 다르다)
+    const out = resolve([
+      { name: '팔란티어 테크', ticker: 'AMD' },
+      { name: 'AMD', ticker: 'PLTR' },
+    ])
+    expect(out['팔란티어 테크']).toMatchObject({ kind: 'AMBIGUOUS' })
+    expect(out['AMD']).toMatchObject({ kind: 'AMBIGUOUS' })
+    // 이름과 티커가 같은 행이면 그대로다
+    expect(resolve([{ name: '팔란티어 테크', ticker: 'PLTR' }])['팔란티어 테크']).toMatchObject({
+      symbol: '3:PLTR',
+    })
+  })
+
   it('★ 티커가 목록에 없으면 이름으로 넘어가지 않는다', () => {
     // 이름은 목록에 있지만(테슬라) 티커가 다르다 — 이름으로 넘어가면 티커가 가리킨 것과 다른 행이다
     expect(resolve([{ name: '테슬라', ticker: 'XXXX' }])['테슬라']).toEqual({ kind: 'NO_ES040' })

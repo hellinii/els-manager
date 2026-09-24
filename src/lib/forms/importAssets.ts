@@ -123,21 +123,32 @@ function resolveOne(
 }
 
 /**
- * 키움 목록에서 그 자산의 행 — **티커가 있으면 티커만 본다.**
+ * 키움 목록에서 그 자산의 행 — **티커가 있으면 티커가 정하고, 이름은 반증만 한다.**
  *
  * 해외 종목은 티커가 이름보다 정확하다(이름은 「알파벳A(구글)」처럼 꾸며져 있다). 티커가
  * 있는데 목록에 없으면 이름으로 넘어가지 않는다 — 티커와 이름이 다른 행을 가리키는 경우를
  * 이름이 조용히 덮는다.
+ *
+ * ★ **티커는 열 위치로 자산에 붙는다**(어댑터가 「해외기초자산 정보」 표의 열 순서를 자산 표의
+ * 순서와 같다고 본다 — 그 표에는 자산명 머리글이 없다). 순서가 어긋나면 두 자산의 티커가
+ * **서로 바뀐 채** 통과한다. 그래서 이름이 목록의 **다른** 행을 가리키면 둘 다 반환해 모호로
+ * 만든다. 이름이 어느 행도 가리키지 않으면 반증이 없으므로 티커를 따른다 — 실측한 해외 여섯
+ * (테슬라·엔비디아·팔란티어 테크·AMD·마이크론 테크놀로지·인텔)은 팝업 이름과 목록 이름이 같다.
  */
 function listedMatches(asset: ImportedAsset, listed: readonly ListedAsset[]): ListedAsset[] {
-  if (asset.ticker != null) {
-    return listed.filter(
-      (row) => row.underlyingType === UNDERLYING_TYPES.OVERSEAS_STOCK && row.stkCode === asset.ticker,
-    )
-  }
-
   const key = normalizeAssetName(asset.name)
   const byName = listed.filter((row) => normalizeAssetName(row.name) === key)
+
+  if (asset.ticker != null) {
+    const byTicker = listed.filter(
+      (row) => row.underlyingType === UNDERLYING_TYPES.OVERSEAS_STOCK && row.stkCode === asset.ticker,
+    )
+    // 티커가 목록에 없으면 이름으로 넘어가지 않는다 — 비어 있는 채로 돌려준다
+    if (byTicker.length === 0) return []
+    const contradicted = byName.some((row) => !byTicker.includes(row))
+    return contradicted ? [...byTicker, ...byName.filter((row) => !byTicker.includes(row))] : byTicker
+  }
+
   if (byName.length > 0) return byName
 
   const alias = ALIASES[key]
