@@ -77,6 +77,7 @@ const option = (id: string, symbols: Array<[string, string]> = []): AssetOption 
   name: `앱자산${id}`,
   market: null,
   currency: 'KRW',
+  assetType: 'STOCK',
   hasPriceProvider: symbols.length > 0,
   providerSymbols: symbols.map(([provider, symbol]) => ({ provider, symbol })),
 })

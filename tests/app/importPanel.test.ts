@@ -52,6 +52,7 @@ const SAMSUNG: AssetOption = {
   name: '삼성전자',
   market: 'KRX',
   currency: 'KRW',
+  assetType: 'STOCK',
   hasPriceProvider: true,
   providerSymbols: [{ provider: 'KIWOOM_ES040', symbol: '2:A005930' }],
 }
@@ -150,6 +151,7 @@ describe('상세 단계', () => {
       name: 'SK 하이닉스',
       market: 'KRX',
       currency: 'KRW',
+      assetType: 'STOCK',
       hasPriceProvider: false,
       providerSymbols: [],
     }

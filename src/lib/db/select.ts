@@ -325,6 +325,21 @@ export const ASSET_COLUMNS = defineColumns('assets', {
 })
 
 /**
+ * §4.9 자산 선택지가 읽는 열 — `ASSET_COLUMNS` + `asset_type` (DOC-011 v4.5).
+ *
+ * 불러오기의 「기존 자산에 연결」 후보가 **같은 유형·통화**여야 한다(DOC-008 SCR-204 v2.11).
+ * `ASSET_COLUMNS`를 넓히지 않는 이유: 그 목록은 기초자산 임베드·시세 조회도 쓰므로 넓히면
+ * 쓰지 않는 열이 세 경로의 행 타입에 들어가고 그 픽스처가 전부 바뀐다.
+ */
+export const ASSET_OPTION_COLUMNS = defineColumns('assets', {
+  id: 'raw',
+  name: 'raw',
+  market: 'raw',
+  currency: 'raw',
+  asset_type: 'raw',
+})
+
+/**
  * §4.5가 `providerSymbols`를 담기 위해 읽는 열 (P5a 컷 2b).
  *
  * **`'text'`가 하나도 없다** — 이 테이블에 `numeric` 열이 없기 때문이고, 그 사실을

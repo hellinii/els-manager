@@ -35,6 +35,8 @@ export type AssetOption = {
   name: string
   market: string | null
   currency: string
+  /** DOC-011 v4.5 — 불러오기의 연결 후보가 같은 유형만 본다 */
+  assetType: 'STOCK' | 'INDEX' | 'ETF'
   hasPriceProvider: boolean
   /**
    * 이 자산의 공급자 매핑 — `AssetPriceRow.providerSymbols`와 같은 형태 (DOC-011 §4.9 v4.3).
@@ -119,6 +121,7 @@ export function makeAssetQueries(ctx: QueryContext) {
       name: asset.name,
       market: asset.market,
       currency: asset.currency,
+      assetType: asset.asset_type,
       // 공급자 심볼이 하나라도 있으면 자동 조회가 가능하다(ADR-004)
       hasPriceProvider: asset.asset_provider_symbols.length > 0,
       // `listAssetPrices`와 같은 이름 좁힘(`provider_symbol` → `symbol`) — 두 뷰가 한 형태다

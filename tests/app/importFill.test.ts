@@ -265,6 +265,7 @@ describe('기초자산 — 해석 결과를 따른다', () => {
     name: id,
     market: 'KRX',
     currency: 'KRW',
+    assetType: 'STOCK',
     hasPriceProvider: true,
     providerSymbols: [{ provider: 'KIWOOM_ES040', symbol }],
   })

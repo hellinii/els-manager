@@ -760,6 +760,7 @@ describe('자산 좁힘', () => {
     name,
     market: 'KRX',
     currency: 'KRW',
+    assetType: 'STOCK',
     hasPriceProvider: false,
     providerSymbols: [],
   })

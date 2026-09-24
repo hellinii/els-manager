@@ -1,5 +1,6 @@
 import {
   ASSET_COLUMNS,
+  ASSET_OPTION_COLUMNS,
   ELS_PRODUCT_COLUMNS,
   PRICE_COLUMNS,
   PROVIDER_SYMBOL_COLUMNS,
@@ -702,10 +703,12 @@ export async function loadUsers(ctx: QueryContext): Promise<UserRow[]> {
  * (DOC-011 §4.10)가 기초자산을 **심볼로** 앱 자산과 이으므로 `provider`·`provider_symbol`을
  * 싣는다 — §4.5와 같은 열 목록이며 왕복은 늘지 않는다(같은 임베드의 열만 넓어진다).
  */
-type AssetOptionRow = AssetRow & { asset_provider_symbols: ProviderSymbolRow[] }
+type AssetOptionRow = SelectedRow<'assets', typeof ASSET_OPTION_COLUMNS> & {
+  asset_provider_symbols: ProviderSymbolRow[]
+}
 
 const ASSET_OPTION_SELECT = [
-  selectList(ASSET_COLUMNS),
+  selectList(ASSET_OPTION_COLUMNS),
   embed('asset_provider_symbols', selectList(PROVIDER_SYMBOL_COLUMNS)),
 ].join(',')
 

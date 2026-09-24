@@ -175,7 +175,7 @@ export function assetProposalOf(listed: ListedAsset): AssetProposal {
 export type LinkChoice = { id: string; name: string; preselected: boolean }
 
 /**
- * 「기존 자산에 연결」의 선택지 — **키움 심볼이 없는 앱 자산**, 같은 통화만.
+ * 「기존 자산에 연결」의 선택지 — **키움 심볼이 없는 앱 자산**, 같은 유형·통화만.
  *
  * 이미 키움 심볼이 있는 자산은 넣지 않는다 — 고르면 §5.12 UPSERT가 **그 자산의 기존 매핑을
  * 덮는다**(다른 상품의 시세가 바뀐다). 그런 자산은 `mappedElsewhereOf`가 따로 말한다.
@@ -190,7 +190,8 @@ export function linkChoicesOf(
 ): LinkChoice[] {
   const key = normalizeAssetName(proposal.name)
   return options
-    .filter((option) => option.currency === proposal.currency)
+    // 같은 유형·통화 — 주식 제안에 같은 통화의 지수를 내지 않는다(DOC-008 v2.11)
+    .filter((option) => option.currency === proposal.currency && option.assetType === proposal.assetType)
     .filter((option) => !option.providerSymbols.some((row) => row.provider === PROVIDER_ID))
     .map((option) => ({
       id: option.id,
@@ -294,7 +295,7 @@ export async function runImportAsset(
         back: command.back,
         message:
           created.error.code === 'CONFLICT'
-            ? '같은 이름·시장의 자산이 이미 있다 — 「기존 자산에 연결」을 쓴다.'
+            ? '같은 이름·시장의 자산이 이미 있다 — 「기존 자산에 연결」을 쓰거나 시세 관리에서 그 자산의 매핑을 확인한다.'
             : created.error.message,
       }
     }

@@ -106,11 +106,18 @@ describe('자산 추가 제안 — 허용 목록', () => {
 })
 
 describe('기존 자산에 연결', () => {
-  const option = (id: string, name: string, currency: string, symbols: Array<[string, string]> = []): AssetOption => ({
+  const option = (
+    id: string,
+    name: string,
+    currency: string,
+    symbols: Array<[string, string]> = [],
+    assetType: AssetOption['assetType'] = 'STOCK',
+  ): AssetOption => ({
     id,
     name,
     market: null,
     currency,
+    assetType,
     hasPriceProvider: symbols.length > 0,
     providerSymbols: symbols.map(([provider, symbol]) => ({ provider, symbol })),
   })
@@ -128,6 +135,11 @@ describe('기존 자산에 연결', () => {
     )
     expect(choices.map((c) => c.id)).toEqual(['a1', 'a2'])
     expect(choices.find((c) => c.preselected)?.id).toBe('a2')
+  })
+
+  it('★ 같은 통화라도 유형이 다르면 선택지가 아니다 — 주식 제안에 지수를 내지 않는다 (DOC-008 v2.11)', () => {
+    const choices = linkChoicesOf([option('i1', 'S&P500', 'USD', [], 'INDEX'), option('s1', '팔란티어', 'USD')], proposal)
+    expect(choices.map((c) => c.id)).toEqual(['s1'])
   })
 
   it('이름이 같은데 다른 심볼에 연결된 자산은 따로 말한다(SCR-302로)', () => {

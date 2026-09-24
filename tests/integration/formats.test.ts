@@ -359,6 +359,8 @@ const ASSET_OPTION: Record<string, Spec> = {
   name: 'TEXT',
   market: 'TEXT',
   currency: 'TEXT',
+  // v4.5 — 불러오기의 연결 후보가 같은 유형만 본다
+  assetType: ['STOCK', 'INDEX', 'ETF'],
   hasPriceProvider: 'BOOL',
   // v4.3 — 불러오기가 심볼로 잇는다(§4.10). §4.5와 같은 형태다
   'providerSymbols[].provider': 'TEXT',
