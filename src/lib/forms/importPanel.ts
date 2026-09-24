@@ -20,6 +20,7 @@ import {
 import { resolveImportAssets, type AssetResolution } from './importAssets'
 import { importFillOf, type ImportNote } from './importFill'
 import {
+  CLEARED_OBSERVATION_NOTE,
   EDIT_REDEEMED_NOTE,
   KEPT_OBSERVATION_NOTE,
   hasImportGaps,
@@ -203,6 +204,8 @@ export function importPanelOf(input: {
     // 저장값의 관찰방식이 「관찰방식 미정」을 메운다 — 다른 빈 곳이 없으면 불러옴이다
     if (kind === 'PARTIAL' && !hasImportGaps(initialValues)) kind = 'FILLED'
     if (initialValues.kiObservation !== '') fieldNotes.kiObservation = KEPT_OBSERVATION_NOTE
+    // 노낙인 상품이 저장값을 비웠다(V-16) — 구획의 문구는 관찰방식을 말하지 않으므로 칸이 말한다
+    else if ((input.defaults.kiObservation ?? '') !== '') fieldNotes.kiObservation = CLEARED_OBSERVATION_NOTE
     const changes = storedChangesOf(input.defaults, initialValues)
     notes.unshift(changes.summary)
     for (const [field, text] of Object.entries(changes.fieldNotes)) {

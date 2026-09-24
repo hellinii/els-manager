@@ -56,6 +56,9 @@ export function hasImportGaps(values: Readonly<Record<string, string>>): boolean
 /** 관찰방식의 저장값을 남긴 KI 상품 — `importFillOf`의 「투자설명서에서 확인해 고른다」를 대신한다 */
 export const KEPT_OBSERVATION_NOTE = '관찰방식은 안내 화면에 없다 — 저장값을 남겼다. 투자설명서와 대조한다.'
 
+/** 노낙인 상품을 불러와 관찰방식의 저장값을 비웠다 — V-16. 문구가 「저장값 그대로」라고 말하지 않으므로 칸이 말한다 */
+export const CLEARED_OBSERVATION_NOTE = '불러온 상품은 노낙인이다 — 관찰방식을 비웠다(KI 배리어가 없으면 둘 수 없다).'
+
 /** 키움에서 상환된 상품 — 수정 화면에는 상품이 이미 있다. 기실현 등재가 아니라 상환 처리다 */
 export const EDIT_REDEEMED_NOTE = '키움에서는 이미 상환된 상품이다 — 상환 기록은 상세의 상환 처리에서 한다.'
 
@@ -81,11 +84,14 @@ const SCALARS: ReadonlyArray<{ name: string; label: string; hinted: boolean }> =
   { name: 'kiObservation', label: '관찰방식', hinted: true },
 ]
 
-/** 차수 칸 — 한 차수에서 하나라도 다르면 그 차수를 센다. 리자드는 셋이 한 조건이다 */
+/**
+ * 차수 칸 — 한 차수에서 하나라도 다르면 그 차수를 센다. 리자드는 셋이 한 조건이다.
+ * 이름은 DOC-005 §8.2를 따른다 — 수식어 없는 「배리어」를 쓰지 않는다(`barrier`는 조기상환 배리어다).
+ */
 const ROUND_GROUPS: ReadonlyArray<{ label: string; subs: readonly string[] }> = [
   { label: '평가일', subs: ['evaluationDate'] },
-  { label: '배리어', subs: ['barrier'] },
-  { label: '리자드', subs: ['lizardBarrier', 'lizardCouponRate', 'lizardRequiresNoKi'] },
+  { label: '조기상환 배리어', subs: ['barrier'] },
+  { label: '리자드 조건', subs: ['lizardBarrier', 'lizardCouponRate', 'lizardRequiresNoKi'] },
 ]
 
 /**

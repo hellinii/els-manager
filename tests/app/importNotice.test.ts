@@ -64,11 +64,15 @@ describe('상태 판정', () => {
 })
 
 describe('수정 화면의 문구 (DOC-008 v2.12)', () => {
-  it('★ 문구 넷이 다르고 판정은 같다 — 저장값이 있는 폼에 「적는다」·「직접 입력한다」를 말하지 않는다', () => {
-    expect(Object.keys(IMPORT_EDIT_MESSAGES).sort()).toEqual(['FILLED', 'LOOKUP_FAILED', 'PARTIAL', 'REFUSED'])
-    for (const message of Object.values(IMPORT_EDIT_MESSAGES)) {
-      expect(message).not.toMatch(/투자원금·계좌유형을 적/)
-      expect(message).not.toContain('직접 입력한다')
+  it('★ 문구 다섯이 다르고 판정은 같다 — 저장값이 있는 폼에 「적는다」·「직접 입력한다」를 말하지 않는다', () => {
+    expect(Object.keys(IMPORT_EDIT_MESSAGES).sort()).toEqual(['FILLED', 'LOOKUP_FAILED', 'NO_RESULTS', 'PARTIAL', 'REFUSED'])
+    // 수정 화면의 모든 상태 문구 — 바꾸지 않은 상태가 등록 문구를 물려받아 「직접 입력한다」를 말하지 않는다
+    for (const state of Object.keys(IMPORT_PANEL_STATES) as Array<keyof typeof IMPORT_PANEL_STATES>) {
+      const message = importPanelMessageOf(state, 'EDIT') ?? ''
+      expect(message, state).not.toMatch(/투자원금·계좌유형을 적/)
+      expect(message, state).not.toContain('직접 입력한다')
+      // ★ 관찰방식을 「저장값 그대로」라고 말하지 않는다 — 노낙인이면 비운다(v2.13)
+      expect(message, state).not.toContain('관찰방식')
     }
     for (const state of Object.keys(IMPORT_PANEL_STATES) as Array<keyof typeof IMPORT_PANEL_STATES>) {
       expect(importPanelMessageOf(state, 'NEW')).toBe(IMPORT_PANEL_STATES[state].message)

@@ -726,6 +726,17 @@ export function parseImportQuery(values: QueryValues): ImportQuery {
 }
 
 /**
+ * 수정 화면의 불러오기 주소 — **상환 처리된 상품이면 읽지 않는다** (DOC-011 X-01 v4.6)
+ *
+ * 저장이 `CONFLICT`이므로 채울 이유가 없다. 주소를 버리면 키움 조회가 하나도 나가지 않는다 — 구획을
+ * 숨기는 조건과 호출을 건너뛰는 조건이 페이지의 다른 줄이면 한쪽이 빠져도 화면은 같아 보이므로,
+ * 호출 쪽 판단을 여기 두고 상시 스위트가 본다(DOC-010 v3.12).
+ */
+export function parseEditImportQuery(values: QueryValues, redeemed: boolean): ImportQuery {
+  return redeemed ? { query: null, code: null } : parseImportQuery(values)
+}
+
+/**
  * 불러오기가 채우는 폼 — 등록(빈 폼 위) 또는 수정(저장값 위, DOC-008 v2.12 · SQ-10)
  *
  * 주소의 경로 부분이 여기서 나온다. 수정은 대상 id가 경로에 있으므로 종류와 id를 한 값으로 둔다 —

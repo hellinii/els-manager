@@ -106,6 +106,7 @@ export default async function ProductNewPage({
       <ImportedProductForm
         formKey={panel.formKey}
         keepPreviousKey={panel.keepPreviousKey}
+        code={panel.code}
         assets={assets}
         action={productFormAction}
         initialValues={panel.initialValues}

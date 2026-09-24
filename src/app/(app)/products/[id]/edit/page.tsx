@@ -7,7 +7,7 @@ import { KiwoomImport } from '@/components/products/KiwoomImport'
 import { AccessDenied } from '@/components/system/AccessDenied'
 import { getQueries } from '@/lib/db/server'
 import { importPanelOf } from '@/lib/forms/importPanel'
-import { isUuid, parseImportQuery, type QueryValues } from '@/lib/forms/query'
+import { isUuid, parseEditImportQuery, type QueryValues } from '@/lib/forms/query'
 import { productValuesOf } from '@/lib/forms/values'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 import { PATHS } from '@/lib/routes/paths'
@@ -79,7 +79,7 @@ export default async function ProductEditPage({
 
   const redeemed = view.product.status === 'REDEEMED'
   // X-01 — 여기까지 왔으면 인증·소유가 확인됐다. 상환된 상품은 불러오지 않으므로 주소를 읽지도 않는다
-  const importQuery = redeemed ? { query: null, code: null } : parseImportQuery(await searchParams)
+  const importQuery = parseEditImportQuery(await searchParams, redeemed)
   const source = createKiwoomProductSource({ fetchImpl: fetch })
 
   const [assets, search, terms, listed] = await Promise.all([
@@ -138,6 +138,7 @@ export default async function ProductEditPage({
       <ImportedProductForm
         formKey={panel.formKey}
         keepPreviousKey={panel.keepPreviousKey}
+        code={panel.code}
         assets={assets}
         action={productEditFormAction}
         initialValues={panel.initialValues}

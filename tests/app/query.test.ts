@@ -15,6 +15,7 @@ import {
   IMPORT_NEW,
   importHref,
   importTargetPath,
+  parseEditImportQuery,
   isMineOnly,
   isNarrowed,
   isScheduleMineOnly,
@@ -847,6 +848,12 @@ describe('SCR-204 불러오기 주소 — 주소가 상태다 (DOC-008 v2.9)', (
     const href = importHref(IMPORT_NEW, { query: '4000', code: 'E04000' })
     const back = parseImportQuery(Object.fromEntries(new URL(href, 'http://x').searchParams))
     expect(back).toEqual({ query: '4000', code: 'E04000' })
+  })
+
+  it('★ 상환 처리된 상품의 수정 화면은 불러오기 주소를 읽지 않는다 — 키움 조회가 나가지 않는다 (DOC-011 X-01 v4.6)', () => {
+    const values = { q: '4000', code: 'E04000' }
+    expect(parseEditImportQuery(values, false)).toEqual({ query: '4000', code: 'E04000' })
+    expect(parseEditImportQuery(values, true)).toEqual({ query: null, code: null })
   })
 
   it('★ 수정 화면의 주소는 대상 상품의 수정 경로다 — 쿼리 없는 주소가 「불러오기 취소」다 (DOC-008 v2.12)', () => {

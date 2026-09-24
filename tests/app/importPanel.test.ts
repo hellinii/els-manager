@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { AssetOption } from '@/lib/db/queries/prices'
 import { productDefaults } from '@/lib/forms/defaults'
 import { importPanelOf } from '@/lib/forms/importPanel'
-import { EDIT_REDEEMED_NOTE, KEPT_OBSERVATION_NOTE } from '@/lib/forms/importMerge'
+import { formKeyAfter } from '@/lib/forms/importKey'
+import { CLEARED_OBSERVATION_NOTE, EDIT_REDEEMED_NOTE, KEPT_OBSERVATION_NOTE } from '@/lib/forms/importMerge'
 import { productFieldNames } from '@/lib/forms/productForm'
 import { IMPORT_NEW, type ImportTarget } from '@/lib/forms/query'
 import type { ListedAsset } from '@/lib/providers/kiwoom/parse'
@@ -296,7 +297,7 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     const p = edit({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: BOTH, defaults: manual() })
     // 요약이 구획 머리의 첫 줄이다
     expect(p.notes[0]).toBe(
-      '저장값과 다른 곳 — 상품명, 총 차수, 평가일(3개 차수), 배리어(1개 차수), 기초자산. 저장하기 전에는 바뀌지 않는다.',
+      '저장값과 다른 곳 — 상품명, 총 차수, 평가일(3개 차수), 조기상환 배리어(1개 차수), 기초자산. 저장하기 전에는 바뀌지 않는다.',
     )
     // 기준가는 자릿수만 다르다 — 「기준가격」이 없다
     expect(p.notes[0]).not.toContain('기준가격')
@@ -347,5 +348,105 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     const p = edit({ ...input, defaults: manual() })
     expect(p.notes).toContain(EDIT_REDEEMED_NOTE)
     expect(p.notes.some((n) => n.includes('기실현 등재'))).toBe(false)
+  })
+})
+
+describe('수정 화면 — 노낙인 상품을 불러오면 관찰방식을 비운다 (V-16 · DOC-008 v2.13)', () => {
+  /** E04000의 노낙인 변형 — 사다리·자산 KI 가격을 함께 지운다(어댑터의 대조가 둘을 맞춰 본다) */
+  const noKiTerms = (): LookupOutcome<KiwoomProductTerms> => {
+    const ok = okTerms('E04000')
+    if (!ok.ok) throw new Error('fixture')
+    const t = ok.data
+    return {
+      ok: true,
+      data: {
+        ...t,
+        ladder: { ...t.ladder, noKi: true, kiPct: null },
+        assets: t.assets.map((a) => ({ ...a, kiPrice: null })),
+      },
+    }
+  }
+  const HYNIX: AssetOption = {
+    id: '00000000-0000-4000-8000-0000000000a2',
+    name: 'SK하이닉스',
+    market: 'KRX',
+    currency: 'KRW',
+    assetType: 'STOCK',
+    hasPriceProvider: true,
+    providerSymbols: [{ provider: 'KIWOOM_ES040', symbol: '2:A000660' }],
+  }
+  const stored = (): Record<string, string> => ({
+    ...productDefaults(),
+    name: '내 상품',
+    kiBarrier: '45',
+    kiObservation: 'CLOSING',
+    principal: '1',
+    accountType: 'GENERAL',
+    'underlyings[0].assetId': SAMSUNG.id,
+    'underlyings[0].basePrice': '1',
+  })
+
+  it('★ 불러옴이고 관찰방식은 비었으며, 칸이 그 이유를 말한다 — 「저장값을 남겼다」가 아니다', () => {
+    const p = panel({
+      target: { kind: 'EDIT', productId: '00000000-0000-4000-8000-00000000e002' },
+      query: { query: '4000', code: 'E04000' },
+      terms: noKiTerms(),
+      listed: LISTED,
+      options: [SAMSUNG, HYNIX],
+      defaults: stored(),
+    })
+    expect(p.state).toBe('FILLED')
+    expect(p.initialValues.kiBarrier).toBe('')
+    expect(p.initialValues.kiObservation).toBe('')
+    expect(p.fieldNotes.kiObservation).toContain(CLEARED_OBSERVATION_NOTE)
+    expect(p.fieldNotes.kiObservation).not.toContain(KEPT_OBSERVATION_NOTE)
+    // 저장값도 함께 보인다 — 무엇을 비웠는지
+    expect(p.fieldNotes.kiObservation).toContain('저장값 종가')
+    expect(p.notes[0]).toContain('관찰방식')
+  })
+
+  it('등록 화면에서는 관찰방식 안내가 없다 — 비울 저장값이 없다', () => {
+    const p = panel({ query: { query: '4000', code: 'E04000' }, terms: noKiTerms(), listed: LISTED, options: [SAMSUNG, HYNIX] })
+    expect(p.state).toBe('FILLED')
+    expect(p.fieldNotes.kiObservation).toBeUndefined()
+  })
+})
+
+describe('폼 키 — 직전 키는 같은 상품 코드의 불러온 폼일 때만 유지한다 (formKeyAfter · DOC-008 v2.13)', () => {
+  const E04000 = { query: '4000', code: 'E04000' }
+
+  it('★ 첫 채움 — 기초자산 목록만 실패해도 채움이 폼에 닿는다(직전 키는 빈 폼)', () => {
+    // 반박 검토의 재현: 검색 렌더(blank) → 후보 클릭 렌더에서 목록만 실패
+    const search = panel({ query: { query: '4000', code: null }, search: okSearch(SEARCH_FIXTURES.q4000) })
+    const filled = panel({ query: E04000, terms: okTerms('E04000'), listed: failed('CALL_FAILED') })
+    expect(filled.keepPreviousKey).toBe(true)
+    const key = formKeyAfter(search.formKey, filled)
+    expect(key).toBe(filled.formKey)
+    expect(key).not.toBe('blank')
+    expect(filled.initialValues['schedules[0].evaluationDate']).toBe('2026-11-30')
+  })
+
+  it('★ 같은 상품의 재렌더 — 목록이 일시 실패하면 직전 폼(해결된 자산·적은 값)을 지킨다 (v2.11)', () => {
+    const before = panel({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: [SAMSUNG] })
+    const flaky = panel({ query: E04000, terms: okTerms('E04000'), listed: failed('CALL_FAILED'), options: [SAMSUNG] })
+    expect(before.formKey).not.toBe(flaky.formKey)
+    expect(formKeyAfter(before.formKey, flaky)).toBe(before.formKey)
+  })
+
+  it('다른 상품을 고른 렌더 — 목록이 실패해도 이 상품의 채움으로 선다', () => {
+    const other = panel({ query: { query: '1740', code: 'EM1740' }, terms: okTerms('EM1740'), listed: failed('CALL_FAILED') })
+    expect(formKeyAfter('E04000:a1,a2', other)).toBe(other.formKey)
+  })
+
+  it('상세가 실패한 렌더 — 새로 채울 것이 없으므로 직전 폼을 그대로 둔다', () => {
+    const lookupFailed = panel({ query: E04000, terms: failed('CALL_FAILED') })
+    expect(formKeyAfter('E04000:a1,a2', lookupFailed)).toBe('E04000:a1,a2')
+    expect(formKeyAfter('blank', lookupFailed)).toBe('blank')
+  })
+
+  it('조회가 전부 성공한 렌더는 늘 이 렌더의 키다', () => {
+    const ok = panel({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: [SAMSUNG] })
+    expect(formKeyAfter('E04000:stale', ok)).toBe(ok.formKey)
+    expect(formKeyAfter('blank', panel({}))).toBe('blank')
   })
 })

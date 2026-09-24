@@ -3,6 +3,7 @@
 import { useState, type ComponentProps } from 'react'
 
 import { ProductForm } from '@/components/products/ProductForm'
+import { formKeyAfter } from '@/lib/forms/importKey'
 
 /**
  * 불러오기 화면의 `ProductForm` — **조회가 실패한 렌더에서는 직전 키를 유지한다** (DOC-008 v2.11)
@@ -15,16 +16,18 @@ import { ProductForm } from '@/components/products/ProductForm'
  * 렌더 중 파생 상태(`setState`를 조건부로 부르는 형태)로 쓴다 — ref를 렌더 중에 읽지 않는다.
  * 첫 마운트는 받은 키 그대로다(유지할 직전 키가 없다).
  *
- * **이 동작을 증명하는 층이 없다** — 클라이언트 재렌더 사이의 키 유지는 서버 HTML에 없다(AQ-64·
- * AQ-70과 같은 자리). 무엇을 유지할지의 판단(`keepPreviousKey`)은 `importPanelOf`가 내고 상시
- * 스위트가 본다.
+ * **무엇을 유지할지의 판단은 `formKeyAfter`(순수)가 한다**(DOC-008 v2.13) — 그 판단이 이 컴포넌트에
+ * 있던 동안 첫 채움을 삼키는 결함이 어떤 스위트에도 보이지 않았다. 여기 남는 것은 렌더 중
+ * `setState` 배선이고 그것은 클라이언트 재렌더 사이에만 있다(AQ-70).
  */
 export function ImportedProductForm({
   formKey,
   keepPreviousKey,
+  code,
   ...props
-}: ComponentProps<typeof ProductForm> & { formKey: string; keepPreviousKey: boolean }) {
+}: ComponentProps<typeof ProductForm> & { formKey: string; keepPreviousKey: boolean; code: string | null }) {
   const [stableKey, setStableKey] = useState(formKey)
-  if (!keepPreviousKey && stableKey !== formKey) setStableKey(formKey)
-  return <ProductForm key={keepPreviousKey ? stableKey : formKey} {...props} />
+  const key = formKeyAfter(stableKey, { code, formKey, keepPreviousKey })
+  if (key !== stableKey) setStableKey(key)
+  return <ProductForm key={key} {...props} />
 }
