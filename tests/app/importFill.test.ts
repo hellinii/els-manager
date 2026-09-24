@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
-import { importFillOf, type ImportFill } from '@/lib/forms/importFill'
+import { importFillOf, lizardCouponPct, type ImportFill } from '@/lib/forms/importFill'
 import { resolveImportAssets } from '@/lib/forms/importAssets'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { productDefaults } from '@/lib/forms/defaults'
@@ -120,20 +120,19 @@ describe('정상 상품 — 채운다', () => {
     expect(fill.values['underlyings[1].basePrice']).toBe('85.905')
   })
 
-  it('E04262 청약 중 — 기준가·조기 차수 평가일은 비우고(지어내지 않는다) 만기일만 채운다', () => {
-    const fill = filled(importFillOf(termsOf('E04262'), {}))
-    const v = fill.values
-    expect(fill.kind).toBe('PARTIAL')
-    expect(col(v, 'evaluationDate', 6)).toEqual(['', '', '', '', '', '2029-10-01'])
-    // 조기 차수의 배리어는 사다리에서 — 표가 아직 없다
-    expect(col(v, 'barrier', 6)).toEqual(['85', '85', '85', '80', '75', '70'])
-    expect([v['underlyings[0].basePrice'], v['underlyings[1].basePrice']]).toEqual(['', ''])
-    expect(v.annualCouponRate).toBe('24.6')
-    expect(fill.notes.some((n) => n.text.includes('청약 중'))).toBe(true)
-  })
 })
 
 describe('거부 — 폼을 비운다', () => {
+  it('★ E04262 청약 중 — 기준가격이 없어 저장할 수 없다(V-15) · 기준가를 지어내게 두지 않는다 (DOC-008 v2.11)', () => {
+    const fill = importFillOf(termsOf('E04262'), {})
+    expect(fill.kind).toBe('REFUSED')
+    if (fill.kind === 'REFUSED') {
+      expect(fill.reasons[0]).toBe(
+        '청약 중인 상품이다 — 기준가격이 아직 정해지지 않아 저장할 수 없다. 기준가격 결정일 뒤 다시 불러온다.',
+      )
+    }
+  })
+
   it('★ E03060 — 표의 1·2차 배리어(85)가 사다리(88)와 다르다', () => {
     const fill = importFillOf(termsOf('E03060'), {})
     expect(fill.kind).toBe('REFUSED')
@@ -185,48 +184,24 @@ describe('이 층만 하는 거부 — 합성 변형', () => {
     expect(at('2027-06-09')).toBe('REFUSED') // + 11
   })
 
-  it('★ 리자드 쿠폰이 소수 둘째 자리 안에 떨어지지 않으면 거부한다 — numeric(6,4)가 조용히 반올림한다', () => {
-    /*
-     * EM1039의 리자드(배수 표기 없음 → 누적에서 환산하는 경로)를 **2차로 옮긴** 합성 상품이다.
-     * 3차면 누적 × 12 / (4 × 3)이 늘 나누어떨어져 이 규칙을 시험할 수 없다. 2차면 × 12 / 8 = × 1.5다.
-     * 사다리의 `(L50)`도 같이 옮겨 어댑터의 대조(LIZARD_POSITION)가 먼저 막지 않게 한다.
-     */
-    const terms = termsOf('EM1039')
-    const second = terms.rounds.find((r) => r.round === 2 && r.variant !== 2)!
-    const movedTo2 = (cumulative: string): KiwoomProductTerms => ({
-      ...terms,
-      ladder: {
-        ...terms.ladder,
-        steps: terms.ladder.steps!.map((step, i) => ({
-          ...step,
-          lizardPct: i === 1 ? '50' : i === 2 ? null : step.lizardPct,
-        })),
-      },
-      rounds: terms.rounds.map((r) =>
-        r.variant === 2
-          ? {
-              ...r,
-              round: 2,
-              label: '2-2',
-              evaluationDate: second.evaluationDate,
-              paymentDate: second.paymentDate,
-              cumulativeYieldPct: cumulative,
-            }
-          : r,
-      ),
-    })
+  it('★ 배수가 적혀 있지 않은 리자드 쿠폰은 정방향으로 찾는다 — 절사된 누적을 역산하지 않는다 (ADR-009 §3 v3.9)', () => {
+    const at = (headlinePct: string, periodMonths: number, round: number, cumulativePct: string) =>
+      lizardCouponPct({ headlinePct, multiple: null, periodMonths, round, cumulativePct })
 
-    // 21 × 1.5 = 31.5 — 떨어진다(음성 대조)
-    const ok = importFillOf(movedTo2('21'), {})
-    expect(ok.kind).not.toBe('REFUSED')
-    if (ok.kind !== 'REFUSED') expect(ok.values['schedules[1].lizardCouponRate']).toBe('31.5')
-
-    // 21.01 × 1.5 = 31.515 — 셋째 자리가 생긴다
-    const refused = importFillOf(movedTo2('21.01'), {})
-    expect(refused.kind).toBe('REFUSED')
-    if (refused.kind === 'REFUSED') {
-      expect(refused.reasons).toEqual(['2차 리자드 쿠폰율을 연율로 환산할 수 없다 — 투자설명서로 확인한다.'])
-    }
+    // 반박 검토의 반례 — 연 24.25% · 6개월 · 1차: 정확한 누적 12.125가 12.12로 절사되어 표시된다.
+    // 역산하면 12.12 × 12 / 6 = 24.24(소수 둘째 자리 안이라 종전 검사를 통과했다 — 틀린 연율이다)
+    expect(at('24.25', 6, 1, '12.12')).toBe('24.25')
+    // 2배 — 누적이 절사된 24.25가 된다
+    expect(at('24.25', 6, 1, '24.25')).toBe('48.5')
+    // EM1039 실측 — 연 21% · 4개월 · 3차 · 1배
+    expect(at('21', 4, 3, '21')).toBe('21')
+    // 어떤 정수 배수와도 맞지 않으면 거부
+    expect(at('21', 4, 3, '21.01')).toBeNull()
+    expect(at('21', 4, 2, '21')).toBeNull() // 1.5배 — 정수 배수가 아니다
+    // 배수가 적혀 있으면 배수 × 헤드라인 — 누적은 어댑터가 대조했다
+    expect(lizardCouponPct({ headlinePct: '16.62', multiple: 2, periodMonths: 4, round: 3, cumulativePct: '33.24' })).toBe(
+      '33.24',
+    )
   })
 
   it('예상하지 못한 입력에도 던지지 않는다 — 거부가 된다', () => {
@@ -239,14 +214,14 @@ describe('이 층만 하는 거부 — 합성 변형', () => {
 
 describe('불변식', () => {
   it('★ 투자원금·계좌유형·비고를 절대 채우지 않는다', () => {
-    for (const code of ['E04000', 'EM1740', 'EM2046', 'EM1039', 'E04262'] as const) {
+    for (const code of ['E04000', 'EM1740', 'EM2046', 'EM1039'] as const) {
       const v = filled(importFillOf(termsOf(code), {})).values
       for (const key of ['principal', 'accountType', 'note']) expect(key in v, `${code} ${key}`).toBe(false)
     }
   })
 
   it('★ 채운 이름이 전부 폼의 이름이다 — 폼에 없는 이름은 값 좁힘에서 조용히 사라진다', () => {
-    for (const code of ['E04000', 'EM1740', 'E04262'] as const) {
+    for (const code of ['E04000', 'EM1740', 'EM2046'] as const) {
       const v = filled(importFillOf(termsOf(code), {})).values
       const names = new Set(productFieldNames({ underlyings: 2, rounds: Number.parseInt(v.totalRounds!, 10) }))
       for (const key of Object.keys(v)) expect(names, `${code} ${key}`).toContain(key)

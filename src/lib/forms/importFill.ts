@@ -1,4 +1,4 @@
-import { dec } from '@/lib/decimal'
+import { dec, truncateToUnit } from '@/lib/decimal'
 import { dDay, generateEvaluationDates } from '@/lib/domain'
 import { parseTenor } from '@/lib/providers/kiwoom/ladder'
 import { crossCheckTerms } from '@/lib/providers/kiwoom/terms-check'
@@ -95,6 +95,21 @@ function fill(
    * (리자드 쿠폰의 연율 환산)뿐이다.
    */
   const discrepancies = crossCheckTerms(terms)
+
+  /*
+   * ---------- 청약 중은 거부다 (DOC-008 v2.11 — 반박 검토)
+   *
+   * 기준가격이 아직 없다(발행 전). 계약이 V-15로 양수를 요구하고 열이 `NOT NULL`이므로 채워
+   * 봐야 저장할 수 없고, 저장하려면 기준가를 지어내야 한다 — 그 값은 워스트오브·KI·조기상환의
+   * 분모다. v2.9는 이것을 「일부 채움」으로 두고 「발행 뒤 채운다」고 안내했는데 그 안내를 따르면
+   * 저장이 거부됐다.
+   */
+  if (terms.status !== 'ISSUED') {
+    reasons.push(
+      '청약 중인 상품이다 — 기준가격이 아직 정해지지 않아 저장할 수 없다. 기준가격 결정일 뒤 다시 불러온다.',
+    )
+  }
+
   for (const d of discrepancies) {
     if (d.severity === 'BLOCKING') {
       const text = reasonOf(d)
@@ -107,15 +122,12 @@ function fill(
   // 월지급식은 어댑터가 PERIOD_UNKNOWN을 내지 않는다(수익률 대조를 건너뛴다) — 여기서도 막되 문구는 하나다
   if (period == null && !reasons.includes('평가주기를 읽을 수 없다.')) reasons.push('평가주기를 읽을 수 없다.')
 
-  const issued = terms.status === 'ISSUED'
   const early = terms.rounds.filter((r) => r.variant !== 2)
   const lizardRows = terms.rounds.filter((r) => r.variant === 2)
-  const steps = ladder.steps ?? []
-  const earlyCount = issued ? early.length : Math.max(0, steps.length - 1)
-  const totalRounds = earlyCount + 1
+  const totalRounds = early.length + 1
 
   /* ---------- 리자드 — K < L은 어댑터가 보았다(KI_NOT_BELOW_LIZARD). 여기서는 쿠폰의 단위다 */
-  const lizards = lizardSpecs(terms, lizardRows, steps, period)
+  const lizards = lizardSpecs(terms, lizardRows, period)
   for (const spec of lizards) {
     if (spec.couponPct == null) {
       reasons.push(`${spec.round}차 리자드 쿠폰율을 연율로 환산할 수 없다 — 투자설명서로 확인한다.`)
@@ -123,9 +135,7 @@ function fill(
   }
 
   /* ---------- 평가일 — 실제 날짜. 만기는 마지막 평균일 (DQ-10) */
-  const dates: string[] = []
-  if (issued) for (const r of early) dates.push(r.evaluationDate)
-  else for (let i = 0; i < earlyCount; i += 1) dates.push('')
+  const dates: string[] = early.map((r) => r.evaluationDate)
   const maturityDate = terms.maturity?.evaluationDates.at(-1) ?? ''
   dates.push(maturityDate)
 
@@ -154,10 +164,7 @@ function fill(
     [EVALUATION_DATE_BASIS_FIELD]: `${terms.header.issueDate}|${period}`,
   }
 
-  const barriers = issued
-    ? early.map((r) => r.barrierPct)
-    : steps.slice(0, earlyCount).map((s) => s.barrierPct)
-  barriers.push(maturity.barrierPct)
+  const barriers = [...early.map((r) => r.barrierPct), maturity.barrierPct]
 
   for (let index = 0; index < totalRounds; index += 1) {
     const at = (sub: string) => path('schedules', index, sub)
@@ -200,14 +207,6 @@ function fill(
       text: '관찰방식은 안내 화면에 없다 — 투자설명서에서 확인해 고른다.',
     })
   }
-  if (!issued) {
-    notes.push({
-      field: null,
-      text:
-        '청약 중인 상품이다 — 기준가격과 조기상환 평가일이 아직 안내 화면에 없다. ' +
-        '투자설명서의 날짜를 적고, 기준가격은 발행 뒤 수정 화면에서 채운다.',
-    })
-  }
   if (lizards.length > 0) {
     notes.push({
       field: null,
@@ -244,7 +243,7 @@ function fill(
   }
 
   // KI 상품은 관찰방식이 비므로 늘 PARTIAL이다 — 「무엇이 비었는지」를 화면이 말해야 한다
-  const partial = unresolved.length > 0 || !issued || !ladder.noKi || duplicate
+  const partial = unresolved.length > 0 || !ladder.noKi || duplicate
   return { kind: partial ? 'PARTIAL' : 'FILLED', values, notes, unresolved }
 }
 
@@ -255,43 +254,65 @@ function pct(raw: string): string {
 
 type LizardSpec = { round: number; barrierPct: string; couponPct: string | null }
 
+/** 배수가 적혀 있지 않을 때 시험하는 정수 배수의 상한 — 실측은 1배·2배다 */
+const MAX_LIZARD_MULTIPLE = 3
+
 /**
- * 리자드 차수 — 발행 뒤에는 `k-2` 행, 청약 중에는 사다리의 `(Lxx)`.
+ * 리자드 차수 — `k-2` 행. 쿠폰율은 **연율**이다(DOC-007 §4.1 — `applicableCouponRate`가
+ * 연쿠폰율 자리를 대신한다).
  *
- * 쿠폰율은 **연율**이다(DOC-007 §4.1 — `applicableCouponRate`가 연쿠폰율 자리를 대신한다). 배수가
- * 적혀 있으면 `배수 × 헤드라인 연율`이고(대조가 표의 누적값과 맞는지 이미 봤다), 없으면 표의 누적
- * 수익률을 `× 12 / (주기 × k)`로 환산하되 **소수 둘째 자리 안에 떨어질 때만** 쓴다 — 그 밖이면
- * `numeric(6,4)`가 조용히 반올림하므로 `null`(거부).
+ * 배수가 적혀 있으면 `배수 × 헤드라인 연율`이다(어댑터가 표의 누적값과 맞는지 이미 봤다).
+ * **적혀 있지 않으면 역산하지 않는다** (ADR-009 §3 v3.9 — 반박 검토): 표의 누적값은 **절사된**
+ * 값이므로 `누적 × 12 / 경과 개월`은 절사 오차를 연율에 싣고, 그 결과가 소수 둘째 자리 안에
+ * 떨어지기까지 하면 검사를 통과한다. 대신 정수 배수 k마다 `헤드라인 × 경과 개월 / 12 × k`를
+ * 절사해 표와 **정방향으로** 비교하고, 맞는 k가 없으면 `null`(거부)이다.
  */
 function lizardSpecs(
   terms: KiwoomProductTerms,
   lizardRows: readonly KiwoomRound[],
-  steps: readonly { barrierPct: string; lizardPct: string | null }[],
   period: number | null,
 ): LizardSpec[] {
-  const headline = terms.header.headlineAnnualPct
-  const multiple = terms.ladder.lizardMultiple
-  const byMultiple = headline != null && multiple != null ? dec(headline).times(multiple).toString() : null
-
-  if (terms.status === 'ISSUED') {
-    return lizardRows.map((row) => {
-      if (byMultiple != null) return { round: row.round, barrierPct: row.barrierPct, couponPct: byMultiple }
-      if (period == null) return { round: row.round, barrierPct: row.barrierPct, couponPct: null }
-      const annual = dec(row.cumulativeYieldPct).times(12).div(period * row.round)
-      return {
-        round: row.round,
-        barrierPct: row.barrierPct,
-        couponPct: annual.decimalPlaces() <= 2 ? annual.toString() : null,
-      }
-    })
-  }
-  return steps.flatMap((step, index) =>
-    step.lizardPct == null ? [] : [{ round: index + 1, barrierPct: step.lizardPct, couponPct: byMultiple }],
-  )
+  return lizardRows.map((row) => ({
+    round: row.round,
+    barrierPct: row.barrierPct,
+    couponPct: lizardCouponPct({
+      headlinePct: terms.header.headlineAnnualPct,
+      multiple: terms.ladder.lizardMultiple,
+      periodMonths: period,
+      round: row.round,
+      cumulativePct: row.cumulativeYieldPct,
+    }),
+  }))
 }
 
 /**
- * 평가일 검사 — 비어 있는 칸(청약 중 조기 차수)은 건너뛴다.
+ * 리자드 쿠폰율(연율, 퍼센트) — 위 각주의 규칙. 맞는 값이 없으면 `null`(거부)이다.
+ *
+ * 테스트가 이 함수를 직접 부른다 — 어댑터의 대조가 먼저 막는 합성 상품으로는 이 규칙만 따로
+ * 시험할 수 없다.
+ */
+export function lizardCouponPct(input: {
+  headlinePct: string | null
+  multiple: number | null
+  periodMonths: number | null
+  round: number
+  cumulativePct: string
+}): string | null {
+  if (input.headlinePct == null) return null
+  if (input.multiple != null) return dec(input.headlinePct).times(input.multiple).toString()
+  if (input.periodMonths == null) return null
+
+  const accrued = dec(input.headlinePct).times(input.periodMonths * input.round).div(12)
+  for (let k = 1; k <= MAX_LIZARD_MULTIPLE; k += 1) {
+    if (truncateToUnit(accrued.times(k), '0.01').eq(dec(input.cumulativePct))) {
+      return dec(input.headlinePct).times(k).toString()
+    }
+  }
+  return null
+}
+
+/**
+ * 평가일 검사.
  *
  * 엄격 증가 · 발행일 이상은 파서도 보지만(`BAD_DATE`) V-07과 같은 규칙이므로 여기서 한 번 더
  * 말한다 — 거부 사유가 **어느 차수인지**를 사람에게 보여 줄 자리가 이 층뿐이다. 이 층만 할 수
