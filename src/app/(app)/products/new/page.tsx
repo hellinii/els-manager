@@ -8,7 +8,7 @@ import { importPanelOf } from '@/lib/forms/importPanel'
 import { parseImportQuery, type QueryValues } from '@/lib/forms/query'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 
-import { productFormAction } from './actions'
+import { importAssetAction, productFormAction } from './actions'
 
 /**
  * SCR-204 ELS 등록 — 골격 (P4 컷 4a, DOC-008 §5·§7.1)
@@ -92,7 +92,7 @@ export default async function ProductNewPage({
         </p>
       </header>
 
-      <KiwoomImport panel={panel} />
+      <KiwoomImport panel={panel} assetAction={importAssetAction} />
 
       {/*
         같은 컴포넌트가 수정에도 쓰인다(컷 5). 다른 것은 초기값·대상 id·액션 셋뿐이며

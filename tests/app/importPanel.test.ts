@@ -107,12 +107,23 @@ describe('상세 단계', () => {
     expect(p.productName).toBe('키움 ELS 4000회')
     expect(p.prospectusUrl).toMatch(/BE04000\.pdf$/)
     expect(p.initialValues['underlyings[0].assetId']).toBe(SAMSUNG.id)
-    expect(p.unresolved).toEqual([
-      {
-        name: 'SK하이닉스',
-        resolution: { kind: 'NO_MAPPING', symbol: '2:A000660', listed: LISTED.ok ? LISTED.data[1] : null },
+    expect(p.unresolved).toHaveLength(1)
+    expect(p.unresolved[0]).toMatchObject({
+      name: 'SK하이닉스',
+      resolution: { kind: 'NO_MAPPING', symbol: '2:A000660' },
+      detail: null,
+      offer: {
+        symbol: '2:A000660',
+        proposal: {
+          ok: true,
+          providerSymbol: '2:A000660',
+          asset: { name: 'SK하이닉스', assetType: 'STOCK', market: 'KRX', currency: 'KRW' },
+        },
+        // 삼성전자는 이미 키움 심볼이 있어 연결 선택지가 아니다 — 고르면 그 매핑을 덮는다
+        links: [],
+        elsewhere: [],
       },
-    ])
+    })
     // 칸 안내는 스칼라 칸으로, 나머지는 구획 머리로 갈라진다
     expect(Object.keys(p.fieldNotes)).toEqual(['kiObservation'])
     expect(p.notes.length).toBeGreaterThan(0)
@@ -133,6 +144,24 @@ describe('상세 단계', () => {
     expect(before.formKey.startsWith('E04000:')).toBe(true)
   })
 
+  it('★ 키움 심볼 없는 같은 통화 자산이 있으면 연결 선택지가 되고 이름이 같으면 미리 고른다', () => {
+    const unmapped: AssetOption = {
+      id: '00000000-0000-4000-8000-0000000000b2',
+      name: 'SK 하이닉스',
+      market: 'KRX',
+      currency: 'KRW',
+      hasPriceProvider: false,
+      providerSymbols: [],
+    }
+    const p = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: okTerms('E04000'),
+      listed: LISTED,
+      options: [SAMSUNG, unmapped],
+    })
+    expect(p.unresolved[0]!.offer!.links).toEqual([{ id: unmapped.id, name: 'SK 하이닉스', preselected: true }])
+  })
+
   it('기초자산 목록을 받지 못하면 채움은 하되 자산을 잇지 않고 알린다', () => {
     const p = panel({
       query: { query: '4000', code: 'E04000' },
@@ -142,7 +171,7 @@ describe('상세 단계', () => {
     })
     expect(p.state).toBe('PARTIAL')
     expect(p.initialValues['underlyings[0].assetId']).toBe('')
-    expect(p.unresolved.every((u) => u.resolution == null)).toBe(true)
+    expect(p.unresolved.every((u) => u.resolution == null && u.offer == null && u.detail != null)).toBe(true)
     expect(p.notes.some((n) => n.includes('기초자산 목록을 받지 못해'))).toBe(true)
   })
 

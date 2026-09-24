@@ -2,9 +2,15 @@
 
 import { redirect } from 'next/navigation'
 
-import { createProduct } from '@/app/actions'
+import { createAsset, createProduct, saveProviderSymbol } from '@/app/actions'
+import {
+  parseImportAssetForm,
+  runImportAsset,
+  type ImportAssetState,
+} from '@/lib/forms/import'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { intentState, submitState, transition } from '@/lib/forms/productForm'
+import { importHref } from '@/lib/forms/query'
 import type { FormState } from '@/lib/forms/state'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -51,4 +57,24 @@ export async function productFormAction(
   if (result.ok) redirect(PATHS.product(result.data.id))
 
   return submitState(result, next)
+}
+
+/**
+ * 불러오기의 형제 폼 — 기존 자산에 연결 / 자산 추가 (DOC-008 §5 SCR-204 v2.10)
+ *
+ * 규칙(쓰기 전 심볼 검사 · 자산 → 매핑 순서 · 실패 문구)은 `lib/forms/import.ts`에 있고 여기는
+ * 배선이다 — 계약 둘을 포트로 넘긴다. **새 계약이 아니다**: §5.10·§5.12를 순서대로 부른다
+ * (원자적이지 않다 — DOC-011 AQ-74). 무효화는 두 계약이 이미 한다(`withInvalidation`).
+ *
+ * 성공하면 **같은 불러오기 주소로** 보낸다 — 페이지가 자산 목록을 다시 읽어 그 기초자산이 풀리고,
+ * 해결된 id가 폼 키에 들어가므로 상품 폼이 새 값으로 다시 선다. `redirect()`는 던지므로 결과를
+ * 돌려주는 경로와 섞지 않는다(이 함수에 `catch`가 없다).
+ */
+export async function importAssetAction(
+  _prev: ImportAssetState,
+  form: FormData,
+): Promise<ImportAssetState> {
+  const outcome = await runImportAsset(parseImportAssetForm(form), { createAsset, saveProviderSymbol })
+  if (outcome.ok) redirect(importHref(outcome.back))
+  return { message: outcome.message }
 }

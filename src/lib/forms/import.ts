@@ -319,3 +319,8 @@ export async function runImportAsset(
   })
   return linked.ok ? { ok: true, back: command.back } : { ok: false, message: linked.error.message, back: command.back }
 }
+
+/** 형제 폼의 왕복 상태 — 성공은 리다이렉트이므로 실패만 담는다 */
+export type ImportAssetState = { message: string | null }
+
+export const IMPORT_ASSET_INITIAL: ImportAssetState = { message: null }

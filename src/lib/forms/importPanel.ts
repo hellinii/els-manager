@@ -7,7 +7,16 @@ import type {
 } from '@/lib/providers/kiwoom/terms-types'
 import type { LookupOutcome } from '@/lib/providers/types'
 
-import { candidateRowsOf, importFormKey, type CandidateRow } from './import'
+import {
+  assetProposalOf,
+  candidateRowsOf,
+  importFormKey,
+  linkChoicesOf,
+  mappedElsewhereOf,
+  type AssetProposal,
+  type CandidateRow,
+  type LinkChoice,
+} from './import'
 import { resolveImportAssets, type AssetResolution } from './importAssets'
 import { importFillOf } from './importFill'
 import type { ImportQuery } from './query'
@@ -27,6 +36,21 @@ export type UnresolvedAsset = {
   name: string
   /** 해석 결과. 자산 목록을 받지 못했으면 `null`이다 — 제안할 재료가 없다 */
   resolution: AssetResolution | null
+  /**
+   * 형제 폼이 그릴 것 — **서버에서 계산해 평범한 값으로 넘긴다**(DOC-008 v2.10). 클라이언트가
+   * 계산하면 어댑터 모듈이 클라이언트 번들에 실린다. `null`이면 제안이 없다(`detail`이 이유).
+   */
+  offer: {
+    symbol: string
+    /** 자산 추가 제안. 허용 목록 밖이면 거부 사유 */
+    proposal: AssetProposal
+    /** 기존 자산에 연결 — 키움 심볼 없는 같은 통화 자산 */
+    links: LinkChoice[]
+    /** 이름이 같은데 다른 키움 심볼에 연결된 자산 — SCR-302로 */
+    elsewhere: Array<{ id: string; name: string; symbol: string }>
+  } | null
+  /** 제안이 없는 이유 */
+  detail: string | null
 }
 
 export type ImportPanel = {
@@ -148,11 +172,43 @@ export function importPanelOf(input: {
     prospectusUrl,
     notes,
     fieldNotes,
-    unresolved: fill.unresolved.map((name) => ({
-      name,
-      resolution: listed?.ok === true ? (resolutions[name] ?? null) : null,
-    })),
+    unresolved: fill.unresolved.map((name) =>
+      unresolvedOf(name, listed?.ok === true ? (resolutions[name] ?? null) : null, input.options),
+    ),
     initialValues,
     formKey: importFormKey(code, initialValues),
+  }
+}
+
+function unresolvedOf(
+  name: string,
+  resolution: AssetResolution | null,
+  options: readonly AssetOption[],
+): UnresolvedAsset {
+  if (resolution == null) {
+    return { name, resolution, offer: null, detail: '키움 기초자산 목록을 받지 못했다 — 기초자산 칸에서 직접 고른다.' }
+  }
+  switch (resolution.kind) {
+    case 'NO_MAPPING': {
+      const proposal = assetProposalOf(resolution.listed)
+      return {
+        name,
+        resolution,
+        detail: null,
+        offer: {
+          symbol: resolution.symbol,
+          proposal,
+          links: proposal.ok ? linkChoicesOf(options, proposal.asset) : [],
+          elsewhere: mappedElsewhereOf(options, proposal.ok ? proposal.asset.name : name, resolution.symbol),
+        },
+      }
+    }
+    case 'NO_ES040':
+      return { name, resolution, offer: null, detail: '키움 기초자산 목록에 없다 — 기초자산 칸에서 직접 고른다.' }
+    case 'AMBIGUOUS':
+      return { name, resolution, offer: null, detail: `${resolution.detail} — 기초자산 칸에서 직접 고른다.` }
+    case 'RESOLVED':
+      // 폼이 같은 앱 자산이 두 행에 풀린 것을 비웠다(V-09) — 사람이 고른다
+      return { name, resolution, offer: null, detail: '앞 행과 같은 앱 자산으로 풀렸다 — 기초자산 칸에서 고른다.' }
   }
 }

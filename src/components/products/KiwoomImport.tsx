@@ -1,6 +1,8 @@
 import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
+import { ImportAssetForm } from '@/components/products/ImportAssetForm'
+import type { ImportAssetState } from '@/lib/forms/import'
 import { IMPORT_AUTHORITY_NOTE, IMPORT_PANEL_STATES, type ImportPanelTone } from '@/lib/format/importNotice'
 import type { ImportPanel } from '@/lib/forms/importPanel'
 import { IMPORT_KEYS, importHref } from '@/lib/forms/query'
@@ -26,11 +28,14 @@ import { PATHS } from '@/lib/routes/paths'
  */
 export function KiwoomImport({
   panel,
-  unresolvedSlot,
+  assetAction,
 }: {
   panel: ImportPanel
-  /** 미해결 기초자산의 형제 폼 — 폼 중첩이 불가하므로 호출자가 `<form>` 밖에서 넣는다 */
-  unresolvedSlot?: React.ReactNode
+  /**
+   * 미해결 기초자산의 형제 폼이 부를 어댑터(`importAssetAction`). 이 구획은 상품 폼 **밖**에
+   * 있으므로 폼 중첩이 생기지 않는다
+   */
+  assetAction: (prev: ImportAssetState, form: FormData) => Promise<ImportAssetState>
 }) {
   const state = IMPORT_PANEL_STATES[panel.state]
 
@@ -157,19 +162,14 @@ export function KiwoomImport({
       {panel.unresolved.length > 0 && (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">앱 자산과 잇지 못한 기초자산</p>
-          {unresolvedSlot ?? (
-            <ul className="list-disc pl-5 text-sm">
-              {panel.unresolved.map(({ name }) => (
-                <li key={name}>
-                  {name} — 아래 기초자산 칸에서 직접 고르거나{' '}
-                  <Link href={PATHS.prices} className="underline">
-                    시세 관리
-                  </Link>
-                  에서 등록·매핑한다.
-                </li>
-              ))}
-            </ul>
-          )}
+          {panel.unresolved.map((asset) => (
+            <ImportAssetForm
+              key={asset.name}
+              asset={asset}
+              back={{ query: panel.query, code: panel.code }}
+              action={assetAction}
+            />
+          ))}
         </div>
       )}
     </section>
