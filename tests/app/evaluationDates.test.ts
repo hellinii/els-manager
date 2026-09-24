@@ -171,6 +171,43 @@ describe('저장 — 실제 날짜는 산식이 건드리지 않는다', () => {
   })
 })
 
+describe('★ 기준은 산식을 계산할 수 있는 제출에서만 오른다 (DOC-002 §4.8 v1.8 — 반박 검토 재현)', () => {
+  it('발행일을 비운 저장 → 새 발행일로 저장: 산식대로이던 날짜가 새 발행일을 따라간다', () => {
+    // 수정 화면 — 저장값이 산식대로다(2026-01-15, 6개월, 3차)
+    const stored = valuesWith({
+      issueDate: '2026-01-15',
+      months: '6',
+      dates: ['2026-07-14', '2027-01-14', '2027-07-14'],
+      basis: '2026-01-15|6',
+    })
+    // (1) 발행일을 비우고 저장 — 계산할 수 없다. 칸도 기준도 그대로, 보류도 없다(계약이 거부한다)
+    const s1 = applyEvaluationDates({ ...stored, issueDate: '' }, 'SUBMIT')
+    expect(s1.held).toBe(false)
+    expect(s1.values[EVALUATION_DATE_BASIS_FIELD]).toBe('2026-01-15|6')
+    expect(datesOf(s1.values)).toEqual(['2026-07-14', '2027-01-14', '2027-07-14'])
+    // (2) 새 발행일로 저장 — 기준이 살아 있으므로 산식대로이던 날짜로 읽고 옮긴다
+    const s2 = applyEvaluationDates({ ...s1.values, issueDate: '2026-02-15' }, 'SUBMIT')
+    expect(s2.held).toBe(false)
+    expect(datesOf(s2.values)).toEqual(['2026-08-14', '2027-02-14', '2027-08-14'])
+  })
+
+  it('주기를 0으로 둔 저장도 같다 — 기준이 해석 불가 값으로 오르지 않는다', () => {
+    const stored = valuesWith({ issueDate: '2026-01-15', months: '6', dates: ['2026-07-14'], basis: '2026-01-15|6' })
+    const s1 = applyEvaluationDates({ ...stored, evaluationPeriodMonths: '0' }, 'SUBMIT')
+    expect(s1.values[EVALUATION_DATE_BASIS_FIELD]).toBe('2026-01-15|6')
+    expect(s1.held).toBe(false)
+  })
+
+  it('실제 날짜가 있어도 계산할 수 없는 제출은 보류하지 않는다 — 발행일 누락은 계약이 말한다', () => {
+    const s = applyEvaluationDates(
+      valuesWith({ issueDate: '', months: '6', dates: E04000.actual, basis: '2026-05-29|6' }),
+      'SUBMIT',
+    )
+    expect(s.held).toBe(false)
+    expect(datesOf(s.values)).toEqual(E04000.actual)
+  })
+})
+
 describe('「산식으로 다시 채우기」 — 전 차수를 덮는다', () => {
   it('실제 날짜를 덮고 그 수를 알린다', () => {
     const { values, notice, held } = applyEvaluationDates(

@@ -182,8 +182,12 @@ export function evaluationDatePlanOf(values: Record<string, string>): Evaluation
  * **저장 보류가 경고만이 아닌 이유** — 저장이 성공하면 리다이렉트로 화면이 바뀌므로 안내가
  * 남을 자리가 없다. 보류한 제출은 기준을 현재 값으로 올려 두므로 **재제출하면 저장된다.**
  *
- * 두 모드 모두 끝에 기준을 현재 값으로 올린다 — 이 제출 뒤의 칸이 그 기준에서 나온
- * 것이거나(재생성·덮기) 사용자가 그 기준 아래에서 확인한 것이기 때문이다.
+ * 기준은 **산식을 계산할 수 있는 제출에서만** 현재 값으로 올린다 — 이 제출 뒤의 칸이 그 기준에서
+ * 나온 것이거나(재생성·덮기) 그 기준의 산식과 대조된 것이기 때문이다(DOC-002 §4.8 v1.8). 발행일을
+ * 비운 제출이 기준을 `'|6'`처럼 해석 불가 값으로 올리면 다음 제출이 기준을 잃고, 산식대로이던 날짜를
+ * 실제 날짜로 오판한다 — 보류 뒤 재제출이 옛 발행일 기준 날짜를 저장했다(반박 검토가 재현).
+ * 계산할 수 없는 제출은 **아무것도 하지 않는다** — 칸도 기준도 그대로, 보류도 없다(그 저장은
+ * 계약이 발행일·주기 누락으로 거부하고 그 문구가 할 일을 말한다).
  */
 export function applyEvaluationDates(
   values: Record<string, string>,
@@ -191,11 +195,13 @@ export function applyEvaluationDates(
 ): { values: Record<string, string>; notice: string | null; held: boolean } {
   const rounds = roundCountOf(values)
   const plan = evaluationDatePlanOf(values)
+  const computable = rounds > 0 && plan.formula.length === rounds
   const next: Record<string, string> = {
     ...values,
-    [EVALUATION_DATE_BASIS_FIELD]: evaluationDateBasisOf(values),
+    [EVALUATION_DATE_BASIS_FIELD]: computable
+      ? evaluationDateBasisOf(values)
+      : (values[EVALUATION_DATE_BASIS_FIELD] ?? ''),
   }
-  const computable = rounds > 0 && plan.formula.length === rounds
 
   if (mode === 'OVERWRITE') {
     if (!computable) {
@@ -221,11 +227,11 @@ export function applyEvaluationDates(
     }
   }
 
+  if (!computable) return { values: next, notice: null, held: false }
+
   if (plan.formulaDerived) {
-    if (computable) {
-      for (let index = 0; index < rounds; index += 1) {
-        next[dateCell(index)] = plan.formula[index]!
-      }
+    for (let index = 0; index < rounds; index += 1) {
+      next[dateCell(index)] = plan.formula[index]!
     }
     return { values: next, notice: null, held: false }
   }
