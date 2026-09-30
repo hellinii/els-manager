@@ -5,6 +5,7 @@ import { useActionState, useState } from 'react'
 import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
+import type { ProductCurrency } from '@/lib/domain/currency'
 import { REDEMPTION_TYPE_LABELS, korDate } from '@/lib/format'
 import {
   REDEMPTION_ID_FIELD,
@@ -94,10 +95,16 @@ export function RedemptionForm({
   productId,
   redemptionId,
   submitLabel,
+  currency,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>
   initialValues: Record<string, string>
   rounds: readonly RoundOption[]
+  /**
+   * 상품 통화 — **서버가 안다**(대상 상품이 정해진 채 렌더된다). 칸의 모양이 클라이언트 상태가 아니라
+   * 이 값에서 나온다(DOC-008 SCR-203 「P8 달러 ELS」): 실수령액의 단위 · 적용 환율 칸의 유무
+   */
+  currency: ProductCurrency
   /** §5.4 — 상환 처리. 상품 id를 나른다 */
   productId?: string
   /** §5.5 — 상환 수정. 상환 id를 나른다 */
@@ -130,6 +137,7 @@ export function RedemptionForm({
       : null
 
   const locked = taxableIncomeLocked(type)
+  const foreign = currency !== 'KRW'
 
   /*
    * 채우지 못하는 유형에서는 **비운다** — `values`로 되돌리면 직전 차수의 금액이
@@ -245,15 +253,20 @@ export function RedemptionForm({
 
         <Field
           name="grossAmount"
-          label="실수령액 (원)"
+          // 원화 상품은 오늘 그대로다. 달러 상품은 상품 통화로 받는다 — 센트까지(V-23)
+          label={foreign ? '실수령액 (달러)' : '실수령액 (원)'}
           error={fieldErrors.grossAmount}
-          hint={grossHint({ fill, type })}
+          hint={
+            foreign
+              ? `거래내역의 달러 거래금액 · ${grossHint({ fill, type })}`
+              : grossHint({ fill, type })
+          }
         >
           {(props) => (
             <input
               {...props}
               type="text"
-              inputMode="numeric"
+              inputMode={foreign ? 'decimal' : 'numeric'}
               key={grossValue}
               defaultValue={grossValue}
               className={INPUT_CLASS}
@@ -270,7 +283,11 @@ export function RedemptionForm({
           hint={
             locked
               ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
-              : '증권사 거래내역의 「과표」. 실수령액 − 원금이다'
+              : foreign
+                ? // 채우지 않는다(U1) — 과세표준은 지급일 환율로 환산한 원화이고 그 환율은 거래내역만 안다.
+                  // 힌트에 계산한 숫자를 넣지 않는다(실수령액을 고치면 JS 없는 경로에서 낡는다 — a3가 산식을 더한다)
+                  '거래내역의 원화 금액 — 증권사 거래내역의 「과표」를 옮긴다'
+                : '증권사 거래내역의 「과표」. 실수령액 − 원금이다'
           }
         >
           {(props) => (
@@ -297,7 +314,11 @@ export function RedemptionForm({
           name="withholdingTax"
           label="원천징수세액 (원)"
           error={fieldErrors.withholdingTax}
-          hint="증권사 거래내역의 「제세금」. 비우면 과세 금융소득 × 분리과세율로 산출한다"
+          hint={
+            foreign
+              ? '거래내역의 원화 금액(「제세금」). 비우면 과세 금융소득 × 분리과세율로 산출한다'
+              : '증권사 거래내역의 「제세금」. 비우면 과세 금융소득 × 분리과세율로 산출한다'
+          }
         >
           {(props) => (
             <input
@@ -310,6 +331,29 @@ export function RedemptionForm({
           )}
         </Field>
       </div>
+
+      {/*
+        적용 환율 — **달러 상품에만 그린다**(`FOREIGN_ONLY_REDEMPTION_FIELDS`). 원화 상품에 두면 적을 수는
+        있는데 저장이 늘 거부되는 칸이 된다(V-24) — 부재로 구현한다. 채우지 않는다(참고값 · U1)
+      */}
+      {foreign && (
+        <Field
+          name="exchangeRate"
+          label="적용 환율 (선택)"
+          error={fieldErrors.exchangeRate}
+          hint="거래내역의 지급일 환율(원/달러) — 참고값이며 과세 금융소득을 이 값으로 계산하지 않는다"
+        >
+          {(props) => (
+            <input
+              {...props}
+              type="text"
+              inputMode="decimal"
+              defaultValue={values.exchangeRate ?? ''}
+              className={INPUT_CLASS}
+            />
+          )}
+        </Field>
+      )}
 
       {/*
         ST-05 — 확정/추정의 구분이 이 체크박스다. 기본이 거짓인 이유는

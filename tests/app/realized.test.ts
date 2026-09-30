@@ -69,18 +69,18 @@ describe('표시만 하는 값 셋 — 칸이 아니다', () => {
   })
 
   it('실현손익은 실수령액 − 투자원금이다 — 그림의 1,398,019원', () => {
-    expect(realizedPnlOf('20788019', '19390000')).toBe('1398019')
+    expect(realizedPnlOf('20788019', '19390000', 'KRW')).toBe('1398019')
     // 그림에서 과표와 실현손익이 같은 값인 것이 우연이 아니다 — 조기상환의
     // 과세 금융소득이 정의상 「수령액 − 원금」이다(DOC-007 §4.2).
-    expect(realizedPnlOf('20788019', '19390000')).toBe(ROW.taxableIncome)
+    expect(realizedPnlOf('20788019', '19390000', 'KRW')).toBe(ROW.taxableIncome)
   })
 
   it('실현손익은 음수가 될 수 있다 — 손실 상환이 그 자리다', () => {
-    expect(realizedPnlOf('8000000', '10000000')).toBe('-2000000')
+    expect(realizedPnlOf('8000000', '10000000', 'KRW')).toBe('-2000000')
   })
 
   it('쉼표를 지운다 — 사용자가 붙여 넣는 형태가 그렇다', () => {
-    expect(realizedPnlOf('20,788,019', '19,390,000')).toBe('1398019')
+    expect(realizedPnlOf('20,788,019', '19,390,000', 'KRW')).toBe('1398019')
   })
 
   /**
@@ -88,11 +88,24 @@ describe('표시만 하는 값 셋 — 칸이 아니다', () => {
    * 그래서 `null`이며 화면은 그 동안 자리를 만들지 않는다.
    */
   it('숫자가 아니면 `null`이다 — 0이 아니다', () => {
-    expect(realizedPnlOf('', '19390000')).toBeNull()
-    expect(realizedPnlOf('20788019', '')).toBeNull()
+    expect(realizedPnlOf('', '19390000', 'KRW')).toBeNull()
+    expect(realizedPnlOf('20788019', '', 'KRW')).toBeNull()
     // `dec()`가 통과시키는 두 형태를 표시 계층이 먼저 막는다(§4.6의 실측)
-    expect(realizedPnlOf('0x1f', '0')).toBeNull()
-    expect(realizedPnlOf('1e999', '0')).toBeNull()
+    expect(realizedPnlOf('0x1f', '0', 'KRW')).toBeNull()
+    expect(realizedPnlOf('1e999', '0', 'KRW')).toBeNull()
+  })
+})
+
+describe('실현손익 — 상품 통화의 자릿수 (P8 컷 a2)', () => {
+  it('달러는 센트까지 계산하고 두 자리로 적는다', () => {
+    expect(realizedPnlOf('10,600.75', '10000.5', 'USD')).toBe('600.25')
+    expect(realizedPnlOf('9000', '10000.00', 'USD')).toBe('-1000.00')
+  })
+
+  it('★ 그 통화가 받지 않는 자릿수면 `null`이다 — 저장할 수 없는 값을 결과로 렌더하지 않는다', () => {
+    // 원화의 소수 · 달러의 센트 아래는 계약이 V-23으로 거부한다
+    expect(realizedPnlOf('20788019.5', '19390000', 'KRW')).toBeNull()
+    expect(realizedPnlOf('10600.755', '10000', 'USD')).toBeNull()
   })
 })
 

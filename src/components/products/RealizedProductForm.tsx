@@ -66,7 +66,8 @@ export function RealizedProductForm({
 
   const locked = taxableIncomeLocked(type)
   const year = attributionYearOf(date)
-  const pnl = realizedPnlOf(gross, principal)
+  // 통화를 고르기 전에는 계산하지 않는다 — 단위를 모르면 자릿수도 모른다
+  const pnl = currency === 'KRW' || currency === 'USD' ? realizedPnlOf(gross, principal, currency) : null
 
   return (
     <form action={formAction} className="flex flex-col gap-6" noValidate>
@@ -158,15 +159,16 @@ export function RealizedProductForm({
 
         <Field
           name="principal"
-          label="투자원금 (원)"
+          label="투자원금"
           error={fieldErrors.principal}
-          hint="실현손익을 이 값에서 뺀다"
+          // 라벨이 단위를 모른다 — 통화를 같은 폼에서 고르기 때문이다(DOC-008 SCR-205 · §5 머리 규칙 2)
+          hint="실현손익을 이 값에서 뺀다 · 상품 통화 단위 — 원화는 정수 · 달러는 센트까지"
         >
           {(props) => (
             <input
               {...props}
               type="text"
-              inputMode="numeric"
+              inputMode="decimal"
               defaultValue={values.principal ?? ''}
               onChange={(event) => setPrincipal(event.target.value)}
               className={INPUT_CLASS}
@@ -229,15 +231,15 @@ export function RealizedProductForm({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             name="grossAmount"
-            label="실수령액 (원)"
+            label="실수령액"
             error={fieldErrors.grossAmount}
-            hint="거래내역의 「거래금액」. 원금을 포함한다"
+            hint="거래내역의 「거래금액」. 원금을 포함한다 · 상품 통화 단위 — 원화는 정수 · 달러는 센트까지"
           >
             {(props) => (
               <input
                 {...props}
                 type="text"
-                inputMode="numeric"
+                inputMode="decimal"
                 defaultValue={values.grossAmount ?? ''}
                 onChange={(event) => setGross(event.target.value)}
                 className={INPUT_CLASS}
@@ -252,7 +254,7 @@ export function RealizedProductForm({
             hint={
               locked
                 ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
-                : '거래내역의 「과표」'
+                : '거래내역의 「과표」 · 달러 상품도 거래내역의 원화 금액'
             }
           >
             {(props) => (
@@ -273,7 +275,7 @@ export function RealizedProductForm({
           name="withholdingTax"
           label="원천징수세액 (원)"
           error={fieldErrors.withholdingTax}
-          hint="거래내역의 「제세금」. 비우면 과세 금융소득 × 분리과세율로 산출한다"
+          hint="거래내역의 「제세금」. 비우면 과세 금융소득 × 분리과세율로 산출한다 · 달러 상품도 거래내역의 원화 금액"
         >
           {(props) => (
             <input
@@ -287,14 +289,35 @@ export function RealizedProductForm({
         </Field>
 
         {/*
+          적용 환율 — **늘 그린다**(DOC-008 SCR-205). SCR-203과 다른 이유는 렌더 시점에 통화를 모른다는
+          것이다. 원화 상품에 적으면 계약이 이 칸의 오류로 거부한다(V-24). 과세 금융소득을 이 값으로
+          계산하지 않는다 — 참고값이다(U1)
+        */}
+        <Field
+          name="exchangeRate"
+          label="적용 환율 (선택)"
+          error={fieldErrors.exchangeRate}
+          hint="달러 상품만 — 거래내역의 지급일 환율(원/달러), 참고값"
+        >
+          {(props) => (
+            <input
+              {...props}
+              type="text"
+              inputMode="decimal"
+              defaultValue={values.exchangeRate ?? ''}
+              className={INPUT_CLASS}
+            />
+          )}
+        </Field>
+
+        {/*
           파생 표시 — 칸이 아니다. 히든으로도 보내지 않는다(머리글의 각주).
           `pnl`이 `null`인 동안 자리를 만들지 않는 이유는 그 자리가 「0원」으로
           읽히기 때문이다.
         */}
         {/*
           **통화를 고르기 전에는 적지 않는다** — 단위 없는 금액은 원화로 읽힌다(DOC-008 SCR-205 「P8 달러
-          ELS」). 고른 통화로 적는다. 달러의 센트 계산(`realizedPnlOf`의 자릿수)은 입력 칸과 함께 컷
-          a2-3b다 — 그 전에는 달러를 고를 수 없다
+          ELS」). 고른 통화의 자릿수로 계산하고(`realizedPnlOf`) 그 통화로 적는다
         */}
         {pnl != null && (currency === 'KRW' || currency === 'USD') && (
           <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">

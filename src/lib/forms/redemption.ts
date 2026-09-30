@@ -52,9 +52,22 @@ export const REDEMPTION_FIELDS = [
   'grossAmount',
   'taxableIncome',
   'withholdingTax',
+  // P8 컷 a2 — 적용 환율(참고). **달러 상품에만 칸이 있다**(아래 `FOREIGN_ONLY_REDEMPTION_FIELDS`).
+  // 이 목록에 두는 이유는 오류 사상이다 — 빠지면 V-24가 그 칸이 아니라 폼 머리에 붙는다
+  'exchangeRate',
   'isConfirmed',
   'note',
 ] as const
+
+/**
+ * 외화 상품에만 그리는 칸 — DOC-008 SCR-203 「P8 달러 ELS」 (P8 컷 a2).
+ *
+ * 원화 상품에 두면 적을 수는 있는데 저장이 늘 거부되는 칸이 된다(V-24) — 노낙인 상품에 KI 터치 폼을
+ * 두지 않는 것과 같은 판단이며 **부재로 구현한다.** e2e가 원화 상환 폼에서 이 칸이 없음을 본다.
+ */
+export const FOREIGN_ONLY_REDEMPTION_FIELDS = ['exchangeRate'] as const satisfies ReadonlyArray<
+  (typeof REDEMPTION_FIELDS)[number]
+>
 
 /**
  * 대상 상환 id — 수정·취소가 나른다.
@@ -375,6 +388,8 @@ export function redemptionDefaults(
     taxableIncome: fill?.amounts?.taxableIncome ?? '',
     // 비운다 — 계약이 산출한다(§5.4). 채우면 그 산출이 영원히 실행되지 않는다.
     withholdingTax: '',
+    // 채우지 않는다 — 거래내역의 지급일 환율이고 참고값이다(DOC-008 SCR-203)
+    exchangeRate: '',
     isConfirmed: '',
     note: '',
   }
@@ -399,6 +414,8 @@ export function redemptionValuesOf(redemption: RedemptionView): Record<string, s
     grossAmount: redemption.grossAmount,
     taxableIncome: redemption.taxableIncome,
     withholdingTax: redemption.withholdingTax ?? '',
+    // ★ 빠지면 수정 저장(§5.5 전체 교체)이 적용 환율을 조용히 지운다 — 원화 상품은 늘 `''`
+    exchangeRate: redemption.exchangeRate ?? '',
     isConfirmed: redemption.isConfirmed ? 'on' : '',
     note: redemption.note ?? '',
   }

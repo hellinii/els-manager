@@ -292,19 +292,24 @@ function BasicFields({
       </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        {/*
+          라벨에서 「(원)」을 뗐다 — 통화를 같은 폼에서 고르므로 렌더 시점에 단위를 알 수 없다(DOC-008
+          SCR-204 · §5 머리 규칙 2). 자릿수는 계약이 통화에 맞춰 본다(V-23). 원화 상품에서 달라지는 것은
+          이 라벨 · 힌트 · 입력 모드뿐이다 — 폼은 입력이므로 바이트 불변의 대상이 아니다
+        */}
         <Field
           name="principal"
-          label="투자원금 (원)"
+          label="투자원금"
           error={fieldErrors.principal}
-          hint="쉼표를 적어도 된다"
+          hint="상품 통화 단위 — 원화는 정수 · 달러는 센트까지. 쉼표를 적어도 된다"
         >
           {(props) => (
             <input
               {...props}
               type="text"
-              inputMode="numeric"
+              inputMode="decimal"
               defaultValue={values.principal ?? ''}
-              placeholder="예: 100,000,000"
+              placeholder="예: 100,000,000 · 10,000.50"
               className={INPUT_CLASS}
             />
           )}

@@ -10,6 +10,7 @@ import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import { RedemptionForm } from '@/components/products/RedemptionForm'
 import type { RedemptionView } from '@/lib/db/queries/map'
+import type { ProductCurrency } from '@/lib/domain/currency'
 import { REDEMPTION_ID_FIELD, type RoundOption } from '@/lib/forms/redemption'
 import { initialFormState } from '@/lib/forms/state'
 
@@ -44,9 +45,12 @@ export function RedemptionActions({
   redemption,
   rounds,
   initialValues,
+  currency,
 }: {
   redemption: RedemptionView
   rounds: readonly RoundOption[]
+  /** 상품 통화 — 수정 폼의 칸 모양을 정한다(`RedemptionForm`) */
+  currency: ProductCurrency
   /** `redemptionValuesOf(redemption)` — 저장된 값이다. 추정이 아니다 */
   initialValues: Record<string, string>
 }) {
@@ -64,6 +68,7 @@ export function RedemptionActions({
             initialValues={initialValues}
             rounds={rounds}
             redemptionId={redemption.id}
+            currency={currency}
             submitLabel="상환 실적 저장"
           />
         </div>

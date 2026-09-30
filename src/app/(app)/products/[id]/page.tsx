@@ -264,6 +264,7 @@ export default async function ProductDetailPage({
               redemption={redemption}
               rounds={roundOptionsOf(view)}
               initialValues={redemptionValuesOf(redemption)}
+              currency={product.currency}
             />
           </OwnerOnly>
         </Section>

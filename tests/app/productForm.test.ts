@@ -72,24 +72,29 @@ const COUNTS: RowCounts = { underlyings: 2, rounds: 3 }
 // ---------------------------------------------------------------------------
 
 describe('상품 통화 선택지 — DOC-008 SCR-204 (P8 컷 a2)', () => {
-  it('등록 화면은 원화뿐이다 — 달러는 입력 칸과 함께 연다(컷 a2-3b)', () => {
-    expect([...SELECTABLE_PRODUCT_CURRENCIES]).toEqual(['KRW'])
-    expect(currencyOptionsOf('')).toEqual(['KRW'])
-    expect(currencyOptionsOf(undefined)).toEqual(['KRW'])
+  it('등록 화면은 원화 · 달러 둘이다 — 달러는 입력 칸과 함께 열었다(컷 a2-3b), 기본값은 없다', () => {
+    expect([...SELECTABLE_PRODUCT_CURRENCIES]).toEqual(['KRW', 'USD'])
+    expect(currencyOptionsOf('')).toEqual(['KRW', 'USD'])
+    expect(currencyOptionsOf(undefined)).toEqual(['KRW', 'USD'])
+    // 기본값이 없다(U7) — 폼의 초기값이 「선택」이다
+    expect(productDefaults().currency).toBe('')
   })
 
-  it('★ 저장값이 선택지 밖이면 그 값을 더한다 — 빼면 달러 상품이 조용히 원화가 된다', () => {
+  it('★ 저장값은 늘 선택지에 있다 — 빠지면 수정 화면이 「선택」을 보이고 달러 상품이 조용히 원화가 된다', () => {
     /*
-     * 계약을 거쳐 저장된 달러 상품의 수정 화면이다. 선택지가 원화뿐이면 `<select>`가 「선택」을 보이고,
-     * 사용자가 원화를 고르면 `'10000.00'`이 V-23(원화 0자리)을 통과해 `'10000'`으로 접혀 저장된다 —
-     * $10,000.00이 10,000원이 된다. `values.test.ts`의 왕복은 값 맵을 바로 `FormData`로 만들어
-     * 선택지를 지나지 않으므로 이 방어를 보지 못한다(반박 검토 지적)
+     * 선택지가 저장값을 담지 못하면 `<select>`가 「선택」을 보이고, 사용자가 원화를 고르면 `'10000.00'`이
+     * V-23(원화 0자리)을 통과해 `'10000'`으로 접혀 저장된다 — $10,000.00이 10,000원이 된다.
+     * `values.test.ts`의 왕복은 값 맵을 바로 `FormData`로 만들어 선택지를 지나지 않으므로 이 방어를
+     * 보지 못한다(a2-3a 반박 검토). 지원 통화가 전부 선택지인 동안에는 구조적으로 참이다 — 통화 하나를
+     * 선택지에서 빼는 날 `currencyOptionsOf`의 저장값 보존이 다시 일을 한다
      */
-    expect(currencyOptionsOf('USD')).toEqual(['KRW', 'USD'])
+    for (const currency of ['KRW', 'USD'] as const) {
+      expect(currencyOptionsOf(currency)).toContain(currency)
+    }
   })
 
   it('모르는 값은 선택지를 늘리지 않는다 — 열거 밖은 V-22가 말한다', () => {
-    expect(currencyOptionsOf('EUR')).toEqual(['KRW'])
+    expect(currencyOptionsOf('EUR')).toEqual(['KRW', 'USD'])
   })
 })
 

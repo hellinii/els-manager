@@ -7,7 +7,11 @@ import {
   signedWon,
   won,
 } from '@/lib/format'
-import { REDEMPTION_FIELDS, REDEMPTION_ID_FIELD } from '@/lib/forms/redemption'
+import {
+  FOREIGN_ONLY_REDEMPTION_FIELDS,
+  REDEMPTION_FIELDS,
+  REDEMPTION_ID_FIELD,
+} from '@/lib/forms/redemption'
 import { PRODUCT_ID_FIELD } from '@/lib/forms/productForm'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -88,10 +92,19 @@ describe('SCR-203 상환 처리', () => {
     const rendered = inputNamesOf(form)
 
     // 좌변을 순수 모듈에서 읽는다 — 칸 목록이 세 번째 사본이 되지 않는다.
+    const foreignOnly = new Set<string>(FOREIGN_ONLY_REDEMPTION_FIELDS)
     for (const name of REDEMPTION_FIELDS) {
+      if (foreignOnly.has(name)) continue
       expect(rendered, `${name}이 렌더되지 않았다`).toContain(name)
     }
     expect(rendered).toContain(PRODUCT_ID_FIELD)
+    // P8 컷 a2 — 원화 상품에는 적용 환율 칸이 **없다**(부재로 구현 — DOC-008 SCR-203). 있으면 적을 수는
+    // 있는데 저장이 늘 V-24로 거부되는 칸이 된다. 달러 상품 쪽은 `usd.test.ts`가 본다
+    for (const name of FOREIGN_ONLY_REDEMPTION_FIELDS) {
+      expect(rendered.has(name), `${name}이 원화 상품에 렌더됐다`).toBe(false)
+    }
+    // 원화 상품의 라벨은 오늘 그대로다
+    expect(form).toContain('실수령액 (원)')
 
     /*
      * 워스트오브 1.2 ≥ 1차 배리어 0.9이므로 조기상환 판정이고, 그 유형이 선택되어

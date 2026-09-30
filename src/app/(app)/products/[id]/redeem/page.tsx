@@ -137,6 +137,7 @@ export default async function ProductRedeemPage({
             initialValues={redemptionDefaults(view, getAsOf())}
             rounds={roundOptionsOf(view)}
             productId={id}
+            currency={product.currency}
             submitLabel="상환 저장"
           />
         </>

@@ -1,4 +1,5 @@
 import { dec } from '@/lib/decimal'
+import { hasMinorUnitScale, moneyString, type ProductCurrency } from '@/lib/domain/currency'
 
 /**
  * SCR-205 기실현 등재의 폼 값 — **순수**하다 (DOC-008 §5 SCR-205 · DOC-011 §5.11)
@@ -37,6 +38,9 @@ export const REALIZED_FIELDS = [
   'grossAmount',
   'taxableIncome',
   'withholdingTax',
+  // 적용 환율(참고) — **늘 그린다**(DOC-008 SCR-205). 렌더 시점에 통화를 모르기 때문이다 — 원화
+  // 상품에 적으면 계약이 그 칸의 오류로 거부한다(V-24)
+  'exchangeRate',
   'isConfirmed',
   'note',
 ] as const
@@ -78,26 +82,33 @@ export function attributionYearOf(redemptionDate: string): number | null {
  *
  * 두 칸 중 하나라도 숫자가 아니면 `null`이다. `0`으로 접으면 「손익이 0이다」와
  * 「아직 못 셌다」가 같은 화면이 된다.
+ *
+ * **상품 통화의 자릿수로 판정한다 (P8 컷 a2).** 원화는 정수, 달러는 센트까지 — 그 밖이면 계약이
+ * V-23으로 거부할 값이므로 `null`이다(아래 `numeric`의 각주 「저장할 수 없는 숫자를 정상 결과로
+ * 렌더하지 않는다」). 통화를 고르기 전에는 화면이 이 값을 그리지 않는다(DOC-008 SCR-205).
  */
 export function realizedPnlOf(
   grossAmount: string,
   principal: string,
+  currency: ProductCurrency,
 ): string | null {
-  const gross = numeric(grossAmount)
-  const invested = numeric(principal)
+  const gross = numeric(grossAmount, currency)
+  const invested = numeric(principal, currency)
   if (gross == null || invested == null) return null
-  return gross.minus(invested).toFixed(0)
+  return moneyString(gross.minus(invested), currency)
 }
 
 /**
- * 폼 문자열 → 정수. **쉼표를 지운다** — `amountText`와 같은 규약이다.
+ * 폼 문자열 → 상품 통화의 금액. **쉼표를 지운다** — `amountText`와 같은 규약이다.
  *
  * `dec()`가 `'0x1f'`를 31로, `'1e999'`를 유한값으로 읽으므로(DOC-011 §4.6의 실측)
  * 형식을 먼저 본다. 표시 계산이 저장 계층보다 넓은 값을 받으면 **화면이 저장할 수
  * 없는 숫자를 정상 결과로 렌더한다.**
  */
-function numeric(raw: string): ReturnType<typeof dec> | null {
+function numeric(raw: string, currency: ProductCurrency): ReturnType<typeof dec> | null {
   const cleaned = raw.replace(/,/g, '').trim()
-  if (!/^-?\d+$/.test(cleaned)) return null
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null
+  // 보조단위 밖(원화 소수 · 달러 센트 아래)은 저장할 수 없는 값이다 — 결과로 렌더하지 않는다
+  if (!hasMinorUnitScale(cleaned, currency)) return null
   return dec(cleaned)
 }

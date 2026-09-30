@@ -130,6 +130,11 @@ export async function registerProduct(
      * 그 상품을 `TAX_FREE`로 두면 시각에 의존하지 않는 단언이 된다.
      */
     accountType?: 'GENERAL' | 'TAX_FREE'
+    /**
+     * 상품 통화 — **P8 컷 a2-3b가 필요해졌다.** 기본은 원화다(화면에서는 기본값이 없고 사용자가
+     * 고른다 — 이 헬퍼가 사용자처럼 고른다). 달러면 `principal`도 달러로 준다(센트까지)
+     */
+    currency?: 'KRW' | 'USD'
   } = {},
 ): Promise<RegisteredProduct> {
   const stamp = String(Date.now()).slice(-6)
@@ -158,7 +163,7 @@ export async function registerProduct(
     issueDate,
     // 쉼표를 적는다 — 사용자가 그렇게 적으며 파서가 지운다(값은 바뀌지 않는다)
     // 상품 통화 — 기본값이 없다(U7 · V-22). 화면이 「선택」에서 시작하므로 사용자처럼 고른다
-    currency: 'KRW',
+    currency: options.currency ?? 'KRW',
     principal,
     accountType: options.accountType ?? 'GENERAL',
     note: '화면 왕복',

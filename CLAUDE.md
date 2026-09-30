@@ -128,7 +128,7 @@ npm run test:rls && npm run typecheck
 ```bash
 npm run db:reset
 docker exec -i supabase_db_els-manager psql -U postgres -d postgres -f - \
-  < supabase/dev/01_sample_portfolio.sql        # 상품 12건 (표시 상태 전수)
+  < supabase/dev/01_sample_portfolio.sql        # 상품 14건 (표시 상태 전수 · 달러 둘)
 docker exec -i supabase_db_els-manager psql -U postgres -d postgres -f - \
   < supabase/dev/02_broken_fixtures.sql         # 무결성 결함 2건 (ST-06)
 # 브라우저: dev-a@example.test / dev-b@example.test, 비밀번호 dev-password
