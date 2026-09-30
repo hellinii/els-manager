@@ -39,6 +39,21 @@ export {
 } from './schedule'
 
 export {
+  CURRENCY_ORDER,
+  hasMinorUnitScale,
+  MINOR_UNITS,
+  moneyString,
+  NO_ESTIMATE_RATES,
+  portfolioPnl,
+  sumByCurrency,
+  toKrw,
+  type EstimateRates,
+  type ExchangeRate,
+  type ForeignCurrency,
+  type ProductCurrency,
+} from './currency'
+
+export {
   aggregateRealizedPnl,
   applicableCouponRate,
   grossExpected,

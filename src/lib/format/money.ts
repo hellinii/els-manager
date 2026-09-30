@@ -1,4 +1,5 @@
-import { dec, type DecimalValue } from '@/lib/decimal'
+import { dec, roundToUnit, type DecimalValue } from '@/lib/decimal'
+import type { ProductCurrency } from '@/lib/domain/currency'
 
 /**
  * 금액 표시 — DOC-005 §9 표준 표기
@@ -77,3 +78,60 @@ export function koreanAmount(value: DecimalValue): string {
 export function koreanWon(value: string): string {
   return `${koreanAmount(dec(value))}원`
 }
+
+// ---------------------------------------------------------------------------
+// 상품 통화 — DOC-005 §9 (GQ-05 해결) · P8 컷 a2
+//
+// ★ 원화 경로는 `won`·`signedWon`을 **그대로 부른다** — 기존 화면 문자열(e2e `'616,000원'`)이
+//   바이트 단위로 같아야 하고, 사본을 만들면 두 원화 렌더러가 갈릴 수 있다.
+// ★ 달러는 계약이 소수 두 자리 고정 문자열로 준다(Q-07′). 여기서는 반올림하지 않고 자릿수만
+//   끼운다 — 정수부에만 쉼표를 넣는다(`withCommas`는 소수부 네 자리 이상에서 틀린다).
+// ---------------------------------------------------------------------------
+
+/** 금액 → 표시. 원화 `1,234원` · 달러 `$1,234.56` / `-$1,234.56` */
+export function money(value: string, currency: ProductCurrency): string {
+  if (currency === 'KRW') return won(value)
+  const { negative, body } = splitSign(value)
+  return `${negative ? '-' : ''}$${dollarBody(body)}`
+}
+
+/**
+ * 손익 표시 — 양수에 `+`. 원화는 `signedWon`과 같고, 달러는 `+$1,234.56` · `-$1,234.56` ·
+ * 0은 부호 없이 `$0.00`(0은 「이익 있음」이 아니다 — `signedWon`과 같은 규칙).
+ */
+export function signedMoney(value: string, currency: ProductCurrency): string {
+  if (currency === 'KRW') return signedWon(value)
+  const { negative, body } = splitSign(value)
+  const zero = /^0*(\.0*)?$/.test(body)
+  const sign = negative && !zero ? '-' : !negative && !zero ? '+' : ''
+  return `${sign}$${dollarBody(body)}`
+}
+
+/** 단위 없는 금액 — 열 머리글에 통화가 있는 표에서 쓴다(원화 `amount`와 같은 자리) */
+export function moneyAmount(value: string, currency: ProductCurrency): string {
+  if (currency === 'KRW') return amount(value)
+  const { negative, body } = splitSign(value)
+  return `${negative ? '-' : ''}${dollarBody(body)}`
+}
+
+/**
+ * 환율 표시 — `1,392.40원/달러` (DOC-005 §9). 저장은 소수 여섯 자리(`numeric(18,6)`)이고
+ * **표시만 두 자리로 반올림한다**(DOC-008 §5 머리 표). 쉼표는 정수부에만 넣는다.
+ */
+export function exchangeRateDisplay(rate: string): string {
+  const rounded = roundToUnit(dec(rate), '0.01').toFixed(2)
+  const [intPart = '0', fracPart = '00'] = rounded.split('.')
+  return `${withCommas(intPart)}.${fracPart}원/달러`
+}
+
+function splitSign(value: string): { negative: boolean; body: string } {
+  const trimmed = value.trim()
+  const negative = trimmed.startsWith('-')
+  return { negative, body: negative ? trimmed.slice(1) : trimmed }
+}
+
+function dollarBody(body: string): string {
+  const [intPart = '0', fracPart = ''] = body.split('.')
+  return `${withCommas(intPart)}.${fracPart.padEnd(2, '0')}`
+}
+

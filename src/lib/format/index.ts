@@ -10,7 +10,18 @@
  * 않는다**(Q-08). 둘 다 린트로 강제한다(컷 0d 규칙 1·2).
  */
 
-export { amount, koreanAmount, koreanWon, signedWon, withCommas, won } from './money'
+export {
+  amount,
+  exchangeRateDisplay,
+  koreanAmount,
+  koreanWon,
+  money,
+  moneyAmount,
+  signedMoney,
+  signedWon,
+  withCommas,
+  won,
+} from './money'
 export { barrierGap, percent, percentPoint } from './ratio'
 export { priceDisplay, refreshSummary } from './price'
 export { dDayLabel, korDate, korMonth, monthKey, ymd } from './date'
