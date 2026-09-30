@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import { actingAs, asOwner } from './helpers/client'
@@ -604,5 +607,63 @@ describe('함수의 예방적 방어가 없다는 사실 자체를 고정한다'
     expect(row.rows[0].owner_usage).toBe(true)
     expect(row.rows[0].service_update).toBe(false)
     expect(row.rows[0].auth_update).toBe(false)
+  })
+})
+
+describe('★ 운영의 기본 권한 아래에서도 닫힌다 — DOC-010 AQ-90', () => {
+  /*
+   * 운영의 `pg_default_acl`(postgres · public · 함수)은 로컬과 다르다 — 플랫폼이 anon ·
+   * authenticated · service_role에게 EXECUTE를 **명시적으로** 준다(2026-09-30 실측). 이 파일의 다른
+   * 케이스는 로컬의 기본 권한 위에서만 돌므로 「anon은 어떤 함수도 실행할 수 없다」가 운영에서 거짓인
+   * 채로 7월부터 초록이었다. 여기서 운영의 기본 권한을 **롤백 트랜잭션 안에서 재현해** 두 사실을 본다 —
+   * 종전 규약의 빈틈과, `20260930105317_function_execute_hardening.sql` ③의 효과.
+   */
+  const PRODUCTION_DEFAULTS =
+    'alter default privileges for role postgres in schema public grant execute on functions to anon, authenticated, service_role'
+
+  const createProbe = () =>
+    asOwner(`create function public.aq90_probe() returns integer language sql as 'select 1'`)
+
+  const anonCan = async () =>
+    (
+      await asOwner<{ ok: boolean }>(
+        `select has_function_privilege('anon', 'public.aq90_probe()', 'EXECUTE') as ok`,
+      )
+    ).rows[0].ok
+
+  /** 마이그레이션 파일의 ③ — 문장을 테스트에 옮겨 적지 않고 파일에서 읽는다 */
+  function hardeningDefaults(): string {
+    const text = readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '20260930105317_function_execute_hardening.sql'),
+      'utf8',
+    )
+    const statement = /^alter default privileges[\s\S]*?;/m.exec(text)?.[0]
+    expect(statement, '마이그레이션에 기본 권한 회수 문장이 없다').toBeDefined()
+    return statement!
+  }
+
+  it('종전 규약(`revoke … from public`)만으로는 운영에서 anon이 실행할 수 있다 — 빈틈의 재현', async () => {
+    await asOwner(PRODUCTION_DEFAULTS)
+    await createProbe()
+    await asOwner('revoke execute on function public.aq90_probe() from public')
+    // 명시 부여는 PUBLIC 회수로 지워지지 않는다 — 운영의 아홉 함수가 이 상태였다
+    expect(await anonCan()).toBe(true)
+  })
+
+  it('세 롤에서 명시적으로 회수하면 닫힌다 — 마이그레이션 ①', async () => {
+    await asOwner(PRODUCTION_DEFAULTS)
+    await createProbe()
+    await asOwner(
+      'revoke execute on function public.aq90_probe() from public, anon, authenticated, service_role',
+    )
+    expect(await anonCan()).toBe(false)
+  })
+
+  it('★ 마이그레이션 ③ 뒤에는 새 함수가 운영에서도 로컬처럼 태어난다 — 종전 규약으로 충분해진다', async () => {
+    await asOwner(PRODUCTION_DEFAULTS)
+    await asOwner(hardeningDefaults())
+    await createProbe()
+    await asOwner('revoke execute on function public.aq90_probe() from public')
+    expect(await anonCan()).toBe(false)
   })
 })
