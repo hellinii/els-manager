@@ -313,6 +313,8 @@ export const REDEMPTION_COLUMNS = defineColumns('redemptions', {
   gross_amount: 'text',
   taxable_income: 'text',
   withholding_tax: 'text',
+  // 적용 환율 — 참고값(DOC-005 §4). numeric(18,6)이므로 금액과 같은 경계를 지난다(P8 a2)
+  exchange_rate: 'text',
   is_confirmed: 'raw',
   note: 'raw',
 })

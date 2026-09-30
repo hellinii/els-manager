@@ -183,7 +183,11 @@ describe('금액 열 목록이 문서와 일치한다', () => {
       SCHEDULE_COLUMNS,
       ['barrier', 'lizard_barrier', 'lizard_coupon_rate'],
     ],
-    ['redemptions', REDEMPTION_COLUMNS, ['gross_amount', 'taxable_income', 'withholding_tax']],
+    [
+      'redemptions',
+      REDEMPTION_COLUMNS,
+      ['exchange_rate', 'gross_amount', 'taxable_income', 'withholding_tax'],
+    ],
     ['asset_prices', PRICE_COLUMNS, ['price']],
     ['tax_profiles', TAX_PROFILE_COLUMNS, ['other_financial_income', 'other_income_base']],
   ]

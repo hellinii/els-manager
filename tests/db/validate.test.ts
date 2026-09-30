@@ -961,14 +961,17 @@ describe('V-19의 길이 상한이 스키마와 일치한다', () => {
   /*
    * ★ 이 전제는 **이 파서 때문에** 생겼다 — 초판 파서가 `create table` 블록만 읽었으므로
    * 열을 넓히는 `alter column … type`이 추가되면 대조가 낡은 값을 조용히 통과시켰다.
-   * 파서가 그 문장을 재생하게 된 뒤(P8 컷 1)에도 그대로 둔다. P8 a2가 정밀도 해제를
-   * 위해 이 정규식을 문자열형으로 좁히기로 되어 있고, 그 판단의 자리가 여기다.
+   * 파서가 그 문장을 재생하게 된 뒤(P8 컷 1)에도 그대로 둔다. **P8 a2가 금액 열의 numeric
+   * 정밀도를 의도적으로 떼므로(20260930040321_product_currency) 정규식을 문자열형 대상으로
+   * 좁혔다** — numeric 쪽의 대조는 `tests/rls/numeric-typmod.test.ts`가 맡는다.
    */
   it('마이그레이션에 열 타입을 바꾸는 문장이 없다 — 파서의 전제', () => {
     const altering = readdirSync(MIGRATIONS_DIR)
       .filter((file) => file.endsWith('.sql'))
       .filter((file) =>
-        /alter\s+column\s+\w+\s+type/i.test(readFileSync(join(MIGRATIONS_DIR, file), 'utf8')),
+        /alter\s+column\s+\w+\s+(?:set\s+data\s+)?type\s+(?:varchar|character\s+varying|char|character|bpchar|text)\b/i.test(
+          readFileSync(join(MIGRATIONS_DIR, file), 'utf8'),
+        ),
       )
     expect(altering).toEqual([])
   })

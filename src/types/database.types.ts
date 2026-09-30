@@ -161,6 +161,7 @@ export type Database = {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate: number | null
           created_at: string
+          currency: Database["public"]["Enums"]["product_currency"]
           entry_mode: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months: number
           id: string
@@ -179,6 +180,7 @@ export type Database = {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
           created_at?: string
+          currency?: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months?: number
           id?: string
@@ -197,6 +199,7 @@ export type Database = {
           account_type?: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
           created_at?: string
+          currency?: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months?: number
           id?: string
@@ -304,6 +307,7 @@ export type Database = {
       redemptions: {
         Row: {
           els_id: string
+          exchange_rate: number | null
           gross_amount: number
           id: string
           is_confirmed: boolean
@@ -316,6 +320,7 @@ export type Database = {
         }
         Insert: {
           els_id: string
+          exchange_rate?: number | null
           gross_amount: number
           id?: string
           is_confirmed: boolean
@@ -328,6 +333,7 @@ export type Database = {
         }
         Update: {
           els_id?: string
+          exchange_rate?: number | null
           gross_amount?: number
           id?: string
           is_confirmed?: boolean
@@ -504,6 +510,7 @@ export type Database = {
       health_insurance_type: "EMPLOYEE" | "REGIONAL" | "DEPENDENT" | "NONE"
       ki_observation: "CONTINUOUS" | "CLOSING"
       price_source: "AUTO" | "MANUAL"
+      product_currency: "KRW" | "USD"
       product_entry_mode: "FULL" | "REALIZED_ONLY"
       redemption_type: "EARLY" | "LIZARD" | "MATURITY_GAIN" | "MATURITY_LOSS"
     }
@@ -640,6 +647,7 @@ export const Constants = {
       health_insurance_type: ["EMPLOYEE", "REGIONAL", "DEPENDENT", "NONE"],
       ki_observation: ["CONTINUOUS", "CLOSING"],
       price_source: ["AUTO", "MANUAL"],
+      product_currency: ["KRW", "USD"],
       product_entry_mode: ["FULL", "REALIZED_ONLY"],
       redemption_type: ["EARLY", "LIZARD", "MATURITY_GAIN", "MATURITY_LOSS"],
     },

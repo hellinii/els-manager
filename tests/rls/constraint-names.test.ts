@@ -45,6 +45,8 @@ const RAISE_ONLY = [
   // 이 이름은 이제 `pg_constraint`에 **없고** 여기로 옮겨진다. 접미사에서
   // `_check`가 빠진 것도 같은 사실의 표현이다(`*_required` = 교차 행 규칙).
   'redemptions_round_no_required',
+  // P8 컷 a2 — 부모의 상품 통화를 읽어야 하므로 CHECK로 쓸 수 없다(DOC-002 §4.9 · I-21)
+  'redemptions_gross_amount_scale',
 ] as const
 
 /**

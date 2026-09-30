@@ -220,6 +220,31 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     message: '실수령액은 0 이상이어야 한다.',
   },
 
+  // ── I-21 금액 자릿수 — 상품 통화의 보조단위 (P8 컷 a2) ────────────────────
+  // 통화에 딸린 절반은 부모를 읽는 트리거(`redemptions_gross_amount_scale`, RAISE)이고
+  // 통화와 무관한 절반은 CHECK(`redemptions_gross_amount_digits_check`)다 — 뒤의 것만
+  // 데이터 전용 복원에서 재검사된다(DOC-002 §4.9 · DOC-010 AQ-80)
+  els_products_principal_scale_check: {
+    rule: 'I-21 / V-23',
+    fields: ['principal'],
+    message: '투자원금의 소수 자릿수가 상품 통화의 보조단위를 넘는다 — 원화는 정수, 달러는 센트(2자리)까지.',
+  },
+  redemptions_gross_amount_digits_check: {
+    rule: 'I-21 / V-23',
+    fields: ['grossAmount'],
+    message: '실수령액은 정수부 15자리, 소수 2자리 이내여야 한다.',
+  },
+  redemptions_gross_amount_scale: {
+    rule: 'I-21 / V-23',
+    fields: ['grossAmount'],
+    message: '실수령액의 소수 자릿수가 상품 통화의 보조단위를 넘는다 — 원화 상품은 정수다.',
+  },
+  redemptions_exchange_rate_check: {
+    rule: 'I-22 / V-24',
+    fields: ['exchangeRate'],
+    message: '적용 환율은 0보다 커야 한다.',
+  },
+
   // ── I-07 하위 행 최소 개수 (쓰기 함수, P3b 6단계) ────────────────────────
   els_products_underlyings_required: {
     rule: 'I-07 / V-02',

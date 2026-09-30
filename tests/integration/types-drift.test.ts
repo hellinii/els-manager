@@ -150,6 +150,8 @@ describe('금액·비율 열이 캐스팅 대상으로 남아 있다', () => {
       'redemption_schedules.barrier',
       'redemption_schedules.lizard_barrier',
       'redemption_schedules.lizard_coupon_rate',
+      // P8 a2 — 적용 환율(참고값). numeric(18,6)이며 REDEMPTION_COLUMNS가 text로 읽는다
+      'redemptions.exchange_rate',
       'redemptions.gross_amount',
       'redemptions.taxable_income',
       'redemptions.withholding_tax',

@@ -64,13 +64,16 @@ type NumericShape = { precision: number | null; scale: number | null }
 /** `(관계).(열)` → 정밀도·scale. 정밀도 없는 `numeric`은 `null, null`이다 */
 const NUMERIC_LEDGER: Record<string, NumericShape> = {
   // ── 상품 통화 금액 (DOC-002 M-08) ──────────────────────────────────────
-  // ★ **P8 a2가 이 둘의 정밀도를 의도적으로 뗀다** → `{ precision: null, scale: null }`.
-  //   그 마이그레이션과 **같은 커밋에서** 이 두 줄을 고친다. scale 규칙(KRW 0자리·
-  //   USD 2자리·정수부 15자리)은 typmod가 아니라 이름 있는 CHECK/트리거로 옮겨가며
-  //   이 원장은 그것을 보지 못한다(위 「보지 못하는 것」). 신설될
-  //   `monthly_coupon_payments.gross_amount`도 같은 부류로 원장에 들어온다
-  'els_products.principal': { precision: 15, scale: 0 },
-  'redemptions.gross_amount': { precision: 15, scale: 0 },
+  // ★ **P8 a2(20260930040321_product_currency)가 이 둘의 정밀도를 의도적으로 뗐다.**
+  //   scale 규칙(KRW 0자리·USD 2자리·정수부 15자리)은 typmod가 아니라 이름 있는
+  //   CHECK/트리거(`els_products_principal_scale_check` · `redemptions_gross_amount_digits_check`
+  //   · `redemptions_gross_amount_scale`)가 강제하며 이 원장은 그것을 보지 못한다(위
+  //   「보지 못하는 것」). 신설될 `monthly_coupon_payments.gross_amount`도 같은 부류로 들어온다
+  'els_products.principal': { precision: null, scale: null },
+  'redemptions.gross_amount': { precision: null, scale: null },
+
+  // ── 적용 환율 — 참고값 (DOC-005 §4, P8 a2) ────────────────────────────
+  'redemptions.exchange_rate': { precision: 18, scale: 6 },
 
   // ── 과세 축 금액 — 항상 KRW `numeric(15,0)` (M-08) ─────────────────────
   'redemptions.taxable_income': { precision: 15, scale: 0 },
@@ -316,17 +319,17 @@ describe('계기 자기검사 — 대조가 무엇을 보는지 롤백 트랜잭
       catalog: { precision: 20, scale: 6 },
     },
     {
-      // P8 a2가 실제로 하는 변경이다 — 이 케이스가 이 계기가 존재하는 이유다
-      label: 'principal의 정밀도를 떼면 (P8 a2)',
-      sql: `alter table public.els_products alter column principal type numeric`,
+      // P8 a2가 뗀 정밀도가 되돌아오는 회귀 — 이 계기가 컷 1에서 선 이유가 이 두 열이다
+      label: 'principal을 numeric(15,0)으로 되돌리면 (P8 a2 회귀)',
+      sql: `alter table public.els_products alter column principal type numeric(15,0)`,
       column: 'els_products.principal',
-      catalog: { precision: null, scale: null },
+      catalog: { precision: 15, scale: 0 },
     },
     {
-      label: 'redemptions.gross_amount의 정밀도를 떼면 (P8 a2)',
-      sql: `alter table public.redemptions alter column gross_amount type numeric`,
+      label: 'redemptions.gross_amount를 numeric(15,0)으로 되돌리면 (P8 a2 회귀)',
+      sql: `alter table public.redemptions alter column gross_amount type numeric(15,0)`,
       column: 'redemptions.gross_amount',
-      catalog: { precision: null, scale: null },
+      catalog: { precision: 15, scale: 0 },
     },
   ])('음성 대조 — $label 그 열 하나만 보고된다', async ({ sql, column, catalog }) => {
     await ddl(sql)

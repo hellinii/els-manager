@@ -89,6 +89,7 @@ export function redemption(
     gross_amount: '104000000',
     taxable_income: '4000000',
     withholding_tax: '616000',
+    exchange_rate: null,
     is_confirmed: true,
     note: null,
     ...overrides,
