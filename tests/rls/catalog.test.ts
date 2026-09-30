@@ -166,6 +166,153 @@ describe('카탈로그 — 정책 누락을 구조적으로 막는다', () => {
 })
 
 /**
+ * 뷰 축 — AQ-20, CLAUDE.md 절대 규칙 6 (P8 컷 1 계기 선행 ③)
+ *
+ * **위 describe의 질의는 전부 `relkind = 'r'`이다.** 뷰(`v`)·구체화 뷰(`m`)는 어느
+ * 단언에도 열거되지 않는다. 뷰는 기본값이 **소유자 권한 실행**이고 소유자
+ * `postgres`는 `BYPASSRLS`이므로, `security_invoker`를 빠뜨린 뷰는 밑 테이블의
+ * RLS를 통째로 우회한다 — 그리고 위반자가 0인 동안 이 구멍은 보이지 않는다.
+ *
+ * **판정은 문자열이 아니라 불리언으로 한다** (실측, PostgreSQL 17.6).
+ * `reloptions`는 선언한 철자를 그대로 저장한다:
+ *
+ * ```
+ * with (security_invoker)          → {security_invoker=true}
+ * with (security_invoker = on)     → {security_invoker=on}
+ * with (security_invoker = 1)      → {security_invoker=1}
+ * with (security_invoker = false)  → {security_invoker=false}
+ * ```
+ *
+ * `'security_invoker=true' = any(reloptions)`로 짜면 `on`·`1`을 위반으로 잘못
+ * 읽고, **키 존재**로 짜면 `= false`를 통과시킨다. `option_value::boolean`은
+ * reloption 검증과 같은 파서(`parse_bool`)이므로 DDL이 받아들인 값만 들어온다.
+ *
+ * **구체화 뷰는 보호 수단이 없다** — `security_invoker`를 받지 않고(22023) RLS도
+ * 켤 수 없다(42809). 그래서 「invoker여야 한다」가 아니라 「없어야 한다」이며,
+ * 아래 질의에서 `m`은 항상 위반자로 나온다.
+ *
+ * ★ **이 describe는 AQ-20의 (a)만 닫는다.** 신규 뷰의 `relacl`은 `null`이라
+ * (기본 ACL 회수가 뷰에도 적용된다 — 실측 `has_table_privilege('authenticated',
+ * 뷰, 'SELECT') = f`) 우회에는 GRANT가 필요한데, **권한 매트릭스도 `relkind = 'r'`
+ * 한정**이라 그 GRANT를 보지 못한다. 첫 뷰가 들어올 때 (b) 매트릭스 확장을 함께 한다.
+ */
+describe('카탈로그 — 뷰는 RLS를 우회하지 않는다 (AQ-20)', () => {
+  type ViewKindRelation = { relname: string; relkind: string; invoker: boolean }
+
+  /** public의 뷰·구체화 뷰 전부와 각각의 `security_invoker` 실효값 */
+  async function viewKindRelations(): Promise<ViewKindRelation[]> {
+    const result = await asOwner<ViewKindRelation>(
+      `select c.relname,
+              c.relkind::text as relkind,
+              coalesce(
+                (select o.option_value::boolean
+                   from pg_options_to_table(c.reloptions) o
+                  where o.option_name = 'security_invoker'),
+                false
+              ) as invoker
+         from pg_class c
+        where c.relnamespace = 'public'::regnamespace and c.relkind in ('v', 'm')
+        order by c.relname`,
+    )
+    return result.rows
+  }
+
+  it('public에 뷰·구체화 뷰가 0개다 — 뷰 축은 지금 항진명제다', async () => {
+    // 시퀀스 단언과 같은 형태다. 아래 단언이 「위반자 0」을 보지만, 뷰가 0개인
+    // 동안 그것은 공허하다 — 그 이유를 여기서 고정한다. 첫 뷰가 생기면 여기가
+    // 먼저 빨간불이 되어 AQ-20의 나머지 (b)·(c)를 부른다
+    expect(
+      await viewKindRelations(),
+      '뷰가 생겼다. 새 뷰는 `with (security_invoker = true)`를 함께 쓴다 — 기본값은 ' +
+        '소유자(postgres, BYPASSRLS) 권한 실행이라 RLS가 통째로 우회된다 ' +
+        '(CLAUDE.md 규칙 6 · AQ-20). 구체화 뷰는 쓰지 않는다. 이 단언을 고치기 전에 ' +
+        '권한 매트릭스(relkind = r 한정)를 뷰로 넓히고 DOC-010 §7 표에 등재한다',
+    ).toEqual([])
+  })
+
+  it('모든 뷰가 security_invoker = true이고 구체화 뷰는 없다 — 양성 대조를 같은 질의에 둔다', async () => {
+    // 프로브는 테스트 트랜잭션 안에서 만들어 `afterEach`의 롤백으로 사라진다.
+    // 실제 카탈로그와 프로브가 **한 번의 질의**에 함께 나오므로, 질의 형태가
+    // 틀려서 0행인 경로(relkind 필터·옵션 판정)가 이 결과에서 배제된다.
+    //
+    // 각 프로브가 가르는 것:
+    //   __probe_view          옵션 없음 → 위반        (기본값 = 소유자 권한)
+    //   __probe_view_false    키는 있고 값이 false → 위반  (키 존재 판정을 가른다)
+    //   __probe_view_invoker  = true → 통과
+    //   __probe_view_on       = on   → 통과            (문자열 판정을 가른다)
+    //   __probe_matview       구체화 뷰 → 위반         (relkind 필터를 가른다)
+    await asOwner('create view public.__probe_view as select 1 as x')
+    await asOwner(
+      'create view public.__probe_view_false with (security_invoker = false) as select 1 as x',
+    )
+    await asOwner(
+      'create view public.__probe_view_invoker with (security_invoker = true) as select 1 as x',
+    )
+    await asOwner(
+      'create view public.__probe_view_on with (security_invoker = on) as select 1 as x',
+    )
+    await asOwner('create materialized view public.__probe_matview as select 1 as x')
+
+    const relations = await viewKindRelations()
+    const violators = relations
+      .filter((r) => !r.invoker)
+      .map((r) => `${r.relname} (${r.relkind})`)
+
+    // 위반자가 **정확히** 세 프로브다 — 실제 뷰가 끼면 여기서 이름으로 드러난다
+    expect(
+      violators,
+      'security_invoker가 참이 아닌 뷰 또는 구체화 뷰가 있다 (AQ-20). ' +
+        '프로브 셋 외의 이름이 실제 위반자다',
+    ).toEqual(['__probe_matview (m)', '__probe_view (v)', '__probe_view_false (v)'])
+
+    // 통과 쪽도 같은 질의에서 보인다 — 통과 프로브가 결과에 **존재**해야
+    // 「위반자에 없다」가 「질의가 못 봤다」와 갈린다
+    expect(relations.filter((r) => r.invoker).map((r) => r.relname)).toEqual(
+      expect.arrayContaining(['__probe_view_invoker', '__probe_view_on']),
+    )
+  })
+
+  it('구체화 뷰는 security_invoker도 RLS도 받지 않는다 — 「없어야 한다」의 전제', async () => {
+    // 위 describe 머리의 「구체화 뷰는 보호 수단이 없다」를 실측으로 고정한다.
+    // 플랫폼이 이것을 바꾸면 여기가 실패하고, 그때 「0개」 규약을 다시 본다.
+    //
+    // ★ 오류를 PL/pgSQL 예외 블록 안에서 받는다. `asOwner`는 매번 `reset role`을
+    //   먼저 보내므로 SAVEPOINT로 감싸면 abort된 트랜잭션에서 그 `reset role`이
+    //   25P02로 죽고 `rollback to savepoint`에 닿지 못한다(실측). 예외 블록은
+    //   내부 서브트랜잭션이라 테스트 트랜잭션을 abort시키지 않는다
+    async function ownerError(sql: string): Promise<{ code: string; message: string }> {
+      await asOwner(
+        `do $probe$
+         begin
+           execute $stmt$${sql}$stmt$;
+           perform set_config('catalog.view_probe', '', true);
+         exception when others then
+           perform set_config('catalog.view_probe', sqlstate || ':' || sqlerrm, true);
+         end
+         $probe$`,
+      )
+      const probe = await asOwner<{ outcome: string }>(
+        `select current_setting('catalog.view_probe') as outcome`,
+      )
+      const outcome = probe.rows[0].outcome
+      if (outcome === '') throw new Error(`실패해야 할 문장이 성공했다: ${sql}`)
+      const colon = outcome.indexOf(':')
+      return { code: outcome.slice(0, colon), message: outcome.slice(colon + 1) }
+    }
+
+    const option = await ownerError(
+      'create materialized view public.__probe_matview with (security_invoker = true) as select 1 as x',
+    )
+    expect(option.code, option.message).toBe('22023')
+    expect(option.message).toMatch(/unrecognized parameter "security_invoker"/)
+
+    await asOwner('create materialized view public.__probe_matview as select 1 as x')
+    const rls = await ownerError('alter table public.__probe_matview enable row level security')
+    expect(rls.code, rls.message).toBe('42809')
+  })
+})
+
+/**
  * 권한 매트릭스 — DOC-010 v2.2 §7 표 ↔ 실제 GRANT
  *
  * **열거 대상은 매트릭스의 키가 아니라 카탈로그(`pg_class`)와 `ROLES`다.**

@@ -625,41 +625,345 @@ describe('날짜 형식', () => {
 
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')
 
-/**
- * `create table` 블록에서 문자열 열의 선언 길이를 뽑는다.
- *
- * **`alter ... type`은 보지 않는다.** 그래서 그 문장이 존재하지 않는다는 것을 함께
- * 단언한다 — 파서의 전제를 검사하지 않으면 나중에 열을 넓히는 마이그레이션이
- * 추가될 때 이 대조가 **조용히 낡은 값을 통과시킨다.**
- */
-function declaredLengths(): Map<string, number> {
-  const out = new Map<string, number>()
-  let table: string | null = null
+interface MigrationFile {
+  readonly name: string
+  readonly sql: string
+}
 
-  for (const file of readdirSync(MIGRATIONS_DIR).sort()) {
-    if (!file.endsWith('.sql')) continue
-    for (const line of readFileSync(join(MIGRATIONS_DIR, file), 'utf8').split('\n')) {
-      const create = /^create table public\.(\w+)/.exec(line)
-      if (create != null) {
-        table = create[1]
-        continue
+function migrationFiles(): MigrationFile[] {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((file) => file.endsWith('.sql'))
+    .sort()
+    .map((name) => ({ name, sql: readFileSync(join(MIGRATIONS_DIR, name), 'utf8') }))
+}
+
+const DOLLAR_TAG = /\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/y
+
+/**
+ * SQL을 문장으로 자른다 — 주석·문자열 리터럴·달러 인용 본문을 비운 채로.
+ *
+ * 비우는 이유가 둘이다. `comment on … is '… varchar(50) …'`의 설명 문장이 선언으로
+ * 세어지면 안 되고, 함수 본문(`$$ … $$`)의 `;`가 문장을 끊으면 그 뒤의 `alter table`이
+ * 엉뚱한 문장에 붙는다. 본문 안의 `varchar(n)`은 변수·캐스트이지 열 선언이 아니다.
+ *
+ * **닫히지 않은 인용은 던진다.** 삼키면 파일의 나머지가 통째로 사라지고 그 안의
+ * 선언이 0건으로 조용히 통과한다.
+ */
+function sqlStatements(sql: string): string[] {
+  const statements: string[] = []
+  let current = ''
+  let i = 0
+  const unclosed = (what: string, from: number): never => {
+    throw new Error(`닫히지 않은 ${what} — ${JSON.stringify(sql.slice(from, from + 60))}`)
+  }
+
+  while (i < sql.length) {
+    if (sql.startsWith('--', i)) {
+      const end = sql.indexOf('\n', i)
+      i = end === -1 ? sql.length : end
+      continue
+    }
+    if (sql.startsWith('/*', i)) {
+      const from = i
+      let depth = 0
+      do {
+        if (i >= sql.length) unclosed('블록 주석', from)
+        if (sql.startsWith('/*', i)) {
+          depth++
+          i += 2
+        } else if (sql.startsWith('*/', i)) {
+          depth--
+          i += 2
+        } else {
+          i++
+        }
+      } while (depth > 0)
+      current += ' '
+      continue
+    }
+
+    const ch = sql[i]
+    if (ch === "'") {
+      const from = i
+      const escapes = /(?:^|[^\w$])[eE]$/.test(current)
+      i++
+      for (;;) {
+        if (i >= sql.length) unclosed('문자열', from)
+        if (escapes && sql[i] === '\\') {
+          i += 2
+        } else if (sql[i] === "'" && sql[i + 1] === "'") {
+          i += 2
+        } else if (sql[i] === "'") {
+          i++
+          break
+        } else {
+          i++
+        }
       }
-      if (table != null && /^\);/.test(line)) {
-        table = null
+      current += "''"
+      continue
+    }
+    if (ch === '"') {
+      let end = sql.indexOf('"', i + 1)
+      while (end !== -1 && sql[end + 1] === '"') end = sql.indexOf('"', end + 2)
+      if (end === -1) unclosed('따옴표 식별자', i)
+      current += sql.slice(i, end + 1)
+      i = end + 1
+      continue
+    }
+    if (ch === '$' && !/[\w$]$/.test(current)) {
+      DOLLAR_TAG.lastIndex = i
+      const tag = DOLLAR_TAG.exec(sql)
+      if (tag != null) {
+        const end = sql.indexOf(tag[0], i + tag[0].length)
+        if (end === -1) unclosed(`달러 인용 ${tag[0]}`, i)
+        i = end + tag[0].length
+        current += ' $$ '
         continue
-      }
-      const column = /^\s{2}(\w+)\s+(?:varchar|char)\((\d+)\)/.exec(line)
-      if (table != null && column != null) {
-        out.set(`${table}.${column[1]}`, Number.parseInt(column[2], 10))
       }
     }
+    if (ch === ';') {
+      statements.push(current)
+      current = ''
+      i++
+      continue
+    }
+    current += ch
+    i++
   }
-  return out
+  statements.push(current)
+
+  return statements.map((s) => s.replace(/\s+/g, ' ').trim()).filter((s) => s !== '')
+}
+
+function closingParen(text: string, open: number): number {
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '(') depth++
+    else if (text[i] === ')' && --depth === 0) return i
+  }
+  throw new Error(`괄호가 닫히지 않는다 — ${text.slice(0, 80)}`)
+}
+
+/** 괄호 밖의 쉼표로 가른다 — `numeric(18,6)`·`check (a in (1, 2))`를 쪼개지 않는다 */
+function splitTopLevel(text: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++
+    else if (text[i] === ')') depth--
+    else if (text[i] === ',' && depth === 0) {
+      parts.push(text.slice(start, i).trim())
+      start = i + 1
+    }
+  }
+  parts.push(text.slice(start).trim())
+  return parts.filter((p) => p !== '')
+}
+
+const IDENT = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`
+const QNAME = String.raw`(?:(${IDENT})\s*\.\s*)?(${IDENT})`
+/** 길이를 갖는 문자열형 — `varchar`·`character varying`·`char`·`character`·`bpchar` */
+// 긴 표기를 앞에 둔다 — PostgreSQL이 받는 철자 전부(char varying · nchar · national character varying ·
+// 따옴표 붙은 "varchar")를 덮는다. 빠진 철자는 파서와 전역 스캔 «둘 다» 못 보므로 조용히 초록이 된다
+// (P8 컷 1 검증이 롤백되는 임시 테이블로 실측했다 — 셋 다 PostgreSQL이 받는다).
+const LENGTH_TYPE = String.raw`(?:"varchar"|varchar|bpchar|nchar(?:\s+varying)?|(?:national\s+)?(?:character|char)(?:\s+varying)?)\s*\(\s*(\d+)\s*\)`
+
+const LENGTH_TYPE_AT_START = new RegExp(`^${LENGTH_TYPE}`, 'i')
+const LENGTH_TYPE_ANYWHERE = new RegExp(String.raw`(?<![\w])${LENGTH_TYPE}`, 'gi')
+const QNAME_ONLY = new RegExp(`^${QNAME}$`, 'i')
+
+const CREATE_TABLE = new RegExp(
+  String.raw`^create\s+(?:(?:global|local)\s+)?(?:(?:temp|temporary|unlogged)\s+)?table\s+(?:if\s+not\s+exists\s+)?${QNAME}\s*\(`,
+  'i',
+)
+const ALTER_TABLE = new RegExp(
+  String.raw`^alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?${QNAME}\s*\*?\s+(.+)$`,
+  'i',
+)
+const DROP_TABLE = /^drop\s+table\s+(?:if\s+exists\s+)?(.+?)(?:\s+(?:cascade|restrict))?$/i
+
+const TABLE_CONSTRAINT = /^(?:constraint|primary|unique|check|foreign|exclude|like)\b/i
+const COLUMN_DEF = new RegExp(String.raw`^(${IDENT})\s+(.+)$`, 'i')
+const ADD_COLUMN = new RegExp(
+  String.raw`^add\s+(?!(?:constraint|primary|unique|check|foreign|exclude)\b)(?:column\s+)?(?:if\s+not\s+exists\s+)?(${IDENT})\s+(.+)$`,
+  'i',
+)
+const ALTER_TYPE = new RegExp(
+  String.raw`^alter\s+(?:column\s+)?(${IDENT})\s+(?:set\s+data\s+)?type\s+(.+)$`,
+  'i',
+)
+const DROP_COLUMN = new RegExp(
+  String.raw`^drop\s+(?!constraint\b)(?:column\s+)?(?:if\s+exists\s+)?(${IDENT})`,
+  'i',
+)
+const RENAME_COLUMN = new RegExp(
+  String.raw`^rename\s+(?!(?:constraint|to)\b)(?:column\s+)?(${IDENT})\s+to\s+(${IDENT})$`,
+  'i',
+)
+const RENAME_TABLE = new RegExp(String.raw`^rename\s+to\s+(${IDENT})$`, 'i')
+
+function ident(raw: string): string {
+  return raw.startsWith('"') ? raw.slice(1, -1).replace(/""/g, '"') : raw.toLowerCase()
+}
+
+/** 한정 없는 이름은 `public`으로 읽는다(기본 `search_path`). 그 밖의 스키마는 접두사를 단다 */
+function tableKey(schema: string | undefined, table: string): string {
+  const s = schema == null ? 'public' : ident(schema)
+  return s === 'public' ? ident(table) : `${s}.${ident(table)}`
+}
+
+interface DeclaredLengths {
+  /** `테이블.열` → 선언 길이. 마이그레이션을 파일 순서대로 **재생한** 결과다 */
+  readonly lengths: Map<string, number>
+  /** 길이형이 나오는데 열에 귀속되지 못한 문장 — 파서가 모르는 형태다 */
+  readonly unattributed: string[]
+  /** 문장 전체에서 센 길이형 개수. 파서의 문장 해석과 독립이다 */
+  readonly scanned: number
+}
+
+/**
+ * 마이그레이션을 순서대로 재생해 문자열 열의 선언 길이를 뽑는다.
+ *
+ * 초판은 `create table` 블록만 읽었다. 그러면 나중 마이그레이션의
+ * `alter table … add column x varchar(n)`이 **보이지 않고**, 대조 표에 없는 열이므로
+ * 아무것도 실패하지 않는다 — CLAUDE.md 규칙 6의 부류(객체 종류가 늘어날 때 기존
+ * 열거가 따라오지 않는다)다. 지금은 `create table`·`alter table`(add column /
+ * alter column … type / drop column / rename)·`drop table`을 재생한다.
+ *
+ * **「빠지지 않았는가」는 재생 규칙으로 답하지 않는다.** 모르는 형태가 오면 재생은
+ * 그것을 조용히 건너뛴다. 그래서 문장마다 길이형을 **독립적으로 세고**(`scanned`)
+ * 재생이 귀속시킨 수보다 많으면 그 문장을 `unattributed`에 올린다. 함수 인자·
+ * `create domain`·캐스트가 거기 걸린다 — 도메인이면 파서가 배워야 하고(길이가
+ * 도메인을 통해 강제된다), 함수 인자면 열 선언이 아니다(PostgreSQL은 인자의 길이
+ * 수식어를 버린다). 어느 쪽인지 정하는 것은 그 마이그레이션을 쓰는 사람이다.
+ */
+function parseDeclaredLengths(files: readonly MigrationFile[]): DeclaredLengths {
+  const lengths = new Map<string, number>()
+  const unattributed: string[] = []
+  let scanned = 0
+
+  /** 열 하나의 타입으로 원장을 갱신한다. 길이형이 아니면 상한이 없어진 것이므로 지운다 */
+  const apply = (table: string, column: string, type: string): number => {
+    const key = `${table}.${column}`
+    const typed = LENGTH_TYPE_AT_START.exec(type)
+    if (typed == null) {
+      lengths.delete(key)
+      return 0
+    }
+    lengths.set(key, Number.parseInt(typed[1], 10))
+    return 1
+  }
+  const renameColumn = (from: string, to: string): void => {
+    const n = lengths.get(from)
+    lengths.delete(from)
+    if (n != null) lengths.set(to, n)
+  }
+  const renameTable = (from: string, to: string | null): void => {
+    for (const [key, n] of [...lengths]) {
+      if (!key.startsWith(`${from}.`)) continue
+      lengths.delete(key)
+      if (to != null) lengths.set(`${to}${key.slice(from.length)}`, n)
+    }
+  }
+
+  for (const file of files) {
+    for (const statement of sqlStatements(file.sql)) {
+      const tokens = statement.match(LENGTH_TYPE_ANYWHERE)?.length ?? 0
+      scanned += tokens
+      let attributed = 0
+
+      const create = CREATE_TABLE.exec(statement)
+      const alter = create == null ? ALTER_TABLE.exec(statement) : null
+      const drop = create == null && alter == null ? DROP_TABLE.exec(statement) : null
+
+      if (create != null) {
+        const table = tableKey(create[1], create[2])
+        const open = create[0].length - 1
+        const body = statement.slice(open + 1, closingParen(statement, open))
+        for (const element of splitTopLevel(body)) {
+          if (TABLE_CONSTRAINT.test(element)) continue
+          const column = COLUMN_DEF.exec(element)
+          if (column != null) attributed += apply(table, ident(column[1]), column[2])
+        }
+      } else if (alter != null) {
+        const table = tableKey(alter[1], alter[2])
+        for (const action of splitTopLevel(alter[3])) {
+          let m: RegExpExecArray | null
+          if ((m = ADD_COLUMN.exec(action)) != null) {
+            attributed += apply(table, ident(m[1]), m[2])
+          } else if ((m = ALTER_TYPE.exec(action)) != null) {
+            attributed += apply(table, ident(m[1]), m[2])
+          } else if ((m = DROP_COLUMN.exec(action)) != null) {
+            lengths.delete(`${table}.${ident(m[1])}`)
+          } else if ((m = RENAME_COLUMN.exec(action)) != null) {
+            renameColumn(`${table}.${ident(m[1])}`, `${table}.${ident(m[2])}`)
+          } else if ((m = RENAME_TABLE.exec(action)) != null) {
+            renameTable(table, tableKey(alter[1], m[1]))
+          }
+        }
+      } else if (drop != null) {
+        for (const name of splitTopLevel(drop[1])) {
+          const q = QNAME_ONLY.exec(name)
+          if (q != null) renameTable(tableKey(q[1], q[2]), null)
+        }
+      }
+
+      if (attributed < tokens) unattributed.push(`${file.name}: ${statement.slice(0, 160)}`)
+    }
+  }
+  return { lengths, unattributed, scanned }
+}
+
+function declaredLengths(): DeclaredLengths {
+  return parseDeclaredLengths(migrationFiles())
+}
+
+/** V-19가 대조하는 열 — 계약 입력이 이 열에 닿는다 */
+const V19_COLUMNS: Array<[string, number]> = [
+  ['els_products.name', LENGTH_LIMITS.productName],
+  ['els_products.issuer', LENGTH_LIMITS.issuer],
+  ['assets.name', LENGTH_LIMITS.assetName],
+  ['assets.market', LENGTH_LIMITS.market],
+  ['assets.currency', LENGTH_LIMITS.currency],
+  // P5a 컷 2b — §5.12가 쓰는 두 열. 리터럴로 두면 이 대조 «밖»이 된다
+  ['asset_provider_symbols.provider', LENGTH_LIMITS.provider],
+  ['asset_provider_symbols.provider_symbol', LENGTH_LIMITS.providerSymbol],
+]
+
+/**
+ * 선언 길이가 있지만 V-19의 대상이 아닌 열 — **사유가 곧 등재 조건이다.**
+ *
+ * 이 표가 있어야 위 대조가 「빠지지 않았는가」에 답한다. 대조 표만으로는 표에 있는
+ * 열이 맞는지만 보므로, `add column`으로 새 열이 붙어도 표에 없으면 초록이다.
+ * 계약에 이 열로 가는 쓰기 경로가 생기면 여기서 빼고 `V19_COLUMNS`로 올린다.
+ */
+const NOT_CONTRACT_INPUT: Readonly<Record<string, string>> = {
+  'users.email': 'handle_new_auth_user 트리거가 auth.users에서 복사한다 — 계약에 쓰기 경로가 없다',
+  'users.display_name': '같은 트리거가 left(…, 50)으로 잘라 넣는다 — 계약에 쓰기 경로가 없다',
+  'asset_prices.provider': '수집 배치(collect.ts)가 PRICE_PROVIDERS의 id를 쓴다 — 사용자 입력이 아니다',
+  'tax_constants.key': '세율 마이그레이션만 쓴다(ADR-005) — 계약에 쓰기 경로가 없다',
+}
+
+const CLASSIFIED = [
+  ...V19_COLUMNS.map(([column]) => column),
+  ...Object.keys(NOT_CONTRACT_INPUT),
+].sort()
+
+function declaredColumns(lengths: ReadonlyMap<string, number>): string[] {
+  return [...lengths.keys()].sort()
 }
 
 describe('V-19의 길이 상한이 스키마와 일치한다', () => {
-  const lengths = declaredLengths()
+  const { lengths, unattributed, scanned } = declaredLengths()
 
+  /*
+   * ★ 이 전제는 **이 파서 때문에** 생겼다 — 초판 파서가 `create table` 블록만 읽었으므로
+   * 열을 넓히는 `alter column … type`이 추가되면 대조가 낡은 값을 조용히 통과시켰다.
+   * 파서가 그 문장을 재생하게 된 뒤(P8 컷 1)에도 그대로 둔다. P8 a2가 정밀도 해제를
+   * 위해 이 정규식을 문자열형으로 좁히기로 되어 있고, 그 판단의 자리가 여기다.
+   */
   it('마이그레이션에 열 타입을 바꾸는 문장이 없다 — 파서의 전제', () => {
     const altering = readdirSync(MIGRATIONS_DIR)
       .filter((file) => file.endsWith('.sql'))
@@ -669,17 +973,113 @@ describe('V-19의 길이 상한이 스키마와 일치한다', () => {
     expect(altering).toEqual([])
   })
 
-  it.each([
-    ['els_products.name', LENGTH_LIMITS.productName],
-    ['els_products.issuer', LENGTH_LIMITS.issuer],
-    ['assets.name', LENGTH_LIMITS.assetName],
-    ['assets.market', LENGTH_LIMITS.market],
-    ['assets.currency', LENGTH_LIMITS.currency],
-    // P5a 컷 2b — §5.12가 쓰는 두 열. 리터럴로 두면 이 대조 «밖»이 된다
-    ['asset_provider_symbols.provider', LENGTH_LIMITS.provider],
-    ['asset_provider_symbols.provider_symbol', LENGTH_LIMITS.providerSymbol],
-  ])('%s = %i', (column, expected) => {
+  it('길이형이 전부 열 선언에 귀속된다 — 파서가 모르는 형태가 없다', () => {
+    expect(unattributed).toEqual([])
+    // 공허 방지는 이 자리에 없다 — `scanned ≥ lengths.size`는 같은 정규식이라 항상 참이었다(P8 컷 1
+    // 검증이 짚었다). 비공허의 실제 보증은 아래 「전부 분류」의 `toEqual(CLASSIFIED)`다
+    expect(scanned).toBeGreaterThan(0)
+  })
+
+  it('선언 길이가 있는 열이 전부 분류되어 있다 — 대조하거나 사유를 적는다', () => {
+    expect(declaredColumns(lengths)).toEqual(CLASSIFIED)
+  })
+
+  it.each(V19_COLUMNS)('%s = %i', (column, expected) => {
     expect(lengths.get(column)).toBe(expected)
+  })
+})
+
+describe('길이 선언 파서가 판별한다 — 위 대조가 공허하지 않다', () => {
+  const withProbe = (sql: string): DeclaredLengths =>
+    parseDeclaredLengths([...migrationFiles(), { name: '99999999999999_probe.sql', sql }])
+
+  it('나중에 add column으로 붙은 열을 본다 — 분류 대조가 반응한다', () => {
+    const { lengths, unattributed } = withProbe(
+      'alter table public.assets add column probe varchar(7);',
+    )
+    expect(lengths.get('assets.probe')).toBe(7)
+    expect(unattributed).toEqual([])
+    expect(declaredColumns(lengths)).toEqual([...CLASSIFIED, 'assets.probe'].sort())
+  })
+
+  it('지웠다 다시 붙인 열의 길이를 갱신한다 — 값 대조가 반응한다', () => {
+    const { lengths } = withProbe(`
+      alter table public.assets drop column market;
+      alter table public.assets add column market varchar(7);
+    `)
+    expect(lengths.get('assets.market')).toBe(7)
+    expect(lengths.get('assets.market')).not.toBe(LENGTH_LIMITS.market)
+  })
+
+  const BASE = `
+    create table public.t (
+      id uuid primary key,
+      a  varchar(10) not null,
+      b  numeric(18,6),
+      constraint t_a_check check (a <> '' and b in (1, 2))
+    );
+  `
+
+  it.each([
+    [
+      '여러 줄 · if not exists · character varying',
+      `alter table public.t
+         add column if not exists c character varying (7) not null default '';`,
+      { 't.a': 10, 't.c': 7 },
+    ],
+    [
+      '한 문장의 여러 동작 — 괄호 안 쉼표를 가르지 않는다',
+      'alter table public.t add column d numeric(18,6), add column e char(3), add constraint t_e_check check (e <> \'\');',
+      { 't.a': 10, 't.e': 3 },
+    ],
+    ['스키마 한정이 없다 · column 생략', 'ALTER TABLE t ADD f VARCHAR(5);', { 't.a': 10, 't.f': 5 }],
+    ['char varying', 'alter table public.t add column g char varying(7);', { 't.a': 10, 't.g': 7 }],
+    ['nchar', 'alter table public.t add column h nchar(7);', { 't.a': 10, 't.h': 7 }],
+    ['national character varying', 'alter table public.t add column i national character varying (7);', { 't.a': 10, 't.i': 7 }],
+    ['따옴표 붙은 "varchar"', 'alter table public.t add column j "varchar"(7);', { 't.a': 10, 't.j': 7 }],
+    ['alter column … type — 넓힌다', 'alter table public.t alter column a type varchar(20);', { 't.a': 20 }],
+    ['set data type', 'alter table public.t alter column a set data type varchar(30);', { 't.a': 30 }],
+    ['text로 바꾸면 상한이 사라진다', 'alter table public.t alter column a type text;', {}],
+    ['drop column', 'alter table public.t drop column if exists a;', {}],
+    ['rename column', 'alter table public.t rename column a to z;', { 't.z': 10 }],
+    ['rename to', 'alter table public.t rename to u;', { 'u.a': 10 }],
+    ['drop table', 'drop table if exists public.t cascade;', {}],
+    ['public 밖의 스키마는 접두사를 단다', 'create table private.p (x char(2));', { 't.a': 10, 'private.p.x': 2 }],
+    [
+      '주석·문자열·함수 본문은 선언이 아니다 — 본문의 ; 가 문장을 끊지 않는다',
+      `-- alter table public.t add column x varchar(1);
+       /* alter table public.t add column x2 varchar(1); /* 중첩 */ */
+       comment on column public.t.a is 'varchar(2); it''s';
+       comment on table public.t is E'it\\'s varchar(9);';
+       create function public.f() returns void language sql as $body$
+         alter table public.t add column y varchar(3);
+       $body$;
+       alter table public.t add column w varchar(4);`,
+      { 't.a': 10, 't.w': 4 },
+    ],
+  ])('%s', (_, sql, expected) => {
+    const { lengths, unattributed } = parseDeclaredLengths([
+      { name: 'base.sql', sql: BASE },
+      { name: 'probe.sql', sql },
+    ])
+    expect(Object.fromEntries(lengths)).toEqual(expected)
+    expect(unattributed).toEqual([])
+  })
+
+  it('모르는 형태는 귀속 실패로 드러난다 — 조용히 건너뛰지 않는다', () => {
+    const { lengths, unattributed } = parseDeclaredLengths([
+      { name: 'probe.sql', sql: 'create domain public.short_code as varchar(7);' },
+    ])
+    expect(lengths.size).toBe(0)
+    expect(unattributed).toEqual(['probe.sql: create domain public.short_code as varchar(7)'])
+  })
+
+  it('닫히지 않은 인용은 던진다 — 파일의 나머지를 삼키지 않는다', () => {
+    expect(() =>
+      parseDeclaredLengths([
+        { name: 'x.sql', sql: "comment on table public.t is 'oops;\nalter table public.t add column z varchar(1);" },
+      ]),
+    ).toThrow(/닫히지 않은 문자열/)
   })
 })
 

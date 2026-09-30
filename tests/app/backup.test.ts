@@ -139,4 +139,40 @@ describe('백업 — DOC-013 §8.2 ↔ scripts/', () => {
     // 주석은 버려진다
     expect(stripComments('# $rc_out개\ncode')).toBe('code')
   })
+
+  /**
+   * 복원이 트리거·FK를 끈 채 돈다는 전제 — DOC-010 AQ-80 · DOC-013 §8.3.4
+   *
+   * `data.sql`의 첫 줄 `SET session_replication_role = replica;`가 5단계의 의미를 정한다
+   * (트리거·FK 꺼짐, CHECK 적용). 그 줄이 사라지면 복원이 트리거를 **켠 채** 돌고 행 수
+   * 대조는 여전히 초록일 수 있다 — 그래서 드릴이 첫 줄을 단언하고, 이 테스트는 **그 단언이
+   * 코드로 있는가**를 본다. 실제 덤프는 저장소 밖(`~/els-manager-backups`)이므로 여기서
+   * 읽지 않는다(ADR-003 · AQ-46과 같은 이유 — 러너에 없다).
+   *
+   * **`stripComments`를 거친다** — 그 줄을 설명하는 주석이 같은 리터럴을 담으므로,
+   * 원문에서 찾으면 검사를 지워도 주석만으로 초록이 된다.
+   */
+  it('훈련이 data.sql의 첫 줄을 replica로 단언하고 다르면 복구 전에 멈춘다 — AQ-80', () => {
+    const src = stripComments(DRILL)
+    // ① 비교 대상이 정확한 리터럴이다
+    expect(src).toContain(`REPLICA_LINE='SET session_replication_role = replica;'`)
+    // ② 첫 «비어 있지 않은» 줄을 data.sql에서 읽는다
+    expect(src).toContain(`FIRST_LINE=$(grep -m1 -v '^[[:space:]]*$' "$DUMP_DIR/data.sql")`)
+    // ③ 다르면 크게 실패한다 — 비교 블록 안에 stderr 출력과 0이 아닌 exit가 있다
+    const block = src.match(/^if \[\[ "\$FIRST_LINE" != "\$REPLICA_LINE" \]\]; then\n([\s\S]*?)\nfi$/m)
+    expect(block, '첫 줄 비교 블록이 있어야 한다').not.toBeNull()
+    const body = block?.[1] ?? ''
+    expect(body, '다르면 0이 아닌 코드로 끝나야 한다').toMatch(/^\s*exit [1-9]\d*\s*$/m)
+    expect(body).toContain('>&2')
+    expect(body).toContain('AQ-80')
+    // ④ 복구보다 앞이다 — 1단계(DB 생성)보다도 앞이어야 실패가 아무것도 남기지 않는다
+    const check = src.indexOf('if [[ "$FIRST_LINE" != "$REPLICA_LINE" ]]')
+    const createDb = src.indexOf('create database $DRILL_DB')
+    const restore = src.indexOf('< "$DUMP_DIR/data.sql"')
+    expect(check).toBeGreaterThan(0)
+    expect(createDb, '1단계가 있어야 한다').toBeGreaterThan(0)
+    expect(restore, '5단계가 있어야 한다').toBeGreaterThan(0)
+    expect(check, '검사가 1단계(DB 생성)보다 앞이어야 한다').toBeLessThan(createDb)
+    expect(check, '검사가 5단계(data 복구)보다 앞이어야 한다').toBeLessThan(restore)
+  })
 })

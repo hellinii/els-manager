@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { Client } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import * as select from '@/lib/db/select'
+
 import { resolveDatabaseUrl } from './helpers/env'
 
 /**
@@ -161,49 +163,249 @@ describe('금액·비율 열이 캐스팅 대상으로 남아 있다', () => {
   })
 
   it('열 사양이 그 열들을 전부 text로 둔다', async () => {
-    const {
-      ASSET_COLUMNS,
-      ELS_PRODUCT_COLUMNS,
-      PRICE_COLUMNS,
-      REDEMPTION_COLUMNS,
-      SCHEDULE_COLUMNS,
-      TAX_BRACKET_COLUMNS,
-      TAX_CONSTANT_COLUMNS,
-      TAX_PROFILE_COLUMNS,
-      UNDERLYING_COLUMNS,
-      USER_COLUMNS,
-    } = await import('@/lib/db/select')
-
-    const specs: Record<string, Record<string, string>> = {
-      assets: ASSET_COLUMNS,
-      els_products: ELS_PRODUCT_COLUMNS,
-      asset_prices: PRICE_COLUMNS,
-      redemptions: REDEMPTION_COLUMNS,
-      redemption_schedules: SCHEDULE_COLUMNS,
-      tax_brackets: TAX_BRACKET_COLUMNS,
-      tax_constants: TAX_CONSTANT_COLUMNS,
-      tax_profiles: TAX_PROFILE_COLUMNS,
-      els_underlyings: UNDERLYING_COLUMNS,
-      users: USER_COLUMNS,
-    }
-
-    const { rows } = await client.query<{ table_name: string; column_name: string }>(
-      `select table_name, column_name
-         from information_schema.columns
-        where table_schema = 'public' and data_type = 'numeric'`,
-    )
+    // 사양이 **없는** 테이블은 여기서 보지 않는다 — 그 누락은 아래 「열 사양 대조가
+    // 빠짐없다」가 따로 빨간불로 만든다. 종전에는 `if (spec == null) continue`가
+    // 그 자리였고, 새 테이블이 조용히 통과했다.
+    const numeric = await numericColumnsByRelation()
 
     const violations: string[] = []
-    for (const row of rows) {
-      const spec = specs[row.table_name]
-      if (spec == null) continue
-      const kind = spec[row.column_name]
-      // 사양에 없는 열은 아예 조회하지 않으므로 위반이 아니다
-      if (kind != null && kind !== 'text') {
-        violations.push(`${row.table_name}.${row.column_name} = ${kind}`)
+    for (const name of SPEC_NAMES) {
+      const table = SPEC_TABLES[name]
+      const spec: Readonly<Record<string, string>> = select[name]
+      for (const column of numeric.get(table) ?? []) {
+        const kind = spec[column]
+        // 사양에 없는 열은 아예 조회하지 않으므로 위반이 아니다
+        if (kind != null && kind !== 'text') {
+          violations.push(`${name}(${table}).${column} = ${kind}`)
+        }
       }
     }
 
     expect(violations).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 열 사양 대조가 빠짐없다 — CLAUDE.md 규칙 6 (P8 컷 1)
+//
+// 위 「text로 둔다」는 **대조표에 있는 사양만** 본다. 그래서 그 초록색은 「대조표가
+// 빠지지 않았다」를 전제한다. 그 전제를 두 방향에서 따로 단언한다.
+//
+//   카탈로그 → 대조표   수치 열이 있는 관계는 전부 사양이 있거나, 사유와 함께 면제된다
+//   export  → 대조표   `select.ts`가 내보내는 열 사양은 전부 대조표에 있다
+//
+// 둘이 따로인 이유: 앞의 것은 **테이블 단위**라서 이미 사양이 있는 테이블의 두 번째
+// 사양(`ASSET_OPTION_COLUMNS`가 그 형태다)을 가르지 못한다. 뒤의 것은 export만 세므로
+// 사양이 아예 없는 새 테이블을 가르지 못한다.
+// ---------------------------------------------------------------------------
+
+/**
+ * `select.ts`의 열 사양 export → 그 사양이 읽는 테이블.
+ *
+ * 사양 객체는 실행 시점에 테이블 이름을 갖지 않는다(`defineColumns`가 첫 인자를
+ * 버린다). 그래서 짝을 여기 적는다. **키가 export 이름이다** — 종전처럼 테이블을
+ * 키로 쓰면 한 테이블에 사양이 둘일 때 하나가 들어갈 자리가 없다.
+ *
+ * `satisfies`가 키를 실제 export 이름으로, 값을 생성 타입의 테이블 이름으로 묶는다.
+ * 짝이 **맞는가**는 타입이 못 본다(모든 키가 선택적인 사양 타입은 구조적으로 서로
+ * 대입된다) — 아래 「대조표의 짝이 맞다」가 카탈로그로 본다.
+ */
+const SPEC_TABLES = {
+  USER_COLUMNS: 'users',
+  ELS_PRODUCT_COLUMNS: 'els_products',
+  UNDERLYING_COLUMNS: 'els_underlyings',
+  SCHEDULE_COLUMNS: 'redemption_schedules',
+  REDEMPTION_COLUMNS: 'redemptions',
+  ASSET_COLUMNS: 'assets',
+  ASSET_OPTION_COLUMNS: 'assets',
+  PROVIDER_SYMBOL_COLUMNS: 'asset_provider_symbols',
+  PRICE_COLUMNS: 'asset_prices',
+  TAX_PROFILE_COLUMNS: 'tax_profiles',
+  TAX_BRACKET_COLUMNS: 'tax_brackets',
+  TAX_CONSTANT_COLUMNS: 'tax_constants',
+} as const satisfies { readonly [K in keyof typeof select]?: select.TableName }
+
+type SpecName = keyof typeof SPEC_TABLES
+const SPEC_NAMES = Object.keys(SPEC_TABLES) as SpecName[]
+
+/**
+ * 수치 열이 있는데 열 사양이 **없어도 되는** 관계 → 사유. 지금은 비어 있다.
+ *
+ * 사양이 없는 관계는 `selectList`를 지나지 않으므로 `::text` 방어 **밖**에 있다.
+ * 그래서 면제는 이름이 아니라 사유로 등재한다. 사양이 생기거나 관계가 사라지면
+ * 그 면제는 낡은 것이 되고, 아래 단언이 빨간불로 지우게 한다.
+ */
+const NUMERIC_RELATIONS_WITHOUT_SPEC: Readonly<Record<string, string>> = {}
+
+/**
+ * 공개 스키마에서 `numeric` 열을 가진 관계 → 그 열들.
+ *
+ * **`information_schema.columns`가 아니라 `pg_catalog`를 읽는다.** 이 명제에 대해
+ * 전자가 가르지 못하는 부류가 둘 있다(아래 양성 대조가 둘 다 프로브로 둔다).
+ *   ① 구체화 뷰(relkind `m`)를 싣지 않는다
+ *   ② `numeric[]`의 `data_type`이 `'ARRAY'`다 — 위 17행 원장의 `= 'numeric'`이 놓친다
+ * 도메인은 기저 형식으로 푼다(`typbasetype`을 재귀로 따라간다). 배열의 원소가
+ * 도메인인 경우도 같은 재귀가 잡는다.
+ */
+async function numericColumnsByRelation(): Promise<Map<string, string[]>> {
+  const { rows } = await client.query<{ relname: string; attname: string }>(
+    `with recursive numeric_types(oid) as (
+         select 'numeric'::regtype::oid
+       union
+         select t.oid
+           from pg_type t
+           join numeric_types n
+             on t.typbasetype = n.oid
+             or (t.typcategory = 'A' and t.typelem = n.oid)
+     )
+     select c.relname, a.attname
+       from pg_attribute a
+       join pg_class c on c.oid = a.attrelid
+       join pg_namespace ns on ns.oid = c.relnamespace
+      where ns.nspname = 'public'
+        and c.relkind in ('r', 'p', 'v', 'm', 'f')
+        and a.attnum > 0
+        and not a.attisdropped
+        and a.atttypid in (select oid from numeric_types)`,
+  )
+
+  const result = new Map<string, string[]>()
+  for (const row of rows) {
+    const existing = result.get(row.relname) ?? []
+    existing.push(row.attname)
+    result.set(row.relname, existing.sort())
+  }
+  return result
+}
+
+function coverage(
+  numeric: Map<string, string[]>,
+  exemptions: Readonly<Record<string, string>> = NUMERIC_RELATIONS_WITHOUT_SPEC,
+): {
+  uncovered: string[]
+  staleExemptions: string[]
+} {
+  const specified = new Set<string>(Object.values(SPEC_TABLES))
+  const uncovered = [...numeric.keys()]
+    .filter((r) => !specified.has(r) && !(r in exemptions))
+    .sort()
+  const staleExemptions = Object.keys(exemptions)
+    .filter((r) => !numeric.has(r) || specified.has(r))
+    .sort()
+  return { uncovered, staleExemptions }
+}
+
+/** export가 열 사양의 **모양**인가 — 이름 접미사(`_COLUMNS`)가 아니라 값으로 가른다 */
+function isColumnSpec(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const kinds = Object.values(value)
+  return kinds.length > 0 && kinds.every((k) => k === 'text' || k === 'raw')
+}
+
+describe('열 사양 대조가 빠짐없다 — 규칙 6', () => {
+  it('수치 열이 있는 관계는 전부 열 사양이 있거나, 사유와 함께 면제된다', async () => {
+    const numeric = await numericColumnsByRelation()
+
+    // 비공허 — 이 질의가 17행 원장(information_schema)이 보는 테이블을 전부 본다.
+    // 0행을 돌려주고 「누락 없음」이 되는 경로를 여기서 막는다
+    const { rows } = await client.query<{ table_name: string }>(
+      `select distinct table_name
+         from information_schema.columns
+        where table_schema = 'public' and data_type = 'numeric'`,
+    )
+    expect(rows.length).toBeGreaterThan(0)
+    expect([...numeric.keys()]).toEqual(
+      expect.arrayContaining(rows.map((r) => r.table_name)),
+    )
+
+    expect(
+      coverage(numeric),
+      '수치 열이 있는 관계에 열 사양이 없다(uncovered) 또는 면제가 낡았다(staleExemptions). ' +
+        '사양을 select.ts에 만들고 SPEC_TABLES에 짝을 적는다. 읽는 경로가 없어 사양이 ' +
+        '필요 없다면 NUMERIC_RELATIONS_WITHOUT_SPEC에 사유와 함께 등재한다 (CLAUDE.md 규칙 6)',
+    ).toEqual({ uncovered: [], staleExemptions: [] })
+  })
+
+  it('면제 대조가 공허하지 않다 — 낡은 면제와 쓰인 면제를 가른다', () => {
+    // 오늘 NUMERIC_RELATIONS_WITHOUT_SPEC이 비어 있어 위 단언의 staleExemptions 절반은 실패할 수 없다.
+    // P8 b2가 첫 면제를 넣고 b3가 빼야 하므로 그 절반의 판별력을 여기서 고정한다(P8 컷 1 검증).
+    const numeric = new Map<string, string[]>([
+      ['els_products', ['principal']],
+      ['__probe_exempt', ['amount']],
+    ])
+    expect(
+      coverage(numeric, { __gone_table: '사라진 관계', els_products: '사양이 이미 있다', __probe_exempt: '읽는 경로 없음' }),
+    ).toEqual({ uncovered: [], staleExemptions: ['__gone_table', 'els_products'] })
+    expect(coverage(numeric, {})).toEqual({ uncovered: ['__probe_exempt'], staleExemptions: [] })
+  })
+
+  it('select.ts가 내보내는 열 사양은 전부 대조표에 있다', () => {
+    const exported = Object.entries(select)
+      .filter(([, value]) => isColumnSpec(value))
+      .map(([name]) => name)
+      .sort()
+
+    expect(
+      exported,
+      '대조표(SPEC_TABLES)에 없는 열 사양 export가 있다 — 그 사양은 「text로 둔다」가 보지 않는다',
+    ).toEqual([...SPEC_NAMES].sort())
+  })
+
+  it('대조표의 짝이 맞다 — 사양의 키가 전부 그 테이블의 실제 열이다', async () => {
+    // 짝이 틀리면 「text로 둔다」는 **엉뚱한 테이블의** 수치 열과 대조하고 초록색이 된다
+    const columns = await actualColumns()
+
+    const mismatched: string[] = []
+    for (const name of SPEC_NAMES) {
+      const table = SPEC_TABLES[name]
+      const actual = columns.get(table) ?? []
+      const missing = Object.keys(select[name]).filter((c) => !actual.includes(c))
+      if (missing.length > 0) mismatched.push(`${name} → ${table}: ${missing.join(',')}`)
+    }
+
+    expect(mismatched).toEqual([])
+  })
+
+  it('양성 대조 — 롤백되는 트랜잭션 안의 새 관계를 이름으로 잡는다', async () => {
+    // 프로브와 실제 카탈로그가 **한 번의 질의**에 함께 나온다(tests/rls/catalog.test.ts의
+    // 뷰 프로브와 같은 형태). 결과가 프로브 다섯과 정확히 같아야 한다 — 그 밖의 이름이
+    // 끼면 실제 누락이다.
+    //
+    // 각 프로브가 가르는 것:
+    //   __probe_numeric   평범한 numeric 열            → 잡는다
+    //   __probe_domain    numeric 위의 도메인           → 잡는다 (atttypid만 보면 놓친다)
+    //   __probe_array     numeric[]                    → 잡는다 (information_schema는 'ARRAY')
+    //   __probe_view      뷰                           → 잡는다 (relkind 필터)
+    //   __probe_matview   구체화 뷰                     → 잡는다 (information_schema는 싣지 않는다)
+    //   __probe_counting  integer·text만               → 잡지 않는다 (새 관계를 전부 세는 질의를 가른다)
+    await client.query('begin')
+    try {
+      await client.query('create domain public.__probe_money as numeric(15, 0)')
+      await client.query('create table public.__probe_numeric (amount numeric(15, 0))')
+      await client.query('create table public.__probe_domain (amount public.__probe_money)')
+      await client.query('create table public.__probe_array (amounts numeric[])')
+      await client.query('create view public.__probe_view as select 1::numeric as amount')
+      await client.query(
+        'create materialized view public.__probe_matview as select 1::numeric as amount',
+      )
+      await client.query('create table public.__probe_counting (n integer, label text)')
+
+      expect(
+        coverage(await numericColumnsByRelation()).uncovered,
+        '프로브 다섯 외의 이름이 실제 누락이다',
+      ).toEqual([
+        '__probe_array',
+        '__probe_domain',
+        '__probe_matview',
+        '__probe_numeric',
+        '__probe_view',
+      ])
+    } finally {
+      await client.query('rollback')
+    }
+
+    // 롤백이 프로브를 실제로 지웠다 — 공유 스택의 다른 세션·다음 파일에 남지 않는다
+    const after = await numericColumnsByRelation()
+    expect([...after.keys()].filter((r) => r.startsWith('__probe_'))).toEqual([])
   })
 })
