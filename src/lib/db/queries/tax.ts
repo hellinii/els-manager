@@ -1,5 +1,14 @@
 import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
-import { grossExpected, taxableIncome } from '@/lib/domain'
+import {
+  grossExpected,
+  moneyString,
+  NO_ESTIMATE_RATES,
+  sumByCurrency,
+  taxableIncome,
+  taxableIncomeKrw,
+  type EstimateRates,
+  type ProductCurrency,
+} from '@/lib/domain'
 import {
   aggregateFinancialIncome,
   calculateFinancialIncomeTax,
@@ -56,6 +65,11 @@ export type TaxSummaryView = {
     total: string
     isComprehensive: boolean
     thresholdGap: string
+    /**
+     * 환율이 없어 F에서 빠진 달러 추정 건 수 — E-09 (§4.6 v4.9). **건 단위다** — 확정 원화
+     * 과세는 환율과 무관하게 늘 들어간다. `total`·`isComprehensive`·`tax`는 뺀 뒤의 F다
+     */
+    unconvertedCount: number
   }
   tax: {
     method1: string | null
@@ -82,8 +96,19 @@ export type TaxSummaryView = {
   contributingProducts: Array<{
     productId: string
     productName: string
-    taxableIncome: string
+    /** 그 상품의 통화. `taxableIncome`은 **늘 원화**다(과세 축) */
+    currency: ProductCurrency
+    /**
+     * 원화. **`null` = 환율이 없어 뺐다**(E-09). 빠진 상품도 행에 남는다 — 행을 지우면
+     * 「그 상품은 올해 과세되지 않는다」로 읽힌다
+     */
+    taxableIncome: string | null
     isEstimated: boolean
+    /**
+     * 이 상품의 추정분이 E-09로 빠졌다. 상환 시 일괄(컷 a2)에서는 한 상품의 기여가 한 건이라
+     * `exchangeRateMissing ⇔ taxableIncome = null`이다 — 월지급식(컷 b1)이 그 동치를 깬다
+     */
+    exchangeRateMissing: boolean
     /**
      * 결함 표식 — 금액에 영향을 주지 않는다.
      *
@@ -100,7 +125,11 @@ export type UserSummary = {
   displayName: string
   isMe: boolean
   activeCount: number
-  activePrincipal: string
+  /**
+   * 통화별 보유중 원금 — 통화를 넘어 더하지 않는다 (§4.8 v4.9). `CURRENCY_ORDER` 순이고
+   * 보유중 상품이 없으면 `[{ currency: 'KRW', activePrincipal: '0' }]`
+   */
+  activePrincipalByCurrency: Array<{ currency: ProductCurrency; activePrincipal: string }>
   currentYearFinancialIncome: string
   includesOtherFinancialIncome: boolean
   isComprehensive: boolean | null
@@ -138,8 +167,14 @@ export function contributionOf(
   row: ProductRow,
   year: number,
   asOf: string,
+  /** 추정 환율 — 기본값이 없다. 원화 상품과 확정값은 이 인자를 보지 않는다 */
+  rates: EstimateRates,
 ): {
-  amount: DecimalValue
+  /**
+   * 과세 금융소득 — **원화**(과세 축). `null` = E-09: 달러 추정인데 추정 환율이 없다.
+   * 0으로 흡수하지 않는다 — 소비자가 합에서 빼고 **센다**(DOC-011 §4.0 규칙 3).
+   */
+  amount: DecimalValue | null
   /**
    * 세전 실수령액 — 원금 반환분을 **포함한다**(`grossExpected`의 정의).
    *
@@ -149,6 +184,8 @@ export function contributionOf(
    */
   gross: DecimalValue
   isEstimated: boolean
+  /** `amount = null`과 같은 사실 — 소비자가 `null` 검사를 다시 적지 않게 이름을 붙인다 */
+  exchangeRateMissing: boolean
   /**
    * 결함 표식 — **금액에 영향을 주지 않는다.** 과세 기여는 계약 조건에서만
    * 나오고 결함이 파괴한 입력(기초자산·시세)을 쓰지 않으므로 금액은 유효하다.
@@ -172,6 +209,7 @@ export function contributionOf(
   if (attribution.year !== year) return null
 
   // 상환 완료 — 증권사 확정값을 쓴다(A-04). 시스템 추정으로 대체하지 않는다.
+  // 달러 상품도 같다 — 거래내역의 **원화** 과세이며 환율을 곱하지 않는다(U1).
   if (attribution.kind === 'REDEEMED') {
     return {
       amount: taxableIncome({
@@ -181,6 +219,7 @@ export function contributionOf(
       }),
       gross: dec(attribution.redemption.gross_amount),
       isEstimated: false,
+      exchangeRateMissing: false,
       integrityIssue,
     }
   }
@@ -199,15 +238,21 @@ export function contributionOf(
     roundNo: attribution.round.round_no,
   })
 
+  // §4.3 `projection`과 같은 함수다 — 두 화면이 같은 상품에 같은 E-09를 말한다
+  const amount = taxableIncomeKrw({
+    currency: row.currency,
+    accountType: row.account_type,
+    principal: row.principal,
+    redemption: null,
+    expectedGross: gross,
+    rates,
+  })
+
   return {
-    amount: taxableIncome({
-      accountType: row.account_type,
-      principal: row.principal,
-      redemption: null,
-      expectedGross: gross,
-    }),
+    amount,
     gross,
     isEstimated: true,
+    exchangeRateMissing: amount == null,
     integrityIssue,
   }
 }
@@ -222,6 +267,8 @@ export type OwnTaxComputation = {
   brackets: TaxBracket[]
   constants: TaxConstants
   taxLawYear: number
+  /** 환율이 없어 합에서 뺀 기여 수(E-09). `contributions` 중 `amount = null`인 것의 수다 */
+  unconvertedCount: number
   /**
    * 합계에 실제로 들어간 기여. **§4.6이 이것을 그대로 쓴다.**
    *
@@ -246,24 +293,33 @@ export function computeOwnTax(params: {
   yearContext: TaxYearContext
   otherFinancialIncome: DecimalValue
   otherIncomeBase: DecimalValue
+  rates: EstimateRates
 }): OwnTaxComputation {
   const brackets = toBrackets(params.yearContext)
   const constants = toConstants(params.yearContext)
 
   const items = params.products
     .filter((row) => row.owner_id === params.ownerId)
-    .map((row) => ({ row, contribution: contributionOf(row, params.year, params.asOf) }))
+    .map((row) => ({
+      row,
+      contribution: contributionOf(row, params.year, params.asOf, params.rates),
+    }))
     .filter(
       (entry): entry is { row: ProductRow; contribution: Contribution } =>
         entry.contribution != null,
     )
 
+  // E-09는 **건 단위**로 뺀다 — 빠진 건은 행(`contributions`)에는 남고 합에서만 빠진다
+  const converted = items.flatMap((entry) =>
+    entry.contribution.amount == null ? [] : [entry.contribution.amount],
+  )
+
   const aggregated = aggregateFinancialIncome({
     key: { ownerId: params.ownerId, year: params.year },
-    items: items.map((entry) => ({
+    items: converted.map((amount) => ({
       ownerId: params.ownerId,
       year: params.year,
-      taxableIncome: entry.contribution.amount,
+      taxableIncome: amount,
     })),
     otherFinancialIncome: params.otherFinancialIncome,
   })
@@ -287,8 +343,23 @@ export function computeOwnTax(params: {
     brackets,
     constants,
     taxLawYear: params.yearContext.taxLawYear,
+    unconvertedCount: items.length - converted.length,
     contributions: items,
   }
+}
+
+/** §4.8 — 보유중 원금만 담으므로 §4.1 `byCurrency`와 달리 상환 완료를 세지 않는다 */
+function activePrincipalByCurrency(
+  active: readonly ProductRow[],
+): UserSummary['activePrincipalByCurrency'] {
+  const sums = sumByCurrency(
+    active.map((row) => ({ currency: row.currency, amount: row.principal })),
+  )
+  if (sums.length === 0) return [{ currency: 'KRW', activePrincipal: '0' }]
+  return sums.map((entry) => ({
+    currency: entry.currency,
+    activePrincipal: moneyString(entry.amount, entry.currency),
+  }))
 }
 
 export function makeTaxQueries(ctx: QueryContext) {
@@ -349,6 +420,8 @@ export function makeTaxQueries(ctx: QueryContext) {
       yearContext,
       otherFinancialIncome: dec(effective.otherFinancialIncome),
       otherIncomeBase: dec(effective.otherIncomeBase),
+      // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 3 → 4)
+      rates: NO_ESTIMATE_RATES,
     })
 
     const health = calculateHealthInsurance({
@@ -379,6 +452,7 @@ export function makeTaxQueries(ctx: QueryContext) {
         // 초과분 또는 여유분. 부호로 두 뜻을 구분하지 않고 절대값을 담는다 —
         // isComprehensive가 어느 쪽인지 이미 말한다.
         thresholdGap: amountString(own.financialIncome.minus(threshold).abs()),
+        unconvertedCount: own.unconvertedCount,
       },
       tax: {
         method1: own.result.method1 == null ? null : amountString(own.result.method1),
@@ -413,8 +487,11 @@ export function makeTaxQueries(ctx: QueryContext) {
       contributingProducts: own.contributions.map((entry) => ({
         productId: entry.row.id,
         productName: entry.row.name,
-        taxableIncome: amountString(entry.contribution.amount),
+        currency: entry.row.currency,
+        taxableIncome:
+          entry.contribution.amount == null ? null : amountString(entry.contribution.amount),
         isEstimated: entry.contribution.isEstimated,
+        exchangeRateMissing: entry.contribution.exchangeRateMissing,
         // 금액은 바꾸지 않고 표식만 붙인다. 표식이 없으면 SCR-202에서 "수정 필요"로
         // 표시되는 같은 상품이 SCR-401에는 숫자로만 나타나 모순으로 읽힌다.
         integrityIssue: entry.contribution.integrityIssue,
@@ -458,9 +535,12 @@ export function makeTaxQueries(ctx: QueryContext) {
       const owned = products.filter((row) => row.owner_id === user.id)
       const active = owned.filter((row) => row.redemptions == null)
 
+      // §4.6과 같은 E-09 — 환율이 없는 달러 추정 건은 빠진다. 표식은 두지 않는다(§4.8 v4.9 —
+      // 화면이 없고, 두게 되면 `includesOtherFinancialIncome`에 접지 않는 별도 필드다)
       const elsIncome = owned.reduce<DecimalValue>((acc, row) => {
-        const c = contributionOf(row, year, ctx.asOf)
-        return c == null ? acc : acc.plus(c.amount)
+        // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 4 → 5)
+        const c = contributionOf(row, year, ctx.asOf, NO_ESTIMATE_RATES)
+        return c?.amount == null ? acc : acc.plus(c.amount)
       }, ZERO)
 
       const other =
@@ -475,9 +555,7 @@ export function makeTaxQueries(ctx: QueryContext) {
         displayName: user.display_name,
         isMe,
         activeCount: active.length,
-        activePrincipal: amountString(
-          active.reduce<DecimalValue>((acc, row) => acc.plus(dec(row.principal)), ZERO),
-        ),
+        activePrincipalByCurrency: activePrincipalByCurrency(active),
         currentYearFinancialIncome: amountString(financialIncome),
         includesOtherFinancialIncome: isMe,
         // 타인은 판정 불가 — 읽지 못한 값을 0으로 두고 판정하면 그럴싸한 오답이 된다

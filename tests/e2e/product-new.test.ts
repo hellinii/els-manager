@@ -65,6 +65,7 @@ const BASIC = {
   name: `[E2E] 한페이지${STAMP}`,
   issuer: 'E2E증권',
   issueDate: '2026-01-02',
+  currency: 'KRW',
   principal: '100,000,000',
   accountType: 'GENERAL',
   note: '단일 페이지 확인',
@@ -411,6 +412,9 @@ describe('SCR-204 단일 페이지 폼', () => {
 
     // 오류가 그 칸에 붙었다
     expect(rendered).toContain('id="name-error"')
+    // P8 컷 a2 — 상품 통화도 비운 채다(화면이 「선택」에서 시작한다). 원화로 채우지 않고 그 칸에 V-22가
+    // 붙는다 — 채웠다면 달러 상품을 원화로 저장해도 아무 경고가 없다(U7)
+    expect(rendered).toContain('id="currency-error"')
     // 입력값 보존 — 다른 구획의 값도 그대로다(W-03의 존재 이유)
     expect(formHtmlFor(rendered, actionId)).toContain('value="90"')
   })

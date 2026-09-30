@@ -1,4 +1,5 @@
-import { ZERO } from '@/lib/decimal'
+import { dec, ZERO } from '@/lib/decimal'
+import { NO_ESTIMATE_RATES, type EstimateRates } from '@/lib/domain'
 import {
   forecastYears,
   type ForecastItem,
@@ -65,8 +66,16 @@ export type ForecastRow = {
   remainingPrincipal: string
   /** **건보료 차감 전이다** — DOC-007 §7.5 */
   cumulativeAssets: string
-  /** 이 행의 값이 적용 차수 가정에 의존한다 (§7.5의 **행 축**) */
+  /** 이 행의 값이 적용 차수 가정에 의존한다 (§7.5의 **행 축**) · 또는 원화 환산을 포함한다 */
   hasEstimates: boolean
+  /**
+   * 추정 환율이 없어 이 행의 원화 합계 열에서 빠진 외화 상품 수 (§4.7 v4.9) — **표 밖 표식**이다.
+   *
+   * 그 상품이 처음 원화 합에 필요해진 행부터 **마지막 행까지** 센다 — 누적 두 열이 뒤 행에서도
+   * 그 상품을 잃기 때문이다. 기준 연도 이전에 상환된 상품은 어느 열에도 없으므로 세지 않는다.
+   * 그래서 이 규칙에서는 모든 행이 같은 값이다(보유중·`Y₀` 상환 상품은 첫 행부터 필요하다).
+   */
+  excludedForeignCount: number
 }
 
 /**
@@ -88,21 +97,72 @@ export type ForecastRow = {
  * `0`을 넣는 것이 항목을 **버리는 것과 다르다** — 버리면 그 원금이 잔여 원금에서도 사라져
  * 화면에서 조용히 증발한다(§7.5 「배제하면」). 항목은 남고 유량만 0이다.
  */
-export function forecastItemOf(row: ProductRow, asOf: string): ForecastItem {
+export type ForecastProductItem = ForecastItem & {
+  /** 추정 환율이 없어 원화 합계 열에서 뺐고 `excludedForeignCount`가 센다 (§4.7 v4.9) */
+  excludedForeign: boolean
+}
+
+export function forecastItemOf(
+  row: ProductRow,
+  asOf: string,
+  /** 추정 환율 — 기본값이 없다(§4.0 규칙 2·3) */
+  rates: EstimateRates,
+): ForecastProductItem {
   const attribution = attributionOf(row, asOf)
   const contribution =
-    attribution.year == null ? null : contributionOf(row, attribution.year, asOf)
+    attribution.year == null
+      ? null
+      : contributionOf(row, attribution.year, asOf, rates)
 
-  return {
-    principal: row.principal,
+  const base = {
     /*
      * `null`은 적용 차수를 정할 수 없다는 뜻이며 **배제하지 않는다** — 전 연도의 잔여
      * 원금에 남아 「회수 시점을 모르는 자산」으로 보이는 것이 E-07의 시각적 형태다(§7.5).
      */
     attributionYear: attribution.year,
-    gross: contribution?.gross ?? ZERO,
+    // 원화다(과세 축). `null`(E-09)을 0으로 두는 것은 흡수가 아니다 — 그 상품은 아래 셋째
+    // 분기로 가고 `excludedForeignCount`가 센다. 확정 원화 과세는 환율과 무관하게 여기 있다
     taxableIncome: contribution?.amount ?? ZERO,
+  }
+  const gross = contribution?.gross ?? ZERO
+
+  // 원화 상품 — 종전 그대로다. 환율 경로를 지나지 않는다(`x = 1`을 곱하는 것이 아니다)
+  if (row.currency === 'KRW') {
+    return {
+      ...base,
+      principal: row.principal,
+      gross,
+      isEstimated: contribution?.isEstimated ?? false,
+      excludedForeign: false,
+    }
+  }
+
+  // 외화 · 추정 환율 있음 — 원금과 수령액을 **같은 `x`로** 바꾼다. 그래야 §7.5의 배타 분할
+  // (한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 원화 표에서도 선다. 확정 달러
+  // 수령액도 원화로 더하는 순간 추정이다(ST-05) — 그래서 `isEstimated`가 참이다
+  const rate = rates[row.currency]
+  if (rate != null) {
+    const x = dec(rate.rate)
+    return {
+      ...base,
+      principal: dec(row.principal).times(x),
+      gross: gross.times(x),
+      isEstimated: true,
+      excludedForeign: false,
+    }
+  }
+
+  // 외화 · 추정 환율 없음 — 원화 합계 열에서 빼고 센다. **항목은 남긴다** — F의 확정 원화
+  // 과세가 빠지지 않아야 한다(§4.6의 표 첫 줄). 기준 연도 이전 상환은 어느 열에도 없으므로
+  // 세지 않는다(DOC-007 §7.5 분할 표 둘째 줄)
+  return {
+    ...base,
+    principal: ZERO,
+    gross: ZERO,
     isEstimated: contribution?.isEstimated ?? false,
+    excludedForeign: !(
+      attribution.kind === 'REDEEMED' && attribution.year < currentYear(asOf)
+    ),
   }
 }
 
@@ -170,7 +230,9 @@ export function makeForecastQueries(ctx: QueryContext) {
       loadProducts(ctx, { ownerId: ctx.viewerId }),
     ])
 
-    const items = products.map((row) => forecastItemOf(row, ctx.asOf))
+    // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 3 → 4)
+    const items = products.map((row) => forecastItemOf(row, ctx.asOf, NO_ESTIMATE_RATES))
+    const excludedForeignCount = items.filter((item) => item.excludedForeign).length
 
     const yearInputs: ForecastYearInput[] = []
     for (let offset = 0; offset < years; offset += 1) {
@@ -215,6 +277,7 @@ export function makeForecastQueries(ctx: QueryContext) {
         remainingPrincipal: amountString(row.remainingPrincipal),
         cumulativeAssets: amountString(row.cumulativeAssets),
         hasEstimates: row.hasEstimates,
+        excludedForeignCount,
       }),
     )
   }

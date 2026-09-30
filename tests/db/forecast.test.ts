@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { dec } from '@/lib/decimal'
+import { NO_ESTIMATE_RATES } from '@/lib/domain'
 
 import {
   FORECAST_DEFAULT_YEARS,
@@ -46,6 +47,7 @@ describe('행 → `ForecastItem` 사상', () => {
     const item = forecastItemOf(
       productRow({ redemptions: redemption({ redemption_date: '2026-07-02' }) }),
       ASOF,
+      NO_ESTIMATE_RATES,
     )
 
     expect(item.attributionYear).toBe(2026)
@@ -58,7 +60,7 @@ describe('행 → `ForecastItem` 사상', () => {
 
   it('미상환 상품은 다음 도래 평가일의 연도이고 추정이다', () => {
     // 기준일 2026-06-30이므로 1차(2026-07-02)가 다음 도래 차수다(§7.2).
-    const item = forecastItemOf(productRow(), ASOF)
+    const item = forecastItemOf(productRow(), ASOF, NO_ESTIMATE_RATES)
 
     expect(item.attributionYear).toBe(2026)
     expect(item.isEstimated).toBe(true)
@@ -74,7 +76,7 @@ describe('행 → `ForecastItem` 사상', () => {
      *
      * 그래서 `attributionYear`만 보지 않고 **`principal`이 살아 있는 것**을 함께 단언한다.
      */
-    const item = forecastItemOf(productRow({ redemption_schedules: [] }), ASOF)
+    const item = forecastItemOf(productRow({ redemption_schedules: [] }), ASOF, NO_ESTIMATE_RATES)
 
     expect(item.attributionYear).toBeNull()
     expect(dec(item.gross).isZero()).toBe(true)
@@ -91,6 +93,7 @@ describe('행 → `ForecastItem` 사상', () => {
         ],
       }),
       ASOF,
+      NO_ESTIMATE_RATES,
     )
 
     expect(item.attributionYear).toBeNull()
@@ -105,6 +108,7 @@ describe('행 → `ForecastItem` 사상', () => {
         redemptions: redemption({ round_no: null, redemption_date: '2028-01-04' }),
       }),
       ASOF,
+      NO_ESTIMATE_RATES,
     )
 
     expect(item.attributionYear).toBe(2028)
@@ -118,6 +122,7 @@ describe('행 → `ForecastItem` 사상', () => {
         redemptions: redemption({ redemption_date: '2026-07-02' }),
       }),
       ASOF,
+      NO_ESTIMATE_RATES,
     )
 
     expect(dec(item.taxableIncome).isZero()).toBe(true)

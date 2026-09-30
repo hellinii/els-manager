@@ -56,6 +56,8 @@ const STATUSES = ['ACTIVE', 'REDEEMED'] as const
 /** DOC-002 §4.6 — 기실현 등재의 판별 열 (P6 컷 5) */
 const ENTRY_MODES = ['FULL', 'REALIZED_ONLY'] as const
 const KI_OBSERVATIONS = ['CONTINUOUS', 'CLOSING'] as const
+/** DOC-011 §4.0 `ProductCurrency` (P8 컷 a2) — 기초자산 통화(`assets.currency`, `TEXT`)와 다른 축이다 */
+const CURRENCIES = ['KRW', 'USD'] as const
 
 /** §4.1 대시보드 */
 const DASHBOARD: Record<string, Spec> = {
@@ -68,28 +70,33 @@ const DASHBOARD: Record<string, Spec> = {
   'upcomingEvaluations[].worstOf': 'RATIO',
   'upcomingEvaluations[].barrier': 'RATIO',
   'upcomingEvaluations[].willMeet': 'BOOL',
-  'totals.activePrincipal': 'AMOUNT',
   'totals.activeCount': 'NUMBER',
-  'totals.realizedPnl': 'AMOUNT',
+  // v4.9 — 통화별 사실. 금액 둘은 **그 행의** `currency`로 판정한다(MONEY)
+  'totals.byCurrency[].currency': CURRENCIES,
+  'totals.byCurrency[].activeCount': 'NUMBER',
+  'totals.byCurrency[].activePrincipal': 'MONEY',
+  'totals.byCurrency[].realizedPnl': 'MONEY',
   'currentYearTax.year': 'NUMBER',
-  'currentYearTax.financialIncome': 'AMOUNT',
+  'currentYearTax.financialIncome': 'AMOUNT_KRW',
   'currentYearTax.isComprehensive': 'BOOL',
-  'currentYearTax.additionalTax': 'AMOUNT',
+  'currentYearTax.additionalTax': 'AMOUNT_KRW',
+  'currentYearTax.unconvertedCount': 'NUMBER',
   'attentionItems[].productId': 'UUID',
   'attentionItems[].productName': 'TEXT',
   // v2.0 — 같은 뷰의 `upcomingEvaluations[].ownerName`과 **같은 분류여야 한다.**
   // 갈리면 한 뷰가 소유자 이름을 두 형식으로 직렬화한다는 뜻이다.
   'attentionItems[].ownerName': 'TEXT',
   'attentionItems[].reason': ATTENTION_REASONS,
-  // ⑤ 최근 상환 실적 (v2.0). `realizedPnl`은 **음수 가능**이므로 `AMOUNT` 분류가
+  // ⑤ 최근 상환 실적 (v2.0). `realizedPnl`은 **음수 가능**이므로 `MONEY` 분류가
   // 부호를 허용해야 한다 — §4.3의 `redemption.realizedPnl`과 같은 자리다.
   'recentRedemptions[].productId': 'UUID',
   'recentRedemptions[].productName': 'TEXT',
   'recentRedemptions[].ownerName': 'TEXT',
   'recentRedemptions[].redemptionType': REDEMPTION_TYPES,
   'recentRedemptions[].redemptionDate': 'DATE',
-  'recentRedemptions[].grossAmount': 'AMOUNT',
-  'recentRedemptions[].realizedPnl': 'AMOUNT',
+  'recentRedemptions[].currency': CURRENCIES,
+  'recentRedemptions[].grossAmount': 'MONEY',
+  'recentRedemptions[].realizedPnl': 'MONEY',
   'recentRedemptions[].isConfirmed': 'BOOL',
 }
 
@@ -99,7 +106,8 @@ const PRODUCT_LIST: Record<string, Spec> = {
   name: 'TEXT',
   ownerId: 'UUID',
   ownerName: 'TEXT',
-  principal: 'AMOUNT',
+  principal: 'MONEY',
+  currency: CURRENCIES,
   accountType: ACCOUNT_TYPES,
   status: STATUSES,
   entryMode: ENTRY_MODES,
@@ -156,7 +164,8 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'product.ownerName': 'TEXT',
   'product.isOwner': 'BOOL',
   'product.issueDate': 'DATE',
-  'product.principal': 'AMOUNT',
+  'product.principal': 'MONEY',
+  'product.currency': CURRENCIES,
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
   // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면
@@ -186,24 +195,28 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'schedules[].lizardBarrier': 'RATIO',
   'schedules[].lizardCouponRate': 'RATIO',
   'schedules[].lizardRequiresNoKi': 'BOOL',
-  'schedules[].expectedGross': 'AMOUNT',
+  // 형제 가지 — 조상에 통화가 없으므로 **루트의 `product.currency`**로 판정한다(§4.0 규칙 1)
+  'schedules[].expectedGross': 'MONEY',
   'schedules[].conditionResult': CONDITION_RESULTS,
   'schedules[].isPast': 'BOOL',
   projection: 'NULL_OBJECT',
   'projection.appliedRoundNo': 'NUMBER',
-  'projection.expectedGross': 'AMOUNT',
-  'projection.expectedTaxableIncome': 'AMOUNT',
+  'projection.expectedGross': 'MONEY',
+  // 과세 축 — 달러 상품에서도 원화다. `null`은 E-09(미상환 달러 · 환율 없음)
+  'projection.expectedTaxableIncome': 'AMOUNT_KRW',
   'projection.attributionYear': 'NUMBER',
   redemption: 'NULL_OBJECT',
   'redemption.id': 'UUID',
   'redemption.redemptionType': REDEMPTION_TYPES,
   'redemption.roundNo': 'NUMBER',
   'redemption.redemptionDate': 'DATE',
-  'redemption.grossAmount': 'AMOUNT',
-  'redemption.taxableIncome': 'AMOUNT',
-  'redemption.withholdingTax': 'AMOUNT',
+  'redemption.grossAmount': 'MONEY',
+  'redemption.taxableIncome': 'AMOUNT_KRW',
+  'redemption.withholdingTax': 'AMOUNT_KRW',
+  // 적용 환율(참고) — 새 부류를 만들지 않는다. 시세와 같은 6자리다(Q-07′)
+  'redemption.exchangeRate': 'PRICE',
   'redemption.isConfirmed': 'BOOL',
-  'redemption.realizedPnl': 'AMOUNT',
+  'redemption.realizedPnl': 'MONEY',
   'redemption.note': 'TEXT',
 }
 
@@ -230,16 +243,18 @@ const SCHEDULE_ITEM: Record<string, Spec> = {
   // `principal`·`accountType`은 §4.2에, `expectedGross`는 §4.3에 있고 화면은
   // 같은 포매터(`amount`·`percent`)에 넣는다. 형식이 갈리면 두 뷰가 같은 값을
   // 다르게 직렬화한다는 뜻이다.
-  principal: 'AMOUNT',
+  principal: 'MONEY',
+  currency: CURRENCIES,
   annualCouponRate: 'RATIO',
   accountType: ACCOUNT_TYPES,
   totalRounds: 'NUMBER',
-  'proceeds.expectedGross': 'AMOUNT',
-  'proceeds.expectedWithholding': 'AMOUNT',
-  'proceeds.expectedNet': 'AMOUNT',
-  // `AMOUNT`는 부호를 허용한다(`recentRedemptions[].realizedPnl`이 이미 그 자리다).
+  // 넷 다 상품 통화다 — 달러 상품의 예상 원천징수도 **달러**다(「달러 기준 참고」 — §4.4 v4.9)
+  'proceeds.expectedGross': 'MONEY',
+  'proceeds.expectedWithholding': 'MONEY',
+  'proceeds.expectedNet': 'MONEY',
+  // `MONEY`는 부호를 허용한다(`recentRedemptions[].realizedPnl`이 이미 그 자리다).
   // 현 산식에서 음수가 나오지 않지만 분류를 좁히면 산식이 바뀌는 날 형식이 막는다.
-  'proceeds.expectedPnl': 'AMOUNT',
+  'proceeds.expectedPnl': 'MONEY',
   'proceeds.separateTaxationRate': 'RATIO',
   'proceeds.taxLawYear': 'NUMBER',
 
@@ -283,35 +298,40 @@ const TAX_SUMMARY: Record<string, Spec> = {
   taxLawYear: 'NUMBER',
   // v1.9 — 연도 선택기의 하한. 배열이므로 잎은 `seededYears[]`로 접힌다.
   'seededYears[]': 'NUMBER',
-  'profile.otherIncomeBase': 'AMOUNT',
-  'profile.otherFinancialIncome': 'AMOUNT',
+  'profile.otherIncomeBase': 'AMOUNT_KRW',
+  'profile.otherFinancialIncome': 'AMOUNT_KRW',
   'profile.healthInsuranceType': HEALTH_TYPES,
   'profile.isSaved': 'BOOL',
-  'income.elsTaxableIncome': 'AMOUNT',
-  'income.otherFinancialIncome': 'AMOUNT',
-  'income.total': 'AMOUNT',
+  'income.elsTaxableIncome': 'AMOUNT_KRW',
+  'income.otherFinancialIncome': 'AMOUNT_KRW',
+  'income.total': 'AMOUNT_KRW',
   'income.isComprehensive': 'BOOL',
-  'income.thresholdGap': 'AMOUNT',
-  'tax.method1': 'AMOUNT',
-  'tax.method2': 'AMOUNT',
-  'tax.computedTax': 'AMOUNT',
-  'tax.localTax': 'AMOUNT',
-  'tax.totalTax': 'AMOUNT',
-  'tax.withheld': 'AMOUNT',
-  'tax.additionalPayment': 'AMOUNT',
+  'income.thresholdGap': 'AMOUNT_KRW',
+  'income.unconvertedCount': 'NUMBER',
+  'tax.method1': 'AMOUNT_KRW',
+  'tax.method2': 'AMOUNT_KRW',
+  'tax.computedTax': 'AMOUNT_KRW',
+  'tax.localTax': 'AMOUNT_KRW',
+  'tax.totalTax': 'AMOUNT_KRW',
+  'tax.withheld': 'AMOUNT_KRW',
+  'tax.additionalPayment': 'AMOUNT_KRW',
   'tax.effectiveRate': 'RATIO',
-  'healthInsurance.assessmentBase': 'AMOUNT',
-  'healthInsurance.healthPremium': 'AMOUNT',
-  'healthInsurance.longTermCarePremium': 'AMOUNT',
-  'healthInsurance.total': 'AMOUNT',
+  'healthInsurance.assessmentBase': 'AMOUNT_KRW',
+  'healthInsurance.healthPremium': 'AMOUNT_KRW',
+  'healthInsurance.longTermCarePremium': 'AMOUNT_KRW',
+  'healthInsurance.total': 'AMOUNT_KRW',
   'healthInsurance.isEstimate': 'BOOL',
   'marginalRates[].bracketLabel': 'TEXT',
   'marginalRates[].incomeTaxRate': 'RATIO',
   'marginalRates[].realMarginalRate': 'RATIO',
   'contributingProducts[].productId': 'UUID',
   'contributingProducts[].productName': 'TEXT',
-  'contributingProducts[].taxableIncome': 'AMOUNT',
+  // 한 객체에 두 부류가 산다 — 같은 객체에 `currency: 'USD'`가 있어도 이 경로는 원화다.
+  // 부류는 **경로가** 정한다(DOC-011 Q-07′)
+  'contributingProducts[].currency': CURRENCIES,
+  'contributingProducts[].taxableIncome': 'AMOUNT_KRW',
   'contributingProducts[].isEstimated': 'BOOL',
+  'contributingProducts[].exchangeRateMissing': 'BOOL',
   'contributingProducts[].integrityIssue': INTEGRITY_ISSUES,
 }
 
@@ -319,7 +339,7 @@ const TAX_SUMMARY: Record<string, Spec> = {
  * §4.7 다년도 전망 — **행 하나가 열두 열이다** (P4b 컷 7)
  *
  * `thresholdGap`이 §4.6의 같은 이름과 **다른 값**임을 여기 적어 둔다: 그쪽은 절대값이고
- * 이쪽은 부호를 남긴다(「양수면 초과」). 분류는 둘 다 `AMOUNT`이므로 형식 축에서는
+ * 이쪽은 부호를 남긴다(「양수면 초과」). 분류는 둘 다 `AMOUNT_KRW`이므로 형식 축에서는
  * 갈리지 않는다 — `tests/db/forecast.test.ts`가 부호를 본다.
  */
 const FORECAST_ROW: Record<string, Spec> = {
@@ -327,18 +347,19 @@ const FORECAST_ROW: Record<string, Spec> = {
   taxLawYear: 'NUMBER',
   // `null`이면 미입력. 아래 픽스처가 **이월** 상태(`< year`)를 만들어 비-null을 관측시킨다.
   profileYear: 'NUMBER',
-  grossProceeds: 'AMOUNT',
-  financialIncome: 'AMOUNT',
-  thresholdGap: 'AMOUNT',
+  grossProceeds: 'AMOUNT_KRW',
+  financialIncome: 'AMOUNT_KRW',
+  thresholdGap: 'AMOUNT_KRW',
   isComprehensive: 'BOOL',
   effectiveRate: 'RATIO',
-  additionalTax: 'AMOUNT',
-  totalInsurance: 'AMOUNT',
-  netProceeds: 'AMOUNT',
-  cumulativeNet: 'AMOUNT',
-  remainingPrincipal: 'AMOUNT',
-  cumulativeAssets: 'AMOUNT',
+  additionalTax: 'AMOUNT_KRW',
+  totalInsurance: 'AMOUNT_KRW',
+  netProceeds: 'AMOUNT_KRW',
+  cumulativeNet: 'AMOUNT_KRW',
+  remainingPrincipal: 'AMOUNT_KRW',
+  cumulativeAssets: 'AMOUNT_KRW',
   hasEstimates: 'BOOL',
+  excludedForeignCount: 'NUMBER',
 }
 
 /** §4.8 사용자별 현황 */
@@ -347,8 +368,9 @@ const USER_SUMMARY: Record<string, Spec> = {
   displayName: 'TEXT',
   isMe: 'BOOL',
   activeCount: 'NUMBER',
-  activePrincipal: 'AMOUNT',
-  currentYearFinancialIncome: 'AMOUNT',
+  'activePrincipalByCurrency[].currency': CURRENCIES,
+  'activePrincipalByCurrency[].activePrincipal': 'MONEY',
+  currentYearFinancialIncome: 'AMOUNT_KRW',
   includesOtherFinancialIncome: 'BOOL',
   isComprehensive: 'BOOL',
 }
@@ -420,6 +442,56 @@ beforeAll(async () => {
   })
 
   /*
+   * P8 컷 a2 — 달러 상품 둘. **센트를 싣는다** — 센트가 0이면 `amountString`의 반올림이 형식과
+   * 값 둘 다에서 보이지 않는다(DOC-011 Q-07′의 「채워진 픽스처」). 상환 완료 쪽은 `MONEY`(USD)의
+   * 상환 가지와 적용 환율(비-null)을, 미상환 쪽은 `projection.expectedTaxableIncome`의 E-09(`null`)와
+   * 루트 `product.currency` 폴백(`schedules[]` · `projection`)을 관측시킨다.
+   */
+  await seedProduct({
+    id: FX.productFormatUsdRedeemed,
+    ownerId: ITG_USER_A,
+    name: '형식달러상환',
+    principal: '10000.50',
+    currency: 'USD',
+  })
+  await seedSchedule({
+    elsId: FX.productFormatUsdRedeemed,
+    roundNo: 1,
+    evaluationDate: '2026-05-04',
+    barrier: '0.9000',
+  })
+  await seedRedemption({
+    elsId: FX.productFormatUsdRedeemed,
+    roundNo: 1,
+    redemptionType: 'EARLY',
+    redemptionDate: '2026-05-07',
+    grossAmount: '10600.75',
+    // 과세 축은 거래내역의 **원화** 값이다(U1) — 환율을 곱해 만든 값이 아니다
+    taxableIncome: '835740',
+    withholdingTax: '128700',
+    exchangeRate: '1392.400000',
+  })
+  await seedProduct({
+    id: FX.productFormatUsdActive,
+    ownerId: ITG_USER_A,
+    name: '형식달러보유',
+    principal: '20000.25',
+    currency: 'USD',
+  })
+  await seedUnderlying({
+    elsId: FX.productFormatUsdActive,
+    assetId: FX.assetFormat,
+    basePrice: '100.000000',
+    sequence: 1,
+  })
+  await seedSchedule({
+    elsId: FX.productFormatUsdActive,
+    roundNo: 1,
+    evaluationDate: '2026-07-02',
+    barrier: '0.9000',
+  })
+
+  /*
    * ★ **`profileYear`를 비-null로 관측시키는 픽스처이며, 연도가 과거인 것이 요점이다.**
    *
    * 정본 시나리오는 과세 프로필을 세우지 않으므로 전망 여섯 행의 `profileYear`가 전부
@@ -447,6 +519,8 @@ beforeAll(async () => {
     detailNoUnderlying,
     detailNoSchedule,
     detailFormat,
+    detailUsdRedeemed,
+    detailUsdActive,
     schedule,
     prices,
     assets,
@@ -465,6 +539,8 @@ beforeAll(async () => {
     s.asA.getProduct(FX.productNoUnderlying),
     s.asA.getProduct(FX.productNoSchedule),
     s.asA.getProduct(FX.productFormat),
+    s.asA.getProduct(FX.productFormatUsdRedeemed),
+    s.asA.getProduct(FX.productFormatUsdActive),
     s.asA.listSchedule(),
     s.asA.listAssetPrices(),
     s.asA.searchAssets('자산'),
@@ -503,6 +579,8 @@ beforeAll(async () => {
         { label: 'A기초자산없음', value: detailNoUnderlying },
         { label: 'A일정없음', value: detailNoSchedule },
         { label: '형식보강', value: detailFormat },
+        { label: '형식달러상환', value: detailUsdRedeemed },
+        { label: '형식달러보유', value: detailUsdActive },
       ]),
     },
     {
@@ -568,11 +646,113 @@ describe('Q-07 형식 적합성 — 9계약 전 필드', () => {
     expect(unobserved).toEqual([])
   })
 
+  it('③′ MONEY 경로마다 원화와 달러가 둘 다 비-null로 관측된다 — 달러 분기가 판정된 적 있다', () => {
+    const missing = coverages.flatMap((c) =>
+      Object.entries(c.coverage.moneyCurrencies)
+        .filter(([, currencies]) => currencies.join(',') !== 'KRW,USD')
+        .map(([path, currencies]) => `${c.contract} ${path}: [${currencies.join(',')}]`),
+    )
+    expect(missing).toEqual([])
+    // 0개를 세고 통과하지 않는다 — MONEY 경로가 실제로 표에 있다
+    expect(coverages.flatMap((c) => Object.keys(c.coverage.moneyCurrencies)).length).toBe(16)
+  })
+
   it('③ 모든 경로가 비-null로 한 번 이상 관측된다 — null로만 오면 형식이 검증된 적 없다', () => {
     const neverNonNull = coverages.flatMap((c) =>
       c.coverage.neverNonNull.map((p) => `${c.contract} ${p}`),
     )
     expect(neverNonNull).toEqual([])
+  })
+})
+
+describe('달러 픽스처의 값 — E-09가 뷰까지 온다 (P8 컷 a2 · 검산 A-3)', () => {
+  /*
+   * 위 형식 검사는 `null`·건수·통화별 합이 **옳은지** 보지 않는다 — `taxableIncome`을 `'0'`으로 흡수해도
+   * `AMOUNT_KRW`이고, 건수를 0으로 두어도 `NUMBER`이며, 전 통화를 더해도 각 행의 형식은 정상이다
+   * (반박 검토 지적). 그래서 이 파일의 달러 픽스처 둘로 **값을** 본다. a2에는 추정 환율이 없으므로 미상환
+   * 달러 상품의 추정은 늘 E-09다(DOC-011 §4.0 「컷별 도달」).
+   */
+  it('§4.6 — 빠진 상품은 행에 남고 금액이 null · 건수 1 · 확정 원화는 그대로', async () => {
+    const tax = await s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })
+    const rowOf = (id: string) => tax.contributingProducts.find((row) => row.productId === id)
+    expect(rowOf(FX.productFormatUsdActive)).toMatchObject({
+      currency: 'USD',
+      taxableIncome: null,
+      isEstimated: true,
+      exchangeRateMissing: true,
+    })
+    expect(rowOf(FX.productFormatUsdRedeemed)).toMatchObject({
+      currency: 'USD',
+      taxableIncome: '835740',
+      isEstimated: false,
+      exchangeRateMissing: false,
+    })
+    expect(tax.income.unconvertedCount).toBe(1)
+  })
+
+  it('§4.1 — 같은 건수 · 달러 행은 달러 상품에서만 · 최근 상환은 자기 통화', async () => {
+    const view = await s.asA.getDashboard({ scope: 'MINE' })
+    expect(view.currentYearTax.unconvertedCount).toBe(1)
+    expect(view.totals.byCurrency.find((row) => row.currency === 'USD')).toEqual({
+      currency: 'USD',
+      activeCount: 1,
+      activePrincipal: '20000.25',
+      realizedPnl: '600.25',
+    })
+    expect(view.recentRedemptions.find((row) => row.currency === 'USD')).toMatchObject({
+      grossAmount: '10600.75',
+      realizedPnl: '600.25',
+    })
+  })
+
+  it('§4.3 — 예상 과세만 비고 예상 수령액은 달러로 있다', async () => {
+    const view = (await s.asA.getProduct(FX.productFormatUsdActive))!
+    // 20000.25 × (1 + 0.08 × 6/12) = 20800.26
+    expect(view.projection).toMatchObject({ expectedGross: '20800.26', expectedTaxableIncome: null })
+  })
+
+  it('§4.7 — 모든 행이 뺀 달러 상품 둘을 센다(미상환 · Y₀ 상환)', async () => {
+    const rows = await s.asA.getForecast({ ownerId: ITG_USER_A })
+    expect(rows.map((row) => row.excludedForeignCount)).toEqual(rows.map(() => 2))
+  })
+
+  it('§4.8 — 달러 원금이 원화 원금과 따로 온다', async () => {
+    const me = (await s.asA.listUserSummaries()).find((row) => row.userId === ITG_USER_A)!
+    expect(me.activePrincipalByCurrency.find((row) => row.currency === 'USD')).toEqual({
+      currency: 'USD',
+      activePrincipal: '20000.25',
+    })
+  })
+})
+
+describe('MONEY 부류가 통화를 가른다 — 계기 자신의 음성 대조 (DOC-011 Q-07′ · SB-10)', () => {
+  const TABLE: Record<string, Spec> = { principal: 'MONEY', 'schedules[].expectedGross': 'MONEY' }
+
+  it('같은 객체의 currency로 판정한다 — 달러 `10001`은 위반이다', () => {
+    const coverage = collect(TABLE, [
+      { label: '달러', value: { currency: 'USD', principal: '10001', schedules: [] } },
+    ])
+    expect(coverage.violations).toEqual([
+      'principal: MONEY(USD) 형식 위반: "10001" (달러)',
+    ])
+  })
+
+  it('형제 가지는 루트의 product.currency로 판정한다 (§4.3)', () => {
+    const coverage = collect({ 'product.principal': 'MONEY', 'schedules[].expectedGross': 'MONEY' }, [
+      {
+        label: '상세',
+        value: { product: { currency: 'USD', principal: '10000.50' }, schedules: [{ expectedGross: '10400' }] },
+      },
+    ])
+    expect(coverage.violations).toEqual([
+      'schedules[].expectedGross: MONEY(USD) 형식 위반: "10400" (상세)',
+    ])
+  })
+
+  it('★ 통화를 어디서도 못 찾으면 원화로 떨어지지 않고 던진다', () => {
+    expect(() =>
+      collect(TABLE, [{ label: '통화 없음', value: { principal: '10001', schedules: [] } }]),
+    ).toThrow(/MONEY 경로 principal의 통화를 알 수 없다/)
   })
 })
 

@@ -1,5 +1,5 @@
 import { dec } from '@/lib/decimal'
-import type { KiStatus } from '@/lib/domain'
+import { CURRENCY_ORDER, NO_ESTIMATE_RATES, type KiStatus } from '@/lib/domain'
 
 import type { QueryContext } from './context'
 import { loadLatestPrices, loadProduct, loadProducts, type ProductRow } from './load'
@@ -53,8 +53,13 @@ export function assetIdsOf(rows: readonly ProductRow[]): string[] {
  * 그러면 정렬이 두 계층으로 쪼개져 "이 정렬은 어디서 일어나는가"를 매번 확인해야
  * 한다. 현재 규모(A-01)에서 얻는 것이 없다. 금액 비교는 문자열이 아니라
  * Decimal로 한다 — `'1000000' < '900000'`이 문자열 비교에서는 참이다.
+ *
+ * **원금은 통화로 먼저 묶는다** (DOC-008 SQ-15 — v4.9). 원화 전부(큰 순) → 달러 전부(큰 순).
+ * 통화를 보지 않으면 $70,000(약 9,700만 원)이 10,000,000원 뒤에 온다 — 형식은 정상이고 순서만
+ * 거짓이다. 환산해서 비교하지 않는다: 순서가 추정 환율에 따라 날마다 바뀌고 환율이 없으면
+ * 정렬할 수 없다. 묶음을 여기서 하는 이유는 화면이 이 정렬 뒤에 페이지로 자르기 때문이다.
  */
-function sortItems(
+export function sortItems(
   items: ProductListItem[],
   sortBy: ListProductsParams['sortBy'],
 ): ProductListItem[] {
@@ -62,7 +67,11 @@ function sortItems(
 
   switch (sortBy) {
     case 'PRINCIPAL':
-      return sorted.sort((a, b) => dec(b.principal).cmp(dec(a.principal)))
+      return sorted.sort(
+        (a, b) =>
+          CURRENCY_ORDER.indexOf(a.currency) - CURRENCY_ORDER.indexOf(b.currency) ||
+          dec(b.principal).cmp(dec(a.principal)),
+      )
 
     case 'D_DAY':
     case 'EVALUATION_DATE':
@@ -119,7 +128,11 @@ export function makeProductQueries(ctx: QueryContext) {
     if (row == null) return null
 
     const prices = await loadLatestPrices(ctx, assetIdsOf([row]))
-    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId)
+    // 컷 a2에는 `exchange_rates`가 없다 — 추정 환율이 늘 없으므로 미상환 달러 상품(일반 계좌 ·
+    // 달러 이익 > 0)의 `expectedTaxableIncome`은 E-09(`null`)다. 비과세 · 이익 ≤ 0은 환율 없이 `'0'`.
+    // 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다
+    // (DOC-011 §4.0 「컷별 도달」 — 왕복 2 → 3)
+    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId, NO_ESTIMATE_RATES)
   }
 
   return { listProducts, getProduct }

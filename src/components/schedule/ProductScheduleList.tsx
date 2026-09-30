@@ -65,6 +65,12 @@ export function ProductScheduleList({
           </Link>
           는 세금 계산 화면에 있다.
           {taxLawYear != null && ` 적용 세율은 ${taxLawYear}년 기준이다.`}
+          {/*
+            달러 카드가 하나라도 있을 때만 — 원화뿐인 목록의 고지는 오늘과 같다(DOC-008 SCR-301).
+            실제 세액은 원화로 계산되어 달러에서 환전 차감되므로 ⑬은 근사다(EM2048 투자설명서 · U8)
+          */}
+          {groups.some((group) => group.currency !== 'KRW') &&
+            ' 참고 — 달러 상품의 실제 세액은 지급일 환율로 원화 계산 후 달러에서 환전 차감되며 발행사에 따라 방식이 다르다.'}
         </p>
       )}
     </div>

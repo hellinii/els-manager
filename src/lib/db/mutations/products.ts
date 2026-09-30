@@ -32,6 +32,8 @@ import type { ProductInput, RealizedProductInput } from './types'
  */
 type ProductPayload = MoneyFieldsOf<'els_products'> & {
   name: string
+  /** 상품 통화 — enum 문자열. 쓰기 함수가 `->>`로 읽는다(DOC-011 §5.1 v4.9) */
+  currency: string
   issuer: string | null
   issueDate: string
   evaluationPeriodMonths: number
@@ -70,6 +72,7 @@ function productPayload(input: ProductInput): ProductPayload {
     issuer: input.issuer ?? null,
     issueDate: input.issueDate,
     principal: input.principal,
+    currency: input.currency,
     evaluationPeriodMonths: input.evaluationPeriodMonths,
     annualCouponRate: input.annualCouponRate,
     kiBarrier: input.kiBarrier ?? null,
@@ -109,9 +112,12 @@ type RealizedPayload = Pick<MoneyFieldsOf<'els_products'>, 'principal'> &
   Pick<
     MoneyFieldsOf<'redemptions'>,
     'grossAmount' | 'taxableIncome' | 'withholdingTax'
-  > & {
+  > &
+  // 적용 환율은 선택이다 — 원화 상품이면 `null`을 명시해 싣는다(쓰기 함수가 `->>`로 읽는다)
+  { exchangeRate: MoneyFieldsOf<'redemptions'>['exchangeRate'] | null } & {
     name: string
     issuer: string | null
+    currency: string
     accountType: string
     redemptionType: string
     redemptionDate: string
@@ -127,12 +133,14 @@ function realizedPayload(
     name: input.name,
     issuer: input.issuer ?? null,
     principal: input.principal,
+    currency: input.currency,
     accountType: input.accountType,
     redemptionType: input.redemptionType,
     redemptionDate: input.redemptionDate,
     grossAmount: input.grossAmount,
     taxableIncome: input.taxableIncome,
     withholdingTax,
+    exchangeRate: input.exchangeRate ?? null,
     isConfirmed: input.isConfirmed,
     note: input.note ?? null,
   }

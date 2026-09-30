@@ -45,6 +45,8 @@ export function productDefaults(): Record<string, string> {
     issuer: '',
     issueDate: '',
     principal: '',
+    // 기본값 없음 — 「선택」에서 시작한다(DOC-008 SCR-204 v2.15 · U7). 계좌유형과 같은 이유다
+    currency: '',
     accountType: '',
     note: '',
     evaluationPeriodMonths: '6',

@@ -10,7 +10,7 @@ import {
 } from '../queries/load'
 import { toTaxConstants } from '../taxConstants'
 import { parseRedemptionInput } from '../validate/inputs'
-import { Problems, isUuid } from '../validate/primitives'
+import { Problems, checkProductAmount, isUuid } from '../validate/primitives'
 import { V10_redemptionAfterIssue, V14_lizardRoundDefined } from '../validate/rules'
 import {
   requireAffected,
@@ -148,7 +148,22 @@ function validateAgainstProduct(
   p: Problems,
   input: RedemptionInput,
   product: ProductRow,
-): void {
+): RedemptionInput {
+  // V-23 — 실수령액의 자릿수는 **부모 상품의** 통화가 정한다(§5.4 v4.9). 통과하면 보조단위
+  // 고정 자릿수로 정규화한다 — DB의 scale()이 끝의 0을 세므로 정규화 없이 보내면 이름 있는
+  // 제약이 거부한다(primitives `checkProductAmount`)
+  const grossAmount = checkProductAmount(
+    p,
+    'grossAmount',
+    input.grossAmount,
+    product.currency,
+    '실수령액',
+  )
+  // V-24 ⓐ — 「외화 상품에만」. 원화 상품에 적용 환율을 받으면 저장되지 않을 값을 조용히 버린다
+  if (input.exchangeRate != null && product.currency === 'KRW') {
+    p.add('V-24', 'exchangeRate', '원화 상품에는 적용 환율을 적지 않는다.')
+  }
+
   // V-10은 **비교 대상이 있을 때만** 검사한다. 기실현 등재는 발행일을 입력받지
   // 않으므로(DOC-011 §5.11) 비교할 값이 없고, 그 부재가 이 계약의 정의다 —
   // 규칙에 예외를 두는 것이 아니라 전제가 없다.
@@ -168,6 +183,8 @@ function validateAgainstProduct(
           lizardCouponRate: schedule.lizard_coupon_rate,
         },
   )
+
+  return grossAmount == null ? input : { ...input, grossAmount }
 }
 
 /** 상환 `id` → 부모 상품. §5.5의 두 계약은 상품이 아니라 상환을 받는다 */
@@ -224,10 +241,10 @@ export function makeRedemptionMutations(ctx: MutationContext) {
       })
     }
 
-    validateAgainstProduct(p, parsed, access.value)
+    const checked = validateAgainstProduct(p, parsed, access.value)
     if (!p.isEmpty) return failWith(p.toError())
 
-    const withholding = await withholdingFor(ctx, parsed)
+    const withholding = await withholdingFor(ctx, checked)
     if (!withholding.ok) return failWith(withholding.error)
 
     const { data, error } = await ctx.db
@@ -237,12 +254,13 @@ export function makeRedemptionMutations(ctx: MutationContext) {
           els_id: productId,
           redemption_type: parsed.redemptionType,
           round_no: parsed.roundNo ?? null,
-          redemption_date: parsed.redemptionDate,
-          gross_amount: parsed.grossAmount,
-          taxable_income: parsed.taxableIncome,
+          redemption_date: checked.redemptionDate,
+          gross_amount: checked.grossAmount,
+          taxable_income: checked.taxableIncome,
           withholding_tax: withholding.value,
-          is_confirmed: parsed.isConfirmed,
-          note: parsed.note ?? null,
+          exchange_rate: checked.exchangeRate ?? null,
+          is_confirmed: checked.isConfirmed,
+          note: checked.note ?? null,
         }),
       )
       .select('id')
@@ -271,26 +289,28 @@ export function makeRedemptionMutations(ctx: MutationContext) {
     const access = await requireOwnedRedemption(ctx, id, '상환 수정')
     if (!access.ok) return failWith(access.error)
 
-    validateAgainstProduct(p, parsed, access.value.product)
+    const checked = validateAgainstProduct(p, parsed, access.value.product)
     if (!p.isEmpty) return failWith(p.toError())
 
     // 생성과 **같은 산출**을 쓴다. 다르게 두면 원천징수액을 비운 채 수정할 때
     // 값이 사라지거나 옛 값이 남고, 어느 쪽이든 화면에 드러나지 않는다.
-    const withholding = await withholdingFor(ctx, parsed)
+    const withholding = await withholdingFor(ctx, checked)
     if (!withholding.ok) return failWith(withholding.error)
 
     const { data, error } = await ctx.db
       .from('redemptions')
       .update(
         toUpdate('redemptions', {
-          redemption_type: parsed.redemptionType,
-          round_no: parsed.roundNo ?? null,
-          redemption_date: parsed.redemptionDate,
-          gross_amount: parsed.grossAmount,
-          taxable_income: parsed.taxableIncome,
+          redemption_type: checked.redemptionType,
+          round_no: checked.roundNo ?? null,
+          redemption_date: checked.redemptionDate,
+          gross_amount: checked.grossAmount,
+          taxable_income: checked.taxableIncome,
           withholding_tax: withholding.value,
-          is_confirmed: parsed.isConfirmed,
-          note: parsed.note ?? null,
+          // 전체 교체(§5.5) — 빠지면 비운다. 원화 상품은 V-24가 이미 거부했으므로 여기서 null이다
+          exchange_rate: checked.exchangeRate ?? null,
+          is_confirmed: checked.isConfirmed,
+          note: checked.note ?? null,
         }),
       )
       .eq('id', id)

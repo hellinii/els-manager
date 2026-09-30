@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { ForecastTable } from '@/components/forecast/ForecastTable'
 import { EmptyState } from '@/components/state/EmptyState'
 import { getQueries, getViewerId } from '@/lib/db/server'
-import { isForecastEmpty } from '@/lib/format'
+import { exchangeRateMissingNotice, isForecastEmpty } from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
@@ -45,6 +45,7 @@ export default async function ForecastPage() {
   // 넘긴다(§4.6과 같은 규약이고 근거는 더 강하다: 여기는 여섯 연도가 전부 틀린다).
   const rows = await queries.getForecast({ ownerId: viewerId })
   const empty = isForecastEmpty(rows)
+  const excludedForeign = Math.max(0, ...rows.map((row) => row.excludedForeignCount))
 
   return (
     <section className="flex flex-col gap-6">
@@ -74,6 +75,17 @@ export default async function ForecastPage() {
             조기상환된다고 가정하고 계산했으므로, 실제 상환이 뒤로 밀리면 그 원금과 세금이
             뒤 연도로 옮겨 간다.
           </p>
+
+          {/*
+            넷째 표 밖 표식 — 환율이 없어 원화 합에서 뺀 외화 상품 수(DOC-011 §4.7). 값은 행마다
+            오지만 렌더는 **표 위 한 문장**이고 n은 행들의 최댓값이다(DOC-008 ST-07 「SCR-402 —
+            예외」). 확정 원화 과세는 그때도 ③에 들어 있으므로 그 해 금융소득이 SCR-401과 같다.
+          */}
+          {excludedForeign > 0 && (
+            <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {exchangeRateMissingNotice({ kind: 'FORECAST', count: excludedForeign })}
+            </p>
+          )}
 
           <ForecastTable rows={rows} />
 

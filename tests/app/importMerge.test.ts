@@ -26,8 +26,20 @@ const stored = (): Record<string, string> => ({
 })
 
 describe('importOverStored', () => {
-  it('저장값이 남는 것은 넷뿐이다 — 이름을 테스트에 다시 적는 이유: 이 목록이 곧 병합 규칙이다', () => {
-    expect([...IMPORT_KEEPS_STORED]).toEqual(['principal', 'accountType', 'note', 'kiObservation'])
+  it('저장값이 남는 것은 다섯뿐이다 — 이름을 테스트에 다시 적는 이유: 이 목록이 곧 병합 규칙이다', () => {
+    expect([...IMPORT_KEEPS_STORED]).toEqual([
+      'principal',
+      'currency',
+      'accountType',
+      'note',
+      'kiObservation',
+    ])
+  })
+
+  it('★ 상품 통화는 저장값이 남는다 — 불러오기가 채우지 않으므로 바닥의 빈 값이 이기면 저장이 V-22로 막힌다', () => {
+    // 컷 a4 전까지 불러온 값에 `currency`가 없다. 바닥(`productDefaults()`)은 `currency: ''`다
+    const merged = importOverStored({ ...stored(), currency: 'USD' }, { kiBarrier: '35' })
+    expect(merged.currency).toBe('USD')
   })
 
   it('★ 불러온 상품이 노낙인이면 관찰방식의 저장값을 싣지 않는다 — V-16이 저장을 거부한다', () => {

@@ -195,6 +195,13 @@ const UNMARKED = {
     anchor: '`totalRounds`',
     reason: '기간 필터가 차수를 잘랐을 때만 카드 머리의 「전체 N차수 중 M차수」',
   },
+  // P8 컷 a2 — 값으로 렌더되지 않고 ⑦ · ⑫ · ⑬ · ⑭의 단위를 가른다. 앵커는 SCR-301 「P8 달러 ELS」
+  // 목록 첫 줄의 굵은 문장이다 — `currency` 줄에 옮겨 적힌 문자열이 아니다(옮기면 공허해진다)
+  currency: {
+    kind: 'PROSE',
+    anchor: '그 카드의 상품 통화로 적는다',
+    reason: '상품별 카드의 금액 넷(⑦·⑫·⑬·⑭)의 단위 — 달러 카드는 머리글에서 단위를 떼고 값이 `$`를 단다',
+  },
 } as const satisfies Record<Exclude<Field, Mapped>, Unmarked>
 
 /** ⑫⑬⑭가 나눠 읽는 `proceeds`의 나머지 — 위와 같은 규약, 한 단계 아래 */

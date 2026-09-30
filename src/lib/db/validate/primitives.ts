@@ -1,4 +1,5 @@
 import { dec } from '@/lib/decimal'
+import { hasMinorUnitScale, moneyString, type ProductCurrency } from '@/lib/domain/currency'
 
 import type { ActionError } from '../mutations/result'
 
@@ -56,6 +57,9 @@ export const RULE_IDS = [
   'V-19',
   'V-20',
   'V-21',
+  'V-22',
+  'V-23',
+  'V-24',
 ] as const
 
 export type RuleId = (typeof RULE_IDS)[number]
@@ -296,6 +300,74 @@ export function requireAmount(
   const amount = dec(value)
   if (options.min === 'positive' && !amount.gt(0)) {
     p.add(rule, field, `${options.label}은(는) 0보다 커야 한다.`)
+    return null
+  }
+  return value
+}
+
+/** 상품 통화 — V-22의 허용 목록. DB enum `product_currency`와 같은 집합이다 */
+export const PRODUCT_CURRENCIES: readonly ProductCurrency[] = ['KRW', 'USD']
+
+/** 정수부 15자리 천장 — I-21. typmod를 뗀 금액 열의 상한을 계약에서도 같은 값으로 본다 */
+const AMOUNT_CEILING = '1000000000000000'
+
+/**
+ * V-23 — 상품 통화 금액의 자릿수 (DOC-011 §6 v4.9).
+ *
+ * 소수 자릿수는 상품 통화의 보조단위 이내(KRW 0 · USD 2), 정수부는 15자리 이내다. 통과하면
+ * **보조단위 고정 자릿수 문자열로 정규화해 돌려준다** — decimal.js는 끝의 0을 버리지만 DB의
+ * `scale()`은 세므로(`'10.500'` = 3) 정규화 없이 저장하면 이름 있는 제약이 거부한다
+ * (`hasMinorUnitScale` 주석). 형태(숫자인가·부호)는 호출자가 먼저 본 값이어야 한다.
+ */
+export function checkProductAmount(
+  p: Problems,
+  field: string,
+  value: string,
+  currency: ProductCurrency,
+  label: string,
+): string | null {
+  if (!hasMinorUnitScale(value, currency)) {
+    p.add(
+      'V-23',
+      field,
+      currency === 'KRW'
+        ? `${label}은(는) 원 단위 정수로 입력한다.`
+        : `${label}은(는) 센트(소수 2자리)까지 입력한다.`,
+    )
+    return null
+  }
+  if (dec(value).gte(AMOUNT_CEILING)) {
+    p.add('V-23', field, `${label}은(는) 정수부 15자리 이내로 입력한다.`)
+    return null
+  }
+  return moneyString(dec(value), currency)
+}
+
+/** 환율의 천장 — `numeric(18,6)`의 정수부 12자리 */
+const RATE_CEILING = '1000000000000'
+
+/**
+ * V-24 — 환율의 수치 규칙 (적용 환율 ⓐ · 환율 입력 ⓑ). 0보다 크고, 정수부 12자리 · 소수 6자리
+ * 이내. 「외화 상품에만」은 통화를 아는 호출자가 본다.
+ */
+export function optionalExchangeRate(
+  p: Problems,
+  field: string,
+  value: unknown,
+  label: string,
+): string | undefined | null {
+  if (value == null || value === '') return undefined
+  if (typeof value !== 'string' || !DECIMAL.test(value)) {
+    p.add('V-24', field, `${label}은(는) 숫자로 입력한다(1달러당 원).`)
+    return null
+  }
+  const rate = dec(value)
+  if (!rate.gt(0)) {
+    p.add('V-24', field, `${label}은(는) 0보다 커야 한다.`)
+    return null
+  }
+  if (rate.gte(RATE_CEILING) || rate.decimalPlaces() > 6) {
+    p.add('V-24', field, `${label}은(는) 정수부 12자리 · 소수 6자리 이내로 입력한다.`)
     return null
   }
   return value

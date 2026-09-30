@@ -1,5 +1,5 @@
 import { dec } from '@/lib/decimal'
-import { KI_OBSERVATION_LABELS } from '@/lib/format/labels'
+import { KI_OBSERVATION_LABELS, PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
 
 import { productDefaults } from './defaults'
 import { path } from './fieldPath'
@@ -25,8 +25,20 @@ import { path } from './fieldPath'
  * 앞의 셋은 계좌 정보이고 `importFillOf`가 절대 채우지 않는다(그 파일의 각주). 관찰방식은 안내
  * 화면에 없어 `importFillOf`가 비운다(SQ-09) — 수정 화면에서는 저장값이 사용자가 투자설명서로 고른
  * 값이다.
+ *
+ * **상품 통화(P8 컷 a2)** — 불러오기가 아직 채우지 않는다(통화 증인 읽기는 컷 a4 — ADR-009 개정).
+ * 빠뜨리면 바닥의 `productDefaults()`가 `currency: ''`라 수정 화면의 선택 상자가 「선택」이 되고
+ * 저장이 V-22로 막힌다(반박 검토가 잡은 회귀 — 이 컷 전에는 같은 흐름이 성공했다). DOC-008 SCR-204:
+ * 「불러온 상품의 통화를 확인하지 못했으면 저장값의 통화가 남는다 — 등록은 빈 칸, 수정은 저장값」.
+ * 컷 a4가 「불러온 통화가 있으면 그것, 없으면 저장값」으로 바꾸고 다르면 투자원금을 비운다(X-07).
  */
-export const IMPORT_KEEPS_STORED = ['principal', 'accountType', 'note', 'kiObservation'] as const
+export const IMPORT_KEEPS_STORED = [
+  'principal',
+  'currency',
+  'accountType',
+  'note',
+  'kiObservation',
+] as const
 
 export function importOverStored(
   stored: Readonly<Record<string, string>>,
@@ -77,6 +89,9 @@ const SCALARS: ReadonlyArray<{ name: string; label: string; hinted: boolean }> =
   { name: 'name', label: '상품명', hinted: true },
   { name: 'issuer', label: '발행사', hinted: true },
   { name: 'issueDate', label: '발행일', hinted: true },
+  // a4 전에는 저장값이 남으므로(위 `IMPORT_KEEPS_STORED`) 달라질 수 없다 — a4에서 불러온 통화가
+  // 저장값과 다르면 이 행이 그 사실을 말한다(X-07)
+  { name: 'currency', label: '상품 통화', hinted: true },
   { name: 'evaluationPeriodMonths', label: '평가주기', hinted: true },
   { name: 'totalRounds', label: '총 차수', hinted: false },
   { name: 'annualCouponRate', label: '연쿠폰율', hinted: true },
@@ -159,6 +174,7 @@ function sameValue(a: string, b: string): boolean {
 function display(name: string, value: string): string {
   if (value === '') return '없음'
   if (name === 'kiObservation') return KI_OBSERVATION_LABELS[value as keyof typeof KI_OBSERVATION_LABELS] ?? value
+  if (name === 'currency') return PRODUCT_CURRENCY_LABELS[value as keyof typeof PRODUCT_CURRENCY_LABELS] ?? value
   return value
 }
 

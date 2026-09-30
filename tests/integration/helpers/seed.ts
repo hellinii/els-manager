@@ -207,13 +207,15 @@ export async function seedProduct(params: {
   issuer?: string | null
   /** 기본 `null`. 위와 같다 */
   note?: string | null
+  /** 기본 `'KRW'`. 달러 픽스처는 **센트를 싣는다**(`principal = '10000.50'` — DOC-011 Q-07′) */
+  currency?: 'KRW' | 'USD'
 }): Promise<void> {
   await sql(
     `insert into public.els_products
        (id, owner_id, name, issue_date, principal, evaluation_period_months,
         annual_coupon_rate, ki_barrier, ki_observation, ki_touched_at, account_type,
-        issuer, note)
-     values ($1, $2, $3, $4, $5, 6, 0.0800, $6, $7, $8, $9, $10, $11)`,
+        issuer, note, currency)
+     values ($1, $2, $3, $4, $5, 6, 0.0800, $6, $7, $8, $9, $10, $11, $12)`,
     [
       params.id,
       params.ownerId,
@@ -226,6 +228,7 @@ export async function seedProduct(params: {
       params.accountType ?? 'GENERAL',
       params.issuer ?? null,
       params.note ?? null,
+      params.currency ?? 'KRW',
     ],
   )
 }
@@ -279,12 +282,14 @@ export async function seedRedemption(params: {
   withholdingTax?: string | null
   /** 기본 `null`. 형식 검사(`formats.test.ts`)가 비-null 분기를 요구한다 */
   note?: string | null
+  /** 기본 `null` — 적용 환율(참고). 달러 부모만 가질 수 있다(V-24) */
+  exchangeRate?: string | null
 }): Promise<void> {
   await sql(
     `insert into public.redemptions
        (els_id, redemption_type, round_no, redemption_date,
-        gross_amount, taxable_income, withholding_tax, is_confirmed, note)
-     values ($1, $2, $3, $4, $5, $6, $7, true, $8)`,
+        gross_amount, taxable_income, withholding_tax, is_confirmed, note, exchange_rate)
+     values ($1, $2, $3, $4, $5, $6, $7, true, $8, $9)`,
     [
       params.elsId,
       params.redemptionType,
@@ -294,6 +299,7 @@ export async function seedRedemption(params: {
       params.taxableIncome,
       params.withholdingTax ?? null,
       params.note ?? null,
+      params.exchangeRate ?? null,
     ],
   )
 }

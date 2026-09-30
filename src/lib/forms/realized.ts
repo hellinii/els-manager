@@ -28,6 +28,8 @@ import { dec } from '@/lib/decimal'
 export const REALIZED_FIELDS = [
   'name',
   'issuer',
+  // 상품 통화 — 기본값 없음(U7 · V-22). 초기값이 비는 것은 아래 `realizedDefaults`가 전 칸에 준다
+  'currency',
   'principal',
   'accountType',
   'redemptionType',

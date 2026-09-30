@@ -30,6 +30,13 @@ import type { ForecastRow } from '@/lib/db/queries/forecast'
  * `cumulativeAssets`·`cumulativeNet`은 보지 않는다 — 앞의 셋에서 파생되므로 축이 늘지
  * 않는다. `netProceeds`도 보지 않는다: `grossProceeds − F × 부담률`이므로 세 축이 전부
  * 0이면 이것도 0이고, **0이 아니면 세 축 중 하나가 이미 0이 아니다.**
+ *
+ * ## 넷째 축 — 환율이 없어 뺀 외화 상품 (P8 컷 a2)
+ *
+ * `excludedForeignCount > 0`이면 비어 있지 않다. 달러 상품만 있고 추정 환율이 없으면 원화 합
+ * 세 축이 전부 0이다 — 그 상품들이 **원화 합에서 빠졌기 때문**이지 없어서가 아니다. 셋만 보면
+ * 「보유한 상품이 없다」는 빈 상태가 뜨고 ST-07 문구(표 위)는 그 분기에 가려진다 — 빠진 것을
+ * 숨기지 않으려고 센 값이 가장 강한 형태로 숨는다(DOC-008 ST-07 「SCR-402 — 예외」).
  */
 export function isForecastEmpty(rows: readonly ForecastRow[]): boolean {
   if (rows.length === 0) return true
@@ -38,6 +45,7 @@ export function isForecastEmpty(rows: readonly ForecastRow[]): boolean {
     (row) =>
       dec(row.grossProceeds).isZero() &&
       dec(row.remainingPrincipal).isZero() &&
-      dec(row.financialIncome).isZero(),
+      dec(row.financialIncome).isZero() &&
+      row.excludedForeignCount === 0,
   )
 }

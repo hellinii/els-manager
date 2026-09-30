@@ -10,6 +10,7 @@ import {
   KI_OBSERVATION_LABELS,
   KI_STATUS_GRADES,
   KI_STATUS_LABELS,
+  PRODUCT_CURRENCY_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   amount,
@@ -18,6 +19,7 @@ import {
   deriveDisplay,
   kiTermLabel,
   lizardLabel,
+  money,
   percent,
   stepdownLabel,
   underlyingLines,
@@ -99,14 +101,29 @@ export function ProductRow({ item }: { item: ProductListItem }) {
           {item.accountType === 'TAX_FREE' && (
             <Badge grade="neutral">{ACCOUNT_TYPE_LABELS.TAX_FREE}</Badge>
           )}
+          {/*
+            ⑭ 상품 통화 — 달러 상품에만. 원화뿐인 목록의 카드가 오늘과 같아야 하고, 모든 행에
+            붙는 라벨은 아무것도 구분하지 않는다(「보유중」을 달지 않는 것과 같은 판단).
+            기실현 등재 상품에도 붙는다 — 통화는 계약 조건이 아니라 상품의 사실이다.
+          */}
+          {item.currency !== 'KRW' && (
+            <Badge grade="neutral">{PRODUCT_CURRENCY_LABELS[item.currency]}</Badge>
+          )}
         </p>
       </div>
 
       {/* ② 투자원금 */}
       <div className="flex items-baseline gap-2 lg:block lg:text-right">
         <span className="text-xs text-neutral-500 lg:hidden">투자원금</span>
-        <span className="text-sm tabular-nums">{amount(item.principal)}</span>
-        <span className="text-xs text-neutral-500 lg:ml-0.5">원</span>
+        {/* 행마다 자기 통화로 적는다 — 원화 행은 오늘처럼 숫자 + 「원」, 달러 행은 `$` */}
+        {item.currency === 'KRW' ? (
+          <>
+            <span className="text-sm tabular-nums">{amount(item.principal)}</span>
+            <span className="text-xs text-neutral-500 lg:ml-0.5">원</span>
+          </>
+        ) : (
+          <span className="text-sm tabular-nums">{money(item.principal, item.currency)}</span>
+        )}
       </div>
 
       {/* ③ 다음 평가일 */}

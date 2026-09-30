@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
@@ -15,8 +18,10 @@ import {
   MAX_UNDERLYINGS,
   PENDING_PARTS,
   SCHEDULE_SUBS,
+  SELECTABLE_PRODUCT_CURRENCIES,
   UNDERLYING_SUBS,
   addRow,
+  currencyOptionsOf,
   applyBarriers,
   intentState,
   parseIntent,
@@ -66,21 +71,73 @@ const COUNTS: RowCounts = { underlyings: 2, rounds: 3 }
 // 폼의 이름과 원장
 // ---------------------------------------------------------------------------
 
+describe('상품 통화 선택지 — DOC-008 SCR-204 (P8 컷 a2)', () => {
+  it('등록 화면은 원화뿐이다 — 달러는 입력 칸과 함께 연다(컷 a2-3b)', () => {
+    expect([...SELECTABLE_PRODUCT_CURRENCIES]).toEqual(['KRW'])
+    expect(currencyOptionsOf('')).toEqual(['KRW'])
+    expect(currencyOptionsOf(undefined)).toEqual(['KRW'])
+  })
+
+  it('★ 저장값이 선택지 밖이면 그 값을 더한다 — 빼면 달러 상품이 조용히 원화가 된다', () => {
+    /*
+     * 계약을 거쳐 저장된 달러 상품의 수정 화면이다. 선택지가 원화뿐이면 `<select>`가 「선택」을 보이고,
+     * 사용자가 원화를 고르면 `'10000.00'`이 V-23(원화 0자리)을 통과해 `'10000'`으로 접혀 저장된다 —
+     * $10,000.00이 10,000원이 된다. `values.test.ts`의 왕복은 값 맵을 바로 `FormData`로 만들어
+     * 선택지를 지나지 않으므로 이 방어를 보지 못한다(반박 검토 지적)
+     */
+    expect(currencyOptionsOf('USD')).toEqual(['KRW', 'USD'])
+  })
+
+  it('모르는 값은 선택지를 늘리지 않는다 — 열거 밖은 V-22가 말한다', () => {
+    expect(currencyOptionsOf('EUR')).toEqual(['KRW'])
+  })
+})
+
 describe('폼의 이름 — DOC-008 §5 SCR-204 v1.8', () => {
   it('중복이 없고 구획 순서대로다', () => {
     const all = productFieldNames(COUNTS)
     expect(new Set(all).size).toBe(all.length)
 
     // 구획 순서 = 화면의 `<section>` 순서다: 기본 정보 → 기초자산 → 평가 조건
-    expect(all.slice(0, 6)).toEqual([
+    // P8 컷 a2 — 상품 통화가 투자원금 바로 위에 선다(DOC-008 SCR-204 「구획별 입력」)
+    expect(all.slice(0, 7)).toEqual([
       'name',
       'issuer',
       'issueDate',
+      'currency',
       'principal',
       'accountType',
       'note',
     ])
-    expect(all[6]).toBe('underlyings[0].assetId')
+    expect(all[7]).toBe('underlyings[0].assetId')
+  })
+
+  it('★ 기본 정보의 순서가 DOC-008 SCR-204 「구획별 입력」 표와 같다 — 문서에 결속한다 (P8 컷 a2)', () => {
+    /*
+     * 그 표의 「기본 정보」 셀을 파싱해 라벨 → 폼 이름으로 옮기고 위 이름 순서와 대조한다. v2.16 이력이
+     * 이 표를 「파서에 결속된 표」로 적었는데 결속이 없었다(반박 검토) — 셀에서 「상품 통화」를 지우거나
+     * 순서를 바꿔도 초록이던 것을 여기서 닫는다.
+     */
+    const text = readFileSync(join(process.cwd(), 'docs', '08_정보구조_및_화면목록.md'), 'utf8')
+    const section = text.slice(text.indexOf('### SCR-204'), text.indexOf('### SCR-205'))
+    const row = /^\| 기본 정보 \| (.+) \|$/m.exec(section)
+    expect(row, 'SCR-204 「구획별 입력」에 「기본 정보」 행이 없다').not.toBeNull()
+
+    const LABEL_TO_NAME: Record<string, string> = {
+      상품명: 'name',
+      발행사: 'issuer',
+      발행일: 'issueDate',
+      '상품 통화': 'currency',
+      투자원금: 'principal',
+      계좌유형: 'accountType',
+      비고: 'note',
+    }
+    const labels = row![1]!.split(',').map((label) => label.trim())
+    // 모르는 라벨이 있으면 이름이 `undefined`가 되어 아래 대조에서 드러난다
+    expect(labels.map((label) => LABEL_TO_NAME[label])).toEqual(
+      productFieldNames(COUNTS).slice(0, labels.length),
+    )
+    expect(labels).toHaveLength(7)
   })
 
   it('★ `step` 필드가 없다 — 단계 분리를 철회했다', () => {
@@ -862,6 +919,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
       name: 'OO증권 ELS 1234회',
       issuer: 'OO증권',
       issueDate: '2026-01-02',
+      currency: 'KRW',
       principal: '100,000,000',
       accountType: 'GENERAL',
       note: '증권사 통지 기준',
@@ -894,6 +952,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
       issueDate: '2026-01-02',
       // 쉼표는 표시 형식이다 — 값이 아니라 문자열에서만 사라진다(float64 미경유).
       principal: '100000000',
+      currency: 'KRW',
       evaluationPeriodMonths: 6,
       totalRounds: 3,
       annualCouponRate: '0.0800',

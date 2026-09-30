@@ -177,6 +177,7 @@ function round(
     productId,
     productName: productId === PRODUCT_A ? '상품 A' : '상품 B',
     principal: '100000000',
+    currency: 'KRW',
     annualCouponRate: '0.0800',
     totalRounds: 2,
     // v3.4의 셋도 **상품 단위 사실**이라 카드 머리가 읽는다(DOC-008 §5 ⑨⑩).

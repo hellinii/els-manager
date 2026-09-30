@@ -1,3 +1,4 @@
+import type { ProductCurrency } from '@/lib/domain/currency'
 import type { HealthInsuranceType } from '@/lib/tax'
 import type { FailureClass } from '@/lib/providers/types'
 
@@ -17,7 +18,10 @@ export type ProductInput = {
   name: string
   issuer?: string
   issueDate: string
+  /** 상품 통화 금액 — `currency`의 보조단위 이내(V-23). 파서가 고정 자릿수로 정규화한다 */
   principal: string
+  /** 상품 통화 — 필수, 기본값 없음 (V-22 · DOC-011 §5.1 v4.9) */
+  currency: ProductCurrency
   evaluationPeriodMonths: number
   totalRounds: number
   annualCouponRate: string
@@ -48,9 +52,13 @@ export type RedemptionInput = {
   redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
   roundNo?: number
   redemptionDate: string
+  /** 부모 상품의 통화 — 자릿수는 부모 통화로 본다(V-23, §5.4) */
   grossAmount: string
+  /** 과세 축 — 언제나 원화 정수(A-04 · M-08) */
   taxableIncome: string
   withholdingTax?: string
+  /** 적용 환율 — 참고값, 외화 상품에만(V-24). 어떤 계산에도 쓰지 않는다 */
+  exchangeRate?: string
   isConfirmed: boolean
   note?: string
 }
@@ -74,12 +82,16 @@ export type RealizedProductInput = {
   name: string
   issuer?: string
   principal: string
+  /** 상품 통화 — 필수, 기본값 없음(V-22). `principal`·`grossAmount`의 자릿수가 이것을 따른다 */
+  currency: ProductCurrency
   accountType: 'GENERAL' | 'TAX_FREE'
   redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
   redemptionDate: string
   grossAmount: string
   taxableIncome: string
   withholdingTax?: string
+  /** 적용 환율 — 참고값, 외화 상품에만(V-24) */
+  exchangeRate?: string
   isConfirmed: boolean
   note?: string
 }

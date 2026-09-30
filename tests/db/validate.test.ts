@@ -24,6 +24,7 @@ import {
   parseManualPriceInput,
   parseProductInput,
   parseProviderSymbolInput,
+  parseRealizedProductInput,
   parseRedemptionInput,
   parseTaxProfileInput,
   parseTouchedAt,
@@ -52,6 +53,7 @@ function validProduct(): Record<string, unknown> {
     issuer: '한국투자증권',
     issueDate: '2026-01-02',
     principal: '100000000',
+    currency: 'KRW',
     evaluationPeriodMonths: 6,
     totalRounds: 2,
     annualCouponRate: '0.08',
@@ -213,8 +215,10 @@ const CASES: Case[] = [
     run: () => parse(product({ principal: '0' })),
   },
   {
-    rule: 'V-01',
-    what: '원금에 소수점은 거부된다 — numeric(15,0)이 조용히 반올림한다',
+    // 종전 V-01의 「정수」가 V-23의 원화 경우가 됐다(P8 a2). typmod를 뗐으므로 이 검사가 없으면
+    // 이름 있는 제약(els_products_principal_scale_check)이 23514로 막는다 — 필드는 같다
+    rule: 'V-23',
+    what: '원화 상품의 원금에 소수점은 거부된다',
     run: () => parse(product({ principal: '1000.5' })),
   },
   {
@@ -489,6 +493,51 @@ const CASES: Case[] = [
         otherIncomeBase: '0',
         otherFinancialIncome: '0',
         healthInsuranceType: 'NONE',
+      })
+      return p
+    },
+  },
+  {
+    rule: 'V-22',
+    what: '상품 통화가 비었다 — 원화로 채우지 않는다',
+    run: () => parse(product({ currency: '' })),
+  },
+  {
+    rule: 'V-22',
+    what: '지원하지 않는 통화 — 형식(3자 대문자)은 맞다',
+    run: () => parse(product({ currency: 'EUR' })),
+  },
+  {
+    rule: 'V-23',
+    what: '달러 원금의 소수 3자리 — 보조단위(센트)를 넘는다',
+    run: () => parse(product({ currency: 'USD', principal: '10000.505' })),
+  },
+  {
+    rule: 'V-23',
+    what: '정수부 16자리 — 정밀도를 뗀 열의 천장',
+    run: () => parse(product({ principal: '1000000000000000' })),
+  },
+  {
+    rule: 'V-24',
+    what: '적용 환율 0 — 형태만으로 거부된다',
+    run: () => parseRedemption(redemption({ exchangeRate: '0' })),
+  },
+  {
+    rule: 'V-24',
+    what: '원화 기실현에 적용 환율 — 저장되지 않을 값을 조용히 버리지 않는다',
+    run: () => {
+      const p = new Problems()
+      parseRealizedProductInput(p, {
+        name: '키움 ELS 1740',
+        principal: '19390000',
+        currency: 'KRW',
+        accountType: 'GENERAL',
+        redemptionType: 'EARLY',
+        redemptionDate: '2025-06-02',
+        grossAmount: '20000000',
+        taxableIncome: '610000',
+        exchangeRate: '1392.4',
+        isConfirmed: true,
       })
       return p
     },
@@ -1130,5 +1179,36 @@ describe('타입이 계약을 지킨다', () => {
     const rate: string = input.annualCouponRate
     expect(typeof principal).toBe('string')
     expect(typeof rate).toBe('string')
+  })
+})
+
+describe('V-23 통과 금액은 보조단위로 접어 싣는다 — 기실현도 같다 (P8 컷 a2)', () => {
+  /*
+   * DB의 `scale()`은 끝의 0을 센다 — 접지 않고 `'10000.500'`을 보내면 `els_products_principal_scale_check`가,
+   * `'10400.520'`을 보내면 `redemptions_gross_amount_digits_check`가 **정상 입력을** 거부한다. 원금·상환은
+   * 통합 스위트가 왕복시키고, 기실현(부모가 아직 없어 같은 입력의 통화를 쓴다)은 여기서 본다(반박 검토)
+   */
+  const realized = (overrides: Record<string, unknown>) => {
+    const p = new Problems()
+    const input = parseRealizedProductInput(p, {
+      name: '기실현 정규화',
+      accountType: 'GENERAL',
+      redemptionType: 'EARLY',
+      redemptionDate: '2025-06-02',
+      taxableIncome: '610000',
+      isConfirmed: true,
+      ...overrides,
+    })
+    return { input, problems: p }
+  }
+
+  it('원화 — `19390000.0` · `20000000.00`이 정수 문자열이 된다', () => {
+    const { input } = realized({ currency: 'KRW', principal: '19390000.0', grossAmount: '20000000.00' })
+    expect(input).toMatchObject({ principal: '19390000', grossAmount: '20000000' })
+  })
+
+  it('달러 — `10000.500` · `10400.520`이 소수 두 자리가 된다', () => {
+    const { input } = realized({ currency: 'USD', principal: '10000.500', grossAmount: '10400.520' })
+    expect(input).toMatchObject({ principal: '10000.50', grossAmount: '10400.52' })
   })
 })

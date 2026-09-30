@@ -231,6 +231,8 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     const v = { ...importedNew() }
     v.name = '내 4000회'
     v.principal = '10000000'
+    // P8 컷 a2 — 저장값은 늘 통화를 갖는다(`productValuesOf`). 불러오기가 그것을 지우면 저장이 V-22로 막힌다
+    v.currency = 'KRW'
     v.accountType = 'GENERAL'
     v.note = '통장 A'
     v.kiObservation = 'CLOSING'
@@ -250,11 +252,17 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
 
   const edit = (input: Partial<Parameters<typeof importPanelOf>[0]>) => panel({ target: EDIT, ...input })
 
-  it('★ 원천에 없는 넷은 저장값, 나머지 조건은 불러온 값', () => {
+  it('★ 원천에 없는 다섯은 저장값, 나머지 조건은 불러온 값 (P8 컷 a2 — 상품 통화가 다섯째)', () => {
     const stored = manual()
     const p = edit({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: BOTH, defaults: stored })
     const v = p.initialValues
-    expect([v.principal, v.accountType, v.note, v.kiObservation]).toEqual(['10000000', 'GENERAL', '통장 A', 'CLOSING'])
+    expect([v.principal, v.currency, v.accountType, v.note, v.kiObservation]).toEqual([
+      '10000000',
+      'KRW',
+      'GENERAL',
+      '통장 A',
+      'CLOSING',
+    ])
     expect(v.name).toBe('키움 ELS 4000회')
     expect(v['schedules[0].evaluationDate']).toBe('2026-11-30')
     expect(v['schedules[1].evaluationDate']).toBe('2027-05-31')

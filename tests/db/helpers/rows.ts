@@ -23,6 +23,7 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
     issuer: '테스트증권',
     issue_date: '2026-01-02',
     principal: '100000000',
+    currency: 'KRW',
     evaluation_period_months: 6,
     annual_coupon_rate: '0.0800',
     ki_barrier: '0.5000',

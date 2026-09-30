@@ -157,6 +157,8 @@ export async function registerProduct(
     issuer: 'E2E증권',
     issueDate,
     // 쉼표를 적는다 — 사용자가 그렇게 적으며 파서가 지운다(값은 바뀌지 않는다)
+    // 상품 통화 — 기본값이 없다(U7 · V-22). 화면이 「선택」에서 시작하므로 사용자처럼 고른다
+    currency: 'KRW',
     principal,
     accountType: options.accountType ?? 'GENERAL',
     note: '화면 왕복',

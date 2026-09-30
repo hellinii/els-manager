@@ -1,5 +1,14 @@
-import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
-import { aggregateRealizedPnl, dDay, realizedPnl } from '@/lib/domain'
+import { dec, ZERO } from '@/lib/decimal'
+import {
+  aggregateRealizedPnl,
+  CURRENCY_ORDER,
+  dDay,
+  moneyString,
+  NO_ESTIMATE_RATES,
+  realizedPnl,
+  sumByCurrency,
+  type ProductCurrency,
+} from '@/lib/domain'
 
 import { currentYear } from '../today'
 import type { QueryContext } from './context'
@@ -8,6 +17,7 @@ import {
   loadProducts,
   loadTaxProfile,
   loadTaxYearContext,
+  type ProductRow,
 } from './load'
 import {
   amountString,
@@ -36,15 +46,36 @@ export type DashboardView = {
     willMeet: boolean | null
   }>
   totals: {
-    activePrincipal: string
+    /** 보유중 상품 수 — 개수는 통화를 넘어 더한다(`= Σ byCurrency[].activeCount`) */
     activeCount: number
-    realizedPnl: string
+    /**
+     * 통화별 사실 — **통화를 넘어 더하지 않는다** (§4.1 v4.9 · DOC-007 §7.7).
+     *
+     * 종전 `activePrincipal`·`realizedPnl`은 전 상품의 합이었고, 달러 상품이 들어오면 그
+     * 덧셈이 `$70,000 + 10,000,000원 = 10,070,000`을 만든다 — 형식은 정상이고 값만 거짓이다.
+     * 두 필드는 이 배열로 옮겨 가고 최상위에서 사라진다(남겨 두면 무엇의 합인지 답이 없다).
+     *
+     * 범위 안에 상품이 있는 통화마다 한 행(보유중·상환 완료를 가리지 않는다), `CURRENCY_ORDER`
+     * 순. **상품 0건이면 원화 0 한 행**이다 — 빈 배열을 주지 않는다.
+     */
+    byCurrency: Array<{
+      currency: ProductCurrency
+      activeCount: number
+      activePrincipal: string
+      /** 음수 가능. 항등식은 통화별이다 — `= Σ recentRedemptions[currency = c].realizedPnl` */
+      realizedPnl: string
+    }>
   }
   currentYearTax: {
     year: number
     financialIncome: string
     isComprehensive: boolean
     additionalTax: string
+    /**
+     * 환율이 없어 F에서 빠진 달러 추정 건 수 — E-09 (§4.1 v4.9). §4.6 `income.unconvertedCount`와
+     * **같은 값**이다(같은 `computeOwnTax`). 0보다 크면 위 셋이 과소 추정이다(DOC-008 ST-07)
+     */
+    unconvertedCount: number
   }
   attentionItems: Array<{
     productId: string
@@ -79,12 +110,58 @@ export type DashboardView = {
     ownerName: string
     redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
     redemptionDate: string
+    /** `grossAmount`·`realizedPnl`의 통화 (§4.0 규칙 1) */
+    currency: ProductCurrency
     grossAmount: string
     /** 음수 가능 — 과세 금융소득과 갈리는 지점이다(절대 규칙 #8) */
     realizedPnl: string
     /** ST-05 — 지급명세서 미확인 값을 확정값과 같은 모습으로 표시하지 않는다 */
     isConfirmed: boolean
   }>
+}
+
+/**
+ * `totals.byCurrency` — 통화별로 **먼저 가르고** 그 안에서 더한다 (§4.1 v4.9).
+ *
+ * 행의 집합은 범위 안의 **모든** 상품의 통화다 — 보유중만 보면 상환 완료 달러 상품의
+ * `realizedPnl`이 갈 행이 없다. `sumByCurrency`로 원금을, `aggregateRealizedPnl`(서명 불변 —
+ * TC-17이 직접 부른다)로 손익을 통화마다 낸다.
+ */
+export function totalsByCurrency(
+  rows: readonly ProductRow[],
+  activeRows: readonly ProductRow[],
+  redeemedRows: readonly ProductRow[],
+): DashboardView['totals']['byCurrency'] {
+  const present = CURRENCY_ORDER.filter((c) => rows.some((row) => row.currency === c))
+  if (present.length === 0) {
+    return [{ currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0' }]
+  }
+
+  const principals = new Map(
+    sumByCurrency(
+      activeRows.map((row) => ({ currency: row.currency, amount: row.principal })),
+    ).map((entry) => [entry.currency, entry.amount]),
+  )
+
+  return present.map((currency) => {
+    const active = activeRows.filter((row) => row.currency === currency)
+    const redeemed = redeemedRows.filter((row) => row.currency === currency)
+    return {
+      currency,
+      activeCount: active.length,
+      activePrincipal: moneyString(principals.get(currency) ?? ZERO, currency),
+      // 실현손익은 음수가 가능하다 — 과세 금융소득과 분기하는 지점이다(§4.4)
+      realizedPnl: moneyString(
+        aggregateRealizedPnl(
+          redeemed.map((row) => ({
+            grossAmount: row.redemptions!.gross_amount,
+            principal: row.principal,
+          })),
+        ),
+        currency,
+      ),
+    }
+  })
 }
 
 export function makeDashboardQueries(ctx: QueryContext) {
@@ -158,6 +235,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
       yearContext,
       otherFinancialIncome: dec(ownProfile?.other_financial_income ?? '0'),
       otherIncomeBase: dec(ownProfile?.other_income_base ?? '0'),
+      // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 4 → 5)
+      rates: NO_ESTIMATE_RATES,
     })
 
     // 판정은 상품당 **한 번**이다. `attentionReasonsOf(row, prices, asOf)`를 쓰면
@@ -191,9 +270,11 @@ export function makeDashboardQueries(ctx: QueryContext) {
           ownerName: ownerNameOf(row),
           redemptionType: r.redemption_type,
           redemptionDate: r.redemption_date,
-          grossAmount: amountString(dec(r.gross_amount)),
-          realizedPnl: amountString(
+          currency: row.currency,
+          grossAmount: moneyString(dec(r.gross_amount), row.currency),
+          realizedPnl: moneyString(
             realizedPnl({ grossAmount: r.gross_amount, principal: row.principal }),
+            row.currency,
           ),
           isConfirmed: r.is_confirmed,
         }
@@ -207,28 +288,15 @@ export function makeDashboardQueries(ctx: QueryContext) {
     return {
       upcomingEvaluations,
       totals: {
-        activePrincipal: amountString(
-          activeRows.reduce<DecimalValue>(
-            (acc, row) => acc.plus(dec(row.principal)),
-            ZERO,
-          ),
-        ),
         activeCount: activeRows.length,
-        // 실현손익은 음수가 가능하다 — 과세 금융소득과 분기하는 지점이다(§4.4)
-        realizedPnl: amountString(
-          aggregateRealizedPnl(
-            redeemedRows.map((row) => ({
-              grossAmount: row.redemptions!.gross_amount,
-              principal: row.principal,
-            })),
-          ),
-        ),
+        byCurrency: totalsByCurrency(rows, activeRows, redeemedRows),
       },
       currentYearTax: {
         year,
         financialIncome: amountString(own.financialIncome),
         isComprehensive: own.result.isComprehensive,
         additionalTax: amountString(own.result.additionalPayment),
+        unconvertedCount: own.unconvertedCount,
       },
       attentionItems,
       recentRedemptions,

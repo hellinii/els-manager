@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { RedemptionInput } from '@/lib/db/mutations/types'
 import { toProductDetailView } from '@/lib/db/queries/map'
 import { dec } from '@/lib/decimal'
-import { shiftDays } from '@/lib/domain'
+import { NO_ESTIMATE_RATES, shiftDays } from '@/lib/domain'
 import { parseRedemptionForm, parseTouchedAtForm } from '@/lib/forms/parse'
 import {
   REDEMPTION_DATE_OFFSET_DAYS,
@@ -54,6 +54,7 @@ function viewWith(price: string | null, asOf = ASOF) {
     priceMap([{ assetId: ASSET_1, price }]),
     asOf,
     OWNER,
+    NO_ESTIMATE_RATES,
   )
 }
 
@@ -111,6 +112,38 @@ describe('차수 선택지', () => {
     }
   })
 
+  it('★ 달러 상품은 과세 금융소득을 채우지 않는다 — 거래내역의 원화 값이다 (U1 · P8 컷 a2)', () => {
+    /*
+     * 달러 이익을 그대로 `taxableIncome`에 넣으면 `400.02` → `'400'`이 「과세 금융소득 (원)」에 채워지고,
+     * 그대로 저장하면 원화 약 58만 원이어야 할 과세가 400원이 된다(약 1/1,400 — 형식은 정상이다).
+     * 리자드 수령액은 상품 통화의 자릿수로 접는다 — `amountString`이면 센트를 잃는다.
+     */
+    const view = toProductDetailView(
+      productRow({
+        currency: 'USD',
+        principal: '10000.50',
+        redemption_schedules: [
+          schedule({ round_no: 1, evaluation_date: '2026-07-02', barrier: '0.9000' }),
+          schedule({
+            round_no: 2,
+            evaluation_date: '2027-01-04',
+            barrier: '0.8500',
+            lizard_barrier: '0.6000',
+            lizard_coupon_rate: '0.0300',
+          }),
+        ],
+      }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+      OWNER,
+      NO_ESTIMATE_RATES,
+    )
+    const [first, second] = roundOptionsOf(view)
+    expect(first!.early).toEqual({ grossAmount: '10400.52', taxableIncome: '' })
+    // 10000.50 × (1 + 0.03 × 6 × 2 / 12) = 10300.515 → 센트 반올림 10300.52 (원 단위로 접으면 10301)
+    expect(second!.lizard).toEqual({ grossAmount: '10300.52', taxableIncome: '' })
+  })
+
   it('★ 적용 차수의 추정값이 `projection`과 «글자까지» 같다', () => {
     /*
      * ★ **이것이 이 파일의 핵심 대조다.** 두 산출이 반올림 «순서»가 다르다 —
@@ -157,6 +190,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
 
     for (const option of roundOptionsOf(view)) {
@@ -190,6 +224,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
 
     const option = roundOptionsOf(view)[0]!
@@ -254,6 +289,7 @@ describe('차수를 고치면 다시 채운다 — roundFillOf', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
     const rounds = roundOptionsOf(view)
 
@@ -295,6 +331,7 @@ describe('차수를 고치면 다시 채운다 — roundFillOf', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
     expect(roundFillOf(roundOptionsOf(view), '1', 'LIZARD')!.amounts).toEqual({
       grossAmount: '100000000',
@@ -452,6 +489,7 @@ describe('기본값 — 판정에서 나온다', () => {
       priceMap([{ assetId: ASSET_1, price: '70.000000' }]),
       '2026-08-01',
       OWNER,
+      NO_ESTIMATE_RATES,
     )
 
     const values = redemptionDefaults(view, '2026-08-01')
@@ -538,6 +576,7 @@ describe('마지막 차수에서는 상환 유형을 비운다', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       '2026-12-01',
       OWNER,
+      NO_ESTIMATE_RATES,
     )
   }
 
@@ -608,6 +647,7 @@ describe('수정의 초기값 — 저장된 값이다', () => {
     grossAmount: stored.gross_amount,
     taxableIncome: stored.taxable_income,
     withholdingTax: stored.withholding_tax,
+    exchangeRate: null,
     isConfirmed: stored.is_confirmed,
     realizedPnl: '4000000',
     note: stored.note,
@@ -639,6 +679,7 @@ describe('수정의 초기값 — 저장된 값이다', () => {
       grossAmount: '1',
       taxableIncome: '0',
       withholdingTax: null,
+      exchangeRate: null,
       isConfirmed: false,
       realizedPnl: '0',
       note: null,

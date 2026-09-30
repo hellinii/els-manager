@@ -258,6 +258,8 @@ export function parseProductForm(form: FormData): ProductInput {
     name: text(form, 'name'),
     issueDate,
     principal: amountText(form, 'principal'),
+    // 빈 칸이면 빈 문자열이 계약에 가서 V-22가 「상품 통화를 선택한다」를 붙인다 — 기본값 없음(U7)
+    currency: text(form, 'currency') as ProductInput['currency'],
     evaluationPeriodMonths,
     totalRounds,
     annualCouponRate: percentToRatio(text(form, 'annualCouponRate')),
@@ -326,6 +328,10 @@ export function parseRedemptionForm(form: FormData): RedemptionInput {
     input.withholdingTax = amountText(form, 'withholdingTax')
   }
 
+  // 적용 환율 — 달러 상품의 상환 폼에만 칸이 있다(DOC-008 SCR-203). 없으면 보내지 않는다
+  const exchangeRate = optionalText(form, 'exchangeRate')
+  if (exchangeRate != null) input.exchangeRate = amountText(form, 'exchangeRate')
+
   const note = optionalText(form, 'note')
   if (note != null) input.note = note
 
@@ -347,6 +353,7 @@ export function parseRealizedProductForm(form: FormData): RealizedProductInput {
   const input: RealizedProductInput = {
     name: text(form, 'name'),
     principal: amountText(form, 'principal'),
+    currency: text(form, 'currency') as RealizedProductInput['currency'],
     accountType: text(form, 'accountType') as RealizedProductInput['accountType'],
     redemptionType: text(
       form,
@@ -365,6 +372,9 @@ export function parseRealizedProductForm(form: FormData): RealizedProductInput {
   if (withholdingTax != null) {
     input.withholdingTax = amountText(form, 'withholdingTax')
   }
+
+  const exchangeRate = optionalText(form, 'exchangeRate')
+  if (exchangeRate != null) input.exchangeRate = amountText(form, 'exchangeRate')
 
   const note = optionalText(form, 'note')
   if (note != null) input.note = note

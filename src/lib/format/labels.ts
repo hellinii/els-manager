@@ -40,6 +40,18 @@ export const ACCOUNT_TYPE_LABELS: Record<ProductListItem['accountType'], string>
   TAX_FREE: '비과세',
 }
 
+/**
+ * 상품 통화 — DOC-005 §6.1 `productCurrency` (P8 컷 a2).
+ *
+ * **기초자산 통화(`assets.currency` — `USD` 같은 코드 그대로 표시)와 다른 축이다**(DOC-005
+ * §8.11). 한 화면(SCR-204)에 둘이 함께 나오므로 이쪽은 코드가 아니라 한글로 적는다 — 「USD」가
+ * 두 뜻으로 읽히지 않게.
+ */
+export const PRODUCT_CURRENCY_LABELS: Record<ProductListItem['currency'], string> = {
+  KRW: '원화',
+  USD: '달러',
+}
+
 export const REDEMPTION_TYPE_LABELS: Record<RedemptionView['redemptionType'], string> = {
   EARLY: '조기상환',
   LIZARD: '리자드상환',
@@ -175,6 +187,7 @@ export const HEALTH_INSURANCE_TYPE_LABELS: Record<
 export const LABEL_AXES = {
   status: STATUS_LABELS,
   accountType: ACCOUNT_TYPE_LABELS,
+  productCurrency: PRODUCT_CURRENCY_LABELS,
   redemptionType: REDEMPTION_TYPE_LABELS,
   conditionResult: CONDITION_RESULT_LABELS,
   kiStatus: KI_STATUS_LABELS,

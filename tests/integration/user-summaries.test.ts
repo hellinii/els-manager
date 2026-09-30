@@ -112,7 +112,9 @@ describe('보유 현황은 축소되지 않는다', () => {
     const asB = await s.asB.listUserSummaries()
 
     const counts = (rows: typeof asA) =>
-      rows.map((r) => `${r.userId}:${r.activeCount}:${r.activePrincipal}`).sort()
+      rows
+        .map((r) => `${r.userId}:${r.activeCount}:${JSON.stringify(r.activePrincipalByCurrency)}`)
+        .sort()
 
     expect(counts(asA)).toEqual(counts(asB))
   })
@@ -123,9 +125,9 @@ describe('보유 현황은 축소되지 않는다', () => {
     const b = rows.find((r) => r.userId === ITG_USER_B)!
 
     expect(a.activeCount).toBe(3)
-    expect(a.activePrincipal).toBe('150000000')
+    expect(a.activePrincipalByCurrency).toEqual([{ currency: 'KRW', activePrincipal: '150000000' }])
     expect(b.activeCount).toBe(1)
-    expect(b.activePrincipal).toBe('50000000')
+    expect(b.activePrincipalByCurrency).toEqual([{ currency: 'KRW', activePrincipal: '50000000' }])
   })
 
   it('합계 행이 없다', async () => {

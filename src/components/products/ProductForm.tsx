@@ -9,13 +9,14 @@ import { SubmitButton } from '@/components/form/SubmitButton'
 import { ConditionStep } from '@/components/products/ConditionStep'
 import { UnderlyingRow } from '@/components/products/UnderlyingRow'
 import type { AssetOption } from '@/lib/db/queries/prices'
-import { ACCOUNT_TYPE_LABELS } from '@/lib/format'
+import { ACCOUNT_TYPE_LABELS, PRODUCT_CURRENCY_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import { initialFormState, type FormState } from '@/lib/forms/state'
 import {
   MAX_UNDERLYINGS,
   PRODUCT_ID_FIELD,
   UNDERLYING_SUBS,
+  currencyOptionsOf,
   roundCountOf,
   rowCountOf,
   type RowCounts,
@@ -114,7 +115,7 @@ export function ProductForm({
         )}
 
         <FormSection title="기본 정보">
-          <BasicFields state={state} fieldNotes={fieldNotes} />
+          <BasicFields state={state} fieldNotes={fieldNotes} editing={productId != null} />
         </FormSection>
 
         <FormSection title="기초자산">
@@ -191,7 +192,14 @@ function FormSection({
 type StepProps = { state: FormState; fieldNotes?: Readonly<Record<string, string>> }
 
 /** 기본 정보 — DOC-008 §5의 입력 항목 + 비고(아래 각주) */
-function BasicFields({ state, fieldNotes }: StepProps) {
+function BasicFields({
+  state,
+  fieldNotes,
+  editing,
+}: StepProps & {
+  /** 수정 화면 — 통화를 바꾸면 투자원금을 옮기지 않는다는 힌트가 붙는다(DOC-008 SCR-204) */
+  editing: boolean
+}) {
   const { values, fieldErrors } = state
 
   return (
@@ -246,6 +254,42 @@ function BasicFields({ state, fieldNotes }: StepProps) {
           )}
         </Field>
       </div>
+
+      {/*
+        상품 통화 — 투자원금 바로 위, 그 칸의 단위이기 때문이다(DOC-008 SCR-204). **기본값이 없다
+        (U7)** — 원화로 채워 두면 달러 상품을 원화로 저장해도 아무 경고가 없고 모든 금액이 약
+        1,400배 틀린다. 계좌유형과 같은 자리다. 기초자산 구획의 「USD」(기초자산 통화)와 다른 축이므로
+        힌트가 둘을 가른다(DOC-005 §8.11).
+      */}
+      <Field
+        name="currency"
+        label="상품 통화"
+        error={fieldErrors.currency}
+        hint={hintWith(
+          editing
+            ? '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다. 바꾸면 투자원금을 그 통화로 고쳐 적는다'
+            : '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다',
+          fieldNotes,
+          'currency',
+        )}
+      >
+        {(props) => (
+          <select
+            {...props}
+            // AQ-64 — `key`가 `defaultValue`와 같은 식이다(아래 계좌유형의 각주)
+            key={values.currency ?? ''}
+            defaultValue={values.currency ?? ''}
+            className={INPUT_CLASS}
+          >
+            <option value="">선택</option>
+            {currencyOptionsOf(values.currency).map((currency) => (
+              <option key={currency} value={currency}>
+                {PRODUCT_CURRENCY_LABELS[currency]}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field

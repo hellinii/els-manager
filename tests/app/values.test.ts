@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProductInput } from '@/lib/db/mutations/types'
 import { toProductDetailView } from '@/lib/db/queries/map'
 import {
+  NO_ESTIMATE_RATES,
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
 } from '@/lib/domain'
@@ -92,7 +93,7 @@ function viewOf() {
     ],
   })
 
-  return toProductDetailView(row, priceMap([{ assetId: ASSET_1, price: '120.000000' }]), ASOF, OWNER)
+  return toProductDetailView(row, priceMap([{ assetId: ASSET_1, price: '120.000000' }]), ASOF, OWNER, NO_ESTIMATE_RATES)
 }
 
 /** 값 맵 → `FormData`. 브라우저가 폼을 제출하는 것과 같은 형태다(전부 문자열) */
@@ -172,10 +173,32 @@ describe('productValuesOf — 폼의 모든 이름을 덮는다', () => {
       priceMap([]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
     const noKi = productValuesOf(view)
     expect(noKi.kiBarrier).toBe('')
     expect(noKi.kiObservation).toBe('')
+  })
+})
+
+describe('★ 왕복 — 달러 상품의 수정이 통화를 지킨다 (P8 컷 a2)', () => {
+  /*
+   * 계획의 음성 대조 첫째 — `productValuesOf`에서 `currency`를 빼면 수정 화면이 「선택」에서 시작하고,
+   * 사용자가 무엇을 고르든 저장값과 무관해진다. 폼이 원화만 주는 동안(`SELECTABLE_PRODUCT_CURRENCIES`)
+   * 그 사용자가 고를 수 있는 것은 원화뿐이므로 **달러 상품이 조용히 원화가 된다.** 센트가 그 신호다.
+   */
+  const view = toProductDetailView(
+    productRow({ currency: 'USD', principal: '10000.50' }),
+    priceMap([]),
+    '2026-06-30',
+    OWNER,
+    NO_ESTIMATE_RATES,
+  )
+  const input = parseProductForm(formOf(productValuesOf(view)))
+
+  it('통화와 센트가 그대로 돌아온다', () => {
+    expect(input.currency).toBe('USD')
+    expect(input.principal).toBe('10000.50')
   })
 })
 
@@ -188,6 +211,7 @@ describe('왕복 — 뷰 → 폼 값 → 계약 입력', () => {
     expect(input.issuer).toBe(view.product.issuer)
     expect(input.issueDate).toBe(view.product.issueDate)
     expect(input.principal).toBe(view.product.principal)
+    expect(input.currency).toBe(view.product.currency)
     expect(input.accountType).toBe(view.product.accountType)
     expect(input.note).toBe(view.product.note)
     expect(input.evaluationPeriodMonths).toBe(view.product.evaluationPeriodMonths)
@@ -238,6 +262,7 @@ describe('왕복 — 뷰 → 폼 값 → 계약 입력', () => {
       priceMap([]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
 
     const values = productValuesOf(drifted)
@@ -293,6 +318,7 @@ describe('왕복 — 뷰 → 폼 값 → 계약 입력', () => {
       priceMap([]),
       ASOF,
       OWNER,
+      NO_ESTIMATE_RATES,
     )
     const next = transition(
       formOf({ ...productValuesOf(drifted), issueDate: '2026-02-02', [INTENT_FIELD]: 'SUBMIT' }),

@@ -1,3 +1,5 @@
+import type { ProductCurrency } from '@/lib/domain/currency'
+
 import { korMonth, monthKey } from './date'
 import type { UnderlyingLine } from './underlyings'
 
@@ -99,6 +101,8 @@ export type ScheduleProductFacts = {
   productId: string
   productName: string
   principal: string
+  /** `principal`과 차수 금액의 단위 — 카드 하나가 한 상품이므로 통화가 하나다 (§4.4 v4.9) */
+  currency: ProductCurrency
   annualCouponRate: string | null
   totalRounds: number
   /** DOC-008 §5 ⑨ — 계약(기준가)과 관측(현재가)이 한 칸에 온다 (v3.4) */
@@ -183,6 +187,7 @@ export function groupByProduct<
           productId: item.productId,
           productName: item.productName,
           principal: item.principal,
+          currency: item.currency,
           annualCouponRate: item.annualCouponRate,
           totalRounds: item.totalRounds,
           underlyings: item.underlyings,

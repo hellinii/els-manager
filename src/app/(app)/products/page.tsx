@@ -163,7 +163,13 @@ export default async function ProductsPage({
           */}
           <div className="hidden grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] gap-3 px-4 text-xs font-medium text-neutral-500 lg:grid">
             <span>상품</span>
-            <span className="text-right">투자원금 (원)</span>
+            {/*
+              「(원)」은 **그 페이지의 행이 전부 원화일 때만** 붙는다 — 머리글은 그 페이지에 렌더된
+              행만 설명한다. 달러 행이 하나라도 있으면 단위를 떼고 행이 단위를 든다(SCR-201 ③)
+            */}
+            <span className="text-right">
+              {items.every((item) => item.currency === 'KRW') ? '투자원금 (원)' : '투자원금'}
+            </span>
             <span>다음 평가일</span>
             <span>워스트오브</span>
             <span>판정</span>

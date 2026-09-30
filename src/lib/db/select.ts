@@ -279,6 +279,8 @@ export const ELS_PRODUCT_COLUMNS = defineColumns('els_products', {
   issuer: 'raw',
   issue_date: 'raw',
   principal: 'text',
+  // 상품 통화 — enum이므로 `raw`다(P8 a2). principal·redemptions.gross_amount의 단위
+  currency: 'raw',
   evaluation_period_months: 'raw',
   annual_coupon_rate: 'text',
   ki_barrier: 'text',

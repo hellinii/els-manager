@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Fragment } from 'react'
 
 import { Badge } from '@/components/display/Badge'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
@@ -12,12 +13,14 @@ import {
   amount,
   barrierGap,
   dDayLabel,
+  exchangeRateMissingNotice,
   groupAttention,
   heaviestGrade,
   isImminent,
   koreanWon,
+  money,
   percent,
-  signedWon,
+  signedMoney,
   takeVisible,
   won,
   ymd,
@@ -174,7 +177,7 @@ function WillMeetCell({
 
 /**
  * ② — **실현손익은 음수가 가능하다**(§4.1). 그것이 과세 금융소득과 갈리는 지점이며
- * (절대 규칙 #8) 부호를 붙여 표시한다(`signedWon`).
+ * (절대 규칙 #8) 부호를 붙여 표시한다(`signedMoney` — 원화는 `signedWon`과 같다).
  */
 export function TotalsSection({
   totals,
@@ -202,23 +205,51 @@ export function TotalsSection({
         <div>
           <dt className="text-xs text-neutral-500">투자원금 (보유중)</dt>
           <dd className="text-base font-semibold tabular-nums">
-            {amount(totals.activePrincipal)}원
-            {koreanWon(totals.activePrincipal) !== '0원' && (
-              <span className="ml-1.5 text-xs font-normal text-neutral-500">
-                ({koreanWon(totals.activePrincipal)})
-              </span>
-            )}
+            {totals.byCurrency.map((row, index) => (
+              <Fragment key={row.currency}>
+                {index > 0 && ' · '}
+                {row.currency === 'KRW' ? (
+                  <>
+                    {amount(row.activePrincipal)}원
+                    {koreanWon(row.activePrincipal) !== '0원' && (
+                      <span className="ml-1.5 text-xs font-normal text-neutral-500">
+                        ({koreanWon(row.activePrincipal)})
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  money(row.activePrincipal, row.currency)
+                )}
+              </Fragment>
+            ))}
           </dd>
         </div>
         <div>
           <dt className="text-xs text-neutral-500">실현손익 (누적)</dt>
-          <dd
-            className={`text-base font-semibold tabular-nums ${
-              totals.realizedPnl.startsWith('-') ? 'text-red-700' : 'text-neutral-900'
-            }`}
-          >
-            {signedWon(totals.realizedPnl)}
-          </dd>
+          {/*
+            음수 색은 **통화별 값마다** 정한다 — 한 칸에 부호가 다른 둘이 올 수 있다. 한 행이면
+            종전처럼 `<dd>`가 색을 갖는다(원화뿐인 홈의 마크업이 바뀌지 않는다).
+          */}
+          {totals.byCurrency.length === 1 ? (
+            <dd
+              className={`text-base font-semibold tabular-nums ${pnlColor(
+                totals.byCurrency[0]!.realizedPnl,
+              )}`}
+            >
+              {signedMoney(totals.byCurrency[0]!.realizedPnl, totals.byCurrency[0]!.currency)}
+            </dd>
+          ) : (
+            <dd className="text-base font-semibold tabular-nums">
+              {totals.byCurrency.map((row, index) => (
+                <Fragment key={row.currency}>
+                  {index > 0 && ' · '}
+                  <span className={pnlColor(row.realizedPnl)}>
+                    {signedMoney(row.realizedPnl, row.currency)}
+                  </span>
+                </Fragment>
+              ))}
+            </dd>
+          )}
         </div>
       </dl>
     </section>
@@ -298,6 +329,17 @@ export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }
           미상환 상품은 적용 차수(다음 도래 평가일)에 상환된다고 가정한 추정이며,
           과세 프로필을 저장하지 않았으면 금융소득 외 소득이 0으로 계산된다.
         </p>
+
+        {/*
+          ST-07 — 빠진 몫이 있으면 합계와 판정은 **하한**이다. 기본 환율로 채워 판정을
+          «완성»하지 않는다(DOC-011 §4.6). 건수는 계약이 센다 — 화면이 세면 무엇이 추정이
+          필요한 건인가(E-09)를 계약 밖에서 다시 판정하게 된다.
+        */}
+        {tax.unconvertedCount > 0 && (
+          <p className="text-xs text-amber-900">
+            {exchangeRateMissingNotice({ kind: 'COUNT', count: tax.unconvertedCount })}
+          </p>
+        )}
       </div>
     </section>
   )
@@ -451,16 +493,12 @@ export function RecentRedemptionsSection({
 
               <span className="flex flex-wrap items-baseline gap-2 text-xs">
                 <span className="tabular-nums text-neutral-500">
-                  수령 {amount(item.grossAmount)}원
+                  수령 {money(item.grossAmount, item.currency)}
                 </span>
                 <span
-                  className={`text-sm font-medium tabular-nums ${
-                    item.realizedPnl.startsWith('-')
-                      ? 'text-red-700'
-                      : 'text-neutral-900'
-                  }`}
+                  className={`text-sm font-medium tabular-nums ${pnlColor(item.realizedPnl)}`}
                 >
-                  {signedWon(item.realizedPnl)}
+                  {signedMoney(item.realizedPnl, item.currency)}
                 </span>
               </span>
             </li>
@@ -474,6 +512,11 @@ export function RecentRedemptionsSection({
 // ---------------------------------------------------------------------------
 // 공통
 // ---------------------------------------------------------------------------
+
+/** 손익 색 — 음수만 붉다. 통화와 무관하다(부호가 문자열의 첫 글자다 — Q-07) */
+function pnlColor(value: string): string {
+  return value.startsWith('-') ? 'text-red-700' : 'text-neutral-900'
+}
 
 /**
  * 절 머리글 — **자름을 말하는 자리가 여기 하나다.**

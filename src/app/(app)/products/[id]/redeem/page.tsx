@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation'
 import { RedemptionForm } from '@/components/products/RedemptionForm'
 import { AccessDenied } from '@/components/system/AccessDenied'
 import { getAsOf, getQueries } from '@/lib/db/server'
-import { REDEMPTION_TYPE_LABELS, korDate, won } from '@/lib/format'
+import { REDEMPTION_TYPE_LABELS, korDate, money } from '@/lib/format'
 import { isUuid } from '@/lib/forms/query'
 import { redemptionDefaults, roundOptionsOf } from '@/lib/forms/redemption'
 import { PATHS } from '@/lib/routes/paths'
@@ -69,7 +69,7 @@ export default async function ProductRedeemPage({
         </Link>
         <h1 className="mt-2 text-xl font-semibold tracking-tight">상환 처리</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          {product.name} · 투자원금 {won(product.principal)}
+          {product.name} · 투자원금 {money(product.principal, product.currency)}
         </p>
       </header>
 
@@ -82,7 +82,7 @@ export default async function ProductRedeemPage({
           <p className="text-sm text-amber-900">
             이미 상환 처리된 상품이다 —{' '}
             {REDEMPTION_TYPE_LABELS[redemption.redemptionType]} ·{' '}
-            {korDate(redemption.redemptionDate)} · {won(redemption.grossAmount)}.
+            {korDate(redemption.redemptionDate)} · {money(redemption.grossAmount, product.currency)}.
           </p>
           <p className="text-sm text-amber-900">
             고치거나 취소하려면 상세에서 한다. 상환 취소는 그 해의 금융소득을 바꾼다.

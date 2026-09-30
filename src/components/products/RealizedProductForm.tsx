@@ -7,13 +7,15 @@ import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import {
   ACCOUNT_TYPE_LABELS,
+  PRODUCT_CURRENCY_LABELS,
   REDEMPTION_TYPE_LABELS,
-  signedWon,
+  signedMoney,
 } from '@/lib/format'
 import {
   attributionYearOf,
   realizedPnlOf,
 } from '@/lib/forms/realized'
+import { currencyOptionsOf } from '@/lib/forms/productForm'
 import { taxableIncomeLocked } from '@/lib/forms/redemption'
 import { initialFormState, type FormState } from '@/lib/forms/state'
 
@@ -59,6 +61,8 @@ export function RealizedProductForm({
   const [gross, setGross] = useState(values.grossAmount ?? '')
   const [principal, setPrincipal] = useState(values.principal ?? '')
   const [date, setDate] = useState(values.redemptionDate ?? '')
+  // 파생 표시의 단위 — 고르기 전에는 실현손익을 적지 않는다(DOC-008 SCR-205 「P8 달러 ELS」)
+  const [currency, setCurrency] = useState(values.currency ?? '')
 
   const locked = taxableIncomeLocked(type)
   const year = attributionYearOf(date)
@@ -123,6 +127,34 @@ export function RealizedProductForm({
             )}
           </Field>
         </div>
+
+        {/*
+          상품 통화 — 기본값이 없다(U7 · V-22). 기실현도 투자원금과 실수령액이 이 통화이고 과세
+          금융소득은 통화와 무관하게 원화다(DOC-008 SCR-205). 선택지는 등록 폼과 같은 함수에서 온다
+        */}
+        <Field
+          name="currency"
+          label="상품 통화"
+          error={fieldErrors.currency}
+          hint="돈이 오가는 통화다 — 투자원금과 실수령액의 단위다"
+        >
+          {(props) => (
+            <select
+              {...props}
+              key={values.currency ?? ''}
+              defaultValue={values.currency ?? ''}
+              onChange={(event) => setCurrency(event.target.value)}
+              className={INPUT_CLASS}
+            >
+              <option value="">선택</option>
+              {currencyOptionsOf(values.currency).map((option) => (
+                <option key={option} value={option}>
+                  {PRODUCT_CURRENCY_LABELS[option]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
 
         <Field
           name="principal"
@@ -259,9 +291,14 @@ export function RealizedProductForm({
           `pnl`이 `null`인 동안 자리를 만들지 않는 이유는 그 자리가 「0원」으로
           읽히기 때문이다.
         */}
-        {pnl != null && (
+        {/*
+          **통화를 고르기 전에는 적지 않는다** — 단위 없는 금액은 원화로 읽힌다(DOC-008 SCR-205 「P8 달러
+          ELS」). 고른 통화로 적는다. 달러의 센트 계산(`realizedPnlOf`의 자릿수)은 입력 칸과 함께 컷
+          a2-3b다 — 그 전에는 달러를 고를 수 없다
+        */}
+        {pnl != null && (currency === 'KRW' || currency === 'USD') && (
           <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
-            실현손익 <strong className="tabular-nums">{signedWon(pnl)}</strong> —
+            실현손익 <strong className="tabular-nums">{signedMoney(pnl, currency)}</strong> —
             실수령액 − 투자원금이다. 저장하지 않고 두 값에서 계산한다.
           </p>
         )}

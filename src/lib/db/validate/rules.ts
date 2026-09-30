@@ -30,7 +30,7 @@ export { RULE_IDS, type RuleId } from './primitives'
 
 /** 각 규칙의 대상 — 문서 §6 표의 요약. 로그와 테스트 이름이 읽는다 */
 export const RULE_TARGETS: Record<RuleId, string> = {
-  'V-01': 'principal — 0보다 큰 정수',
+  'V-01': 'principal — 0보다 큼 (자릿수는 V-23)',
   'V-02': 'underlyings — 1개 이상 (I-07)',
   'V-03': 'schedules — 1개 이상, 길이 = totalRounds (I-07)',
   'V-04': 'roundNo — 1부터 연속, 중복 없음 (I-03)',
@@ -51,6 +51,9 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-19': '문자열 — 열 선언 길이 이내, currency는 정확히 3자',
   'V-20': '정수 — smallint 범위, evaluationPeriodMonths ≥ 1, year 4자리',
   'V-21': 'provider — 코드가 아는 공급자 id (형식만 보지 않는다)',
+  'V-22': 'currency (상품 통화) — KRW·USD 중 하나, 기본값 없음',
+  'V-23': '상품 통화 금액 — 보조단위 이내(KRW 0·USD 2), 정수부 15자리',
+  'V-24': 'exchangeRate — 0 초과, 정수부 12·소수 6자리, 외화 상품에만',
 }
 
 // ---------------------------------------------------------------------------

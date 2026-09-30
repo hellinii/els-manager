@@ -65,6 +65,9 @@ const JUDGMENT_SOURCES = {
   '⑥': 'conditionResult',
   '⑦': 'kiStatus',
   '⑧': 'underlyingPrices',
+  // P8 컷 a2 — 판정 행의 **끝**에 붙는다(번호가 ⑬ 다음인 것은 더한 순서다 — DOC-008 SCR-201).
+  // `accountType`처럼 ①의 부속으로 두지 않는 이유: 통화는 배지 하나가 아니라 ③의 단위를 가른다
+  '⑭': 'currency',
 } as const satisfies Record<string, keyof ProductListItem>
 
 /**
@@ -171,7 +174,7 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
 
   it('파서가 항목을 찾았다', () => {
     // 0건을 찾고 조용히 통과하는 것이 이 부류 파서의 유일한 위험이다.
-    expect(displayMarkers('판정').length).toBe(8)
+    expect(displayMarkers('판정').length).toBe(9)
     expect(displayMarkers('계약 조건').length).toBe(5)
   })
 
@@ -186,18 +189,21 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
     expect(overlap, '같은 필드가 두 표에 있다').toEqual([])
 
     // 파서와 같은 이유로 건수를 고정한다 — 0건을 세고 통과하는 것을 막는다
-    // (P6 컷 5에서 `entryMode`가 늘어 14 → 15, 컷 7에서 `underlyingPrices`가 늘어 16)
-    expect(displayed.size + NOT_DISPLAYED.length).toBe(16)
+    // (P6 컷 5에서 `entryMode`가 늘어 14 → 15, 컷 7에서 `underlyingPrices`가 늘어 16,
+    // P8 컷 a2에서 `currency`가 늘어 17)
+    expect(displayed.size + NOT_DISPLAYED.length).toBe(17)
   })
 
-  it('두 행의 마커가 겹치지 않고 ①~⑬을 채운다', () => {
+  it('두 행의 마커가 겹치지 않고 ①~⑭를 채운다', () => {
     /*
      * 겹치면 같은 번호가 두 뜻을 갖고, 빠지면 번호가 뜻하는 순서가 끊긴다. 둘 다
      * 위의 두 단언을 통과하면서 일어날 수 있다 — 각각 자기 행만 보기 때문이다.
      */
     const all = [...displayMarkers('판정'), ...displayMarkers('계약 조건')]
     expect(new Set(all).size, '마커가 겹친다').toBe(all.length)
-    expect(all).toEqual([
+    // **정렬한 뒤** 대조한다 — ⑭가 판정 행 끝에 붙으므로 이은 순서는 ①~⑧ · ⑭ · ⑨~⑬이다.
+    // 행 안의 순서는 위 두 행별 대조가 본다. 정렬해도 겹침·빠짐은 여기서 잡힌다
+    expect([...all].sort()).toEqual([
       '①',
       '②',
       '③',
@@ -211,6 +217,7 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
       '⑪',
       '⑫',
       '⑬',
+      '⑭',
     ])
   })
 })

@@ -15,7 +15,10 @@ import {
   LENGTH_LIMITS,
   Problems,
   isPlainObject,
+  checkProductAmount,
   optionalAmount,
+  optionalExchangeRate,
+  PRODUCT_CURRENCIES,
   optionalBoolean,
   optionalEnum,
   optionalInt,
@@ -184,11 +187,17 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     max: LENGTH_LIMITS.issuer,
   })
   const issueDate = requireIsoDate(p, 'V-07', 'issueDate', raw.issueDate, '발행일')
-  const principal = requireAmount(p, 'V-01', 'principal', raw.principal, {
+  // V-22 — 기본값이 없다. 원화로 채우면 달러 상품의 모든 금액이 약 1,400배 틀린다(§5.1)
+  const currency = requireEnum(p, 'V-22', 'currency', raw.currency, PRODUCT_CURRENCIES, '상품 통화')
+  // V-01′ — 0보다 크다. 자릿수는 V-23이 통화로 본다(통화가 V-22를 어기면 판정하지 않는다)
+  const principalRaw = requireAmount(p, 'V-01', 'principal', raw.principal, {
     label: '투자원금',
     min: 'positive',
-    integer: true,
   })
+  const principal =
+    principalRaw == null || currency == null
+      ? null
+      : checkProductAmount(p, 'principal', principalRaw, currency, '투자원금')
   const evaluationPeriodMonths = requireInt(
     p,
     'V-20',
@@ -241,6 +250,7 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     name,
     issuer,
     issueDate,
+    currency,
     principal,
     evaluationPeriodMonths,
     totalRounds,
@@ -275,6 +285,7 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     name: name!,
     issueDate: issueDate!,
     principal: principal!,
+    currency: currency!,
     evaluationPeriodMonths: evaluationPeriodMonths!,
     totalRounds: totalRounds!,
     annualCouponRate: annualCouponRate!,
@@ -317,12 +328,13 @@ export function parseRedemptionInput(p: Problems, raw: unknown): RedemptionInput
     raw.redemptionDate,
     '상환일',
   )
+  // 형태만 본다 — 자릿수(V-23)는 부모 상품의 통화가 정하므로 계약이 부모를 읽은 뒤 판정한다
+  // (`validateAgainstProduct`, §5.4). 여기서 정수를 요구하면 달러 상품의 센트가 거부된다
   const grossAmount = requireAmount(p, 'V-19', 'grossAmount', raw.grossAmount, {
     label: '실수령액',
     min: 'zero',
-    integer: true,
   })
-  // V-11 — 0 이상. 음수는 §7.3의 연도별 합계를 그대로 오염시킨다(I-12)
+  // V-11 — 0 이상. 음수는 §7.3의 연도별 합계를 그대로 오염시킨다(I-12). 과세 축은 언제나 원화 정수
   const taxableIncome = requireAmount(p, 'V-11', 'taxableIncome', raw.taxableIncome, {
     label: '과세 금융소득',
     min: 'zero',
@@ -333,6 +345,8 @@ export function parseRedemptionInput(p: Problems, raw: unknown): RedemptionInput
     min: 'zero',
     integer: true,
   })
+  // V-24 ⓐ의 수치 규칙. 「외화 상품에만」은 부모의 통화로 계약이 본다
+  const exchangeRate = optionalExchangeRate(p, 'exchangeRate', raw.exchangeRate, '적용 환율')
   const isConfirmed = requireBoolean(p, 'V-19', 'isConfirmed', raw.isConfirmed, '확정값 여부')
   const note = optionalString(p, 'V-19', 'note', raw.note, { label: '비고' })
 
@@ -344,6 +358,7 @@ export function parseRedemptionInput(p: Problems, raw: unknown): RedemptionInput
       grossAmount,
       taxableIncome,
       withholdingTax,
+      exchangeRate,
       isConfirmed,
       note,
     ])
@@ -360,6 +375,7 @@ export function parseRedemptionInput(p: Problems, raw: unknown): RedemptionInput
   }
   if (roundNo != null) input.roundNo = roundNo
   if (withholdingTax != null) input.withholdingTax = withholdingTax
+  if (exchangeRate != null) input.exchangeRate = exchangeRate
   if (note != null) input.note = note
 
   validateRedemptionCrossFields(p, input)
@@ -395,11 +411,16 @@ export function parseRealizedProductInput(
     label: '발행사',
     max: LENGTH_LIMITS.issuer,
   })
-  const principal = requireAmount(p, 'V-01', 'principal', raw.principal, {
+  // V-22 — 기본값 없음. 같은 입력의 통화로 원금·실수령액의 자릿수를 본다(V-23)
+  const currency = requireEnum(p, 'V-22', 'currency', raw.currency, PRODUCT_CURRENCIES, '상품 통화')
+  const principalRaw = requireAmount(p, 'V-01', 'principal', raw.principal, {
     label: '투자원금',
     min: 'positive',
-    integer: true,
   })
+  const principal =
+    principalRaw == null || currency == null
+      ? null
+      : checkProductAmount(p, 'principal', principalRaw, currency, '투자원금')
   const accountType = requireEnum(
     p,
     'V-19',
@@ -424,11 +445,14 @@ export function parseRealizedProductInput(
     raw.redemptionDate,
     '상환일',
   )
-  const grossAmount = requireAmount(p, 'V-19', 'grossAmount', raw.grossAmount, {
+  const grossRaw = requireAmount(p, 'V-19', 'grossAmount', raw.grossAmount, {
     label: '실수령액',
     min: 'zero',
-    integer: true,
   })
+  const grossAmount =
+    grossRaw == null || currency == null
+      ? null
+      : checkProductAmount(p, 'grossAmount', grossRaw, currency, '실수령액')
   const taxableIncome = requireAmount(p, 'V-11', 'taxableIncome', raw.taxableIncome, {
     label: '과세 금융소득',
     min: 'zero',
@@ -439,6 +463,11 @@ export function parseRealizedProductInput(
     min: 'zero',
     integer: true,
   })
+  // V-24 ⓐ — 수치 규칙은 여기서, 「외화 상품에만」은 아래에서 같은 입력의 통화로 본다
+  const exchangeRate = optionalExchangeRate(p, 'exchangeRate', raw.exchangeRate, '적용 환율')
+  if (exchangeRate != null && currency === 'KRW') {
+    p.add('V-24', 'exchangeRate', '원화 상품에는 적용 환율을 적지 않는다.')
+  }
   const isConfirmed = requireBoolean(p, 'V-19', 'isConfirmed', raw.isConfirmed, '확정값 여부')
   const note = optionalString(p, 'V-19', 'note', raw.note, { label: '비고' })
 
@@ -446,6 +475,7 @@ export function parseRealizedProductInput(
     !allPresent([
       name,
       issuer,
+      currency,
       principal,
       accountType,
       redemptionType,
@@ -453,6 +483,7 @@ export function parseRealizedProductInput(
       grossAmount,
       taxableIncome,
       withholdingTax,
+      exchangeRate,
       isConfirmed,
       note,
     ])
@@ -463,6 +494,7 @@ export function parseRealizedProductInput(
   const input: RealizedProductInput = {
     name: name!,
     principal: principal!,
+    currency: currency!,
     accountType: accountType!,
     redemptionType: redemptionType!,
     redemptionDate: redemptionDate!,
@@ -472,6 +504,7 @@ export function parseRealizedProductInput(
   }
   if (issuer != null) input.issuer = issuer
   if (withholdingTax != null) input.withholdingTax = withholdingTax
+  if (exchangeRate != null) input.exchangeRate = exchangeRate
   if (note != null) input.note = note
 
   // V-12는 부른다 — 절대 규칙 #8이며 유형과 과표만 보면 판정된다(차수가 필요 없다).

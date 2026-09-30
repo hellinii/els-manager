@@ -46,6 +46,7 @@ export {
   NO_ESTIMATE_RATES,
   portfolioPnl,
   sumByCurrency,
+  taxableIncomeKrw,
   toKrw,
   type EstimateRates,
   type ExchangeRate,

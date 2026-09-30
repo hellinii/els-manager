@@ -1,9 +1,10 @@
 import { Badge } from '@/components/display/Badge'
 import type { ProductDetailView } from '@/lib/db/queries/map'
+import type { ProductCurrency } from '@/lib/domain/currency'
 import {
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
-  amount,
+  money,
   percent,
   ymd,
 } from '@/lib/format'
@@ -44,8 +45,15 @@ import {
 
 export function ScheduleTable({
   schedules,
+  currency,
 }: {
   schedules: ProductDetailView['schedules']
+  /**
+   * 예상 수령액의 단위 — 형제 가지 `product.currency`다(DOC-011 §4.0 규칙 1). 표가 한 상품의
+   * 것이라 통화가 하나이므로 원화면 머리글 「(원)」이 그대로이고, 달러면 머리글에서 단위를 떼고
+   * 값이 `$`를 단다(DOC-008 SCR-202 ③)
+   */
+  currency: ProductCurrency
 }) {
   if (schedules.length === 0) {
     return (
@@ -64,7 +72,9 @@ export function ScheduleTable({
         <span>차수</span>
         <span>평가일</span>
         <span className="text-right">배리어</span>
-        <span className="text-right">예상 수령액 (원)</span>
+        <span className="text-right">
+          {currency === 'KRW' ? '예상 수령액 (원)' : '예상 수령액'}
+        </span>
         <span>판정 · 리자드</span>
       </div>
 
@@ -94,7 +104,7 @@ export function ScheduleTable({
 
             <Value label="배리어">{percent(s.barrier)}</Value>
             <Value label="예상 수령액">
-              {s.expectedGross == null ? '—' : `${amount(s.expectedGross)}원`}
+              {s.expectedGross == null ? '—' : money(s.expectedGross, currency)}
             </Value>
 
             <div className="flex flex-col gap-1.5">

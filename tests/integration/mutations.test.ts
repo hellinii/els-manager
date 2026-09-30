@@ -48,6 +48,7 @@ const NAME = {
   asset1: `${FX_NAME_PREFIX} 변경자산1`,
   asset2: `${FX_NAME_PREFIX} 변경자산2`,
   realized: `${FX_NAME_PREFIX} 기실현-등재`,
+  usd: `${FX_NAME_PREFIX} 변경-달러`,
 } as const
 
 /**
@@ -67,6 +68,7 @@ function productInput(overrides: Partial<ProductInput> & { assetId: string }): P
     issuer: '테스트증권',
     issueDate: '2026-01-02',
     principal: PRINCIPAL,
+    currency: 'KRW',
     evaluationPeriodMonths: 6,
     totalRounds: 2,
     annualCouponRate: '0.0800',
@@ -739,6 +741,136 @@ describe('★ W-05 둘째 겹 — 영향 행 0을 성공으로 넘기지 않는�
 // §5.4 · §5.5 · §5.3 — 상환과 삭제의 2단계
 // ---------------------------------------------------------------------------
 
+describe('★ 달러 상품 — 17자리가 문자열로 왕복한다 (Q-08 · V-23 · V-24 · P8 컷 a2)', () => {
+  /*
+   * 달러 금액은 정수부 15자리 + 소수 2자리 = **17자리**이고 float64의 유효 자릿수(약 15.9)를 넘는다
+   * — 원화에서는 예방이던 `::text`·`InsertPayload<T>`가 여기서는 값을 지키는 유일한 층이다(DOC-011
+   * Q-07′ 각주). 경계값 `999999999999999.99`를 수치로 실으면 `1000000000000000`이 되어
+   * `els_products_principal_scale_check`(정수부 15자리)에 걸리거나 센트를 잃는다.
+   */
+  const USD_MAX = '999999999999999.99'
+  const created: string[] = []
+
+  afterAll(async () => {
+    for (const id of created) {
+      const view = await a.read.getProduct(id)
+      if (view?.redemption != null) await a.write.deleteRedemption(view.redemption.id)
+      await a.write.deleteProduct(id)
+    }
+  })
+
+  it('경계값이 센트까지 그대로 돌아온다', async () => {
+    const product = dataOf(
+      await a.write.createProduct(
+        productInput({ assetId, name: NAME.usd, currency: 'USD', principal: USD_MAX }),
+      ),
+    )
+    created.push(product.id)
+    const view = await a.read.getProduct(product.id)
+    expect(view!.product).toMatchObject({ currency: 'USD', principal: USD_MAX })
+  })
+
+  it('★ 끝의 0은 저장 전에 접는다 — `10000.500`이 scale CHECK에 걸리지 않고 `10000.50`이 된다', async () => {
+    // `dec('10000.500').decimalPlaces()`는 1이라 V-23을 통과하지만 DB의 `scale()`은 3을 센다 —
+    // 계약이 `moneyString`으로 정규화하지 않으면 `els_products_principal_scale_check`가 거부한다
+    const product = dataOf(
+      await a.write.createProduct(
+        productInput({ assetId, name: NAME.usd, currency: 'USD', principal: '10000.500' }),
+      ),
+    )
+    created.push(product.id)
+    expect((await a.read.getProduct(product.id))!.product.principal).toBe('10000.50')
+  })
+
+  it('V-23 — 달러의 센트 아래는 그 칸의 오류다 (DB에 닿지 않는다)', async () => {
+    const error = errorOf(
+      await a.write.createProduct(
+        productInput({ assetId, name: NAME.usd, currency: 'USD', principal: '10000.505' }),
+      ),
+    )
+    expect(error.code).toBe('VALIDATION_FAILED')
+    expect(error.fields?.principal).toBeDefined()
+  })
+
+  it('상환 — 실수령액은 달러, 과세는 원화, 적용 환율은 6자리로 돌아온다', async () => {
+    const product = dataOf(
+      await a.write.createProduct(
+        productInput({ assetId, name: NAME.usd, currency: 'USD', principal: '10000.50' }),
+      ),
+    )
+    created.push(product.id)
+    dataOf(
+      await a.write.createRedemption(product.id, {
+        redemptionType: 'EARLY',
+        roundNo: 1,
+        redemptionDate: '2026-07-02',
+        grossAmount: '10400.52',
+        taxableIncome: '580029',
+        exchangeRate: '1450',
+        isConfirmed: true,
+      }),
+    )
+    const view = await a.read.getProduct(product.id)
+    expect(view!.redemption).toMatchObject({
+      grossAmount: '10400.52',
+      realizedPnl: '400.02',
+      taxableIncome: '580029',
+      exchangeRate: '1450.000000',
+    })
+  })
+
+  it('★ 상환의 끝 0도 접는다 — `10400.520`이 digits CHECK에 걸리지 않고 `10400.52`가 된다', async () => {
+    // V-23은 `decimalPlaces()`로 2자리라 통과시키고, 정규화가 없으면 DB의 `scale()`(3)이
+    // `redemptions_gross_amount_digits_check`로 정상 입력을 거부한다(원금의 같은 케이스와 짝)
+    const product = dataOf(
+      await a.write.createProduct(
+        productInput({ assetId, name: NAME.usd, currency: 'USD', principal: '10000.50' }),
+      ),
+    )
+    created.push(product.id)
+    dataOf(
+      await a.write.createRedemption(product.id, {
+        redemptionType: 'EARLY',
+        roundNo: 1,
+        redemptionDate: '2026-07-02',
+        grossAmount: '10400.520',
+        taxableIncome: '580029',
+        isConfirmed: true,
+      }),
+    )
+    expect((await a.read.getProduct(product.id))!.redemption?.grossAmount).toBe('10400.52')
+  })
+
+  it('V-24 — 원화 상품은 적용 환율을 받지 않는다 · V-23 — 원화 상환의 센트도 거부한다', async () => {
+    const product = dataOf(await a.write.createProduct(productInput({ assetId, name: NAME.usd })))
+    created.push(product.id)
+    const base = {
+      redemptionType: 'EARLY' as const,
+      roundNo: 1,
+      redemptionDate: '2026-07-02',
+      taxableIncome: '4000000',
+      isConfirmed: true,
+    }
+    const withRate = errorOf(
+      await a.write.createRedemption(product.id, {
+        ...base,
+        grossAmount: '104000000',
+        exchangeRate: '1450',
+      }),
+    )
+    expect(withRate.code).toBe('VALIDATION_FAILED')
+    expect(withRate.fields?.exchangeRate).toBeDefined()
+
+    const cents = errorOf(
+      await a.write.createRedemption(product.id, { ...base, grossAmount: '104000000.5' }),
+    )
+    expect(cents.code).toBe('VALIDATION_FAILED')
+    // ★ 계약 층(V-23)의 문구다 — DB 트리거(`redemptions_gross_amount_scale`)도 같은 코드 · 같은 칸으로
+    // 사상되므로(errors.ts) 문구로 가르지 않으면 V-23이 사라져도 초록이다(반박 검토 지적)
+    expect(cents.fields?.grossAmount).toContain('원 단위 정수로 입력한다')
+  })
+})
+
 describe('§5.4 createRedemption', () => {
   let productId: string
 
@@ -1301,6 +1433,7 @@ describe('§5.11 createRealizedProduct', () => {
     name: NAME.realized,
     issuer: '키움증권',
     principal: PRINCIPAL,
+    currency: 'KRW',
     accountType: 'GENERAL',
     // 그림의 1740회 — 조기상환이고 차수가 없다
     redemptionType: 'EARLY',

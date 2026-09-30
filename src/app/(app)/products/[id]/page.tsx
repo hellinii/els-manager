@@ -17,15 +17,19 @@ import {
   KI_OBSERVATION_LABELS,
   KI_STATUS_GRADES,
   KI_STATUS_LABELS,
+  PRODUCT_CURRENCY_LABELS,
   REDEMPTION_TYPE_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   amount,
   barrierGap,
   deriveDisplay,
+  exchangeRateDisplay,
+  exchangeRateMissingNotice,
   korDate,
+  money,
   percent,
-  signedWon,
+  signedMoney,
   won,
   ymd,
 } from '@/lib/format'
@@ -186,7 +190,14 @@ export default async function ProductDetailPage({
       {/* ── ① 기본 정보 ────────────────────────────────────────────────── */}
       <Section title="기본 정보">
         <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-          <Fact label="투자원금">{won(product.principal)}</Fact>
+          {/*
+            달러 상품에만 통화를 적는다 — 원화 상품의 상세는 오늘과 같다. 금액의 「원」이 이미
+            통화를 말한다(DOC-008 SCR-202 ① · SCR-201 ⑭와 같은 판단).
+          */}
+          {product.currency !== 'KRW' && (
+            <Fact label="상품 통화">{PRODUCT_CURRENCY_LABELS[product.currency]}</Fact>
+          )}
+          <Fact label="투자원금">{money(product.principal, product.currency)}</Fact>
           <Fact label="계좌유형">{ACCOUNT_TYPE_LABELS[product.accountType]}</Fact>
           {product.entryMode === 'FULL' && (
             <>
@@ -231,7 +242,7 @@ export default async function ProductDetailPage({
 
       {/* ── ③ 차수별 조건 ──────────────────────────────────────────────── */}
       <Section title="차수별 평가 조건">
-        <ScheduleTable schedules={view.schedules} />
+        <ScheduleTable schedules={view.schedules} currency={product.currency} />
       </Section>
 
       {/* ── ⑤ 예상 수령액·과세소득 ─────────────────────────────────────── */}
@@ -242,7 +253,7 @@ export default async function ProductDetailPage({
       {/* ── ⑥ 상환 실적 ────────────────────────────────────────────────── */}
       {redemption != null && (
         <Section title="상환 실적">
-          <Redemption redemption={redemption} />
+          <Redemption redemption={redemption} currency={product.currency} />
 
           {/*
             §5.5의 두 계약. 상환 실적 **옆에** 있는 이유는 두 조작의 대상이 지금 보고
@@ -404,9 +415,22 @@ function Projection({
       </p>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
         <Fact label="적용 차수">{projection.appliedRoundNo}차</Fact>
-        <Fact label="예상 세전 수령액">{won(projection.expectedGross)}</Fact>
+        <Fact label="예상 세전 수령액">
+          {money(projection.expectedGross, product.currency)}
+        </Fact>
+        {/*
+          과세 축은 **원**이다(상품 통화와 무관 — DOC-005 §4). `null`은 E-09 — 환율이 없어
+          계산하지 않았다. 「0원」으로 적지 않는다: 계산한 0으로 읽힌다(DOC-008 SCR-202 ⑤).
+          비과세 계좌의 달러 상품은 환율과 무관하게 「0원」이다 — 계약이 `'0'`을 준다.
+        */}
         <Fact label="예상 과세 금융소득">
-          {won(projection.expectedTaxableIncome)}
+          {projection.expectedTaxableIncome == null ? (
+            <span className="text-sm font-normal text-amber-900">
+              {exchangeRateMissingNotice({ kind: 'PRODUCT' })}
+            </span>
+          ) : (
+            won(projection.expectedTaxableIncome)
+          )}
         </Fact>
         <Fact label="귀속연도">{projection.attributionYear}년</Fact>
       </dl>
@@ -417,8 +441,11 @@ function Projection({
 /** ⑥ 상환 실적 — **확정값이다.** `isConfirmed`가 그 안에서 한 단계 더 가른다(ST-05). */
 function Redemption({
   redemption,
+  currency,
 }: {
   redemption: NonNullable<ProductDetailView['redemption']>
+  /** 실수령액 · 실현손익의 단위(형제 가지 `product.currency`). 과세 둘은 늘 원이다 */
+  currency: ProductDetailView['product']['currency']
 }) {
   return (
     <>
@@ -440,15 +467,23 @@ function Redemption({
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
         <Fact label="상환일">{ymd(redemption.redemptionDate)}</Fact>
-        <Fact label="실수령액">{won(redemption.grossAmount)}</Fact>
+        <Fact label="실수령액">{money(redemption.grossAmount, currency)}</Fact>
         {/* 음수가 정상값이다 — 만기손실 상환의 손익(DOC-005 §6 포트폴리오 손익) */}
-        <Fact label="실현손익">{signedWon(redemption.realizedPnl)}</Fact>
+        <Fact label="실현손익">{signedMoney(redemption.realizedPnl, currency)}</Fact>
+        {/* 거래내역의 **원화** 값 그대로다(A-04 · U1). 환율을 곱해 만든 값이 아니다 */}
         <Fact label="과세 금융소득">{won(redemption.taxableIncome)}</Fact>
         <Fact label="원천징수세액">
           {redemption.withholdingTax == null
             ? '—'
             : `${amount(redemption.withholdingTax)}원`}
         </Fact>
+        {/*
+          적용 환율(참고) — 기록됐을 때만 칸을 그린다. 선택 입력인 참고값의 부재는 정보가
+          아니고 원화 상품에는 애초에 그 값이 없다(V-24). 원화 환산 손익은 적지 않는다(DQ-15)
+        */}
+        {redemption.exchangeRate != null && (
+          <Fact label="적용 환율">{exchangeRateDisplay(redemption.exchangeRate)}</Fact>
+        )}
       </dl>
 
       {redemption.note != null && (

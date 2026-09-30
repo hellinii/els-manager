@@ -1,4 +1,5 @@
 import type { ActionResult } from '@/lib/db/mutations/result'
+import { CURRENCY_ORDER, type ProductCurrency } from '@/lib/domain/currency'
 
 import { barrierNotice, parseBarrierList } from './barriers'
 import { parseFieldPath, path } from './fieldPath'
@@ -129,6 +130,34 @@ export function parseIntent(raw: string | null | undefined): Intent {
 }
 
 // ---------------------------------------------------------------------------
+// 상품 통화 선택지 — DOC-008 SCR-204 (P8 컷 a2)
+// ---------------------------------------------------------------------------
+
+/**
+ * 폼이 고르게 하는 상품 통화 — **지금은 원화뿐이다.**
+ *
+ * DOC-008 SCR-204: 「「달러」는 모든 금액 표시가 통화를 아는 커밋에서 비로소 고를 수 있다 — 그
+ * 전에는 계약이 통화를 나르되 폼은 원화만 준다」. 표시(출력)는 컷 a2-3a에서 전부 통화를 알게
+ * 되었지만 **입력 칸**(투자원금 라벨 · 상환의 실수령액 라벨 · 적용 환율)이 아직 원화 전용이다 —
+ * 달러를 열면 「실수령액 (원)」 칸에 달러를 적게 된다. 컷 a2-3b가 입력 칸과 함께 달러를 연다.
+ *
+ * 기본값은 없다(U7) — 「선택」에서 시작하고 고르지 않으면 V-22가 그 칸에 붙는다.
+ */
+export const SELECTABLE_PRODUCT_CURRENCIES: readonly ProductCurrency[] = ['KRW']
+
+/**
+ * 선택지 — 저장값이 위 목록 밖이면(계약 경유로 저장된 달러 상품) **그 값을 더한다.** 빼면 수정
+ * 화면의 `<select>`가 「선택」을 보여 주고 저장이 V-22로 막히거나, 사용자가 원화를 골라 달러
+ * 상품이 조용히 원화가 된다.
+ */
+export function currencyOptionsOf(current: string | undefined): ProductCurrency[] {
+  const options = [...SELECTABLE_PRODUCT_CURRENCIES]
+  const stored = CURRENCY_ORDER.find((c) => c === current)
+  if (stored != null && !options.includes(stored)) options.push(stored)
+  return CURRENCY_ORDER.filter((c) => options.includes(c))
+}
+
+// ---------------------------------------------------------------------------
 // 폼의 이름 — 계약 오류 키를 칸과 짝지을 때 쓴다
 // ---------------------------------------------------------------------------
 
@@ -137,6 +166,9 @@ const BASIC_NAMES = [
   'name',
   'issuer',
   'issueDate',
+  // 상품 통화 — 기본값 없음(U7 · V-22). 수정 폼 왕복에서 빠지면 달러 상품이 조용히 원화가 된다.
+  // 투자원금 **바로 위**다 — 그 칸의 단위이기 때문이다(DOC-008 SCR-204 「구획별 입력」)
+  'currency',
   'principal',
   'accountType',
   'note',

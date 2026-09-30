@@ -60,6 +60,9 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
     // 금액은 숫자만이다 — 파서가 쉼표를 지우므로 쉼표를 붙여도 왕복하지만, 저장된
     // 값을 그대로 보여주는 편이 「무엇이 저장되어 있는가」에 대한 답이다.
     principal: product.principal,
+    // ★ 빠지면 수정 저장이 V-22로 막히거나, 사용자가 다시 고르며 달러 상품이 조용히 원화가 된다
+    // (`tests/app/values.test.ts`의 왕복이 음성 대조다)
+    currency: product.currency,
     accountType: product.accountType,
     note: product.note ?? '',
 

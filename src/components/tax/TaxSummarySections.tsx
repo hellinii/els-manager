@@ -6,7 +6,9 @@ import {
   HEALTH_INSURANCE_TYPE_LABELS,
   INTEGRITY_ISSUE_GRADES,
   INTEGRITY_ISSUE_LABELS,
+  PRODUCT_CURRENCY_LABELS,
   amount,
+  exchangeRateMissingNotice,
   koreanWon,
   percent,
   won,
@@ -41,6 +43,16 @@ export function IncomeSection({ view }: { view: TaxSummaryView }) {
         <Amount label="ELS 외 금융소득" value={income.otherFinancialIncome} />
         <Amount label="금융소득 합계" value={income.total} emphasis />
       </dl>
+
+      {/*
+        E-09 — 합계 **바로 아래**, 접지 않는다(DOC-008 SCR-401). 빠진 몫이 있으면 합계 · 세액 ·
+        보험료가 하한이고, 종합과세 기준금액 근처라면 그 몫이 판정을 뒤집을 수 있다.
+      */}
+      {income.unconvertedCount > 0 && (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {exchangeRateMissingNotice({ kind: 'COUNT', count: income.unconvertedCount })}
+        </p>
+      )}
 
       <p
         className={`rounded-md px-3 py-2 text-sm ${
@@ -259,8 +271,18 @@ export function ContributingSection({ view }: { view: TaxSummaryView }) {
                   {INTEGRITY_ISSUE_LABELS[item.integrityIssue]}
                 </Badge>
               )}
+              {/* SCR-201 ⑭와 같은 규약 — 원화 상품에는 배지가 없다. 금액은 늘 원화다 */}
+              {item.currency !== 'KRW' && (
+                <Badge grade="neutral">{PRODUCT_CURRENCY_LABELS[item.currency]}</Badge>
+              )}
             </span>
-            <span className="tabular-nums">{won(item.taxableIncome)}</span>
+            {/*
+              빠진 상품도 행에 남는다 — 「0원」은 계산한 0으로 읽히고, 행을 지우면 n건이 어느
+              상품인지 알 수 없다(DOC-011 §4.6 · DOC-008 SCR-401)
+            */}
+            <span className="tabular-nums">
+              {item.taxableIncome == null ? '환율 없음' : won(item.taxableIncome)}
+            </span>
           </li>
         ))}
       </ul>

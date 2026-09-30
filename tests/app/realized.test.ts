@@ -24,6 +24,8 @@ import {
 const ROW = {
   name: '(주) 키움 뉴글로벌100조 ELS 1740회',
   issuer: '키움증권',
+  // P8 컷 a2 — 기본값이 없으므로 그림의 한 줄에도 적는다(스프레드시트의 행은 원화 상품이다)
+  currency: 'KRW',
   principal: '19390000',
   accountType: 'GENERAL',
   redemptionType: 'EARLY',
@@ -135,6 +137,7 @@ describe('폼 → 계약 입력', () => {
     expect(parseRealizedProductForm(formOf())).toEqual({
       name: ROW.name,
       issuer: ROW.issuer,
+      currency: 'KRW',
       principal: '19390000',
       accountType: 'GENERAL',
       redemptionType: 'EARLY',
@@ -219,6 +222,12 @@ describe('계약 계층 검증 — 없는 칸에 오류를 붙이지 않는다',
   it('V-01 — 투자원금은 0보다 커야 한다', () => {
     const { error } = parse({ principal: '0' })
     expect(error?.fields?.principal).toBeDefined()
+  })
+
+  it('★ 상품 통화를 고르지 않으면 V-22 — 원화로 채우지 않는다 (U7)', () => {
+    const { error } = parse({ currency: '' })
+    expect(error?.code).toBe('VALIDATION_FAILED')
+    expect(error?.fields?.currency).toBeDefined()
   })
 
   it('V-11 — 과세 금융소득은 음수가 될 수 없다 (I-12)', () => {

@@ -63,14 +63,14 @@ type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 /**
  * **계약에 대응 없는 필드가 없다.** 위 표는 「요소 → 필드」이고 이 별칭은 그 역을 본다.
  *
- * 셋을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`는 열이 아니라
- * **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로 규정한다. 아래
- * 케이스가 그 행의 존재를 함께 단언하므로, 이 셋을 「대응 없음」으로 두는 것이 침묵이
- * 아니다. 넷째가 생기면 여기가 컴파일에서 깨지고 그때 물어야 하는 것은 「그것이 열인가
- * 표 밖 표식인가」다.
+ * 넷을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`는
+ * 열이 아니라 **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로 규정한다. 아래
+ * 케이스가 그 행의 존재와 **넷의 문구 각각**을 함께 단언하므로, 이 넷을 「대응 없음」으로 두는
+ * 것이 침묵이 아니다. 다섯째가 생기면(컷 a3 — `exchangeRateBasis`) 여기가 컴파일에서 깨지고
+ * 그때 물어야 하는 것은 「그것이 열인가 표 밖 표식인가」다.
  */
 type Mapped = (typeof ELEMENT_SOURCES)[keyof typeof ELEMENT_SOURCES]['field']
-type OutsideTable = 'taxLawYear' | 'profileYear' | 'hasEstimates'
+type OutsideTable = 'taxLawYear' | 'profileYear' | 'hasEstimates' | 'excludedForeignCount'
 type Unmapped = Exclude<keyof ForecastRow, Mapped | OutsideTable>
 type _NoUnmappedField = Expect<Equals<Unmapped, never>>
 
@@ -129,9 +129,9 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(documented).toEqual(expected)
   })
 
-  it('표 밖 표식이 별 행으로 규정되어 있다 — 제외한 셋의 근거', () => {
+  it('표 밖 표식이 별 행으로 규정되어 있다 — 제외한 넷의 근거', () => {
     /*
-     * `Unmapped`가 `taxLawYear`·`profileYear`·`hasEstimates`를 빼는 근거가 문서에
+     * `Unmapped`가 `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`를 빼는 근거가 문서에
      * 실재함을 확인한다. 이 행이 사라지면 그 셋이 「어느 요소도 읽지 않는 필드」가 되므로
      * 타입 쪽 제외가 근거를 잃는다 — 제외를 주석으로만 두면 그 상실이 조용하다.
      */
@@ -143,6 +143,8 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(row![1]).toContain('적용 세율 연도')
     expect(row![1]).toContain('프로필 출처 연도')
     expect(row![1]).toContain('행별 추정 표식')
+    // P8 컷 a2 — 넷째. 셋만 보면 넷째가 문서 근거 없이 `OutsideTable`에 들어가도 초록이다
+    expect(row![1]).toContain('환율이 없어 뺀 달러 상품 수')
   })
 })
 
@@ -168,6 +170,7 @@ function zeroRow(year: number, overrides: Partial<ForecastRow> = {}): ForecastRo
     remainingPrincipal: '0',
     cumulativeAssets: '0',
     hasEstimates: false,
+    excludedForeignCount: 0,
     ...overrides,
   }
 }
@@ -222,6 +225,17 @@ describe('`isForecastEmpty` — 「전망할 데이터 없음」', () => {
         hasEstimates: true,
       }),
     )
+
+    expect(isForecastEmpty(rows)).toBe(false)
+  })
+
+  it('★ 환율이 없어 뺀 달러 상품만 있어도 비어 있지 않다 — 넷째 축 (P8 컷 a2)', () => {
+    /*
+     * 달러 상품 하나만 보유하고 추정 환율이 없는 사용자다(컷 a2의 운영에서는 늘 그렇다). 원화
+     * 합 세 축이 전부 0인데 그것은 상품이 없어서가 아니라 **원화 합에서 빠져서**다. 이 축이
+     * 없으면 「보유한 상품이 없다」가 뜨고 ST-07 문구가 그 분기에 가려진다.
+     */
+    const rows = SIX_ZERO_YEARS.map((row) => zeroRow(row.year, { excludedForeignCount: 1 }))
 
     expect(isForecastEmpty(rows)).toBe(false)
   })

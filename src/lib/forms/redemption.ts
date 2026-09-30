@@ -1,6 +1,13 @@
 import { amountString } from '@/lib/decimal'
 import type { ProductDetailView, RedemptionView } from '@/lib/db/queries/map'
-import { grossExpected, shiftDays, taxableIncome, type AccountType } from '@/lib/domain'
+import {
+  grossExpected,
+  moneyString,
+  shiftDays,
+  taxableIncome,
+  type AccountType,
+  type ProductCurrency,
+} from '@/lib/domain'
 
 /**
  * SCR-203 상환 처리의 폼 값 — **순수**하다 (P4 컷 6, DOC-008 §5·DOC-011 §5.4·§5.5)
@@ -79,7 +86,11 @@ export const REDEMPTION_DATE_OFFSET_DAYS = 5
 export type RoundAmounts = {
   /** 세전. DOC-007 §4.1 */
   grossAmount: string
-  /** DOC-007 §4.3. `TAX_FREE`는 `'0'`이고 음수가 될 수 없다(절대 규칙 #8) */
+  /**
+   * DOC-007 §4.3. `TAX_FREE`는 `'0'`이고 음수가 될 수 없다(절대 규칙 #8).
+   * **달러 상품은 `''`(채우지 않는다 — U1)** — 과세표준은 지급일 환율로 환산한 원화이고 그 환율은
+   * 거래내역만 안다. 추정으로 채우면 사용자가 우리 추정을 증권사 확정값으로 저장한다(DOC-008 SCR-203)
+   */
   taxableIncome: string
 }
 
@@ -116,7 +127,7 @@ export type RoundFill = {
 }
 
 export function roundOptionsOf(view: ProductDetailView): RoundOption[] {
-  const { principal, accountType, evaluationPeriodMonths } = view.product
+  const { principal, accountType, evaluationPeriodMonths, currency } = view.product
 
   return view.schedules.map((schedule) => ({
     roundNo: schedule.roundNo,
@@ -134,7 +145,7 @@ export function roundOptionsOf(view: ProductDetailView): RoundOption[] {
      * 입력에 같은 `amountString`을 지나므로 오늘은 값이 같기 때문이다. 즉 근거는
      * 이 주석이고, 「값이 일치한다」 케이스를 재사용의 증거로 읽으면 안 된다.
      */
-    early: amountsOf(schedule.expectedGross, principal, accountType),
+    early: amountsOf(schedule.expectedGross, principal, accountType, currency),
 
     /*
      * 리자드는 조회 계층에 없다 — §4.3의 차수별 값이 `EARLY` 가정 하나뿐이기 때문이다.
@@ -154,16 +165,20 @@ export function roundOptionsOf(view: ProductDetailView): RoundOption[] {
       schedule.expectedGross == null || schedule.lizardCouponRate == null
         ? null
         : amountsOf(
-            amountString(
+            // 상품 통화의 보조단위로 접는다 — `amountString`이면 달러 리자드 수령액이 센트를 잃는다
+            // (`schedules[].expectedGross`가 `moneyString`으로 오는 것과 같은 자릿수)
+            moneyString(
               grossExpected({
                 principal,
                 couponRate: schedule.lizardCouponRate,
                 evaluationPeriodMonths,
                 roundNo: schedule.roundNo,
               }),
+              currency,
             ),
             principal,
             accountType,
+            currency,
           ),
   }))
 }
@@ -178,8 +193,12 @@ function amountsOf(
   gross: string | null,
   principal: string,
   accountType: AccountType,
+  currency: ProductCurrency,
 ): RoundAmounts | null {
   if (gross == null) return null
+  // 달러 상품 — 과세 금융소득은 거래내역의 원화 값이다(U1). 첫 렌더에도 차수를 고칠 때의
+  // 다시 채우기에도 채우지 않는다(DOC-008 SCR-203 「P8 달러 ELS」). 실수령액은 상품 통화로 채운다
+  if (currency !== 'KRW') return { grossAmount: gross, taxableIncome: '' }
   return {
     grossAmount: gross,
     taxableIncome: amountString(

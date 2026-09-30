@@ -51,6 +51,7 @@ const NAME = `[E2E] 기실현${STAMP}`
 /** 그림(사용자의 스프레드시트) 한 줄. 쉼표를 붙여 파서의 제거까지 함께 본다 */
 const ROW = {
   issuer: '키움증권',
+  currency: 'KRW',
   principal: '19,390,000',
   accountType: 'GENERAL',
   redemptionType: 'EARLY',

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/display/Badge'
 import { UnderlyingLines } from '@/components/display/UnderlyingLines'
 import type { ScheduleItem } from '@/lib/db/queries/map'
+import type { ProductCurrency } from '@/lib/domain/currency'
 import {
   ACCOUNT_TYPE_LABELS,
   CONDITION_RESULT_GRADES,
@@ -15,8 +16,9 @@ import {
   dDayLabel,
   deriveDisplay,
   kiTermLabel,
+  money,
   percent,
-  signedWon,
+  signedMoney,
   ymd,
   type DisplayState,
   type ProductGroup,
@@ -115,7 +117,13 @@ export function ProductScheduleCard({
 
         <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
           <HeadFact label="투자원금">
-            <span className="tabular-nums">{amount(group.principal)}</span>원
+            {group.currency === 'KRW' ? (
+              <>
+                <span className="tabular-nums">{amount(group.principal)}</span>원
+              </>
+            ) : (
+              <span className="tabular-nums">{money(group.principal, group.currency)}</span>
+            )}
           </HeadFact>
           <HeadFact label="연쿠폰">
             {group.annualCouponRate == null ? (
@@ -180,8 +188,12 @@ export function ProductScheduleCard({
           <span>평가일</span>
           <span className="text-right">D-Day</span>
           <span>조건 (배리어)</span>
-          <span className="text-right">예상 세전 (원)</span>
-          <span className="text-right">세후 예상 (원)</span>
+          {/* 원화 카드는 오늘 그대로다. 달러 카드는 단위를 떼고(값이 `$`를 단다) ⑬에 근사의
+              출처를 단다 — 환율 없이 달러로 곱했다(DOC-011 §4.4 · U8) */}
+          <span className="text-right">
+            {group.currency === 'KRW' ? '예상 세전 (원)' : '예상 세전'}
+          </span>
+          <span className="text-right">{netLabel(group.currency, '세후 예상 (원)')}</span>
           <span className="text-right">예상 손익</span>
         </div>
 
@@ -363,16 +375,21 @@ function RoundRow({
       {/* ⑤⑥⑦ 금액 셋 — `lg`에서 래퍼의 상자가 사라져 세 열로 «펼쳐진다» */}
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 lg:contents">
         <Money label="예상 세전">
-          {redeemed || p == null ? null : amount(p.expectedGross)}
+          {redeemed || p == null ? null : cardAmount(p.expectedGross, item.currency)}
         </Money>
-        <Money label="세후 예상" strong>
-          {redeemed || p == null ? null : amount(p.expectedNet)}
+        {/* 달러 ⑬에만 「≈」 — 값이 근사다. 라벨은 머리글과 같은 문자열이라 폭과 무관하게 따라다닌다 */}
+        <Money label={netLabel(item.currency, '세후 예상')} strong>
+          {redeemed || p == null
+            ? null
+            : item.currency === 'KRW'
+              ? amount(p.expectedNet)
+              : `≈ ${money(p.expectedNet, item.currency)}`}
         </Money>
         <Money label="예상 손익">
-          {/* 현 산식에서 음수가 될 수 없다(`r ≥ 0`). 그래도 `signedWon`을 쓰는 것은
+          {/* 현 산식에서 음수가 될 수 없다(`r ≥ 0`). 그래도 부호를 붙이는 것은
               `+`가 **「총액이 아니라 증분」**을 말하기 때문이다 — 색은 쓰지 않는다
               (이 저장소의 빨강은 「조치·경과」 축이고 한국 등락 관행과 방향이 반대다). */}
-          {redeemed || p == null ? null : signedWon(p.expectedPnl)}
+          {redeemed || p == null ? null : signedMoney(p.expectedPnl, item.currency)}
         </Money>
       </div>
     </li>
@@ -406,6 +423,19 @@ function Cell({
  * 모바일 라벨과 열 머리글이 같은 문자열이므로 폭이 어떻든 모든 값에 표식이 붙어
  * 있다. 그것이 셀마다 「예상」을 반복하지 않고도 규율을 지키는 기전이다.
  */
+/** 원화 카드는 머리글이 단위를 들고(값은 숫자만), 달러 카드는 값이 `$`를 든다 */
+function cardAmount(value: string, currency: ProductCurrency): string {
+  return currency === 'KRW' ? amount(value) : money(value, currency)
+}
+
+/**
+ * ⑬의 머리글 · 모바일 라벨 — 달러 카드는 「세후 예상 (달러 기준 참고)」 (DOC-008 SCR-301 · U8).
+ * 원화는 호출부가 준 종전 문자열 그대로다(머리글 「세후 예상 (원)」 · 모바일 「세후 예상」)
+ */
+function netLabel(currency: ProductCurrency, krw: string): string {
+  return currency === 'KRW' ? krw : '세후 예상 (달러 기준 참고)'
+}
+
 function Money({
   label,
   strong = false,

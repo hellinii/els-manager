@@ -380,9 +380,11 @@ describe('§4.1 getDashboard', () => {
     expect(view.upcomingEvaluations.every((e) => e.ownerName.includes('A'))).toBe(true)
     // A의 미상환: A정상, A기초자산없음, A일정없음 = 3건
     expect(view.totals.activeCount).toBe(3)
-    expect(view.totals.activePrincipal).toBe('150000000')
-    // 상환 완료 1건: 104,000,000 − 100,000,000
-    expect(view.totals.realizedPnl).toBe('4000000')
+    // 원화뿐인 범위는 원화 한 행이고 그 값이 종전 두 필드와 **같은 문자열**이다(§4.1 v4.9)
+    expect(view.totals.byCurrency).toEqual([
+      // 상환 완료 1건: 104,000,000 − 100,000,000
+      { currency: 'KRW', activeCount: 3, activePrincipal: '150000000', realizedPnl: '4000000' },
+    ])
   })
 
   it('scope=ALL은 전체를 센다 — 세금은 합산하지 않는다 (D-02)', async () => {
@@ -501,13 +503,15 @@ describe('§4.1 getDashboard', () => {
     expect(view.recentRedemptions).toHaveLength(1)
     const row = view.recentRedemptions[0]!
     expect(row.productName).toContain('A상환완료')
+    expect(row.currency).toBe('KRW')
     expect(row.grossAmount).toBe('104000000')
     expect(row.realizedPnl).toBe('4000000')
     expect(row.redemptionDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(typeof row.isConfirmed).toBe('boolean')
 
-    // 항등식 — 문자열이므로 합을 만들지 않고 1건일 때의 동일성으로 본다.
-    expect(view.totals.realizedPnl).toBe(row.realizedPnl)
+    // 항등식 — 문자열이므로 합을 만들지 않고 1건일 때의 동일성으로 본다. v4.9부터 통화별이다
+    const krw = view.totals.byCurrency.find((c) => c.currency === row.currency)!
+    expect(krw.realizedPnl).toBe(row.realizedPnl)
   })
 
   it('recentRedemptions와 activeCount가 행을 정확히 나눈다', async () => {
@@ -668,9 +672,9 @@ describe('§4.8 listUserSummaries', () => {
     const other = rows.find((r) => r.userId === ITG_USER_B)!
 
     expect(me.activeCount).toBe(3)
-    expect(me.activePrincipal).toBe('150000000')
+    expect(me.activePrincipalByCurrency).toEqual([{ currency: 'KRW', activePrincipal: '150000000' }])
     expect(other.activeCount).toBe(1)
-    expect(other.activePrincipal).toBe('50000000')
+    expect(other.activePrincipalByCurrency).toEqual([{ currency: 'KRW', activePrincipal: '50000000' }])
   })
 
   it('합계 행이 없다 — 종합과세는 개인 단위다', async () => {

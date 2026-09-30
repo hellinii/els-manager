@@ -1,4 +1,13 @@
-import { dec, roundToUnit, type DecimalInput, type DecimalValue } from '@/lib/decimal'
+import {
+  dec,
+  roundToUnit,
+  ZERO,
+  type DecimalInput,
+  type DecimalValue,
+} from '@/lib/decimal'
+
+import { taxableIncome } from './proceeds'
+import type { AccountType } from './types'
 
 /**
  * 상품 통화 — DOC-002 v1.10 M-08 · D-08, DOC-007 v1.4 §2 · §4.8 · §7.7 (P8 컷 a2)
@@ -86,6 +95,46 @@ export function toKrw(params: {
   const rate = params.rates[params.currency]
   if (rate == null) return null
   return dec(params.amount).times(dec(rate.rate))
+}
+
+/**
+ * 과세 금융소득(원화) — DOC-007 §4.8 `taxableIncomeKrw`. **과세 축은 통화와 무관하게 원화다.**
+ *
+ * ```
+ * 원화 상품     taxableIncome(…)                       # §4.3 그대로 — x = 1을 곱하는 것이 아니다
+ * 달러 상품     0                  TAX_FREE             # 환율 없이 안다 — 검산 A-2
+ *              redemption 값      상환 완료             # 거래내역의 원화 확정값. 환산하지 않는다
+ *              0                  달러 이익 ≤ 0         # 곱할 이익이 없다 — 환율보다 먼저 본다
+ *              이익 × x           x 있음                # 달러로 빼고 한 번 곱한다
+ *              null               그 밖                 # E-09 — 호출부가 센다
+ * ```
+ *
+ * **분기 순서가 명제다.** 환율부터 보면 비과세 계좌와 이익 0인 건이 E-09로 세어져 「빠졌다」는
+ * 거짓 경고가 뜬다(검산 A-2). `gross × x₁ − P × x₀`(원화로 바꾼 두 금액의 차)는 쓰지 않는다 —
+ * 원금의 환차익이 과세표준에 들어간다(검산 A-5·A-6, RD-13).
+ *
+ * 반올림하지 않는다 — `F`에는 반올림 전 값이 들어가고(§2) 표시만 1원으로 접는다.
+ */
+export function taxableIncomeKrw(params: {
+  currency: ProductCurrency
+  accountType: AccountType
+  principal: DecimalInput
+  redemption?: { taxableIncome: DecimalInput } | null
+  expectedGross?: DecimalInput | null
+  rates: EstimateRates
+}): DecimalValue | null {
+  const { currency, rates, ...base } = params
+  if (currency === 'KRW') return taxableIncome(base)
+
+  // 비과세와 확정값은 `taxableIncome`이 이미 원화로 안다 — 달러 이익을 만들기 전에 끝낸다
+  if (base.accountType === 'TAX_FREE' || base.redemption != null) {
+    return taxableIncome(base)
+  }
+
+  // 여기서부터 `taxableIncome`의 값은 **달러**다(max(0, gross − P)) — 원화 자리에 두지 않는다
+  const profit = taxableIncome(base)
+  if (profit.lte(ZERO)) return ZERO
+  return toKrw({ amount: profit, currency, rates })
 }
 
 /**

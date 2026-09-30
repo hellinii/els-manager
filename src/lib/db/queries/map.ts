@@ -12,14 +12,19 @@ import {
   isPast,
   isRedeemed,
   kiStatus,
+  MINOR_UNITS,
+  moneyString,
   overdueEvaluations,
   realizedPnl,
   taxableIncome,
+  taxableIncomeKrw,
   underlyingRatio,
   worstOf,
   type ConditionResult,
+  type EstimateRates,
   type KiObservation,
   type KiStatus,
+  type ProductCurrency,
   type RedemptionMark,
 } from '@/lib/domain'
 
@@ -85,6 +90,14 @@ export function ratioString(value: DecimalValue): string {
  */
 function nullableAmount(value: DecimalValue | null): string | null {
   return value == null ? null : amountString(value)
+}
+
+/** 상품 통화 금액(Q-07 ⓐ)의 널 허용판. 과세 축(원화)은 위 `nullableAmount`다 */
+function nullableMoney(
+  value: DecimalValue | null,
+  currency: ProductCurrency,
+): string | null {
+  return value == null ? null : moneyString(value, currency)
 }
 
 function nullableRatio(value: string | null): string | null {
@@ -478,6 +491,8 @@ export type ProductListItem = {
   ownerId: string
   ownerName: string
   principal: string
+  /** 상품 통화 — `principal`의 단위 (§4.0 규칙 1). 화면이 다른 필드에서 추론하지 않는다 */
+  currency: ProductCurrency
   accountType: 'GENERAL' | 'TAX_FREE'
   status: 'ACTIVE' | 'REDEEMED'
   nextEvaluation: {
@@ -563,7 +578,8 @@ export function toProductListItem(
     name: row.name,
     ownerId: row.owner_id,
     ownerName: ownerNameOf(row),
-    principal: amountString(dec(row.principal)),
+    principal: moneyString(dec(row.principal), row.currency),
+    currency: row.currency,
     accountType: row.account_type,
     status: j.status,
     nextEvaluation:
@@ -639,10 +655,15 @@ export type RedemptionView = {
   redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
   roundNo: number | null
   redemptionDate: string
+  /** 상품 통화 — 부모 `product.currency` (§4.0 규칙 1의 형제 가지) */
   grossAmount: string
+  /** 과세 축 — 통화와 무관하게 **원화**다(거래내역의 값 · A-04 · U1) */
   taxableIncome: string
   withholdingTax: string | null
+  /** 적용 환율(참고) — 소수 6자리. **어떤 계산에도 쓰지 않는다**(§4.3). 원화 상품은 늘 `null` */
+  exchangeRate: string | null
   isConfirmed: boolean
+  /** 상품 통화 */
   realizedPnl: string
   note: string | null
 }
@@ -658,6 +679,12 @@ export type ProductDetailView = {
     /** `null` = 기실현 등재 (DOC-002 D-07). `FULL`이면 항상 있다(I-18) */
     issueDate: string | null
     principal: string
+    /**
+     * 상품 통화 — `principal`과 **형제 가지**(`schedules[]`·`projection`·`redemption`)의
+     * 상품 통화 금액의 단위다(§4.0 규칙 1). 과세 축(`expectedTaxableIncome`·`taxableIncome`·
+     * `withholdingTax`)은 이 값과 무관하게 원화다.
+     */
+    currency: ProductCurrency
     evaluationPeriodMonths: number
     totalRounds: number
     /**
@@ -714,8 +741,14 @@ export type ProductDetailView = {
   }>
   projection: {
     appliedRoundNo: number
+    /** 상품 통화 */
     expectedGross: string
-    expectedTaxableIncome: string
+    /**
+     * 원화(과세 축). **`null` = E-09** — 달러 상품인데 추정 환율이 없다(DOC-007 §4.8).
+     * `projection` 자체의 `null` 둘(상환 완료 · 적용 차수 없음)과 뜻이 다르다 — 산출은 됐고
+     * 원화로 바꿀 환율만 없다. 비과세 계좌와 달러 이익 ≤ 0은 환율 없이 `'0'`이다.
+     */
+    expectedTaxableIncome: string | null
     attributionYear: number
   } | null
   redemption: RedemptionView | null
@@ -752,6 +785,11 @@ export function toProductDetailView(
   prices: Map<string, LatestPrice>,
   asOf: string,
   viewerId: string,
+  /**
+   * 추정 환율 — **기본값이 없다.** 빠뜨린 호출이 조용히 「환율 없음」이 되면 컷 a3 이후
+   * 환율이 있는데도 달러 추정이 전부 E-09로 보인다(DOC-011 §4.0 규칙 2·3).
+   */
+  rates: EstimateRates,
 ): ProductDetailView {
   const j = judge(row, prices, asOf)
   /*
@@ -776,7 +814,8 @@ export function toProductDetailView(
       ownerName: ownerNameOf(row),
       isOwner: row.owner_id === viewerId,
       issueDate: row.issue_date,
-      principal: amountString(dec(row.principal)),
+      principal: moneyString(dec(row.principal), row.currency),
+      currency: row.currency,
       evaluationPeriodMonths: row.evaluation_period_months,
       // 정본은 **행 수**다. max(round_no)가 아니다 — 연속성(V-04)은 계약 계층에만
       // 있어 DB는 1,2,99를 허용하므로 두 값이 갈린다(DOC-002 §4.6).
@@ -827,7 +866,7 @@ export function toProductDetailView(
           ? null
           : ratioString(dec(s.lizard_coupon_rate)),
       lizardRequiresNoKi: s.lizard_requires_no_ki,
-      expectedGross: nullableAmount(expectedGrossOf(row, s.round_no)),
+      expectedGross: nullableMoney(expectedGrossOf(row, s.round_no), row.currency),
       // 판정은 **적용 차수 한 곳**에만 있다. 다른 차수의 배리어로 지금 시세를
       // 판정하면 그 차수가 도래했을 때의 결과인 척하는 값이 된다.
       conditionResult:
@@ -837,7 +876,7 @@ export function toProductDetailView(
       isPast: isPast({ evaluationDate: s.evaluation_date, asOf }),
     })),
 
-    projection: projectionOf(row, j),
+    projection: projectionOf(row, j, rates),
 
     redemption:
       row.redemptions == null
@@ -847,18 +886,24 @@ export function toProductDetailView(
             redemptionType: row.redemptions.redemption_type,
             roundNo: row.redemptions.round_no,
             redemptionDate: row.redemptions.redemption_date,
-            grossAmount: amountString(dec(row.redemptions.gross_amount)),
+            grossAmount: moneyString(dec(row.redemptions.gross_amount), row.currency),
             taxableIncome: amountString(dec(row.redemptions.taxable_income)),
             withholdingTax:
               row.redemptions.withholding_tax == null
                 ? null
                 : amountString(dec(row.redemptions.withholding_tax)),
+            // 환율은 시세와 같은 6자리 형식이다(Q-07) — 금액으로 접으면 1392.4가 1392가 된다
+            exchangeRate:
+              row.redemptions.exchange_rate == null
+                ? null
+                : priceString(dec(row.redemptions.exchange_rate)),
             isConfirmed: row.redemptions.is_confirmed,
-            realizedPnl: amountString(
+            realizedPnl: moneyString(
               realizedPnl({
                 grossAmount: row.redemptions.gross_amount,
                 principal: row.principal,
               }),
+              row.currency,
             ),
             note: row.redemptions.note,
           },
@@ -891,6 +936,7 @@ export function toProductDetailView(
 function projectionOf(
   row: ProductRow,
   j: Judgment,
+  rates: EstimateRates,
 ): ProductDetailView['projection'] {
   // ① 상환 완료 ② 적용 차수 없음 — 그 둘이 `ESTIMATED`의 여집합이다.
   if (j.attribution.kind !== 'ESTIMATED') return null
@@ -903,13 +949,17 @@ function projectionOf(
 
   return {
     appliedRoundNo: round.round_no,
-    expectedGross: amountString(gross),
-    expectedTaxableIncome: amountString(
-      taxableIncome({
+    expectedGross: moneyString(gross, row.currency),
+    // 원화 상품은 종전 `taxableIncome()` 그대로다(환율 경로를 지나지 않는다 — DOC-007 §4.8).
+    // §4.6 `contributionOf`와 같은 함수이므로 두 화면이 같은 상품에 같은 E-09를 말한다.
+    expectedTaxableIncome: nullableAmount(
+      taxableIncomeKrw({
+        currency: row.currency,
         accountType: row.account_type,
         principal: row.principal,
         redemption: null,
         expectedGross: gross,
+        rates,
       }),
     ),
     attributionYear: j.attribution.year,
@@ -970,6 +1020,11 @@ export type ScheduleItem = {
    * 싣고 판정이 쓰고 있었기 때문이다 — v3.2까지 매퍼가 **읽고 버렸다**.
    */
   principal: string
+  /**
+   * 상품 통화 — `principal`과 `proceeds` 넷의 단위. 차수마다 같은 값이다 (§4.4 v4.9).
+   * `groupByProduct`가 첫 항목에서 취하는 상품 단위 값의 하나다.
+   */
+  currency: ProductCurrency
   /** 연쿠폰율. `null` = 계약 조건 없음(D-07)이며 `proceeds`와 **같은 조건**으로 빈다 */
   annualCouponRate: string | null
   /**
@@ -1017,7 +1072,10 @@ export type ScheduleItem = {
 export type ScheduleProceeds = {
   /** 세전. DOC-007 §4.1의 `EARLY` 가정 — §4.3의 같은 이름 필드와 같은 값이다 */
   expectedGross: string
-  /** 예상 원천징수. `TAX_FREE`는 `'0'` */
+  /**
+   * 예상 원천징수. `TAX_FREE`는 `'0'`. **상품 통화다** — 달러 상품은 「달러 기준 참고」값
+   * (DOC-011 §4.4 v4.9 · DOC-001 U8)이고 실제 세액(원화 계산 후 환전 차감)과 수 센트 갈린다
+   */
   expectedWithholding: string
   /** 세후 예상 수령액 = 세전 − 예상 원천징수. **잔차다** */
   expectedNet: string
@@ -1068,7 +1126,10 @@ function proceedsOf(
   const gross = expectedGrossOf(row, roundNo)
   if (gross == null) return null
 
-  const shown = roundToUnit(gross, '1')
+  // 보조단위로 먼저 접는다 — 원화 '1'은 종전 값 그대로이고, 달러 '0.01'이 센트 미만 절사
+  // 뒤의 금액이다. 세 값이 이 하나에서 파생되므로 「세후 + 원천징수 = 세전」이 통화마다 선다
+  const { unit } = MINOR_UNITS[row.currency]
+  const shown = roundToUnit(gross, unit)
 
   const taxable = taxableIncome({
     accountType: row.account_type,
@@ -1077,16 +1138,19 @@ function proceedsOf(
     expectedGross: shown,
   })
 
+  // 달러 상품은 **달러로** 계산한다 — 환율을 쓰지 않으므로 SCR-301이 환율 저장에 낡지 않는다.
+  // 원화의 `{ unit: '1', mode: 'TRUNCATE' }`는 종전 `DEFAULT_ROUNDING`과 같다(DOC-011 §4.4)
   const withheld = separateTaxationWithholding({
     taxableIncome: taxable,
     constants: tax.constants,
+    rounding: { unit, mode: 'TRUNCATE' },
   })
 
   return {
-    expectedGross: amountString(shown),
-    expectedWithholding: amountString(withheld),
-    expectedNet: amountString(shown.minus(withheld)),
-    expectedPnl: amountString(shown.minus(dec(row.principal))),
+    expectedGross: moneyString(shown, row.currency),
+    expectedWithholding: moneyString(withheld, row.currency),
+    expectedNet: moneyString(shown.minus(withheld), row.currency),
+    expectedPnl: moneyString(shown.minus(dec(row.principal)), row.currency),
     separateTaxationRate: ratioString(dec(tax.constants.separateTaxationRate)),
     taxLawYear: tax.taxLawYear,
   }
@@ -1150,7 +1214,8 @@ export function toScheduleItems(
        * 실수를 했고 v0.8이 되돌렸다(원인의 범위를 넘어 억제하면 같은 상품이
        * §4.6에서는 과세에 기여하면서 여기서만 값을 잃는다).
        */
-      principal: amountString(dec(row.principal)),
+      principal: moneyString(dec(row.principal), row.currency),
+      currency: row.currency,
       annualCouponRate: nullableRatio(row.annual_coupon_rate),
       accountType: row.account_type,
       totalRounds,
