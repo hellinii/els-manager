@@ -266,7 +266,7 @@ export function assertNotTruncated(rows: readonly unknown[], what: string): void
 //      추가되면 여기 등재되지 않아 `typecheck`가 아니라 아무 일도 안 일어난다
 // ---------------------------------------------------------------------------
 
-/** `email`을 담지 않는다 — 조회 계약 9개 어디도 쓰지 않는다(D9, DOC-010 §7) */
+/** `email`을 담지 않는다 — 조회 계약 10개 어디도 쓰지 않는다(D9, DOC-010 §7) */
 export const USER_COLUMNS = defineColumns('users', {
   id: 'raw',
   display_name: 'raw',
@@ -375,6 +375,8 @@ export const EXCHANGE_RATE_COLUMNS = defineColumns('exchange_rates', {
   as_of_date: 'raw',
   rate: 'text',
   source: 'raw',
+  // §4.11 `provider` — 자동 수집 행만 갖는다(I-22). 추정에는 쓰지 않고 SCR-302가 출처로 보인다
+  provider: 'raw',
 })
 
 export const TAX_PROFILE_COLUMNS = defineColumns('tax_profiles', {

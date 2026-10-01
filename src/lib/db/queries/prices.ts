@@ -3,13 +3,17 @@ import {
   loadAllAssetOptions,
   loadAllAssetsWithLatestPrice,
   loadAssetsByName,
+  estimateRateOf,
+  loadLatestExchangeRates,
   loadProducts,
 } from './load'
 import { dec } from '@/lib/decimal'
+import { FOREIGN_CURRENCIES, type ForeignCurrency } from '@/lib/domain'
+import { EXCHANGE_RATE_PROVIDERS } from '@/lib/providers/types'
 
-import { isStale, priceString, redemptionMarkOf } from './map'
+import { exchangeRateBasisOf, isStale, priceString, redemptionMarkOf } from './map'
 
-/** §4.5·§4.9 — 시세 목록·자산 검색 */
+/** §4.5·§4.9·§4.11 — 시세 목록·자산 검색·환율 */
 
 export type AssetPriceView = {
   assetId: string
@@ -28,6 +32,26 @@ export type AssetPriceView = {
    * 정상 경로로 못박았다. 화면은 그 상태를 「자동 수집 안 함」으로 말한다(오류가 아니다).
    */
   providerSymbols: Array<{ provider: string; symbol: string }>
+}
+
+/** §4.11 — 환율 (P8 컷 a3). 지원 외화마다 한 원소 — 행이 없어도 원소는 있다 */
+export type ExchangeRateView = {
+  currency: ForeignCurrency
+  /** 1단위 외화당 원. 소수 6자리 (Q-07′). `null` = 환율 없음 (ST-07) */
+  latestRate: string | null
+  asOfDate: string | null
+  source: 'AUTO' | 'MANUAL' | null
+  /** 자동 수집 행만 갖는다 — `exchange_rates_provider_check` (DOC-002 I-22) */
+  provider: string | null
+  /** §4.5와 같은 5일 규칙. `latestRate = null`이면 `false` */
+  isStale: boolean
+  /** 이 통화의 미상환 상품 수 — 이 환율로 추정되는 상품. 환율 절을 펼칠지의 입력이다(DOC-008 SCR-302) */
+  usedByActiveProducts: number
+  /**
+   * 환율 자동 수집 레지스트리(`EXCHANGE_RATE_PROVIDERS`)가 비어 있지 않은가 (ADR-010). 컷 a3에서는 늘
+   * `false`지만 **구조적 상수가 아니다** — 레지스트리에서 파생되므로 수집기가 등재되는 날 화면이 따라온다
+   */
+  autoCollected: boolean
 }
 
 export type AssetOption = {
@@ -132,5 +156,43 @@ export function makeAssetQueries(ctx: QueryContext) {
     }))
   }
 
-  return { listAssetPrices, searchAssets }
+  /**
+   * §4.11 — **`latestRate`는 추정 환율과 «같은 행»이다.** 같은 로더(`loadLatestExchangeRates`)와 같은
+   * 근거 사상(`exchangeRateBasisOf`)을 지나므로 같은 요청에서 SCR-401이 쓴 환율의 `rate`·`asOfDate`·
+   * `source`·`isStale`과 같은 값이 나온다 — 규칙을 여기서 다시 적으면 두 화면의 환율이 갈린다.
+   *
+   * 왕복 2 — 환율(통화별 `limit(1)`) + 상품. 둘 다 `ctx`에만 의존하므로 **나란히**. 이력을 반환하지 않는다.
+   */
+  async function listExchangeRates(): Promise<ExchangeRateView[]> {
+    const [latest, products] = await Promise.all([
+      loadLatestExchangeRates(ctx),
+      loadProducts(ctx),
+    ])
+
+    const activeUsage = new Map<string, number>()
+    for (const product of products) {
+      if (redemptionMarkOf(product) != null) continue // §4.5와 같다 — 상환 완료는 세지 않는다
+      activeUsage.set(product.currency, (activeUsage.get(product.currency) ?? 0) + 1)
+    }
+
+    const autoCollected = EXCHANGE_RATE_PROVIDERS.length > 0
+
+    // 빈 배열을 주지 않는다 — 행이 없어도 그 통화의 원소가 온다(화면이 그 자리에서 「환율 없음」을 말한다)
+    return FOREIGN_CURRENCIES.map((currency) => {
+      const row = latest[currency]
+      const basis = exchangeRateBasisOf(estimateRateOf(currency, row), ctx.asOf)
+      return {
+        currency,
+        latestRate: basis?.rate ?? null,
+        asOfDate: basis?.asOfDate ?? null,
+        source: basis?.source ?? null,
+        provider: row?.provider ?? null,
+        isStale: basis?.isStale ?? false,
+        usedByActiveProducts: activeUsage.get(currency) ?? 0,
+        autoCollected,
+      }
+    })
+  }
+
+  return { listAssetPrices, searchAssets, listExchangeRates }
 }

@@ -16,7 +16,7 @@ import {
 } from './seed'
 
 /**
- * 공통 시나리오 — 계약 9개가 같은 데이터를 본다.
+ * 공통 시나리오 — 계약 10개가 같은 데이터를 본다.
  *
  * 계약마다 다른 픽스처를 세우면 "이 계약에서만 통과하는 데이터"가 생기고,
  * 계약 간 불일치(같은 상품을 목록과 상세가 다르게 판정하는 종류)가 드러나지 않는다.
@@ -27,6 +27,12 @@ import {
  */
 export const AS_OF = '2026-06-30'
 export const YEAR = 2026
+
+/**
+ * 환율이 **보이는** 기준일 (P8 컷 a3). 예약 환율 날짜(`FX_RATE_DATES` — 전부 `AS_OF` 뒤) 이후이며 같은
+ * 해다 — 귀속연도가 `YEAR` 그대로라 F의 항등을 같은 연도로 잰다. `AS_OF` 컨텍스트에서는 환율이 없다.
+ */
+export const RATE_AS_OF = '2026-07-06'
 
 export type Scenario = {
   asA: Queries
@@ -212,12 +218,14 @@ export type Contracts = {
 
 export async function contractsFor(
   userId: typeof ITG_USER_A | typeof ITG_USER_B,
+  /** 기본은 `AS_OF`. 환율이 보이는 상태는 `RATE_AS_OF`로 — 두 계약면이 같은 기준일을 쓴다(W-02) */
+  asOf: string = AS_OF,
 ): Promise<Contracts> {
   const db = await clientFor(userId)
   return {
     db,
-    read: createQueries({ db, asOf: AS_OF, viewerId: userId }),
-    write: createMutations({ db, asOf: AS_OF, viewerId: userId }),
+    read: createQueries({ db, asOf, viewerId: userId }),
+    write: createMutations({ db, asOf, viewerId: userId }),
   }
 }
 

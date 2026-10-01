@@ -3,6 +3,7 @@
 import type { ActionResult } from '@/lib/db/mutations/result'
 import type {
   AssetInput,
+  ExchangeRateInput,
   ManualPriceInput,
   ProductInput,
   ProviderSymbolInput,
@@ -14,11 +15,11 @@ import type {
 import { getMutations } from '@/lib/db/server'
 
 /**
- * 서버 액션 — DOC-011 §5의 계약 **13개**를 프레임워크에 노출한다
+ * 서버 액션 — DOC-011 §5의 계약 **14개**를 프레임워크에 노출한다
  *
  * ★ 종전 머리글은 「11개」였고 **낡아 있었다** — §5.11이 P6 컷 5에서, §5.12가
  * P5a 컷 2b에서 생겼다. 그 수를 어느 단언도 보지 않으므로 조용히 낡는다
- * (`mutations/context.ts`의 같은 주석이 같은 이유로 낡아 있었다).
+ * (`mutations/context.ts`의 같은 주석이 같은 이유로 낡아 있었다). §5.13이 P8 컷 a3에서 14로 만들었다.
  *
  * ## 얇게 유지한다
  *
@@ -130,4 +131,11 @@ export async function createAsset(
   input: AssetInput,
 ): Promise<ActionResult<{ id: string }>> {
   return (await getMutations()).createAsset(input)
+}
+
+/** §5.13 — 수동 환율. 출처는 늘 `MANUAL`이다(입력이 아니다) */
+export async function saveExchangeRate(
+  input: ExchangeRateInput,
+): Promise<ActionResult<void>> {
+  return (await getMutations()).saveExchangeRate(input)
 }

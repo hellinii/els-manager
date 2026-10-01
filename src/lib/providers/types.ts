@@ -241,3 +241,19 @@ export const KNOWN_PROVIDER_IDS: readonly string[] = ['KIWOOM_ES040']
 export function isKnownProvider(id: string): boolean {
   return KNOWN_PROVIDER_IDS.includes(id)
 }
+
+/**
+ * 환율 자동 수집 레지스트리 — **시세의 `PRICE_PROVIDERS`와 다른 목록이다** (DOC-010 ADR-010 · DOC-011 §4.11).
+ *
+ * 컷 a3에서는 **비어 있고 그것이 이 레지스트리의 «값»이다** — 수집기는 게이트(ADR-010)의 분기 A/A′에서만
+ * 컷 c1·c2가 세운다. 분기 C면 영구히 비고, 그때 수동 입력이 설계된 정상 경로다. SCR-302의 「자동 수집 안 함」은
+ * 화면에 박힌 문구가 아니라 이 목록에서 **파생된다**(`listExchangeRates().autoCollected`) — 수집기가 서는 날
+ * 화면이 코드 변경 없이 바뀐다.
+ *
+ * ★ **`PRICE_PROVIDERS`에 넣지 않는다.** 그쪽은 `refreshPrices`·배치의 `providerCount`가 돌고, 그 id가
+ * `KNOWN_PROVIDER_IDS`에 들어가면 V-21(§5.12 자산 매핑의 `provider`)이 환율 공급자를 시세 공급자로
+ * 받아들인다(오염). 두 목록이 겹치지 않음을 `tests/providers/exchange-rate-registry.test.ts`가 단언한다.
+ *
+ * 항목의 모양은 컷 c1이 정한다 — 여기서는 `id` 하나만 요구한다(지금 읽는 쪽은 길이만 본다).
+ */
+export const EXCHANGE_RATE_PROVIDERS: readonly { readonly id: string }[] = []

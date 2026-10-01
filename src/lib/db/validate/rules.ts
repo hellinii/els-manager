@@ -46,14 +46,14 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-14': 'LIZARD — 해당 차수 실재 + 리자드 조건 정의 (I-13)',
   'V-15': 'price — 0보다 큼',
   'V-16': 'kiObservation — kiBarrier 존재 시 필수, 부재 시 입력 불가 (I-11)',
-  'V-17': 'asOfDate — 미래 일자 거부',
+  'V-17': 'asOfDate — 미래 일자 거부 (시세 §5.7 · 환율 §5.13)',
   'V-18': 'kiTouchedAt — kiBarrier 부재 시 입력 불가 (I-15)',
   'V-19': '문자열 — 열 선언 길이 이내, currency는 정확히 3자',
   'V-20': '정수 — smallint 범위, evaluationPeriodMonths ≥ 1, year 4자리',
   'V-21': 'provider — 코드가 아는 공급자 id (형식만 보지 않는다)',
   'V-22': 'currency (상품 통화) — KRW·USD 중 하나, 기본값 없음',
   'V-23': '상품 통화 금액 — 보조단위 이내(KRW 0·USD 2), 정수부 15자리',
-  'V-24': 'exchangeRate — 0 초과, 정수부 12·소수 6자리, 외화 상품에만',
+  'V-24': 'exchangeRate — 0 초과, 정수부 12·소수 6자리, 외화 상품에만 · rate·currency — 환율 입력은 지원 외화만 (ⓑ §5.13)',
 }
 
 // ---------------------------------------------------------------------------
@@ -345,19 +345,31 @@ export function validateRedemptionCrossFields(p: Problems, input: RedemptionInpu
 // ---------------------------------------------------------------------------
 
 /**
- * V-17 — 기준일 이후의 시세는 존재할 수 없다.
+ * V-17 — 기준일 이후의 시세·환율은 존재할 수 없다.
  *
  * **DB `CHECK`로 만들 수 없다.** `current_date`는 `IMMUTABLE`이 아니므로 CHECK 표현식에
  * 쓸 수 없고, 넣더라도 오늘 유효했던 행이 내일 제약을 위반하는 상태가 된다. 미래 일자
  * 시세는 워스트오브를 실제와 다르게 만들어 **존재하지 않는 조기상환을 표시**하므로
  * 입력 시점이 유일한 방어다. 조회 계층의 `asOf` 상한(D6)은 이미 저장된 미래 시세를
  * 판정에서 배제하는 별개의 방어다.
+ *
+ * **관측 대상을 인자로 받는다**(P8 컷 a3) — §5.13 `saveExchangeRate`가 같은 규칙을 재사용한다(DOC-011 §5.13).
+ * 문구에 「시세」를 박아 두면 환율 폼에 「시세」가 뜬다. 기본값을 두지 않는다 — 빠뜨린 호출이 조용히
+ * 「시세」가 되는 경로를 남기지 않는다.
  */
-export function V17_notFuture(p: Problems, asOfDate: string, asOf: string): void {
+export function V17_notFuture(
+  p: Problems,
+  asOfDate: string,
+  asOf: string,
+  subject: keyof typeof V17_SUBJECTS,
+): void {
   if (asOfDate > asOf) {
-    p.add('V-17', 'asOfDate', `기준일(${asOf}) 이후의 시세는 입력할 수 없다.`)
+    p.add('V-17', 'asOfDate', `기준일(${asOf}) 이후의 ${V17_SUBJECTS[subject]} 입력할 수 없다.`)
   }
 }
+
+/** 조사가 받침에 따라 갈린다 — 「시세는」 · 「환율은」. `${subject}는`으로 조립하면 「환율는」이 된다 */
+const V17_SUBJECTS = { 시세: '시세는', 환율: '환율은' } as const
 
 /**
  * V-18 — `kiTouchedAt`은 `kiBarrier`가 있을 때만 존재한다 (I-15).

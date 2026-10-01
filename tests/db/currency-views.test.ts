@@ -31,7 +31,7 @@ import { OWNER, priceMap, productRow, redemption, schedule, taxBasis } from './h
 const ASOF = '2026-06-30'
 
 const WITH_RATE: EstimateRates = {
-  USD: { currency: 'USD', rate: '1450', asOfDate: '2026-06-29' },
+  USD: { currency: 'USD', rate: '1450', asOfDate: '2026-06-29', source: 'MANUAL' },
 }
 
 /** 달러 · 미상환 · 일반 계좌 — 1차(2026-07-02)가 적용 차수 */

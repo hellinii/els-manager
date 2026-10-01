@@ -80,6 +80,9 @@ export type InvalidationRule = {
  * `cumulativeNet`이 앞 연도의 누계에 의존하므로 어느 해의 상환이 바뀌어도 그 뒤 행이
  * 전부 바뀐다. 그래도 **소속은 같다**: 판정 기준이 「어느 입력을 읽는가」이고 셋의
  * 입력이 같기 때문이다(§4.2).
+ *
+ * `listExchangeRates`도 여기 있다(P8 컷 a3) — 그 뷰의 `usedByActiveProducts`가 그 통화의 **미상환** 상품
+ * 수라서 상품의 존재·통화·상환이 바뀌면 값이 바뀐다. `listAssetPrices`가 여기 있는 이유와 같다(§5.13 각주).
  */
 const PRODUCT_WIDE = [
   'getProduct',
@@ -87,6 +90,27 @@ const PRODUCT_WIDE = [
   'listSchedule',
   'getDashboard',
   'listAssetPrices',
+  'getTaxSummary',
+  'listUserSummaries',
+  'getForecast',
+  'listExchangeRates',
+] as const satisfies readonly QueryName[]
+
+/**
+ * 추정 환율을 바꾸는 것들이 공유하는 축 (§5.13 — P8 컷 a3). **세금이 «있는» 것이 요점이다** — `PRICE_WIDE`의 거울상.
+ *
+ * 환율은 세금을 움직이는 첫 공용 입력이다(DOC-010 AQ-76): 달러 상품의 추정 과세 금융소득이 그 값을 곱한다
+ * (DOC-007 §4.8). 그래서 세 세금 계약(`getTaxSummary`·`listUserSummaries`·`getForecast`)과 원화 환산을 싣는
+ * 둘(`getProduct`의 `projection` · `getDashboard`의 `currentYearTax`·`krwEstimate`), 그리고 환율 자신이다.
+ *
+ * **들지 않는 것**: `listProducts`·`listSchedule`(금액을 상품 통화로만 싣는다 — §4.4 「달러 기준 참고」는
+ * 환율을 쓰지 않는다) · `listAssetPrices`·`searchAssets`(시세·자산이다). `affects`를 값에 따라(최신보다 오래된
+ * 날짜를 고쳤는가) 고르지 않는다 — 그 판정은 지금의 `asOf`에 묶이고 내일이면 틀린다.
+ */
+const EXCHANGE_RATE_WIDE = [
+  'listExchangeRates',
+  'getProduct',
+  'getDashboard',
   'getTaxSummary',
   'listUserSummaries',
   'getForecast',
@@ -123,6 +147,8 @@ export const INVALIDATION = {
       'getTaxSummary',
       'listUserSummaries',
       'getForecast',
+      // 새 상품이 그 통화의 미상환 수(`usedByActiveProducts`)를 올린다 — `listAssetPrices`와 같은 이유
+      'listExchangeRates',
     ],
   },
 
@@ -132,6 +158,7 @@ export const INVALIDATION = {
   //   · `listAssetPrices`의 `usedByActiveProducts`를 움직이지 않는다 — 참조하는
   //     자산이 없고, 애초에 상환 완료라 「미상환」에도 들지 않는다
   // 반대로 세금·전망은 즉시 바뀐다 — 상환 실적이 그 해의 금융소득에 들어간다.
+  // `listExchangeRates`도 없다 — 상환 완료로 태어나므로 「미상환」 수를 움직이지 않는다(§5.13 각주).
   createRealizedProduct: {
     affects: [
       'listProducts',
@@ -147,7 +174,8 @@ export const INVALIDATION = {
   deleteProduct: { affects: [...PRODUCT_WIDE] },
 
   // §5.9 — **세금이 아니다.** KI 터치는 `kiStatus`와 조건 판정을 바꾸지만 세금의
-  // 추정 기여는 `grossExpected`뿐이고 그것은 KI를 보지 않는다.
+  // 추정 기여는 `grossExpected`뿐이고 그것은 KI를 보지 않는다. 미상환 수도 그대로라
+  // `listExchangeRates`도 아니다.
   setKiTouched: {
     affects: ['getProduct', 'listProducts', 'listSchedule', 'getDashboard'],
   },
@@ -186,6 +214,10 @@ export const INVALIDATION = {
    * (매핑을 넣은 «결과»로 시세가 들어오는 것은 §5.8의 몫이고 그쪽이 `PRICE_WIDE`다.)
    */
   saveProviderSymbol: { affects: ['listAssetPrices', 'searchAssets'] },
+
+  // §5.13 — 수동 환율. **세금이 있다**(위 `EXCHANGE_RATE_WIDE`). `refreshPrices`와 반대 방향이며
+  // `tests/app/invalidation.test.ts`가 두 방향을 함께 박는다
+  saveExchangeRate: { affects: [...EXCHANGE_RATE_WIDE] },
 } as const satisfies Record<MutationName, InvalidationRule>
 
 /**
@@ -262,7 +294,8 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   // 읽는 것이 없으므로 어느 변경도 이 화면을 낡게 하지 않는다(`/settings`와 같은 자리).
   [PATHS.productRealizedNew]: [],
   [PATHS.schedule]: ['listSchedule'],
-  [PATHS.prices]: ['listAssetPrices'],
+  // 환율 절(P8 컷 a3)이 같은 화면에 있다 — 새 화면을 만들지 않았다(DOC-008 SCR-302)
+  [PATHS.prices]: ['listAssetPrices', 'listExchangeRates'],
   [PATHS.tax]: ['getTaxSummary'],
   [PATHS.forecast]: ['getForecast'],
   [PATHS.settings]: [],
@@ -323,7 +356,7 @@ export const PENDING_ROUTES: Record<
 export function staleRoutesFor(name: MutationName): string[] {
   /*
    * **넓은 타입으로 한 번 받는다.** `INVALIDATION`이 `as const`이므로
-   * `INVALIDATION[name].affects`는 리터럴 튜플 열하나의 **유니온**이고, 유니온에
+   * `INVALIDATION[name].affects`는 계약별 리터럴 튜플의 **유니온**이고, 유니온에
    * 메서드를 부르면 파라미터가 교집합으로 좁혀진다 — 원소가 서로 다른 문자열
    * 리터럴이므로 `.includes`의 인자 타입이 `never`가 되어 아래 두 줄이 컴파일되지
    * 않는다. 값은 그대로이고 표기만 넓힌다.

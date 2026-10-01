@@ -34,7 +34,7 @@ import { BRACKETS_2026, CONSTANTS_2026 } from '../fixtures/tax-2026'
  */
 
 const rates = (rate: string): EstimateRates => ({
-  USD: { currency: 'USD', rate, asOfDate: '2026-09-28' },
+  USD: { currency: 'USD', rate, asOfDate: '2026-09-28', source: 'MANUAL' },
 })
 
 /** A-1의 상품 — `P` $10,000.00 · `r = 0.12` · `m = 6` · 1차 */

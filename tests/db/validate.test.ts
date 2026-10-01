@@ -21,6 +21,7 @@ import {
 } from '@/lib/db/validate/rules'
 import {
   parseAssetInput,
+  parseExchangeRateInput,
   parseManualPriceInput,
   parseProductInput,
   parseProviderSymbolInput,
@@ -170,6 +171,13 @@ describe('정상 입력은 통과한다', () => {
       parseManualPriceInput(p2, { assetId: ASSET_A, asOfDate: '2026-06-30', price: '95.5' }),
     ).not.toBeNull()
     expect(p2.all()).toEqual([])
+
+    // §5.13 — 환율은 6자리까지 그대로 나른다(정규화는 DB의 numeric(18,6)이 한다 — scale 제약이 없다)
+    const p2b = new Problems()
+    expect(
+      parseExchangeRateInput(p2b, { currency: 'USD', asOfDate: '2026-06-29', rate: '1392.4' }),
+    ).toEqual({ currency: 'USD', asOfDate: '2026-06-29', rate: '1392.4' })
+    expect(p2b.all()).toEqual([])
 
     const p3 = new Problems()
     expect(
@@ -438,7 +446,7 @@ const CASES: Case[] = [
     what: '미래 일자 시세 — DB CHECK로 만들 수 없는 규칙이다',
     run: () => {
       const p = new Problems()
-      V17_notFuture(p, '2026-07-01', '2026-06-30')
+      V17_notFuture(p, '2026-07-01', '2026-06-30', '시세')
       return p
     },
   },
@@ -542,6 +550,38 @@ const CASES: Case[] = [
       return p
     },
   },
+  /*
+   * V-24 ⓑ — 환율 입력(§5.13 · P8 컷 a3). ⓐ와 같은 수치 규칙이 **필수**로 걸리고, 통화는 지원 외화만이다.
+   * 셋을 따로 두는 이유는 셋이 다른 칸(`rate` · `currency`)으로 가고, 그중 원화 거부는 DB CHECK
+   * (`exchange_rates_currency_check`)가 두 번째 겹이라 계약에서 빠져도 DB 경로에서는 초록이기 때문이다.
+   */
+  {
+    rule: 'V-24',
+    what: 'ⓑ 환율 입력의 빈칸 — 이 계약의 값이 그것 하나다',
+    run: () => {
+      const p = new Problems()
+      parseExchangeRateInput(p, { currency: 'USD', asOfDate: '2026-06-29', rate: '' })
+      return p
+    },
+  },
+  {
+    rule: 'V-24',
+    what: 'ⓑ 원화 환율 — 원화는 1이고 행으로 두지 않는다',
+    run: () => {
+      const p = new Problems()
+      parseExchangeRateInput(p, { currency: 'KRW', asOfDate: '2026-06-29', rate: '1' })
+      return p
+    },
+  },
+  {
+    rule: 'V-24',
+    what: 'ⓑ 소수 7자리 — `numeric(18,6)`이 조용히 반올림한다',
+    run: () => {
+      const p = new Problems()
+      parseExchangeRateInput(p, { currency: 'USD', asOfDate: '2026-06-29', rate: '1392.4000001' })
+      return p
+    },
+  },
   {
     rule: 'V-21',
     what: '코드가 모르는 공급자 — 형식은 맞고 소속이 틀렸다',
@@ -570,7 +610,7 @@ describe.each(CASES)('$rule — $what', ({ rule, run }) => {
   })
 })
 
-describe('전수 열거 — 규칙 20개에 케이스가 하나도 빠지지 않았다', () => {
+describe(`전수 열거 — 규칙 ${RULE_IDS.length}개에 케이스가 하나도 빠지지 않았다`, () => {
   it('CASES가 RULE_IDS 전부를 덮는다', () => {
     const covered = [...new Set(CASES.map((c) => c.rule))].sort()
     expect(covered).toEqual([...RULE_IDS].sort())
@@ -591,6 +631,45 @@ describe('전수 열거 — 규칙 20개에 케이스가 하나도 빠지지 않
 // ---------------------------------------------------------------------------
 // fields의 형태
 // ---------------------------------------------------------------------------
+
+describe('§5.13 환율 입력 — 칸과 문구 (V-24 ⓑ · V-17 · P8 컷 a3)', () => {
+  function fieldsOf(raw: unknown): Record<string, string> {
+    const p = new Problems()
+    parseExchangeRateInput(p, raw)
+    return p.fields()
+  }
+
+  it('원화는 `currency` 칸으로 간다 — `rate` 칸이 아니다', () => {
+    expect(fieldsOf({ currency: 'KRW', asOfDate: '2026-06-29', rate: '1' })).toEqual({
+      currency: '통화을(를) 선택한다.',
+    })
+  })
+
+  it('빈칸은 「입력한다」, 숫자가 아니면 「숫자로」 — 단위(1달러당 원)를 함께 말한다', () => {
+    expect(fieldsOf({ currency: 'USD', asOfDate: '2026-06-29' }).rate).toBe(
+      '환율을(를) 입력한다(1달러당 원).',
+    )
+    expect(fieldsOf({ currency: 'USD', asOfDate: '2026-06-29', rate: '1,392.4' }).rate).toBe(
+      '환율은(는) 숫자로 입력한다(1달러당 원).',
+    )
+  })
+
+  it('★ 숫자를 받지 않는다 — float을 경유한 값은 경계에서 막는다 (절대 규칙 #2)', () => {
+    expect(fieldsOf({ currency: 'USD', asOfDate: '2026-06-29', rate: 1392.4 }).rate).toBe(
+      '환율은(는) 숫자로 입력한다(1달러당 원).',
+    )
+  })
+
+  it('V-17은 대상을 말한다 — 환율 폼에 「시세」가 뜨지 않는다', () => {
+    const p = new Problems()
+    V17_notFuture(p, '2026-07-01', '2026-06-30', '환율')
+    expect(p.fields()).toEqual({ asOfDate: '기준일(2026-06-30) 이후의 환율은 입력할 수 없다.' })
+    // 시세 쪽 문구는 종전 그대로다(바이트 불변)
+    const q = new Problems()
+    V17_notFuture(q, '2026-07-01', '2026-06-30', '시세')
+    expect(q.fields()).toEqual({ asOfDate: '기준일(2026-06-30) 이후의 시세는 입력할 수 없다.' })
+  })
+})
 
 describe('fields — 화면이 필드별로 표시할 수 있는 형태', () => {
   it('배열 원소는 인덱스가 붙는다 — DB 오류와 다른 점이다', () => {

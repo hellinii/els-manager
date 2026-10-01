@@ -188,6 +188,24 @@ describe('이름이 코드를 올린다 — DOC-002 §8 명명 규약', () => {
     expect(mapped.code).toBe('VALIDATION_FAILED')
     expect(logged.join('\n')).toContain('사상에 없는 제약(els_products_locked_check)')
   })
+
+  it('exchange_rates_provider_check(NOT_USER_REACHABLE)는 칸 없는 VALIDATION_FAILED다 — INTERNAL이 아니다 (§5.13 ★)', () => {
+    /*
+     * §5.13이 `provider: null`을 싣는 이유가 이 사상이다. 빼면 자동 행의 수동 정정이 이 제약에 걸리는데,
+     * 사상이 없으므로 SQLSTATE 기본값으로 떨어진다 — 사용자는 고칠 칸이 없는 「입력값을 확인한다」를 받는다.
+     * 종전 주석·명세는 이것을 `INTERNAL`이라고 적었다(반박 검토가 실행으로 가렸다 · DOC-011 v4.13).
+     */
+    const mapped = mapDbError(
+      {
+        code: '23514',
+        message:
+          'new row for relation "exchange_rates" violates check constraint "exchange_rates_provider_check"',
+      },
+      '환율 입력',
+    )
+    expect(mapped).toEqual({ code: 'VALIDATION_FAILED', message: '입력값을 확인한다.' })
+    expect(logged.join('\n')).toContain('사상에 없는 제약(exchange_rates_provider_check)')
+  })
 })
 
 describe('FK는 방향에 따라 뜻이 다르다', () => {

@@ -7,6 +7,7 @@ import {
 import {
   asActive,
   dDay,
+  estimateConversionOf,
   evaluateCondition,
   grossExpected,
   isPast,
@@ -22,6 +23,7 @@ import {
   worstOf,
   type ConditionResult,
   type EstimateRates,
+  type ExchangeRate,
   type KiObservation,
   type KiStatus,
   type ProductCurrency,
@@ -119,6 +121,42 @@ function nullableRatio(value: string | null): string | null {
  */
 export function priceString(value: DecimalValue): string {
   return value.toDecimalPlaces(6).toFixed(6)
+}
+
+/**
+ * 원화 환산에 쓴 추정 환율 — **추정에만 붙는다** (DOC-011 §4.0 · DOC-008 ST-05, P8 컷 a3).
+ *
+ * 거래내역에서 옮긴 확정 원화 값(A-04)에는 붙지 않는다. 확정값에 붙이면 그 값이 추정처럼 읽히고,
+ * 추정값에서 빼면 확정처럼 읽힌다. `null`만으로는 「외화 금액이 없다」와 「환율이 없다」가 갈리지
+ * 않는다 — 그것을 가르는 것은 뷰마다의 개수 필드다(§4.0 규칙 3).
+ */
+export type ExchangeRateBasisView = {
+  currency: 'USD'
+  /** 1달러당 원. 시세와 같은 소수 6자리 (Q-07′) */
+  rate: string
+  /** `as_of_date ≤ asOf` 중 최신 1건의 기준일 (DOC-007 RD-09) */
+  asOfDate: string
+  source: 'AUTO' | 'MANUAL'
+  /** §4.5 `isStale`과 같은 5일 규칙 — 오래된 환율도 추정에 쓴다(표식은 나이만 말한다) */
+  isStale: boolean
+}
+
+/**
+ * 추정 환율 → 근거 뷰. **§4.11 `listExchangeRates`의 원소와 같은 값이 나온다** — 같은 행
+ * (`loadLatestExchangeRates`)에 같은 형식(`priceString`)과 같은 경과 규칙(`isStale`)을 쓴다.
+ */
+export function exchangeRateBasisOf(
+  rate: ExchangeRate | null,
+  asOf: string,
+): ExchangeRateBasisView | null {
+  if (rate == null) return null
+  return {
+    currency: rate.currency,
+    rate: priceString(dec(rate.rate)),
+    asOfDate: rate.asOfDate,
+    source: rate.source,
+    isStale: isStale({ asOfDate: rate.asOfDate, asOf }),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -749,6 +787,12 @@ export type ProductDetailView = {
      * 원화로 바꿀 환율만 없다. 비과세 계좌와 달러 이익 ≤ 0은 환율 없이 `'0'`이다.
      */
     expectedTaxableIncome: string | null
+    /**
+     * 원화 환산에 쓴 추정 환율 (§4.3 v4.9 — P8 컷 a3). 원화 상품은 늘 `null`이고, 달러 상품은
+     * **환산했을 때만** 값이다 — 비과세 · 달러 이익 ≤ 0은 환율 없이 `'0'`이라 `null`, 환율이 없으면
+     * `expectedTaxableIncome`과 함께 `null`(E-09)
+     */
+    exchangeRateBasis: ExchangeRateBasisView | null
     attributionYear: number
   } | null
   redemption: RedemptionView | null
@@ -876,7 +920,7 @@ export function toProductDetailView(
       isPast: isPast({ evaluationDate: s.evaluation_date, asOf }),
     })),
 
-    projection: projectionOf(row, j, rates),
+    projection: projectionOf(row, j, rates, asOf),
 
     redemption:
       row.redemptions == null
@@ -937,6 +981,7 @@ function projectionOf(
   row: ProductRow,
   j: Judgment,
   rates: EstimateRates,
+  asOf: string,
 ): ProductDetailView['projection'] {
   // ① 상환 완료 ② 적용 차수 없음 — 그 둘이 `ESTIMATED`의 여집합이다.
   if (j.attribution.kind !== 'ESTIMATED') return null
@@ -947,21 +992,25 @@ function projectionOf(
   // 「값을 비운 추정」을 만들지 않는 것이 §4.2 D1의 규약이다.
   if (gross == null) return null
 
+  const input = {
+    currency: row.currency,
+    accountType: row.account_type,
+    principal: row.principal,
+    redemption: null,
+    expectedGross: gross,
+  }
+  // 곱해야 하는 외화 — 그 환율이 근거다. 곱하지 않으면(원화 · 비과세 · 이익 ≤ 0) 근거도 없다
+  const conversion = estimateConversionOf(input)
+
   return {
     appliedRoundNo: round.round_no,
     expectedGross: moneyString(gross, row.currency),
     // 원화 상품은 종전 `taxableIncome()` 그대로다(환율 경로를 지나지 않는다 — DOC-007 §4.8).
     // §4.6 `contributionOf`와 같은 함수이므로 두 화면이 같은 상품에 같은 E-09를 말한다.
-    expectedTaxableIncome: nullableAmount(
-      taxableIncomeKrw({
-        currency: row.currency,
-        accountType: row.account_type,
-        principal: row.principal,
-        redemption: null,
-        expectedGross: gross,
-        rates,
-      }),
-    ),
+    expectedTaxableIncome: nullableAmount(taxableIncomeKrw({ ...input, rates })),
+    // 환율이 없으면 `exchangeRateBasisOf`가 `null`을 낸다 — 위 값의 `null`(E-09)과 함께 빈다
+    exchangeRateBasis:
+      conversion == null ? null : exchangeRateBasisOf(rates[conversion], asOf),
     attributionYear: j.attribution.year,
   }
 }

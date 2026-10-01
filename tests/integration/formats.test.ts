@@ -5,6 +5,7 @@ import {
   closeSeedConnection,
   resetFixtures,
   seedAsset,
+  seedExchangeRate,
   seedPrice,
   seedProduct,
   seedRedemption,
@@ -12,15 +13,22 @@ import {
   seedTaxProfile,
   seedUnderlying,
 } from './helpers/seed'
-import { AS_OF, YEAR, setupScenario, type Scenario } from './helpers/scenario'
+import {
+  AS_OF,
+  RATE_AS_OF,
+  YEAR,
+  contractsFor,
+  setupScenario,
+  type Scenario,
+} from './helpers/scenario'
 import { collect, type Coverage, type Spec } from './helpers/formats'
 
 /**
- * Q-07 형식 적합성 — 9계약 전 필드 (DOC-011 §4.0)
+ * Q-07 형식 적합성 — 10계약 전 필드 (DOC-011 §4.0)
  *
  * **이 파일이 따로 있는 이유가 둘이다.**
  *
- * ① 커버리지 단언(②③)은 9계약을 **누적한 뒤** 판정한다. `contracts.test.ts`의
+ * ① 커버리지 단언(②③)은 10계약을 **누적한 뒤** 판정한다. `contracts.test.ts`의
  *    §별 `it`에 끼워 넣으면 실행 순서에 의존하게 되어 `it.only` 한 번에 거짓
  *    실패가 난다. 여기서는 수집을 `beforeAll`에서 끝낸다.
  * ② 정본 시나리오가 닿지 않는 분기(원천징수 없음, 만기상환, KI 터치 확정,
@@ -58,6 +66,24 @@ const ENTRY_MODES = ['FULL', 'REALIZED_ONLY'] as const
 const KI_OBSERVATIONS = ['CONTINUOUS', 'CLOSING'] as const
 /** DOC-011 §4.0 `ProductCurrency` (P8 컷 a2) — 기초자산 통화(`assets.currency`, `TEXT`)와 다른 축이다 */
 const CURRENCIES = ['KRW', 'USD'] as const
+/** 지원 외화 (§4.0 `ExchangeRateBasisView.currency` · §4.11) — 원화는 환율의 대상이 아니다 */
+const FOREIGN = ['USD'] as const
+
+/**
+ * `ExchangeRateBasisView`(§4.0 · P8 컷 a3) — 네 뷰가 **같은 분류**로 싣는다. 환율은 시세와 같은 6자리
+ * 부류다(Q-07′ — 새 부류를 만들지 않는다). 접두사마다 펼친다 — 형식이 갈리면 같은 환율을 뷰마다 다르게
+ * 직렬화한다는 뜻이고, 그러면 SCR-302와 SCR-401이 다른 숫자를 보인다(§4.11 「같은 행」).
+ */
+function basisSpec(prefix: string): Record<string, Spec> {
+  return {
+    [prefix]: 'NULL_OBJECT',
+    [`${prefix}.currency`]: FOREIGN,
+    [`${prefix}.rate`]: 'PRICE',
+    [`${prefix}.asOfDate`]: 'DATE',
+    [`${prefix}.source`]: PRICE_SOURCES,
+    [`${prefix}.isStale`]: 'BOOL',
+  }
+}
 
 /** §4.1 대시보드 */
 const DASHBOARD: Record<string, Spec> = {
@@ -76,11 +102,17 @@ const DASHBOARD: Record<string, Spec> = {
   'totals.byCurrency[].activeCount': 'NUMBER',
   'totals.byCurrency[].activePrincipal': 'MONEY',
   'totals.byCurrency[].realizedPnl': 'MONEY',
+  // v4.9 (P8 컷 a3) — 원화 환산 추정. 금액은 과세 축과 같은 원화 정수다(Q-07 ⓑ)
+  'totals.krwEstimate': 'NULL_OBJECT',
+  'totals.krwEstimate.activePrincipal': 'AMOUNT_KRW',
+  ...basisSpec('totals.krwEstimate.exchangeRateBasis'),
   'currentYearTax.year': 'NUMBER',
   'currentYearTax.financialIncome': 'AMOUNT_KRW',
   'currentYearTax.isComprehensive': 'BOOL',
   'currentYearTax.additionalTax': 'AMOUNT_KRW',
   'currentYearTax.unconvertedCount': 'NUMBER',
+  'currentYearTax.convertedCount': 'NUMBER',
+  ...basisSpec('currentYearTax.exchangeRateBasis'),
   'attentionItems[].productId': 'UUID',
   'attentionItems[].productName': 'TEXT',
   // v2.0 — 같은 뷰의 `upcomingEvaluations[].ownerName`과 **같은 분류여야 한다.**
@@ -204,6 +236,7 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'projection.expectedGross': 'MONEY',
   // 과세 축 — 달러 상품에서도 원화다. `null`은 E-09(미상환 달러 · 환율 없음)
   'projection.expectedTaxableIncome': 'AMOUNT_KRW',
+  ...basisSpec('projection.exchangeRateBasis'),
   'projection.attributionYear': 'NUMBER',
   redemption: 'NULL_OBJECT',
   'redemption.id': 'UUID',
@@ -308,6 +341,8 @@ const TAX_SUMMARY: Record<string, Spec> = {
   'income.isComprehensive': 'BOOL',
   'income.thresholdGap': 'AMOUNT_KRW',
   'income.unconvertedCount': 'NUMBER',
+  'income.convertedCount': 'NUMBER',
+  ...basisSpec('income.exchangeRateBasis'),
   'tax.method1': 'AMOUNT_KRW',
   'tax.method2': 'AMOUNT_KRW',
   'tax.computedTax': 'AMOUNT_KRW',
@@ -360,6 +395,8 @@ const FORECAST_ROW: Record<string, Spec> = {
   cumulativeAssets: 'AMOUNT_KRW',
   hasEstimates: 'BOOL',
   excludedForeignCount: 'NUMBER',
+  // 표 밖 표식 다섯째 (P8 컷 a3)
+  ...basisSpec('exchangeRateBasis'),
 }
 
 /** §4.8 사용자별 현황 */
@@ -373,6 +410,21 @@ const USER_SUMMARY: Record<string, Spec> = {
   currentYearFinancialIncome: 'AMOUNT_KRW',
   includesOtherFinancialIncome: 'BOOL',
   isComprehensive: 'BOOL',
+}
+
+/**
+ * §4.11 환율 (P8 컷 a3). `latestRate`는 근거 뷰의 `rate`와 **같은 분류**다 — 같은 행이다(§4.11).
+ * `provider`는 자동 수집 행에서만 비-null이다 — 아래 픽스처가 그 행을 소유자 권한으로 세운다(수집기는 c2).
+ */
+const EXCHANGE_RATE: Record<string, Spec> = {
+  currency: FOREIGN,
+  latestRate: 'PRICE',
+  asOfDate: 'DATE',
+  source: PRICE_SOURCES,
+  provider: 'TEXT',
+  isStale: 'BOOL',
+  usedByActiveProducts: 'NUMBER',
+  autoCollected: 'BOOL',
 }
 
 /** §4.9 자산 검색 */
@@ -490,6 +542,16 @@ beforeAll(async () => {
     evaluationDate: '2026-07-02',
     barrier: '0.9000',
   })
+  /*
+   * P8 컷 a3 — 2차. `RATE_AS_OF`(07-06)에서는 1차가 지났으므로 이 차수가 적용 차수가 된다 — 그래야 그 기준일의
+   * 추정이 같은 해(`YEAR`)에 서고 환산이 일어난다. `AS_OF`의 적용 차수는 여전히 1차라 a2 단언은 그대로다.
+   */
+  await seedSchedule({
+    elsId: FX.productFormatUsdActive,
+    roundNo: 2,
+    evaluationDate: '2026-12-01',
+    barrier: '0.8500',
+  })
 
   /*
    * ★ **`profileYear`를 비-null로 관측시키는 픽스처이며, 연도가 과거인 것이 요점이다.**
@@ -559,12 +621,45 @@ beforeAll(async () => {
   const rows = <T,>(label: string, list: readonly T[]) =>
     list.map((value, i) => ({ label: `${label}[${i}]`, value }))
 
+  /*
+   * P8 컷 a3 — **환율이 보이는 기준일**(`RATE_AS_OF`)로 같은 계약을 한 번 더 읽는다. 위 수집은 `AS_OF`라
+   * 추정 환율이 없고(예약 날짜가 전부 그 뒤다) 근거 필드가 전부 `null`로 온다 — 그것만으로는 ③(비-null 관측)이
+   * 죽는다. 자동 수집 행을 소유자 권한으로 세우는 이유는 `provider`의 비-null 관측이다(수집기는 c2).
+   */
+  await seedExchangeRate({
+    asOfDate: '2026-07-03',
+    rate: '1392.400000',
+    source: 'AUTO',
+    provider: 'FIXTURE_AUTO',
+  })
+  const later = (await contractsFor(ITG_USER_A, RATE_AS_OF)).read
+  const [
+    ratesNone,
+    ratesLater,
+    dashboardKrwOnly,
+    dashboardLater,
+    detailUsdLater,
+    taxLater,
+    forecastLater,
+  ] = await Promise.all([
+    s.asA.listExchangeRates(),
+    later.listExchangeRates(),
+    // B는 원화 상품만 가진다 — `krwEstimate`의 `null`(원화 전용 포트폴리오) 가지를 관측한다
+    s.asB.getDashboard({ scope: 'MINE' }),
+    later.getDashboard({ scope: 'MINE' }),
+    later.getProduct(FX.productFormatUsdActive),
+    later.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
+    later.getForecast({ ownerId: ITG_USER_A }),
+  ])
+
   coverages.push(
     {
       contract: '§4.1 getDashboard',
       coverage: collect(DASHBOARD, [
         { label: 'ALL', value: dashboardAll },
         { label: 'MINE', value: dashboardMine },
+        { label: 'B MINE(원화뿐)', value: dashboardKrwOnly },
+        { label: 'MINE@환율', value: dashboardLater },
       ]),
     },
     {
@@ -581,6 +676,7 @@ beforeAll(async () => {
         { label: '형식보강', value: detailFormat },
         { label: '형식달러상환', value: detailUsdRedeemed },
         { label: '형식달러보유', value: detailUsdActive },
+        { label: '형식달러보유@환율', value: detailUsdLater },
       ]),
     },
     {
@@ -596,11 +692,15 @@ beforeAll(async () => {
       coverage: collect(TAX_SUMMARY, [
         { label: '분리과세', value: tax },
         { label: '종합과세(override)', value: taxComprehensive },
+        { label: '분리과세@환율', value: taxLater },
       ]),
     },
     {
       contract: '§4.7 getForecast',
-      coverage: collect(FORECAST_ROW, rows('getForecast', forecast)),
+      coverage: collect(FORECAST_ROW, [
+        ...rows('getForecast', forecast),
+        ...rows('getForecast@환율', forecastLater),
+      ]),
     },
     {
       contract: '§4.8 listUserSummaries',
@@ -610,6 +710,13 @@ beforeAll(async () => {
       contract: '§4.9 searchAssets',
       coverage: collect(ASSET_OPTION, rows('searchAssets', assets)),
     },
+    {
+      contract: '§4.11 listExchangeRates',
+      coverage: collect(EXCHANGE_RATE, [
+        ...rows('환율없음', ratesNone),
+        ...rows('환율@자동', ratesLater),
+      ]),
+    },
   )
 })
 
@@ -618,9 +725,9 @@ afterAll(async () => {
   await closeSeedConnection()
 })
 
-describe('Q-07 형식 적합성 — 9계약 전 필드', () => {
-  it('계약 9개를 모두 수집했다', () => {
-    expect(coverages.map((c) => c.contract)).toHaveLength(9)
+describe('Q-07 형식 적합성 — 10계약 전 필드', () => {
+  it('계약 10개를 모두 수집했다', () => {
+    expect(coverages.map((c) => c.contract)).toHaveLength(10)
   })
 
   it('① 모든 값이 자기 분류의 형식을 지킨다', () => {

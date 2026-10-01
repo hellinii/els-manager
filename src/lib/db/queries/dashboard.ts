@@ -4,15 +4,18 @@ import {
   CURRENCY_ORDER,
   dDay,
   moneyString,
-  NO_ESTIMATE_RATES,
   realizedPnl,
   sumByCurrency,
+  toKrw,
+  type EstimateRates,
+  type ExchangeRate,
   type ProductCurrency,
 } from '@/lib/domain'
 
 import { currentYear } from '../today'
 import type { QueryContext } from './context'
 import {
+  loadEstimateRates,
   loadLatestPrices,
   loadProducts,
   loadTaxProfile,
@@ -22,11 +25,13 @@ import {
 import {
   amountString,
   attentionReasonsFor,
+  exchangeRateBasisOf,
   judge,
   ownerNameOf,
   ratioString,
   redemptionMarkOf,
   type AttentionReason,
+  type ExchangeRateBasisView,
 } from './map'
 import { assetIdsOf } from './products'
 import { computeOwnTax } from './tax'
@@ -65,6 +70,19 @@ export type DashboardView = {
       /** 음수 가능. 항등식은 통화별이다 — `= Σ recentRedemptions[currency = c].realizedPnl` */
       realizedPnl: string
     }>
+    /**
+     * 원화 환산 추정 (§4.1 v4.9 — P8 컷 a3). **보유중 외화 원금이 있을 때만** 객체다 — 원화 전용이거나
+     * 외화 상품이 전부 상환 완료면 `null`(상환된 외화의 손익은 환산하지 않는다 — DQ-15).
+     */
+    krwEstimate: {
+      /**
+       * 원화 + Σ 외화 × 추정 환율을 원 단위로 접은 값(Q-07 ⓑ). **외화 하나라도 환율이 없으면 `null`** —
+       * 부분합을 주지 않는다. 빠지는 몫이 원금 통째라 부분합이 합계처럼 보인다
+       */
+      activePrincipal: string | null
+      /** 쓴 추정 환율. `activePrincipal`과 **함께 빈다** */
+      exchangeRateBasis: ExchangeRateBasisView | null
+    } | null
   }
   currentYearTax: {
     year: number
@@ -76,6 +94,10 @@ export type DashboardView = {
      * **같은 값**이다(같은 `computeOwnTax`). 0보다 크면 위 셋이 과소 추정이다(DOC-008 ST-07)
      */
     unconvertedCount: number
+    /** 추정 환율로 환산해 넣은 달러 추정 건 수 (§4.1 v4.9 — P8 컷 a3). §4.6 `income.convertedCount`와 같은 값 */
+    convertedCount: number
+    /** 환산이 한 건이라도 있었을 때의 추정 환율 — `≠ null ⇔ convertedCount > 0` */
+    exchangeRateBasis: ExchangeRateBasisView | null
   }
   attentionItems: Array<{
     productId: string
@@ -164,6 +186,40 @@ export function totalsByCurrency(
   })
 }
 
+/**
+ * `totals.krwEstimate` — 보유중 원금의 원화 환산 **추정** (§4.1 v4.9 · DOC-007 §4.8 · §7.7).
+ *
+ * 사실(`byCurrency`)은 환산하지 않는다 — 이 값은 그 옆에 **표식이 붙은 추정**으로 따로 선다. 외화 중
+ * 하나라도 환율이 없으면 `activePrincipal`·`exchangeRateBasis`가 함께 빈다(부분합 없음). 원화 전용이면
+ * 객체 자체가 `null`이라 원화 포트폴리오의 응답이 이 필드 하나 말고는 바뀌지 않는다.
+ */
+export function krwEstimateOf(
+  activeRows: readonly ProductRow[],
+  rates: EstimateRates,
+  asOf: string,
+): DashboardView['totals']['krwEstimate'] {
+  const foreign = activeRows.filter((row) => row.currency !== 'KRW')
+  if (foreign.length === 0) return null
+
+  let total = ZERO
+  const used: ExchangeRate[] = []
+  for (const entry of sumByCurrency(
+    activeRows.map((row) => ({ currency: row.currency, amount: row.principal })),
+  )) {
+    const krw = toKrw({ amount: entry.amount, currency: entry.currency, rates })
+    if (krw == null) return { activePrincipal: null, exchangeRateBasis: null }
+    total = total.plus(krw)
+    const rate = entry.currency === 'KRW' ? null : rates[entry.currency]
+    if (rate != null) used.push(rate)
+  }
+
+  return {
+    activePrincipal: amountString(total),
+    // 지원 외화가 `USD` 하나인 동안 `used`는 한 건이다 — 통화가 늘면 뷰가 배열이 되어야 한다(§4.1)
+    exchangeRateBasis: exchangeRateBasisOf(used[0] ?? null, asOf),
+  }
+}
+
 export function makeDashboardQueries(ctx: QueryContext) {
   async function getDashboard(params: {
     scope: 'MINE' | 'ALL'
@@ -172,8 +228,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
 
     /**
      * ①③④ — **한 물결이다.** 세율 연도 컨텍스트와 본인 프로필은 `ctx.asOf`·
-     * `ctx.viewerId`만 있으면 되고 상품에 의존하지 않는다. 왕복은 4로 같고
-     * (§4.0 예산 불변) 대기만 3파 → 2파로 준다.
+     * `ctx.viewerId`만 있으면 되고 상품에 의존하지 않는다. 병렬화는 왕복을 늘리지 않았고
+     * (당시 4 — §4.0 예산 불변) 대기만 3파 → 2파로 줄였다. 컷 a3 이후 추정 환율이 같은 물결에 더해져 5다.
      *
      * **③④가 없으면 2027-01-01에 홈 화면이 코드 변경 없이 죽는다** —
      * `currentYearTax`도 당해 연도의 구간·상수를 요구하므로 D7의 연도 처리가
@@ -182,10 +238,12 @@ export function makeDashboardQueries(ctx: QueryContext) {
      * `scope = 'ALL'`이어도 세금은 본인 것만 쓴다(D-02) — `computeOwnTax`가
      * `owner_id`로 거른다.
      */
-    const [rows, yearContext, ownProfile] = await Promise.all([
+    const [rows, yearContext, ownProfile, rates] = await Promise.all([
       loadProducts(ctx, params.scope === 'MINE' ? { ownerId: ctx.viewerId } : {}),
       loadTaxYearContext(ctx, year),
       loadTaxProfile(ctx, ctx.viewerId, year),
+      // 추정 환율 — `ctx.asOf`에만 의존한다(§4.0 규칙 2). 왕복 4 → 5, 물결 2 그대로
+      loadEstimateRates(ctx),
     ])
 
     // ② 자산별 최신 시세 — assetIdsOf(rows)를 알아야 하므로 여기만 순차다
@@ -235,8 +293,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
       yearContext,
       otherFinancialIncome: dec(ownProfile?.other_financial_income ?? '0'),
       otherIncomeBase: dec(ownProfile?.other_income_base ?? '0'),
-      // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 4 → 5)
-      rates: NO_ESTIMATE_RATES,
+      rates,
     })
 
     // 판정은 상품당 **한 번**이다. `attentionReasonsOf(row, prices, asOf)`를 쓰면
@@ -290,6 +347,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
       totals: {
         activeCount: activeRows.length,
         byCurrency: totalsByCurrency(rows, activeRows, redeemedRows),
+        krwEstimate: krwEstimateOf(activeRows, rates, ctx.asOf),
       },
       currentYearTax: {
         year,
@@ -297,6 +355,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
         isComprehensive: own.result.isComprehensive,
         additionalTax: amountString(own.result.additionalPayment),
         unconvertedCount: own.unconvertedCount,
+        convertedCount: own.convertedCount,
+        exchangeRateBasis: exchangeRateBasisOf(own.estimateRate, ctx.asOf),
       },
       attentionItems,
       recentRedemptions,

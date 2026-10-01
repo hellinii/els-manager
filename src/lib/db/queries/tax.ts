@@ -1,12 +1,13 @@
 import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
 import {
   grossExpected,
+  estimateConversionOf,
   moneyString,
-  NO_ESTIMATE_RATES,
   sumByCurrency,
   taxableIncome,
   taxableIncomeKrw,
   type EstimateRates,
+  type ExchangeRate,
   type ProductCurrency,
 } from '@/lib/domain'
 import {
@@ -25,6 +26,7 @@ import { currentYear } from '../today'
 import { attributionOf } from './attribution'
 import type { QueryContext } from './context'
 import {
+  loadEstimateRates,
   loadProducts,
   loadTaxProfile,
   loadTaxYearContext,
@@ -35,8 +37,10 @@ import {
 import {
   amountString,
   bracketLabel,
+  exchangeRateBasisOf,
   integrityIssueOf,
   ratioString,
+  type ExchangeRateBasisView,
   type IntegrityIssue,
 } from './map'
 
@@ -70,6 +74,13 @@ export type TaxSummaryView = {
      * 과세는 환율과 무관하게 늘 들어간다. `total`·`isComprehensive`·`tax`는 뺀 뒤의 F다
      */
     unconvertedCount: number
+    /**
+     * 추정 환율로 환산해 F에 넣은 달러 추정 건 수 (§4.6 v4.9 — P8 컷 a3). 일반계좌 · 달러 이익 > 0 ·
+     * 추정 환율 있음. 비과세와 이익 ≤ 0은 환율 없이 0이라 이쪽에도 `unconvertedCount`에도 들지 않는다
+     */
+    convertedCount: number
+    /** 환산이 한 건이라도 있었을 때의 추정 환율 — `≠ null ⇔ convertedCount > 0`. 기여 행마다 두지 않는다 */
+    exchangeRateBasis: ExchangeRateBasisView | null
   }
   tax: {
     method1: string | null
@@ -187,6 +198,14 @@ export function contributionOf(
   /** `amount = null`과 같은 사실 — 소비자가 `null` 검사를 다시 적지 않게 이름을 붙인다 */
   exchangeRateMissing: boolean
   /**
+   * 이 기여를 환산한 추정 환율 (P8 컷 a3). `null` = **곱하지 않았다** — 원화 · 확정값 · 비과세 · 달러
+   * 이익 ≤ 0(환율 없이 안다), 또는 곱해야 하는데 환율이 없다(그쪽은 `exchangeRateMissing`).
+   *
+   * `exchangeRateMissing: false`만으로는 「환산함」과 「환율 없이 0」이 갈리지 않는다 — 그 둘을 가르는
+   * 것이 이 필드이며 `convertedCount`(§4.1·§4.6)가 이것을 센다.
+   */
+  estimateRate: ExchangeRate | null
+  /**
    * 결함 표식 — **금액에 영향을 주지 않는다.** 과세 기여는 계약 조건에서만
    * 나오고 결함이 파괴한 입력(기초자산·시세)을 쓰지 않으므로 금액은 유효하다.
    *
@@ -220,6 +239,7 @@ export function contributionOf(
       gross: dec(attribution.redemption.gross_amount),
       isEstimated: false,
       exchangeRateMissing: false,
+      estimateRate: null,
       integrityIssue,
     }
   }
@@ -239,20 +259,22 @@ export function contributionOf(
   })
 
   // §4.3 `projection`과 같은 함수다 — 두 화면이 같은 상품에 같은 E-09를 말한다
-  const amount = taxableIncomeKrw({
+  const input = {
     currency: row.currency,
     accountType: row.account_type,
     principal: row.principal,
     redemption: null,
     expectedGross: gross,
-    rates,
-  })
+  }
+  const amount = taxableIncomeKrw({ ...input, rates })
+  const conversion = estimateConversionOf(input)
 
   return {
     amount,
     gross,
     isEstimated: true,
     exchangeRateMissing: amount == null,
+    estimateRate: conversion == null ? null : rates[conversion],
     integrityIssue,
   }
 }
@@ -269,6 +291,13 @@ export type OwnTaxComputation = {
   taxLawYear: number
   /** 환율이 없어 합에서 뺀 기여 수(E-09). `contributions` 중 `amount = null`인 것의 수다 */
   unconvertedCount: number
+  /** 추정 환율로 환산해 합에 넣은 기여 수. `contributions` 중 `estimateRate ≠ null`인 것의 수다 */
+  convertedCount: number
+  /**
+   * 환산에 쓴 추정 환율 — `convertedCount > 0`일 때만 값이다. 요청당 통화별 하나이므로(§4.0 규칙 2)
+   * 어느 기여에서 읽어도 같다
+   */
+  estimateRate: ExchangeRate | null
   /**
    * 합계에 실제로 들어간 기여. **§4.6이 이것을 그대로 쓴다.**
    *
@@ -314,6 +343,11 @@ export function computeOwnTax(params: {
     entry.contribution.amount == null ? [] : [entry.contribution.amount],
   )
 
+  // 환산해 넣은 건 — 위 `converted`(합에 든 금액 전부, 원화 · 확정 포함)와 다르다
+  const rated = items.flatMap((entry) =>
+    entry.contribution.estimateRate == null ? [] : [entry.contribution.estimateRate],
+  )
+
   const aggregated = aggregateFinancialIncome({
     key: { ownerId: params.ownerId, year: params.year },
     items: converted.map((amount) => ({
@@ -344,6 +378,8 @@ export function computeOwnTax(params: {
     constants,
     taxLawYear: params.yearContext.taxLawYear,
     unconvertedCount: items.length - converted.length,
+    convertedCount: rated.length,
+    estimateRate: rated[0] ?? null,
     contributions: items,
   }
 }
@@ -385,10 +421,12 @@ export function makeTaxQueries(ctx: QueryContext) {
       )
     }
 
-    const [yearContext, profileRow, products] = await Promise.all([
+    // 넷 다 `ctx`에만 의존한다 — 한 물결이다(왕복 3 → 4, 추정 환율이 나란히 — §4.0 규칙 2)
+    const [yearContext, profileRow, products, rates] = await Promise.all([
       loadTaxYearContext(ctx, params.year),
       loadTaxProfile(ctx, ctx.viewerId, params.year),
       loadProducts(ctx, { ownerId: ctx.viewerId }),
+      loadEstimateRates(ctx),
     ])
 
     /**
@@ -420,8 +458,7 @@ export function makeTaxQueries(ctx: QueryContext) {
       yearContext,
       otherFinancialIncome: dec(effective.otherFinancialIncome),
       otherIncomeBase: dec(effective.otherIncomeBase),
-      // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 3 → 4)
-      rates: NO_ESTIMATE_RATES,
+      rates,
     })
 
     const health = calculateHealthInsurance({
@@ -453,6 +490,8 @@ export function makeTaxQueries(ctx: QueryContext) {
         // isComprehensive가 어느 쪽인지 이미 말한다.
         thresholdGap: amountString(own.financialIncome.minus(threshold).abs()),
         unconvertedCount: own.unconvertedCount,
+        convertedCount: own.convertedCount,
+        exchangeRateBasis: exchangeRateBasisOf(own.estimateRate, ctx.asOf),
       },
       tax: {
         method1: own.result.method1 == null ? null : amountString(own.result.method1),
@@ -516,15 +555,16 @@ export function makeTaxQueries(ctx: QueryContext) {
     // 구조로 만든 것과 같은 이유로 파생 규칙도 한 곳에만 둔다.
     const year = currentYear(ctx.asOf)
 
-    // 넷 다 ctx.asOf·ctx.viewerId만으로 출발하고 서로 의존하지 않는다 —
-    // **한 물결**이다. 왕복은 4로 같고(§4.0 예산 불변) 대기만 2파 → 1파로 준다.
-    const [users, products, yearContext, ownProfile] = await Promise.all([
+    // 다섯 다 ctx.asOf·ctx.viewerId만으로 출발하고 서로 의존하지 않는다 —
+    // **한 물결**이다. 대기는 1파이고 왕복은 5다(추정 환율이 나란히 — §4.0 규칙 2, 4 → 5).
+    const [users, products, yearContext, ownProfile, rates] = await Promise.all([
       loadUsers(ctx),
       loadProducts(ctx),
       loadTaxYearContext(ctx, year),
       // 본인 프로필만 읽힌다. 타인 것은 0행이 오며 그것이 이 계약의 전제다(D3) —
       // 사용자 목록에 임베드할 수 없어 별도 요청이며 그것이 4번째 왕복의 정체다.
       loadTaxProfile(ctx, ctx.viewerId, year),
+      loadEstimateRates(ctx),
     ])
 
     const brackets = toBrackets(yearContext)
@@ -538,8 +578,8 @@ export function makeTaxQueries(ctx: QueryContext) {
       // §4.6과 같은 E-09 — 환율이 없는 달러 추정 건은 빠진다. 표식은 두지 않는다(§4.8 v4.9 —
       // 화면이 없고, 두게 되면 `includesOtherFinancialIncome`에 접지 않는 별도 필드다)
       const elsIncome = owned.reduce<DecimalValue>((acc, row) => {
-        // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 4 → 5)
-        const c = contributionOf(row, year, ctx.asOf, NO_ESTIMATE_RATES)
+        // §4.6과 같은 추정 환율 — 같은 요청의 `getTaxSummary`·`getForecast`와 F가 같다(항등)
+        const c = contributionOf(row, year, ctx.asOf, rates)
         return c?.amount == null ? acc : acc.plus(c.amount)
       }, ZERO)
 

@@ -3,12 +3,16 @@ import { describe, expect, it } from 'vitest'
 import { amountString, dec } from '@/lib/decimal'
 import {
   aggregateRealizedPnl,
+  CURRENCY_ORDER,
+  estimateConversionOf,
+  FOREIGN_CURRENCIES,
   hasMinorUnitScale,
   moneyString,
   NO_ESTIMATE_RATES,
   portfolioPnl,
   realizedPnl,
   sumByCurrency,
+  taxableIncomeKrw,
   toKrw,
   type EstimateRates,
 } from '@/lib/domain'
@@ -64,7 +68,7 @@ describe('hasMinorUnitScale — V-23의 판정', () => {
 })
 
 describe('toKrw — 추정 전용 원화 환산 (DOC-007 §4.8)', () => {
-  const rates: EstimateRates = { USD: { currency: 'USD', rate: '1450', asOfDate: '2026-09-28' } }
+  const rates: EstimateRates = { USD: { currency: 'USD', rate: '1450', asOfDate: '2026-09-28', source: 'MANUAL' } }
 
   it('원화는 그대로다', () => {
     expect(toKrw({ amount: '616000', currency: 'KRW', rates: NO_ESTIMATE_RATES })?.toString()).toBe('616000')
@@ -82,7 +86,7 @@ describe('toKrw — 추정 전용 원화 환산 (DOC-007 §4.8)', () => {
   })
 
   it('반올림하지 않는다 — 집계는 반올림하지 않은 값으로 한다', () => {
-    const r: EstimateRates = { USD: { currency: 'USD', rate: '1392.4', asOfDate: '2026-09-28' } }
+    const r: EstimateRates = { USD: { currency: 'USD', rate: '1392.4', asOfDate: '2026-09-28', source: 'MANUAL' } }
     expect(toKrw({ amount: '202', currency: 'USD', rates: r })?.toString()).toBe('281264.8')
   })
 })
@@ -137,5 +141,66 @@ describe('portfolioPnl — 실수령액 + 받은 월수익 − 투자원금', ()
     expect(aggregateRealizedPnl([{ grossAmount: '90000000', principal: '100000000' }]).toString()).toBe(
       '-10000000',
     )
+  })
+})
+
+describe('estimateConversionOf — 추정 환율을 «곱하는가» (P8 컷 a3 · DOC-011 §4.1·§4.6 convertedCount)', () => {
+  const base = { principal: '10000.00', expectedGross: '10600.00' } as const
+
+  it('곱하는 것은 일반계좌 · 달러 · 추정 · 이익 > 0 하나뿐이다', () => {
+    expect(estimateConversionOf({ ...base, currency: 'USD', accountType: 'GENERAL' })).toBe('USD')
+  })
+
+  it.each([
+    ['원화 — 환율 경로를 지나지 않는다', { ...base, currency: 'KRW', accountType: 'GENERAL' }],
+    ['비과세 — 환율 없이 0이다 (검산 A-2)', { ...base, currency: 'USD', accountType: 'TAX_FREE' }],
+    [
+      '확정값 — 거래내역의 원화다 (U1)',
+      { ...base, currency: 'USD', accountType: 'GENERAL', redemption: { taxableIncome: '835740' } },
+    ],
+    [
+      '달러 이익 0 — 곱할 이익이 없다',
+      { principal: '10000.00', expectedGross: '10000.00', currency: 'USD', accountType: 'GENERAL' },
+    ],
+    [
+      '달러 이익 음수 — 과세 0이 먼저다(절대 규칙 #8)',
+      { principal: '10000.00', expectedGross: '9000.00', currency: 'USD', accountType: 'GENERAL' },
+    ],
+  ] as const)('곱하지 않는다: %s', (_what, input) => {
+    expect(estimateConversionOf(input)).toBeNull()
+  })
+
+  it('★ taxableIncomeKrw와 같은 분기다 — 「null ⇔ 곱해야 하는데 환율이 없다」를 전 조합에서 본다', () => {
+    /*
+     * `convertedCount`(이 함수 ≠ null ∧ 환율 있음)와 `unconvertedCount`(금액 = null)가 같은 분기 위에 있어야
+     * 「환산한 건 + 빠진 건 = 곱해야 하는 건」이 선다. 두 함수의 분기 순서가 갈리면 이 단언이 깨진다.
+     */
+    const rates: EstimateRates[] = [
+      NO_ESTIMATE_RATES,
+      { USD: { currency: 'USD', rate: '1392.4', asOfDate: '2026-09-28', source: 'MANUAL' } },
+    ]
+    let checked = 0
+    for (const currency of CURRENCY_ORDER) {
+      for (const accountType of ['GENERAL', 'TAX_FREE'] as const) {
+        for (const expectedGross of ['9000.00', '10000.00', '10600.00']) {
+          for (const redemption of [null, { taxableIncome: '835740' }]) {
+            for (const r of rates) {
+              const input = { currency, accountType, principal: '10000.00', expectedGross, redemption }
+              const needs = estimateConversionOf(input)
+              const amount = taxableIncomeKrw({ ...input, rates: r })
+              const missing = needs != null && r[needs] == null
+              expect(amount == null, JSON.stringify({ input, r: r.USD?.rate ?? null })).toBe(missing)
+              checked += 1
+            }
+          }
+        }
+      }
+    }
+    expect(checked).toBe(48)
+  })
+
+  it('지원 외화는 CURRENCY_ORDER에서 원화를 뺀 순서다 — §4.11 「원소는 지원 외화마다 하나」', () => {
+    expect(FOREIGN_CURRENCIES).toEqual(CURRENCY_ORDER.filter((c) => c !== 'KRW'))
+    expect(FOREIGN_CURRENCIES).toEqual(['USD'])
   })
 })

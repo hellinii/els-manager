@@ -33,7 +33,7 @@ beforeAll(async () => {
   s = await setupScenario()
 })
 
-/** 계약 9개의 실제 반환값 — §4.1~§4.9 전부다(§4.7이 P4b 컷 7에서 들어왔다). */
+/** 계약 10개의 실제 반환값 — §4.1~§4.9와 §4.11 전부다(§4.7이 P4b 컷 7에서, §4.11이 P8 컷 a3에서 들어왔다). */
 async function allViews(): Promise<Record<string, unknown>> {
   return {
     getDashboard: await s.asA.getDashboard({ scope: 'ALL' }),
@@ -45,13 +45,14 @@ async function allViews(): Promise<Record<string, unknown>> {
     getTaxSummary: await s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
     listUserSummaries: await s.asA.listUserSummaries(),
     searchAssets: await s.asA.searchAssets('자산'),
+    listExchangeRates: await s.asA.listExchangeRates(),
   }
 }
 
 describe('뷰는 서버 → 클라이언트 경계를 넘을 수 있다', () => {
-  it('계약 9개 전부가 structuredClone을 통과한다', async () => {
+  it('계약 10개 전부가 structuredClone을 통과한다', async () => {
     const views = await allViews()
-    expect(Object.keys(views)).toHaveLength(9)
+    expect(Object.keys(views)).toHaveLength(10)
 
     for (const [contract, view] of Object.entries(views)) {
       // structuredClone은 함수·클래스 프로토타입·Symbol에서 던진다.

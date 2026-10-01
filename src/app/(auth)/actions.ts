@@ -7,8 +7,8 @@ import { getAuth } from '@/lib/db/server'
 /**
  * 인증 서버 액션 — SCR-001 / 셸 로그아웃
  *
- * **`src/app/actions.ts`가 아니다.** 그 파일은 DOC-011 §5의 열한 계약을 1:1로
- * 노출하는 것이 불변식이고(그 파일의 docblock), 인증은 그 열하나가 아니다.
+ * **`src/app/actions.ts`가 아니다.** 그 파일은 DOC-011 §5의 변경 계약을 1:1로
+ * 노출하는 것이 불변식이고(그 파일의 docblock), 인증은 그 계약이 아니다.
  *
  * 여기도 위임만 둔다. 같은 이유다 — 이 파일은 `getAuth()`를 거쳐 `server.ts`를
  * 끌어오므로 어떤 스위트의 import 그래프에도 들어가지 못한다(AQ-23). 로직을

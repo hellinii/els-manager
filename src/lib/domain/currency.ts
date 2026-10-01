@@ -37,6 +37,11 @@ export const MINOR_UNITS: { readonly [C in ProductCurrency]: { unit: string; dec
 /** 표시 순서 — 원화가 먼저다(DOC-011 §4.1 `byCurrency`) */
 export const CURRENCY_ORDER: readonly ProductCurrency[] = ['KRW', 'USD']
 
+/** 지원 외화 — `CURRENCY_ORDER`에서 원화를 뺀 순서다(DOC-011 §4.11 「원소는 지원 외화마다 하나」) */
+export const FOREIGN_CURRENCIES: readonly ForeignCurrency[] = CURRENCY_ORDER.filter(
+  (c): c is ForeignCurrency => c !== 'KRW',
+)
+
 /**
  * 금액 문자열 — 상품 통화의 보조단위로 반올림한 **고정 자릿수** 문자열 (DOC-011 Q-07′).
  *
@@ -68,12 +73,20 @@ export type ExchangeRate = {
   /** 1 단위당 원 */
   readonly rate: DecimalInput
   readonly asOfDate: string
+  /**
+   * 출처 — 계산에 쓰지 않는다. 추정의 근거를 화면이 말할 때(`ExchangeRateBasisView` — DOC-011 §4.0)
+   * 함께 나르는 관측의 일부다(P8 컷 a3)
+   */
+  readonly source: 'AUTO' | 'MANUAL'
 }
 
 /** 통화별 추정 환율. `null`은 「그 통화의 환율이 없다」 — E-09 */
 export type EstimateRates = Readonly<Record<ForeignCurrency, ExchangeRate | null>>
 
-/** 환율이 하나도 없는 상태 — 컷 a3(`exchange_rates`) 전의 유일한 값이다 */
+/**
+ * 환율이 하나도 없는 상태. 컷 a3부터 조회는 `loadEstimateRates(ctx)`를 쓰고 이 값은 테스트와
+ * 「환율 행이 0건」의 표현으로만 남는다
+ */
 export const NO_ESTIMATE_RATES: EstimateRates = { USD: null }
 
 /**
@@ -123,18 +136,42 @@ export function taxableIncomeKrw(params: {
   expectedGross?: DecimalInput | null
   rates: EstimateRates
 }): DecimalValue | null {
-  const { currency, rates, ...base } = params
-  if (currency === 'KRW') return taxableIncome(base)
+  const { rates, ...input } = params
+  // `taxableIncome`은 통화를 받지 않는다 — 통화는 `estimateConversionOf`가 이미 보았다
+  const { currency: _currency, ...base } = input
+  const foreign = estimateConversionOf(input)
 
-  // 비과세와 확정값은 `taxableIncome`이 이미 원화로 안다 — 달러 이익을 만들기 전에 끝낸다
-  if (base.accountType === 'TAX_FREE' || base.redemption != null) {
-    return taxableIncome(base)
-  }
+  // 곱하지 않는 넷 — 원화 · 비과세 · 확정값 · 달러 이익 ≤ 0. `taxableIncome`의 값이 이미 원화이거나 0이다
+  if (foreign == null) return taxableIncome(base)
 
   // 여기서부터 `taxableIncome`의 값은 **달러**다(max(0, gross − P)) — 원화 자리에 두지 않는다
-  const profit = taxableIncome(base)
-  if (profit.lte(ZERO)) return ZERO
-  return toKrw({ amount: profit, currency, rates })
+  return toKrw({ amount: taxableIncome(base), currency: foreign, rates })
+}
+
+/**
+ * 이 과세 금융소득이 추정 환율을 **곱하는가** — 곱하면 그 외화, 아니면 `null` (P8 컷 a3).
+ *
+ * `taxableIncomeKrw`의 분기 순서 그 자체다 — 그 함수가 이 함수로 갈린다. 따로 적으면 두 순서가
+ * 갈리는 날 「환산해 넣은 건 수」(DOC-011 §4.1·§4.6 `convertedCount`)가 실제로 곱한 건과 달라진다.
+ *
+ * **환율의 유무는 보지 않는다.** 곱해야 하는데 환율이 없는 것이 E-09이고(호출부가 센다), 비과세 ·
+ * 확정값 · 이익 ≤ 0은 환율 없이 값을 안다 — 그 셋은 `convertedCount`에도 `unconvertedCount`에도
+ * 들지 않는다(DOC-011 §4.6).
+ */
+export function estimateConversionOf(params: {
+  currency: ProductCurrency
+  accountType: AccountType
+  principal: DecimalInput
+  redemption?: { taxableIncome: DecimalInput } | null
+  expectedGross?: DecimalInput | null
+}): ForeignCurrency | null {
+  const { currency, ...base } = params
+  if (currency === 'KRW') return null
+  // 비과세와 확정값은 `taxableIncome`이 이미 원화로 안다 — 달러 이익을 만들기 전에 끝낸다
+  if (base.accountType === 'TAX_FREE' || base.redemption != null) return null
+  // 곱할 이익이 없다 — 환율보다 먼저 본다(검산 A-2)
+  if (taxableIncome(base).lte(ZERO)) return null
+  return currency
 }
 
 /**

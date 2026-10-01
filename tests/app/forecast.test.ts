@@ -63,14 +63,19 @@ type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 /**
  * **계약에 대응 없는 필드가 없다.** 위 표는 「요소 → 필드」이고 이 별칭은 그 역을 본다.
  *
- * 넷을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`는
- * 열이 아니라 **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로 규정한다. 아래
- * 케이스가 그 행의 존재와 **넷의 문구 각각**을 함께 단언하므로, 이 넷을 「대응 없음」으로 두는
- * 것이 침묵이 아니다. 다섯째가 생기면(컷 a3 — `exchangeRateBasis`) 여기가 컴파일에서 깨지고
- * 그때 물어야 하는 것은 「그것이 열인가 표 밖 표식인가」다.
+ * 다섯을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`·
+ * `exchangeRateBasis`는 열이 아니라 **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로
+ * 규정한다. 아래 케이스가 그 행의 존재와 **다섯의 문구 각각**을 함께 단언하므로, 이 다섯을 「대응 없음」으로
+ * 두는 것이 침묵이 아니다. 다섯째(컷 a3 — `exchangeRateBasis`)가 생길 때 여기가 컴파일에서 깨졌고 그때 물은
+ * 것이 「그것이 열인가 표 밖 표식인가」였다 — 전 연도에 한 값이라(RD-09) 표 아래 한 줄이다(DOC-008 SCR-402).
  */
 type Mapped = (typeof ELEMENT_SOURCES)[keyof typeof ELEMENT_SOURCES]['field']
-type OutsideTable = 'taxLawYear' | 'profileYear' | 'hasEstimates' | 'excludedForeignCount'
+type OutsideTable =
+  | 'taxLawYear'
+  | 'profileYear'
+  | 'hasEstimates'
+  | 'excludedForeignCount'
+  | 'exchangeRateBasis'
 type Unmapped = Exclude<keyof ForecastRow, Mapped | OutsideTable>
 type _NoUnmappedField = Expect<Equals<Unmapped, never>>
 
@@ -129,9 +134,9 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(documented).toEqual(expected)
   })
 
-  it('표 밖 표식이 별 행으로 규정되어 있다 — 제외한 넷의 근거', () => {
+  it('표 밖 표식이 별 행으로 규정되어 있다 — 제외한 다섯의 근거', () => {
     /*
-     * `Unmapped`가 `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`를 빼는 근거가 문서에
+     * `Unmapped`가 `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`·`exchangeRateBasis`를 빼는 근거가 문서에
      * 실재함을 확인한다. 이 행이 사라지면 그 셋이 「어느 요소도 읽지 않는 필드」가 되므로
      * 타입 쪽 제외가 근거를 잃는다 — 제외를 주석으로만 두면 그 상실이 조용하다.
      */
@@ -145,6 +150,8 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(row![1]).toContain('행별 추정 표식')
     // P8 컷 a2 — 넷째. 셋만 보면 넷째가 문서 근거 없이 `OutsideTable`에 들어가도 초록이다
     expect(row![1]).toContain('환율이 없어 뺀 달러 상품 수')
+    // P8 컷 a3 — 다섯째. 같은 이유로 그 커밋이 자기 문구를 함께 단언한다
+    expect(row![1]).toContain('환율 기준')
   })
 })
 
@@ -171,6 +178,7 @@ function zeroRow(year: number, overrides: Partial<ForecastRow> = {}): ForecastRo
     cumulativeAssets: '0',
     hasEstimates: false,
     excludedForeignCount: 0,
+    exchangeRateBasis: null,
     ...overrides,
   }
 }

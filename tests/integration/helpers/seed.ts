@@ -1,7 +1,14 @@
 import { Client } from 'pg'
 
 import { resolveDatabaseUrl } from './env'
-import { ALL_FIXTURE_IDS, FX_NAME_PREFIX, ITG_USER_A, ITG_USER_B } from './fixtures'
+import {
+  ALL_FIXTURE_IDS,
+  FX_NAME_PREFIX,
+  FX_RATE_DATES,
+  ITG_USER_A,
+  ITG_USER_B,
+  type FxRateDate,
+} from './fixtures'
 
 /**
  * 픽스처 — **선삭제 후 삽입(멱등)**, 고정 UUID.
@@ -136,6 +143,15 @@ export async function resetFixtures(): Promise<void> {
   await sql('delete from public.cron_runs where actor_id = any($1::uuid[])', [
     [ITG_USER_A, ITG_USER_B],
   ])
+
+  /**
+   * 환율 (P8 컷 a3) — **예약 날짜의 행만** 지운다(`FX_RATE_DATES`). 이 테이블에는 소유자도 이름도 없어 다른
+   * 좁힘이 없다. 계약(`saveExchangeRate`)으로 쓴 행도 같은 날짜에 쓰므로 함께 지워진다.
+   */
+  await sql(
+    `delete from public.exchange_rates where currency = 'USD' and as_of_date = any($1::date[])`,
+    [[...FX_RATE_DATES]],
+  )
 }
 
 export async function seedAsset(params: {
@@ -166,6 +182,26 @@ export async function seedPrice(params: {
     `insert into public.asset_prices (asset_id, as_of_date, price, source)
      values ($1, $2, $3, $4)`,
     [params.assetId, params.asOfDate, params.price, params.source ?? 'MANUAL'],
+  )
+}
+
+/**
+ * 환율 (P8 컷 a3). **기준일을 예약 날짜로만 받는다** — 타입이 그 밖의 날짜를 막는다. 그 밖에 쓰면
+ * `resetFixtures`가 지우지 못해 다음 실행이 `exchange_rates_currency_as_of_date_key`로 죽거나, 더 나쁘게는
+ * `AS_OF` 이전의 날짜가 남아 다른 파일의 E-09 단언이 «환율이 있는 상태»에서 돈다.
+ */
+export async function seedExchangeRate(params: {
+  asOfDate: FxRateDate
+  rate: string
+  source?: 'AUTO' | 'MANUAL'
+  /** `AUTO`일 때만 — `exchange_rates_provider_check` */
+  provider?: string | null
+}): Promise<void> {
+  const source = params.source ?? 'MANUAL'
+  await sql(
+    `insert into public.exchange_rates (currency, as_of_date, rate, source, provider)
+     values ('USD', $1, $2, $3, $4)`,
+    [params.asOfDate, params.rate, source, params.provider ?? null],
   )
 }
 

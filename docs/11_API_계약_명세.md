@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.12 |
+| 버전 | 4.13 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.13 | 2026-10-01 | 민서 | **P8 컷 a3-2 — 추정 환율이 계약을 지난다. §4.11 `listExchangeRates`(조회 9 → 10) · §5.13 `saveExchangeRate`(변경 13 → 14) · v4.9 a3 몫의 뷰 필드 전부가 코드로 섰다. 화면은 아직이다(a3-3).** **(1) `loadEstimateRates(ctx)`** — `exchange_rates`에서 통화별 `as_of_date ≤ asOf` 최신 1건(`limit(1)`)을 요청당 한 번 읽는다. 다섯 호출부(`getProduct` · `getDashboard` · `getTaxSummary` · `listUserSummaries` · `getForecast`)의 `NO_ESTIMATE_RATES`를 그것으로 바꿨고 **전부 첫 물결에서 나란히** 나간다 — §4.0 왕복 표를 고쳤다(`listProducts`와 `getProduct`를 갈랐다 — `getProduct`만 3이다). `getProduct`는 종전 순차(`loadProduct` → 시세)였고 환율을 `loadProduct`와 같은 물결에 두었다 — 그래서 상품이 없거나 기초자산이 0건이어도 환율 왕복은 나간다(`getProductNoUnderlying` 예산 `{els_products: 1, exchange_rates: 1}`). §4.11과 **같은 로더**(`loadLatestExchangeRates`)와 같은 근거 사상(`exchangeRateBasisOf` — `priceString` · §4.5 `isStale`)을 지나므로 SCR-302의 최신 환율과 다른 화면이 쓴 환율이 갈릴 수 없다. **(2) 뷰 필드** — §4.0 `ExchangeRateBasisView` · §4.1 `totals.krwEstimate`(보유중 외화가 있을 때만, 외화 하나라도 환율이 없으면 두 필드가 함께 `null` — 부분합 없음) · `currentYearTax.exchangeRateBasis`·`convertedCount` · §4.3 `projection.exchangeRateBasis` · §4.6 `income.exchangeRateBasis`·`convertedCount` · §4.7 `ForecastRow.exchangeRateBasis`. **「환산함」의 신호** — v4.9가 이름을 정하지 않은 자리다. 순수 모듈에 `estimateConversionOf`(곱해야 하는 외화 또는 `null`)를 두고 **`taxableIncomeKrw`가 그 함수로 갈리게** 했다 — 분기 순서를 두 곳에 적으면 「환산한 건 + 빠진 건 = 곱해야 하는 건」이 조용히 깨진다(`tests/domain/currency.test.ts`가 48조합으로 둘의 일치를 본다). 기여(`contributionOf`)는 그 환율을 `estimateRate`로 나르고 `convertedCount`가 그것을 센다. **(3) §4.7 — 결정 둘(문서에 없던 것)** — `exchangeRateBasis`가 붙는 행은 `excludedForeignCount`와 **같은 규칙**(환산한 외화 상품이 처음 원화 합에 필요해진 행부터 마지막 행까지 — 그래서 모든 행이 같은 값, 기준 연도 이전 상환은 세우지 않는다)이고, `hasEstimates`의 행 축은 **그대로**다(누적 두 열의 앞 행 몫은 원화 추정에서도 세지 않았다 — 달러 환산만 다른 규칙을 두지 않는다). §4.7 「달러 상품의 전망」에 두 줄로 적었다. **(4) §6** — V-24 행의 ⓑ를 본문으로(필수 · 같은 수치 규칙 · 통화는 `USD`만), V-17 행에 환율. `V17_notFuture`가 **대상을 인자로** 받는다 — 문구에 「시세」가 박혀 있어 환율 폼에 「시세」가 뜰 자리였다(반박 검토 지적). 조사는 받침으로 갈린다(「환율은」 — `${subject}는`으로 조립하면 「환율는」이다). **(5) §8** — SCR-302 행에 두 계약. `EXCHANGE_RATE_WIDE`(세금이 «있다») · `PRODUCT_WIDE`·`createProduct`에 `listExchangeRates`(그 통화의 미상환 수 — `createRealizedProduct`·`setKiTouched`는 아니다) · `ROUTE_QUERIES['/prices']`. `refreshPrices`·`saveManualPrice`의 `affects`에 세금 계약 **셋 다** 없음을 단언한다(종전은 `getTaxSummary` 하나만 보았다 — SB-17). **(6) 정정 셋(낡은 문장)** — §5.0.1 `refreshPrices`의 「0 · 공급자 0개」는 P5a 컷 3 전의 값이었다(테스트는 그 컷부터 5를 단언했다) · §5.12는 그 표에서 잰 적이 없다고 적었다 · §4.11 「환율 없음 — 수동 입력」 예시를 지웠다(문구 정본은 DOC-008 SCR-302 「최신 값」 행이고 두 문구가 갈려 있었다). `usedByActiveProducts`가 §4.5처럼 **전 사용자의** 미상환 상품을 센다는 것을 명시했다 — DOC-008 SCR-302 「절」 행의 근거(「원화뿐인 사용자에게 매번 펼쳐진 절은 소음」)는 조회자 본인의 수를 전제하므로 그 차이는 화면 컷(a3-3)에서 민서에게 묻는다. **(7) 통합 스위트** — `exchange_rates`에는 소유자도 이름도 없고 사용자는 지울 수 없다. 그래서 픽스처 환율은 **`AS_OF` 뒤의 예약 날짜**(`FX_RATE_DATES`)에만 쓰고 `resetFixtures`가 그 날짜만 지운다(소유자 커넥션) — `AS_OF` 컨텍스트에서는 환율이 없어 a2의 E-09 단언이 파일 순서와 무관하게 서고, 환율이 있는 상태는 `RATE_AS_OF`로 읽는다. `formats.test.ts`가 새 경로(근거 뷰 다섯 접두사 · `krwEstimate` · `convertedCount` · §4.11)를 `PRICE`·`AMOUNT_KRW`·`NUMBER`로 등재하고 비-null·null을 둘 다 관측시킨다(`krwEstimate = null`은 원화뿐인 B의 홈). `exchange-rates.test.ts` 신설 — **계약 경로의 `provider: null`**(자동 행을 수동 정정하면 공급자가 지워진다) + 짝 통제(열을 뺀 PostgREST UPSERT는 `23514 exchange_rates_provider_check`) · 「같은 행」(SCR-302 = 세금 · 홈 둘 · 상세 · 전망 전 행) · **F의 항등**(`getTaxSummary` = `getForecast` Y₀ = 본인 `UserSummary` = 홈 — 환율 있음 · 없음 각각). **음성 대조**: `estimateRate`를 환산과 무관하게 채우면 · 부분합을 주면 · 기준 연도 이전 상환에 근거를 세우면 · `provider: null`을 빼면 · `asOf` 상한을 빼면 · 환율 탐침의 `number`를 문자열로 바꾸면 — 여섯 다 빨간불을 먼저 보았다. **반박 검토 반영(커밋 전, 확인된 19건 — 값 결함 0)**: ⓐ 낡은 왕복 수 — §4.7 본문 「왕복은 3이다」 → 4 · §4.0 v2.5 각주(다중집합에 `exchange_rates`) · 「a3에서 고친다」를 과거형으로 · §4.4 각주의 `listUserSummaries` 4(당시) · 코드·테스트 주석 넷 ⓑ **§5.13 ★의 오류 코드** — `provider_check`에 걸린 수동 정정은 `INTERNAL`이 아니라 **칸 없는 `VALIDATION_FAILED`**다(사상이 없는 `23514`의 기본값 — `tests/db/errors.test.ts`가 고정한다). 결론(정정 경로가 막힌다)은 같고 근거의 코드가 틀렸다 ⓒ §5.0.1 — `refreshPrices` 행을 조건부(매핑 0건 5 · 새 종가 N건 5+N · 대상 0건 2)로, ① 「사전 조회가 필요한 계약만 2 이상」을 사용자 데이터 계약으로 좁혔다(그 행이 반례다) ⓓ §8 SCR-302 행의 「공급자 미등재」(P5a 컷 3 이후 낡음)와 말미 각주의 현재형 ⓔ §9 원장의 줄 번호 참조를 케이스 이름으로 ⓕ `getProduct` 물결 근거 — 「통화를 보고 고르면 물결이 셋」은 사실이 아니었다(둘째 물결에서 조건부로 내면 둘 그대로다). 선택은 그대로이고 근거를 「규칙 2의 균일함 · 통화 무관한 예산」으로 고쳐 적었다 ⓖ 테스트 공백 셋 — `usedByActiveProducts`가 «전 사용자 · 미상환»임을 B의 달러 둘(보유 · 상환)로 값으로 가른다(조회자로 좁히면 1 · 상환을 세면 3 · 옳으면 2) · 원화 환율 거부를 계약의 문구로 가르고 DB CHECK 짝 통제를 더했다(칸만 보면 DB 겹도 같은 칸이다) · `saveExchangeRate.affects`를 집합 전체로 박았다(`listAssetPrices`를 넣어도 `/prices`가 이미 낡아 초록이었다). 「변경 계약 열하나」 등 사본 문장 아홉은 수를 빼고 고쳤다(다시 낡지 않게). **배포 순서**: 이 코드는 `exchange_rates`를 읽으므로 **W2 `db push` 뒤에만** `main`에 간다. 화면(a3-3)과 함께 간다 — 이 커밋만으로는 환율을 넣을 화면이 없어 운영 동작이 같다 |
 | 4.12 | 2026-10-01 | 민서 | **P8 컷 a3-1 — §3.2.1 제약 이름 표에 `exchange_rates` 넷을 더했다(코드 커밋과 함께).** `exchange_rates_currency_check` → `currency` · `exchange_rates_rate_check` → `rate` · `exchange_rates_coordinates_immutable`(트리거 라벨 · `RAISE_ONLY`) → `currency` · `asOfDate`(**검증 오류다 — 상태 충돌이 아니다**) · `exchange_rates_currency_as_of_date_key` → `asOfDate`. `exchange_rates_provider_check`는 사상하지 않는다(`NOT_USER_REACHABLE` — 수동 입력은 `provider = null`을 명시한다). 산문(v4.9)의 사상 그대로다. **§5.1의 「통화 누락 → 23502」가 도달 가능해졌다** — M-a2c(W2)가 열 기본값과 RPC `coalesce`를 뗐다. 계약 계층은 V-22로 앞에서 막고, 우회하는 직접 호출은 `NOT_NULL_FIELD`의 `currency`로 그 칸에 닿는다. Q-01의 정책 수 37 → 40 |
 | 4.11 | 2026-09-30 | 민서 | **P8 컷 a2-3a — 달러 ELS의 계약 · 조회가 코드로 섰다. v4.9 선행 명세의 a2 몫이다(a3 몫 — `exchangeRateBasis` · `krwEstimate` · `convertedCount` · 실제 환산 — 은 싣지 않았다: 추정 환율이 없어 모든 응답에서 구조적 상수가 된다, §4.0 「컷별 도달」).** **(1) §6 규칙 표에 V-22 · V-23 · V-24 세 행 — 코드와 같은 커밋**(파서 결속 — `RULE_IDS`를 `tests/db/docs-contract.test.ts`가 양방향으로 대조한다, V-21 선례). V-01에서 「정수」를 떼어 V-23으로 옮겼다(자릿수는 통화가 정한다). **(2) 입력** — `ProductInput` · `RealizedProductInput`의 `currency`(기본값 없음 — V-22), `RedemptionInput` · `RealizedProductInput`의 `exchangeRate?`(V-24 — 원화 상품이면 거부). 상환(§5.4 · §5.5)의 `grossAmount`는 **부모 상품의** 통화로 V-23을 지난다 — 기존 사전 조회의 select에 `currency`를 더했고 왕복은 그대로다. **V-23을 통과한 금액은 `moneyString`으로 접어 싣는다** — `dec('10000.500').decimalPlaces()`는 1이지만 DB의 `scale()`은 끝의 0까지 세어 3이므로, 접지 않으면 `els_products_principal_scale_check`가 정상 입력을 거부한다(`tests/integration/mutations.test.ts`가 그 경로를 왕복시킨다). **(3) 조회** — §4.1 `totals.byCurrency[]`(최상위 `activePrincipal` · `realizedPnl`은 사라졌다) · `currentYearTax.unconvertedCount` · `recentRedemptions[].currency` / §4.2 `currency` · `PRINCIPAL` 정렬의 통화 묶음(`sortItems` — 계약 층) / §4.3 `product.currency` · `projection.expectedTaxableIncome: string | null`(DOC-007 §4.8 `taxableIncomeKrw` — 원화 상품은 그 경로를 지나지 않는다) · `RedemptionView.exchangeRate`(6자리) / §4.4 `currency` · 「달러 기준 참고」(보조단위로 접은 세전에서 세 값이 파생되고 원천징수는 `rounding.unit = MINOR_UNITS[currency].unit` — 원화 `'1'`은 종전 `DEFAULT_ROUNDING`과 같다) / §4.6 `income.unconvertedCount` · `contributingProducts[].currency` · `exchangeRateMissing` · `taxableIncome: string | null`(빠진 상품도 행에 남는다) / §4.7 `excludedForeignCount`(모든 행이 같은 값 — 그 규칙에서 보유중 · `Y₀` 상환 상품은 첫 행부터 원화 합에 필요하다) / §4.8 `activePrincipalByCurrency`. **원화뿐인 범위의 문자열은 바이트 단위로 같다** — `byCurrency`는 원화 한 행이고 그 값이 종전 두 필드와 같다(통합 스위트의 단언이 그 형태로 바뀌었다). **(4) 추정 환율의 자리를 먼저 만들었다** — 매퍼 넷(`toProductDetailView` · `contributionOf` · `computeOwnTax` · `forecastItemOf`)이 `rates: EstimateRates`를 **기본값 없이** 받고, 호출부 다섯(`getProduct` · `getDashboard` · `getTaxSummary` · `getForecast` · `listUserSummaries`)이 `NO_ESTIMATE_RATES`를 명시로 넘긴다. 컷 a3는 그 다섯 줄을 `loadEstimateRates(ctx)`로 바꾼다 — 기본값을 두면 a3에서 주입을 잊은 호출부가 환율이 있는데도 조용히 전부 E-09가 된다. **(5) Q-07′ 검증 계기가 섰다** — `tests/integration/helpers/formats.ts`의 `AMOUNT`를 과세 축 `AMOUNT_KRW`와 상품 통화 `MONEY`로 갈랐다(가까운 조상의 `currency` → 루트 `product.currency` → 없으면 **던진다**). `formats.test.ts`에 달러 픽스처 둘(센트 — 상환 완료 · 미상환)과 계기 자신의 음성 대조 셋(달러 `'10001'`은 위반 · 형제 가지는 루트 폴백 · 통화 없음은 던진다). 달러 17자리 경계(`999999999999999.99`)의 계약 왕복도 같은 커밋이다. **반박 검토가 계기 둘을 더 요구했다** — 경로 단위의 「비-null로 한 번 관측」은 원화 한 번으로 채워져 달러 분기가 판정됐는지 말하지 못하므로, `MONEY` 경로 열여섯마다 **원화와 달러가 둘 다** 비-null로 관측되는지 단언한다(③′). 그리고 형식만 보는 검사는 `null`을 `'0'`으로 흡수하거나 통화를 넘어 더해도 초록이므로, 달러 픽스처로 **값을** 본다 — §4.6 빠진 행 `taxableIncome = null` · `unconvertedCount = 1` · 확정 원화 `'835740'` 그대로 / §4.1 같은 건수 · 달러 행 / §4.7 모든 행 `excludedForeignCount = 2` / §4.8 달러 원금. 상환의 끝 0 정규화(`10400.520` → `10400.52`)와 V-23이 **계약 층에서** 거부하는지(문구로 가른다 — DB 트리거도 같은 코드 · 같은 칸으로 사상되므로)도 같은 커밋이다. **(6) 화면 입력은 아직 원화만 고른다** — DOC-008 v2.16(4). **(7) 문장 둘을 좁혔다** — §4.0 「컷별 도달」과 §4.3 「컷」의 「미상환 달러 상품은 늘 `null`」은 일반 계좌 · 달러 이익 > 0에만 참이다(비과세 · 이익 ≤ 0은 환율 없이 `'0'` — 같은 절의 표). 동작은 처음부터 표대로였다 |
 | 4.10 | 2026-09-30 | 민서 | **P8 컷 a2-1 — §3.2.1 제약 이름 표에 넷을 더했다(코드 커밋과 함께).** `els_products_principal_scale_check` → `principal` · `redemptions_gross_amount_digits_check` → `grossAmount` · `redemptions_gross_amount_scale`(RAISE) → `grossAmount` · `redemptions_exchange_rate_check` → `exchangeRate`. `errors.ts` `BY_CONSTRAINT`와 같은 커밋이다(`tests/db/docs-contract.test.ts`가 양방향으로 대조한다). v4.9의 산문 사상(§3.2.1 끝)은 선행 명세로 남는다 — a3의 `exchange_rates_*`가 아직 산문이다 |
@@ -360,14 +361,18 @@ type QueryContext = {
 
 | 계약 | 왕복 | 구성 |
 |---|---|---|
-| `listProducts`·`getProduct` | 2 | 상품+하위 임베드 / 자산별 최신 시세 |
+| `listProducts` | 2 | 상품+하위 임베드 / 자산별 최신 시세 |
+| `getProduct` | **3** | 상품+하위 임베드 / 자산별 최신 시세 / **추정 환율** *(v4.13 — P8 컷 a3)* |
 | `listSchedule` | 3 | 차수+부모 임베드 / 자산별 최신 시세 / **세율 연도** |
 | `searchAssets` | 1 | 이름 부분일치 |
 | `listAssetPrices` | 2 | 자산+최신 시세 / 상품(참조 수 계산) |
-| `getTaxSummary` | 3 | 세율 연도 / 프로필 / 상품 |
-| `getForecast` | 3 | 세율 연도 / 프로필(`.lte`) / 상품 |
-| `listUserSummaries` | 4 | 사용자 / 상품 / 세율 연도 / 프로필 |
-| `getDashboard` | 4 | 상품 / 시세 / 세율 연도 / 프로필 |
+| `getTaxSummary` | **4** | 세율 연도 / 프로필 / 상품 / **추정 환율** |
+| `getForecast` | **4** | 세율 연도 / 프로필(`.lte`) / 상품 / **추정 환율** |
+| `listUserSummaries` | **5** | 사용자 / 상품 / 세율 연도 / 프로필 / **추정 환율** |
+| `getDashboard` | **5** | 상품 / 시세 / 세율 연도 / 프로필 / **추정 환율** |
+| `listExchangeRates` | 2 | 환율(통화별 `limit(1)`) / 상품(미상환 수) *(v4.13 신설 — §4.11)* |
+
+> **추정 환율 한 왕복이 다섯 계약에 붙었다 (v4.13 — P8 컷 a3, 아래 「왕복 — 컷 a3에서」의 이행).** 전부 **첫 물결에서 나란히** 나가므로 물결 수는 그대로다. `getProduct`는 종전 `loadProduct` → `loadLatestPrices` 순차였고, 환율을 `loadProduct`와 같은 물결에 두었다 — **상품이 없거나(`null`) 기초자산이 0건이어도 그 왕복은 이미 나갔다**(`tests/integration/contracts.test.ts`의 `getProductNoUnderlying` 예산이 `{els_products: 1, exchange_rates: 1}`이다). 상품을 읽은 뒤 통화를 보고 둘째 물결(시세와 나란히)에서 조건부로 내면 물결은 그대로 둘이고 원화 · 미존재 상품에서 왕복 하나를 아낀다 — **그래도 택하지 않는다.** 다섯 계약이 같은 모양(첫 물결 · 무조건)이어야 규칙 2가 한 문장으로 서고, 예산 다중집합이 상품의 통화와 무관하게 고정된다. 사용자 3명 규모에서 아끼는 왕복 하나는 그 균일함보다 싸다 *(v4.13 반박 검토 정정 — 초안은 「통화를 보고 고르면 물결이 셋이 된다」를 근거로 들었는데 사실이 아니었다)*.
 
 > **`listSchedule`의 3은 v3.3에서 «세율 연도» 하나가 늘어난 것이며 물결은 여전히 둘이다 (P6 컷 6).** `loadAllTaxYears`는 `ctx`에만 의존하고 차수를 보지 않으므로 첫 물결에서 `loadScheduleRows`와 **나란히** 나간다 — `getDashboard`·`getForecast`가 이미 그 형태다. 순차인 것은 시세뿐이고(자산 id를 알아야 한다) 그것은 v0.7부터 그랬다. 늘어난 이유는 `expectedNet`이 `separate_taxation_rate`를 요구하는데 **절대 규칙 #5가 그 값을 코드에 두는 것을 금지**하기 때문이다. 상품 쪽 네 값(`principal`·`annualCouponRate`·`accountType`·`totalRounds`)은 **왕복을 늘리지 않았다** — 아래 §4.4 참조.
 >
@@ -375,7 +380,7 @@ type QueryContext = {
 >
 > > ★ **「걸리면」이 v4.0에서 「항상」이 됐다** *(2026-08-07, DOC-008 v2.6)*. 소유자 필터의 기본값이 **본인**이 되면서 아무것도 고르지 않은 화면이 이미 좁혀진 상태다 — 두 번 부르지 «않는» 경우는 사용자가 소유자를 **「전체」로 고른** 주소뿐이며, 그것은 이제 예외 경로다. **계약은 한 줄도 바뀌지 않았다**(`params.ownerId`가 선택 필드인 것도, Q-05의 분류도 그대로다). 바뀐 것은 **화면이 그 파라미터를 언제 채우는가**이고, 그래서 이 경고의 «조건»만 이동한다. 대가를 받아들인 근거와 되돌리는 방법은 DOC-008 §5 SCR-201 ★★ ⓐ에 있다. SCR-201도 같은 형태다(`listProducts` 2 → 4).
 
-> **`getForecast`의 3은 실측이며 연도 수에 비례하지 않는다 (v2.5, P4b 컷 7).** 기본 여섯 연도인데 `getTaxSummary`와 **같은 수이고 같은 다중집합**이다 — `{tax_years: 1, tax_profiles: 1, els_products: 1}`(`tests/integration/contracts.test.ts`가 그 형태를 단언한다). 두 이유가 각각 하나를 1로 묶는다: `loadAllTaxYears`가 시드된 연도를 한 번에 가져와 **순수한** `resolveTaxYear`를 연도마다 재사용하고(P4 컷 8이 AQ-22를 부분 처리하며 만든 분해의 효과다), 프로필 이월은 `.in(연도들)`이 아니라 `.lte(마지막 연도)` **한 번**으로 받는다. `years = 20`으로도 3임을 함께 단언했다 — **연도마다 왕복하는 구현은 값이 옳으므로 이 표 말고는 어느 케이스에도 걸리지 않는다.**
+> **`getForecast`의 ~~3~~은 실측이며 연도 수에 비례하지 않는다 (v2.5, P4b 컷 7).** *(v4.13 — P8 컷 a3에서 `exchange_rates: 1`이 더해져 **4**다. 다중집합은 `{tax_years: 1, tax_profiles: 1, els_products: 1, exchange_rates: 1}`이고 `years = 20`에서도 4임을 단언한다. 아래 논증은 그대로다 — 환율도 요청당 한 번이다.)* 기본 여섯 연도인데 `getTaxSummary`와 **같은 수이고 같은 다중집합**이다 — ~~`{tax_years: 1, tax_profiles: 1, els_products: 1}`~~(`tests/integration/contracts.test.ts`가 그 형태를 단언한다). 두 이유가 각각 하나를 1로 묶는다: `loadAllTaxYears`가 시드된 연도를 한 번에 가져와 **순수한** `resolveTaxYear`를 연도마다 재사용하고(P4 컷 8이 AQ-22를 부분 처리하며 만든 분해의 효과다), 프로필 이월은 `.in(연도들)`이 아니라 `.lte(마지막 연도)` **한 번**으로 받는다. `years = 20`으로도 3임을 함께 단언했다 — **연도마다 왕복하는 구현은 값이 옳으므로 이 표 말고는 어느 케이스에도 걸리지 않는다.**
 
 `자산별 최신 시세`는 **부모별 `limit(1)`**이다 — 자산 3건에 시세 6행이 있을 때 각 부모가 정확히 1건(시세 없는 자산은 빈 배열)을 반환함을 실측했다. 평면 조회 후 JS에서 접으면 서버 상한에 걸려 **조용히 잘린 목록에서 "최신"을 고르는** 경로가 되고, 그때 틀리는 것은 값이 아니라 날짜이므로 화면에 드러나지 않는다.
 
@@ -413,7 +418,7 @@ type ExchangeRateBasisView = {
 
 **컷별 도달 — 필드가 서는 컷이 다르다.** 컷 a2(W1)에는 `exchange_rates`가 없으므로 추정 환율이 늘 없다 — 미상환 달러 상품의 추정은 전부 E-09이고(환율이 필요한 건 — 비과세 계좌 · 달러 이익 ≤ 0은 환율 없이 0이다, v4.11에서 좁혔다), 그래서 **개수 필드는 a2에서 선다.** `ExchangeRateBasisView`와 그것을 담는 필드(`exchangeRateBasis`·`krwEstimate`), 그리고 환산 건수 `convertedCount`(§4.1·§4.6)는 **a3에서 선다** — a2에 두면 모든 응답에서 `null`(건수는 0)인 **구조적 상수**가 된다(§4.1 v2.0이 `upcomingEvaluations.status`를 두지 않은 판단과 같다).
 
-**왕복 — 컷 a3에서 다섯 계약이 하나씩 는다 (위 왕복 표는 a3의 코드 커밋에서 고친다).** 추정 환율 한 왕복(`exchange_rates` ×1)이 원화 환산을 하는 계약에 붙는다 — `getProduct` 2 → 3 · `getTaxSummary` 3 → 4 · `getForecast` 3 → 4 · `getDashboard` 4 → 5 · `listUserSummaries` 4 → 5. `ctx.asOf`에만 의존하므로 **첫 물결에서 나란히** 나가고 물결 수는 그대로다(`listSchedule` v3.3 각주의 `loadAllTaxYears`와 같은 형태). **붙지 않는 계약**: `listProducts`·`listSchedule`(금액을 상품 통화로만 싣는다 — §4.4 「달러 기준 참고」) · `listAssetPrices` · `searchAssets`. 신설 `listExchangeRates`(§4.11)는 2다. `tests/integration/contracts.test.ts`의 다중집합 예산이 같은 커밋에 `{exchange_rates: 1}`을 더한다 — **환율을 연도마다 읽는 구현도 값은 옳으므로** 그 예산 말고는 어느 케이스에도 걸리지 않는다(§4.7 `getForecast`의 v2.5 각주와 같은 자리).
+**왕복 — 컷 a3에서 다섯 계약이 하나씩 는다 (위 왕복 표는 a3의 코드 커밋에서 고친다 — v4.13에서 고쳤다).** 추정 환율 한 왕복(`exchange_rates` ×1)이 원화 환산을 하는 계약에 붙는다 — `getProduct` 2 → 3 · `getTaxSummary` 3 → 4 · `getForecast` 3 → 4 · `getDashboard` 4 → 5 · `listUserSummaries` 4 → 5. `ctx.asOf`에만 의존하므로 **첫 물결에서 나란히** 나가고 물결 수는 그대로다(`listSchedule` v3.3 각주의 `loadAllTaxYears`와 같은 형태). **붙지 않는 계약**: `listProducts`·`listSchedule`(금액을 상품 통화로만 싣는다 — §4.4 「달러 기준 참고」) · `listAssetPrices` · `searchAssets`. 신설 `listExchangeRates`(§4.11)는 2다. `tests/integration/contracts.test.ts`의 다중집합 예산이 같은 커밋에 `{exchange_rates: 1}`을 더한다 — **환율을 연도마다 읽는 구현도 값은 옳으므로** 그 예산 말고는 어느 케이스에도 걸리지 않는다(§4.7 `getForecast`의 v2.5 각주와 같은 자리).
 
 ### 4.1 대시보드 — SCR-101
 
@@ -937,7 +942,7 @@ type ScheduleProceeds = {
 
 **`ownerId`가 없으면 `ownerId` 파라미터를 쓸 수 없다 (v1.8 신설, P4 컷 7).** 본 계약은 `params.ownerId`로 소유자를 좁히고 DOC-008 §5는 소유자 필터를 이 화면의 요소로 규정하는데, 반환에는 `ownerName`만 있었다 — 즉 **좁힐 값을 이 계약에서 얻을 수 없었다.** 화면이 선택지를 만들려면 이름을 UUID로 되돌려야 하고 그 대응은 어디에도 없다. §4.2의 `ProductListItem`은 처음부터 `ownerId`·`ownerName` 둘을 담았고(그래서 SCR-201의 소유자 필터가 성립한다) 같은 필터가 이 화면에도 있다는 사실만 §4.4에 반영되지 않았다.
 
-> **AQ-24와 같은 부류의 비대칭이다.** 그쪽은 파라미터가 반환보다 좁아 두 상태를 고를 수 없었고(3값 vs 5값), 이쪽은 **파라미터는 있는데 고를 값이 반환에 없다.** 둘 다 「필터의 입력과 출력이 같은 계약 안에서 닫히는가」를 확인하지 않아 생겼다. 대안(사용자 목록을 `listUserSummaries`로 따로 읽기)은 §8이 이 화면에 배정한 조회 계약을 늘리는 일이고, 그쪽은 왕복 4에 전 사용자의 세금을 계산한다 — SCR-201이 같은 대안을 같은 이유로 버렸다.
+> **AQ-24와 같은 부류의 비대칭이다.** 그쪽은 파라미터가 반환보다 좁아 두 상태를 고를 수 없었고(3값 vs 5값), 이쪽은 **파라미터는 있는데 고를 값이 반환에 없다.** 둘 다 「필터의 입력과 출력이 같은 계약 안에서 닫히는가」를 확인하지 않아 생겼다. 대안(사용자 목록을 `listUserSummaries`로 따로 읽기)은 §8이 이 화면에 배정한 조회 계약을 늘리는 일이고, 그쪽은 왕복 4(당시 — v4.13 이후 5)에 전 사용자의 세금을 계산한다 — SCR-201이 같은 대안을 같은 이유로 버렸다.
 
 **`status`가 필요한 이유 — 필터로 숨기는 것과 표시로 구분하는 것은 다르다 (v1.8 신설, P4 컷 7).** `activeOnly`는 상환 완료 상품의 차수를 **목록에서 빼는** 수단이고, 그 필터가 꺼진 상태(기본)에서 이 뷰는 그 차수를 **미상환 상품의 차수와 똑같은 모습으로** 내려보낸다. 상환된 상품의 남은 평가일은 도래하지 않으므로 화면은 「다가오는 평가일」에 **오지 않을 날짜**를 섞어 보여 주게 되고, 사용자가 그 사실을 알 방법이 뷰 안에 없다. 필터를 켜면 사라지지만 사라진 것과 상환된 것도 구분되지 않는다.
 
@@ -1297,7 +1302,7 @@ profileFor(profiles, Y) = argmax { p.tax_year | p ∈ profiles, p.tax_year ≤ Y
 
 **나머지 필드는 §4.6과 같은 집계·세액 경로를 쓴다.** `grossProceeds`는 그 해에 귀속된 상품의 세전 실수령액 합계이고(§7.5의 `Σ gross`), 세액·부담률·보험료는 §5·§6이며, `financialIncome`·`isComprehensive`·`thresholdGap`은 §4.6의 `income`과 같은 값이다.
 
-**왕복은 3이다** — 세율 연도 전체(1) + 본인의 과세 프로필 전체(1) + 상품(1). §4.6과 같은 수이며 연도 수에 비례하지 않는다: `loadAllTaxYears`가 시드된 연도를 한 번에 가져오고(§9 AQ-22가 그 분해의 부수 효과로 적었다) 프로필은 `tax_year ≤ Y₀ + years − 1` 한 번으로 받아 위 LOCF를 적용한다.
+**왕복은 4다** *(v4.13 — 종전 3에 추정 환율이 더해졌다)* — 세율 연도 전체(1) + 본인의 과세 프로필 전체(1) + 상품(1) + 추정 환율(1 — `loadEstimateRates`, 첫 물결에서 나란히). §4.6과 같은 수이며 연도 수에 비례하지 않는다: `loadAllTaxYears`가 시드된 연도를 한 번에 가져오고(§9 AQ-22가 그 분해의 부수 효과로 적었다) 프로필은 `tax_year ≤ Y₀ + years − 1` 한 번으로 받아 위 LOCF를 적용하며, 추정 환율도 요청당 한 번 읽어 모든 연도에 쓴다(§4.0 규칙 2).
 
 #### 달러 상품의 전망 — 원화 합계와 E-09 (v4.9 선행 명세 — P8 컷 a1, 구현 a2·a3)
 
@@ -1312,6 +1317,8 @@ profileFor(profiles, Y) = argmax { p.tax_year | p ∈ profiles, p.tax_year ≤ Y
 - **행마다 센다 — 그 상품이 처음 원화 합에 필요해진 행부터 마지막 행까지다.** 누적 두 열(`cumulativeNet`·`cumulativeAssets`)이 **뒤 행에서도** 그 상품을 잃기 때문이다(DOC-007 §7.5 — `cumulativeNet(Y)`는 `[Y₀, Y]`의 합이다). 미상환 달러 상품은 상환 연도 전의 행에서는 잔여 원금으로, 상환 연도에는 수령액으로, **그 뒤 행에서는 누적으로** 빠지므로 첫 행부터 마지막 행까지 각각 1이다. `Y₀`에 상환된 달러 상품도 첫 행부터 1이고, `Y₀` 이전에 상환된 상품은 어느 열에도 없으므로(DOC-007 §7.5 분할 표 둘째 줄) 세지 않는다. 「상환 연도까지」만 세면 뒤 행의 누적 두 열이 그 상품 없이 짧은데 건수는 0으로 읽힌다.
 - **`hasEstimates`는 환산에도 참이다.** 종전 뜻(적용 차수 가정에 의존한다)에 「원화 환산을 포함한다」를 더한다 — 확정 상환만 있는 해라도 달러 수령액을 환산했으면 참이다.
 - **`exchangeRateBasis`는 표 밖 표식 다섯째다**(넷째는 a2의 `excludedForeignCount` — DOC-008 SCR-402, 반박 검토 반영). 열이 아니라 표 전체의 조건이므로 `taxLawYear`·`profileYear`·`hasEstimates`와 같은 부류이며 DOC-008 SCR-402의 「표 밖 표식」 행이 규정한다. **`excludedForeignCount`도 열이 아니다** — `tests/app/forecast.test.ts`의 `OutsideTable`이 둘을 다 더해야 `_NoUnmappedField`가 선다(a2가 `excludedForeignCount`, a3가 `exchangeRateBasis`). 추정 환율이 요청당 하나이므로(§4.0 규칙 2) 환산이 있는 행들의 값은 같다.
+- **어느 행에 붙는가 — `excludedForeignCount`와 같은 규칙이다 (v4.13 — 구현에서 정함).** 환산한 외화 상품이 처음 원화 합에 필요해진 행부터 **마지막 행까지**이고, 그 규칙에서는 보유중 · `Y₀` 상환 상품이 첫 행부터 필요하므로 **모든 행이 같은 값**이다. 기준 연도 이전에 상환된 외화 상품은 어느 열에도 없으므로 환율이 있어도 표식을 세우지 않는다(`forecastItemOf`의 `estimateRate` — `excludedForeign`의 거울이며 한 항목에 둘이 동시에 서지 않는다). 「귀속연도 행에만」으로 두면 뒤 행의 누적 두 열이 환산값을 담는데 근거가 비어 확정처럼 읽힌다(ST-05).
+- **`hasEstimates`의 행 축은 그대로다 (v4.13 — 정리).** 종전 뜻은 「그 해의 귀속 항목 또는 잔여 항목이 가정에 의존한다」이고 누적 두 열의 **앞 행 몫은 세지 않는다** — 원화 추정 상환(`Y₀`)도 뒤 행의 `cumulativeNet`에 들어 있지만 그 행의 `hasEstimates`는 거짓이다. 달러 환산도 같은 규칙을 따른다: `Y₀`에 상환된 달러 상품은 `Y₀` 행에서 참이고 뒤 행에서는 누적에만 있다. 누적이 환산을 담는다는 사실은 표 전체의 조건인 `exchangeRateBasis`가 말한다 — 행 축을 넓히면 원화 추정과 달러 환산에 다른 규칙이 생긴다(`lib/tax/forecast.ts`는 바뀌지 않는다).
 - **모든 미래 연도에 같은 환율을 쓴다**(DOC-007 RD-09) — 연도별 전망 환율을 두지 않는다. 화면 고지가 그 가정을 말한다(DOC-008 SCR-402).
 
 ### 4.8 사용자별 현황 — SCR-501
@@ -1447,11 +1454,11 @@ type ExchangeRateView = {
 
 **`latestRate`는 추정 환율과 «같은 행»이다.** `as_of_date ≤ asOf` 중 최신 1건이고(DOC-007 RD-09) §4.0 `loadEstimateRates`와 같은 규칙이다 — 규칙이 다르면 SCR-302가 보여 주는 환율과 SCR-401이 쓴 환율이 갈린다. 그래서 같은 요청에서 `ExchangeRateBasisView`의 `rate`·`asOfDate`·`source`·`isStale`과 같은 값이다.
 
-**원소는 지원 외화마다 늘 하나다 — 빈 배열이 「환율 없음」이 아니다.** 행이 한 건도 없으면 `latestRate = null`인 원소가 온다. 그래야 화면이 「환율 없음 — 수동 입력」을 그 통화의 자리에서 말할 수 있다(ST-02 · ST-07). 순서는 `ProductCurrency`의 선언 순서에서 KRW를 뺀 것이다.
+**원소는 지원 외화마다 늘 하나다 — 빈 배열이 「환율 없음」이 아니다.** 행이 한 건도 없으면 `latestRate = null`인 원소가 온다. 그래야 화면이 환율이 없다는 사실을 그 통화의 자리에서 말할 수 있다(ST-02 · ST-07 — 문구의 정본은 DOC-008 SCR-302 「최신 값」 행이다. v4.13에서 이 절의 예시 문구를 지웠다). 순서는 `ProductCurrency`의 선언 순서에서 KRW를 뺀 것이다.
 
 **`autoCollected`는 실행 시점의 사실이다 — 게이트의 분기를 화면에 박지 않는다.** 환율 자동 수집 레지스트리(`EXCHANGE_RATE_PROVIDERS` — 시세의 `PRICE_PROVIDERS`와 **다른** 목록이다. 섞으면 V-21의 「코드가 아는 공급자」가 오염된다 — ADR-010)가 비어 있지 않으면 `true`다. ADR-010 게이트가 분기 C(통과 없음)로 닫히면 영구히 `false`이고 화면은 그 상태를 `neutral`로 말한다(「자동 수집 안 함 — 수동 입력이 정상 경로」, DOC-008 SCR-302) — §4.5 `providerSymbols`의 빈 배열이 「미매핑」이며 실패가 아닌 것과 같은 판단이다. **컷 a3에서는 늘 `false`다** — 수집기는 분기 A/A′일 때 컷 c1·c2다. 그래도 **구조적 상수가 아니다**(§4.0 「컷별 도달」과 대조): 값이 코드의 레지스트리에서 파생되므로 c2가 등재하는 순간 화면이 따라온다. 화면에 문구를 박으면 c2에서 그 문구가 조용히 거짓이 된다.
 
-**`usedByActiveProducts`는 §4.5와 같은 뜻이다** — 그 통화의 **미상환** 상품 수. 화면이 환율 절을 펼칠지의 입력이다(DOC-008 SCR-302). 그래서 상품 축의 변경이 이 계약을 함께 낡게 한다(§5.13 무효화 각주).
+**`usedByActiveProducts`는 §4.5와 같은 뜻이다** — 그 통화의 **미상환** 상품 수이며 §4.5처럼 **조회자가 볼 수 있는 전 사용자의 상품**을 센다(소유자로 좁히지 않는다 — v4.13 명시). 화면이 환율 절을 펼칠지의 입력이다(DOC-008 SCR-302). 그래서 상품 축의 변경이 이 계약을 함께 낡게 한다(§5.13 무효화 각주).
 
 **왕복은 2다** — 환율(통화별 `limit(1)`) 1 + 상품(미상환 외화 상품 수) 1. 둘 다 `ctx`에만 의존하므로 나란히 나간다. `exchange_rates`는 하루 한 행씩 늘지만 통화별 `limit(1)`이라 Q-06의 절단이 구조적으로 불가능하다. **이력을 반환하지 않는다** — SCR-302에 환율 추이 요소가 없다.
 
@@ -1501,14 +1508,17 @@ type MutationContext = {
 | §5.5 `deleteRedemption` | **3** | `redemptions` ×2 (참조 + 삭제) + `els_products` ×1 |
 | §5.6 `saveTaxProfile` | **1** | `tax_profiles` ×1 |
 | §5.7 `saveManualPrice` | **1** | `asset_prices` ×1 |
-| §5.8 `refreshPrices` | **0** | 공급자 0개이므로 DB에 닿지 않는다 |
+| §5.8 `refreshPrices` | **5** / 5+N / 2 | **매핑 0건**(이 표의 픽스처 — 잰 것은 이 경우뿐이다): `els_products` · `assets` · `asset_provider_symbols` · `asset_prices`(창 안 기존 날짜 사전 확인) · `cron_runs` 각 ×1. 새 종가 N건을 받으면 `asset_prices`가 1+N이다(`writeQuote`가 행마다 INSERT 한 번 — CR-05). 미상환 기초자산이 0건이면 대상 적재가 일찍 끝나 `els_products` · `cron_runs` 2다 *(v4.13 정정 — 종전 「0 · 공급자 0개이므로 DB에 닿지 않는다」는 P5a 컷 3이 어댑터를 등재하기 전의 값이다. 테스트는 그 컷부터 다섯을 단언했고 이 행만 낡았다. 5+N · 2는 코드 읽기로 정했다 — 재지 않았다)* |
 | §5.9 `setKiTouched` | **2** | `els_products` ×2 (사전 조회 + 갱신) |
 | §5.10 `createAsset` | **1** | `assets` ×1 |
 | §5.11 `createRealizedProduct` | **1** / 2 | `.rpc()` ×1 (상품 + 상환 두 행). 원천징수액 미입력이면 `tax_years` ×1이 붙는다. **사전 조회가 없다** — 부모 상품이 없으므로 소유·상환 중복을 볼 대상이 없고, 소유자는 함수가 `auth.uid()`로 박는다 |
+| §5.13 `saveExchangeRate` | **1** | `exchange_rates` ×1 *(v4.13 — P8 컷 a3)*. 공용 관측 데이터라 소유자가 없고 사전 조회가 없다(§5.7과 같다) |
+
+> §5.12 `saveProviderSymbol`은 이 표에서 잰 적이 없다 *(v4.13 확인 — 그 계약이 선 P5a 컷 2b가 이 표에 행을 더하지 않았다)*. 형태는 §5.7과 같은 UPSERT 한 번이지만 측정이 아니므로 행으로 적지 않는다.
 
 세 가지가 이 표에서 읽힌다.
 
-① **사전 조회가 필요한 계약만 2 이상이다.** `createProduct`·`saveTaxProfile`·`saveManualPrice`·`createAsset`은 소유자를 판정할 대상이 없거나(생성) 소유자 개념이 없으므로(공용 데이터) 1이다. W-05의 비용이 어디에 붙는지가 그대로 보인다.
+① **사용자 데이터를 바꾸는 계약에서는 사전 조회가 필요한 계약만 2 이상이다.** `createProduct`·`saveTaxProfile`·`saveManualPrice`·`createAsset`·`saveExchangeRate`는 소유자를 판정할 대상이 없거나(생성) 소유자 개념이 없으므로(공용 데이터) 1이다. W-05의 비용이 어디에 붙는지가 그대로 보인다. §5.8 `refreshPrices`(5)는 이 명제 밖이다 — 사전 조회가 아니라 수집 대상을 읽고 결과를 쓰는 왕복이며 소유자 판정이 없다 *(v4.13 — 그 행을 정정하면서 이 명제를 좁혔다)*.
 
 ② **§5.5의 두 계약만 3이다.** 상품이 아니라 **상환 `id`를 받기 때문**이며, 그 하나가 부모를 얻는 왕복을 강제한다. 상품까지 임베드해 2로 줄일 수 있으나 그러려면 `PRODUCT_SELECT`를 이 방향으로 한 번 더 적어야 하고, 그 순간 열 사양의 출처가 둘이 되어 `select.ts`가 막아 둔 것(캐스팅과 선언이 같은 상수에서 나온다)이 사본에서 풀린다. **왕복 하나가 그 대가보다 싸다.**
 
@@ -1950,7 +1960,7 @@ function saveExchangeRate(input: {
 - 관측 좌표(`currency`·`asOfDate`)는 기존 행에서 바꿀 수 없다 — `exchange_rates_coordinates_immutable`(DOC-002 I-22 — I-16의 형태). §5.7처럼 `DO UPDATE SET`이 좌표를 동일값으로 재대입하므로 UPSERT는 통과한다
 - **삭제 계약이 없다** — `exchange_rates`에는 DELETE의 GRANT도 정책도 없다(두 겹, DOC-002 I-22). 틀린 환율은 같은 좌표에 다시 넣어 **덮어써서** 고친다
 
-> **★ `provider = null`이 이 계약의 한 줄짜리 요점이다.** `exchange_rates_provider_check`는 `(source = 'AUTO') = (provider is not null)`이다(DOC-002 I-22). PostgREST의 UPSERT는 payload에 **있는** 열만 `DO UPDATE SET`에 싣는다 — `provider`를 빼고 보내면, 자동 수집이 넣은 행(`source = 'AUTO'` · `provider = <원천>`)을 수동으로 **정정할 때** 결과가 `source = 'MANUAL'` + `provider ≠ null`이 되어 그 제약에 걸린다. 그리고 그 제약은 §3.2.1에서 **`NOT_USER_REACHABLE`**(사용자 입력으로 도달하지 않는다)로 분류되므로 응답이 `INTERNAL`이다 — 사용자가 고칠 수 없는 오류로 **틀린 자동 환율의 유일한 정정 경로가 막힌다.** `provider: null`의 명시가 그 분류의 **전제**다. 자동 수집 행은 게이트 분기 A/A′의 컷 c2 이후에만 생기므로 그 전에는 이 경로가 운영에서 관측되지 않는다 — 그래서 컷 a3의 `tests/rls/`가 AUTO 행을 소유자 권한으로 먼저 넣고 수동 정정이 성공함(`provider`가 `null`이 됨)을 단언한다.
+> **★ `provider = null`이 이 계약의 한 줄짜리 요점이다.** `exchange_rates_provider_check`는 `(source = 'AUTO') = (provider is not null)`이다(DOC-002 I-22). PostgREST의 UPSERT는 payload에 **있는** 열만 `DO UPDATE SET`에 싣는다 — `provider`를 빼고 보내면, 자동 수집이 넣은 행(`source = 'AUTO'` · `provider = <원천>`)을 수동으로 **정정할 때** 결과가 `source = 'MANUAL'` + `provider ≠ null`이 되어 그 제약에 걸린다. 그리고 그 제약은 §3.2.1에서 **`NOT_USER_REACHABLE`**(사용자 입력으로 도달하지 않는다)로 분류되어 사상이 없으므로 응답이 **`fields` 없는 `VALIDATION_FAILED`**(SQLSTATE `23514`의 기본값 · 「입력값을 확인한다.」)다 *(v4.13 정정 — 종전 「응답이 `INTERNAL`이다」는 사상 규칙과 달랐다. `tests/db/errors.test.ts`가 그 사상을 고정한다)* — 사용자가 고칠 칸이 없는 오류로 **틀린 자동 환율의 유일한 정정 경로가 막힌다.** `provider: null`의 명시가 그 분류의 **전제**다. 자동 수집 행은 게이트 분기 A/A′의 컷 c2 이후에만 생기므로 그 전에는 이 경로가 운영에서 관측되지 않는다 — 그래서 컷 a3의 `tests/rls/`가 AUTO 행을 소유자 권한으로 먼저 넣고 수동 정정이 성공함(`provider`가 `null`이 됨)을 단언한다.
 >
 > §5.7의 `asset_prices`에는 이 짝 제약이 없어 같은 생략이 조용히 지나간다 — 자동 시세를 수동으로 정정해도 `provider`가 남는다(`source = 'MANUAL'`인데 `provider = 'KIWOOM'`). 그 열을 읽는 조회가 없어 지금 드러나는 값은 없다. 이 절의 범위 밖이며 등재는 DOC-010의 몫이다.
 
@@ -2005,14 +2015,14 @@ function saveExchangeRate(input: {
 | V-14 | `LIZARD` | 해당 차수가 실재하고(I-13) 그 차수에 리자드 조건이 정의되어 있어야 함 |
 | V-15 | `price` · **`basePrice`** | 0보다 큼 (v0.9에서 `basePrice` 추가 — 아래) |
 | V-16 | `kiObservation` | `kiBarrier` 존재 시 필수. 부재 시 입력 불가 (I-11) |
-| V-17 | `asOfDate` | 미래 일자 거부. 기준일 이후의 시세는 존재할 수 없다 |
+| V-17 | `asOfDate` | 미래 일자 거부. 기준일 이후의 시세·환율은 존재할 수 없다(§5.7 · §5.13 — 환율은 v4.13) |
 | V-18 | `kiTouchedAt` | `kiBarrier` 부재 시 입력 불가 (I-15) |
 | V-19 | 문자열 필드 | 열 선언 길이 이내. `currency`는 정확히 3자 대문자 |
 | V-20 | 정수 필드 | `smallint` 범위 이내(`roundNo`·`sequence`·`evaluationPeriodMonths`·`totalRounds`·`year`). `evaluationPeriodMonths ≥ 1`, `year`는 4자리 |
 | V-21 | `provider` | **코드가 아는 공급자 id여야 한다.** 형식만 보지 않는다 — 아무 문자열이나 저장되면 그 매핑은 「영구히 쓰이지 않는 행」이 되고, 화면은 「자동 수집됨」으로 읽히는데 실제로는 아무 일도 일어나지 않는다(오타 하나가 만드는 조용한 상태). 대조 대상은 **수집 레지스트리가 아니라 전체 명부**다 — §5.12 ★★★ |
 | V-22 | `currency` (상품 통화) | `KRW`·`USD` 중 하나여야 하고 **기본값이 없다** — 빈 값은 오류다. V-19의 `currency`(기초자산 통화 — §5.10)와 다른 필드다(DOC-005 §8.11). 대상 §5.1·§5.2·§5.11 *(v4.11 — P8 컷 a2)* |
 | V-23 | 상품 통화 금액 (`principal` · `grossAmount`) | 소수 자릿수가 **상품 통화의 보조단위 이내**(KRW 0 · USD 2)이고 정수부가 15자리 이내. 통화는 `principal`·기실현이면 같은 입력의 `currency`, 상환(§5.4·§5.5)이면 **부모 상품의** `currency`다. `currency`가 V-22를 어기면 판정하지 않는다. 통과한 값은 보조단위 고정 자릿수로 정규화해 저장한다. **`taxableIncome`·`withholdingTax`는 통화와 무관하게 원화 정수다**(V-11·V-19) *(v4.11 — P8 컷 a2)* |
-| V-24 | 환율 (`exchangeRate`) | ⓐ 적용 환율(§5.4·§5.5·§5.11, 참고값): 선택이며, 있으면 0보다 크고 정수부 12자리 · 소수 6자리 이내이고 **상품 통화가 외화일 때만** 둘 수 있다 — 원화 상품이면 거부한다. 과세 금융소득·원천징수세액을 이 값으로 산출하지 않는다. ⓑ 환율 입력(§5.13 `rate`)은 컷 a3에서 문언에 더한다 *(v4.11 — P8 컷 a2)* |
+| V-24 | 환율 (`exchangeRate`) | ⓐ 적용 환율(§5.4·§5.5·§5.11, 참고값): 선택이며, 있으면 0보다 크고 정수부 12자리 · 소수 6자리 이내이고 **상품 통화가 외화일 때만** 둘 수 있다 — 원화 상품이면 거부한다. 과세 금융소득·원천징수세액을 이 값으로 산출하지 않는다. ⓑ 환율 입력(§5.13): `rate`는 **필수**이고 ⓐ와 같은 수치 규칙(0 초과 · 정수부 12자리 · 소수 6자리 이내)이며, `currency`는 **지원 외화(`USD`)만** — `KRW`는 거부한다(`exchange_rates_currency_check`가 두 번째 겹) *(v4.11 — P8 컷 a2 · ⓑ v4.13 — 컷 a3)* |
 
 > **V-20에 `totalRounds`를 추가했다 (v1.1).** 구현은 처음부터 `min: 1` + `smallint` 상한으로 검사하고 있었는데 대상 목록에만 빠져 있었다. 규칙 신설이 아니라 누락 정정이다 — `totalRounds`는 저장되지 않으므로(DQ-05) DB가 볼 수 없고, 이 검사가 유일한 방어다.
 
@@ -2036,7 +2046,7 @@ function saveExchangeRate(input: {
 
 #### P8 달러 — 규칙 넷 (v4.9 선행 명세 — P8 컷 a1. **표 행은 컷 a2의 코드 커밋에 함께**)
 
-위 표에 지금 행을 더하지 않는다 — `tests/db/docs-contract.test.ts`가 이 표를 **순서까지** 파싱해 `RULE_IDS`와 대조하므로 행이 코드보다 먼저 서면 그 커밋이 빨간불이다(V-21 v3.6의 선례). 컷 a2가 아래 문언으로 V-01 행을 고치고 V-22~V-24를 **V-21 뒤에 이 순서로** 붙이며, 같은 커밋에 `RULE_IDS`·`RULE_TARGETS`·`CASES`(`tests/db/validate.test.ts` — 양방향)가 움직인다. V-24의 `saveExchangeRate` 몫(ⓑ)은 그 계약이 서는 컷 a3에서 문언에 더한다.
+위 표에 지금 행을 더하지 않는다 — `tests/db/docs-contract.test.ts`가 이 표를 **순서까지** 파싱해 `RULE_IDS`와 대조하므로 행이 코드보다 먼저 서면 그 커밋이 빨간불이다(V-21 v3.6의 선례). 컷 a2가 아래 문언으로 V-01 행을 고치고 V-22~V-24를 **V-21 뒤에 이 순서로** 붙이며, 같은 커밋에 `RULE_IDS`·`RULE_TARGETS`·`CASES`(`tests/db/validate.test.ts` — 양방향)가 움직인다. V-24의 `saveExchangeRate` 몫(ⓑ)은 그 계약이 서는 컷 a3에서 문언에 더한다 *(v4.13 — 더했다. 위 표 V-24 행의 ⓑ)*.
 
 - **V-01′** `principal` — **0보다 크다.** 자릿수는 V-23이 본다 — 종전 「정수」는 V-23의 원화 경우가 된다. 대상 계약은 §5.1·§5.2·§5.11. 기존 케이스 「원금에 소수점은 거부된다」는 원화 한정으로 좁히고 V-23으로 다시 태그한다.
 - **V-22** `currency` (상품 통화) — **`KRW`·`USD` 중 하나여야 하고 기본값이 없다** — 빈 값은 오류다. 형식만 보지 않는 이유는 V-21과 같다(아무 문자열이나 받으면 DB의 enum이 막기는 하지만 `22P02`는 필드를 특정하지 못한다). 원화로 채우지 않는 이유는 §5.1. 대상 계약은 §5.1·§5.2·§5.11이다. **V-19의 `currency`(기초자산 통화 — `assets.currency char(3)`, §5.10)와 다른 필드다**(DOC-005 §8.11) — 키 이름이 같지만 계약이 달라 한 입력에 함께 오지 않는다. 셰이프 파싱의 열거 검사도 이 ID를 빌린다(위 「셰이프 파싱은 필드가 속한 규칙의 ID를 재사용한다」).
@@ -2311,7 +2321,7 @@ type CronResult = {
 | SCR-204 등록·수정 | `getProduct`, `searchAssets` · 외부 조회(§4.10 — 등록·수정, v4.6) `searchKiwoomProducts`, `getKiwoomProductTerms`, `listKiwoomAssets` | `createProduct`, `updateProduct`, `createAsset`, `saveProviderSymbol`(불러오기의 자산 추가·연결 — v4.4) |
 | **SCR-205 기실현 등재** | **—** | **`createRealizedProduct`** (§5.11) |
 | SCR-301 일정 | `listSchedule` | — |
-| SCR-302 시세 | `listAssetPrices` | `saveManualPrice`, `refreshPrices` (**공급자 미등재 — §5.8**), **`createAsset`**, **`saveProviderSymbol`** (v3.6) |
+| SCR-302 시세 | `listAssetPrices`, **`listExchangeRates`** (v4.13 — 환율 절) | `saveManualPrice`, `refreshPrices` (공급자 등재 — §5.8, P5a 컷 3 · *v4.13 — 종전 「공급자 미등재」는 그 컷 이후 낡았다*), **`createAsset`**, **`saveProviderSymbol`** (v3.6), **`saveExchangeRate`** (v4.13) |
 | SCR-401 세금 | `getTaxSummary` | `saveTaxProfile` |
 | SCR-402 전망 | `getForecast` | — |
 | SCR-501 사용자 | `listUserSummaries` | — (**화면을 만들지 않는다 — DOC-008 SQ-01 해결.** 계약은 남는다) |
@@ -2329,7 +2339,7 @@ type CronResult = {
 
 > **`createAsset`을 SCR-302에도 배정했다 (v1.2).** v1.1까지 이 계약은 SCR-204에만 있었는데, **그러면 SCR-302의 빈 상태가 순환한다** — DOC-008 §6이 정한 빈 상태는 "등록된 기초자산 없음"이고 ST-02는 빈 상태가 **다음 행동을 제시할 것**을 요구하는데, 자산을 만들 유일한 경로가 SCR-204(상품 등록)이므로 안내가 "자산을 등록하려면 상품을 등록하세요"가 된다. 그리고 상품 등록은 기초자산 선택을 요구한다. 계약은 화면에 묶여 있지 않으므로 배정만 넓히면 되고 구현은 0줄이다.
 
-> **P8 달러가 이 매트릭스에 더할 것 (v4.9 선행 명세 — 표 행은 컷 a3의 코드 커밋에 함께).** SCR-302 행의 조회 계약에 `listExchangeRates`(§4.11), 변경 계약에 `saveExchangeRate`(§5.13)가 더해진다. 지금 행에 적으면 `tests/app/invalidation.test.ts`의 매트릭스 대조(「문서가 배정한 변경 계약이 전부 맵에 있다」)가 실재하지 않는 이름으로 빨간불이다. **나머지 화면의 배정은 그대로다** — 달러 상품의 표시는 이미 배정된 계약의 **필드**로 한다(§4.1~§4.4·§4.6~§4.8의 v4.9 필드). `ROUTE_QUERIES['/prices']`에 `listExchangeRates`가 같은 커밋에 든다.
+> **P8 달러가 이 매트릭스에 더할 것 (v4.9 선행 명세 — 표 행은 컷 a3의 코드 커밋에 함께).** SCR-302 행의 조회 계약에 `listExchangeRates`(§4.11), 변경 계약에 `saveExchangeRate`(§5.13)가 더해진다. ~~지금 행에 적으면 `tests/app/invalidation.test.ts`의 매트릭스 대조(「문서가 배정한 변경 계약이 전부 맵에 있다」)가 실재하지 않는 이름으로 빨간불이다.~~ *(v4.13 — 더했다. 위 SCR-302 행 · `ROUTE_QUERIES['/prices']`)* **나머지 화면의 배정은 그대로다** — 달러 상품의 표시는 이미 배정된 계약의 **필드**로 한다(§4.1~§4.4·§4.6~§4.8의 v4.9 필드). `ROUTE_QUERIES['/prices']`에 `listExchangeRates`가 같은 커밋에 든다.
 
 ### 8.1 화면이 계약의 결함을 드러낸 사례 — 부류와 재발 방지 (v2.1 신설, P4 컷 10 · v3.3에서 일곱째)
 
@@ -2420,14 +2430,16 @@ P8이 늘리는 계약면을 한 자리에 적는다. **명세는 컷 a1(달러)
 
 | 대상 | 지금 | P8 후 | 명세 | 표 행 · 결속 원장 |
 |---|---|---|---|---|
-| 변경 계약 (§5) | 13 | **17** — `saveExchangeRate` · `recordCouponPayments` · `updateCouponPayment` · `deleteCouponPayments` | a1 · b1 | a3(`saveExchangeRate`) · b2(나머지 셋). `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts:114`) · `INVALIDATION` · §8 |
-| 조회 계약 (§4) | 9 | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1 | a3 · b3. `ROUTE_QUERIES` · §8 |
-| 검증 규칙 (§6) | V-01~V-21 | **V-01~V-29** — 신설 V-22 상품 통화(∈ {KRW, USD} · 빈칸 오류) · V-23 상품 통화 금액 자릿수 · V-24 환율 · V-25 MONTHLY ⇔ 월수익 조건 · V-26 월수익 일정 · V-27 기록 대상 · V-28 PAID·UNPAID 형태 · V-29 월지급 상환(세전 ≤ 투자원금 ∧ 과세 0). 개정 V-01(「정수」 → 상품 통화 보조단위) · V-08(월수익 비율 필드 추가 · `annualCouponRate` 하한 `x > 0`을 `MONTHLY`에서 `= 0`으로 — DOC-002 DQ-11) · V-20(`couponNo`) | a1(V-01′·V-22~24) · b1(V-08′·V-20′·V-25~29 — 앞의 둘은 대상 필드가 월수익 쪽이다) | a2 · b2 · b4(V-29). `RULE_IDS`가 §6을 **순서까지** 파싱한다(`tests/db/docs-contract.test.ts`) · `CASES`·`RULE_TARGETS` 양방향(`tests/db/validate.test.ts:525·537`) |
+| 변경 계약 (§5) | ~~13~~ **14** *(v4.13 — a3)* | **17** — `saveExchangeRate` · `recordCouponPayments` · `updateCouponPayment` · `deleteCouponPayments` | a1 · b1 | a3(`saveExchangeRate`) · b2(나머지 셋). `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts` 「계약 14개가 모두 항목을 갖는다」 — v4.13, 줄 번호 대신 케이스 이름) · `INVALIDATION` · §8 |
+| 조회 계약 (§4) | ~~9~~ **10** *(v4.13 — a3)* | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1 | a3 · b3. `ROUTE_QUERIES` · §8 |
+| 검증 규칙 (§6) | ~~V-01~V-21~~ **V-01~V-24** *(v4.11 — a2 · V-24ⓑ는 v4.13)* | **V-01~V-29** — 신설 V-22 상품 통화(∈ {KRW, USD} · 빈칸 오류) · V-23 상품 통화 금액 자릿수 · V-24 환율 · V-25 MONTHLY ⇔ 월수익 조건 · V-26 월수익 일정 · V-27 기록 대상 · V-28 PAID·UNPAID 형태 · V-29 월지급 상환(세전 ≤ 투자원금 ∧ 과세 0). 개정 V-01(「정수」 → 상품 통화 보조단위) · V-08(월수익 비율 필드 추가 · `annualCouponRate` 하한 `x > 0`을 `MONTHLY`에서 `= 0`으로 — DOC-002 DQ-11) · V-20(`couponNo`) | a1(V-01′·V-22~24) · b1(V-08′·V-20′·V-25~29 — 앞의 둘은 대상 필드가 월수익 쪽이다) | a2 · b2 · b4(V-29). `RULE_IDS`가 §6을 **순서까지** 파싱한다(`tests/db/docs-contract.test.ts`) · `CASES`·`RULE_TARGETS` 양방향(`tests/db/validate.test.ts` 「CASES가 RULE_IDS 전부를 덮는다」 · 「RULE_TARGETS가 RULE_IDS와 양방향으로 일치한다」 — v4.13, 줄 번호 대신 케이스 이름) |
 | 조회 규약 Q-07 (§4.0) | 금액은 정수 문자열 | 상품 통화 금액은 **보조단위 고정 자릿수**(KRW 0 · USD 2), 과세 축 금액은 **KRW 정수**, 환율은 시세와 같은 6자리 | a1 | a2(`moneyString` — KRW는 `amountString`과 같다) |
 | §3.2.1 제약 → `ErrorCode` | — | 새 제약·트리거 이름(예: `els_products_coupon_recorded_immutable` → `CONFLICT`) | a1 · b1 | 해당 마이그레이션의 코드 커밋(`BY_CONSTRAINT` · `RAISE_ONLY` · `NOT_NULL_FIELD`) |
 | §8 무효화 | — | `EXCHANGE_RATE_WIDE`(세금을 **포함**한다 — 환율은 추정 과세의 입력이다) · `COUPON_RECORD_WIDE` · `PRICE_WIDE`에는 `listMonthlyCouponSchedule`만 더하고 **세금은 계속 없다**(`refreshPrices.affects`에 세금이 없음을 단언) | a1 · b1 | a3 · b2 · b3 |
 
 > **v4.9 (컷 a1) — 달러 절반의 명세를 썼다. 표 행·결속 원장은 여전히 0줄이다.** 위 표에서 a1 몫의 명세 자리는 다음이다 — 변경 계약 `saveExchangeRate` → §5.13(구현 a3, 13 → **14**) · 조회 계약 `listExchangeRates` → §4.11(구현 a3, 9 → **10**) · V-01′·V-22·V-23·V-24 → §6 말미 「P8 달러 — 규칙 넷」(표 행 a2, V-24의 `saveExchangeRate` 몫 a3) · Q-07′ → §4.0 Q-07 행과 「Q-07′」 각주(구현 a2) · §3.2.1 → 그 절의 「P8 달러 — 새 제약·라벨의 사상」(행 a2·a3) · §8 → `EXCHANGE_RATE_WIDE`는 §5.13의 무효화 각주, 매트릭스 행은 §8 말미 각주(a3). 뷰의 새 필드는 §4.0 「공통 타입」과 §4.1~§4.4·§4.6~§4.8의 v4.9 표기다. **17·11은 P8 전체의 수이고 a3 뒤의 수는 14·10이다** — 나머지 셋·하나는 컷 b1의 명세(구현 b2·b3)다. 월수익 쪽(V-08′·V-20′·V-25~29 · `COUPON_RECORD_WIDE` · `*_recorded_immutable`)은 한 줄도 쓰지 않았다.
+
+> **v4.13 (컷 a3-2) — 달러 절반의 계약면이 전부 섰다.** `saveExchangeRate`(14) · `listExchangeRates`(10) · V-24ⓑ · `EXCHANGE_RATE_WIDE` · 왕복 +1 · §8 SCR-302 행이 같은 코드 커밋이다. 남은 것은 월수익 쪽(b1 명세 · b2·b3 구현)뿐이다.
 
 > **AQ-76~87은 DOC-010 §9에 있다 (v4.8).** P8의 구현 방어 범위 미결 열둘은 그 문서에만 둔다 — 사본을 두면 두 곳이 갈린다. 이 문서의 계약과 가장 가까운 것은 AQ-76(환율 = 세금을 움직이는 첫 공용 입력 → 위 `EXCHANGE_RATE_WIDE`)·AQ-77(임베드 페이로드)·AQ-79(직접 UPDATE 우회)·AQ-87(같은 날 상환·월수익 — V-29로 좁힘)이다.
 

@@ -349,6 +349,9 @@ const RATE_CEILING = '1000000000000'
 /**
  * V-24 — 환율의 수치 규칙 (적용 환율 ⓐ · 환율 입력 ⓑ). 0보다 크고, 정수부 12자리 · 소수 6자리
  * 이내. 「외화 상품에만」은 통화를 아는 호출자가 본다.
+ *
+ * ⓐ 적용 환율은 **선택**이다(참고값 — 빈칸이면 `undefined`). ⓑ 환율 입력(§5.13)은 그 값이 계약의
+ * 전부이므로 **필수**다 — `requireExchangeRate`. 수치 규칙은 한 곳에 둔다.
  */
 export function optionalExchangeRate(
   p: Problems,
@@ -357,6 +360,20 @@ export function optionalExchangeRate(
   label: string,
 ): string | undefined | null {
   if (value == null || value === '') return undefined
+  return requireExchangeRate(p, field, value, label)
+}
+
+/** V-24 ⓑ — 필수 환율. 빈칸이면 「입력한다」, 그 밖은 `optionalExchangeRate`와 같은 수치 규칙이다 */
+export function requireExchangeRate(
+  p: Problems,
+  field: string,
+  value: unknown,
+  label: string,
+): string | null {
+  if (value == null || (typeof value === 'string' && value.trim() === '')) {
+    p.add('V-24', field, `${label}을(를) 입력한다(1달러당 원).`)
+    return null
+  }
   if (typeof value !== 'string' || !DECIMAL.test(value)) {
     p.add('V-24', field, `${label}은(는) 숫자로 입력한다(1달러당 원).`)
     return null

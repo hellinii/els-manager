@@ -1,6 +1,10 @@
 import { toRefreshResult } from '@/lib/cron/report'
 
-import { parseManualPriceInput, parseProviderSymbolInput } from '../validate/inputs'
+import {
+  parseExchangeRateInput,
+  parseManualPriceInput,
+  parseProviderSymbolInput,
+} from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V17_notFuture } from '../validate/rules'
 import { requireAffected } from './access'
@@ -9,9 +13,14 @@ import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toInsert } from './payload'
 import { failWith, ok, okVoid, type ActionResult } from './result'
-import type { ManualPriceInput, ProviderSymbolInput, RefreshPricesResult } from './types'
+import type {
+  ExchangeRateInput,
+  ManualPriceInput,
+  ProviderSymbolInput,
+  RefreshPricesResult,
+} from './types'
 
-/** §5.7·§5.8 — 수동 시세 입력·시세 수동 갱신 */
+/** §5.7·§5.8·§5.13 — 수동 시세 입력·시세 수동 갱신·수동 환율 입력 */
 
 export function makePriceMutations(ctx: MutationContext) {
   /**
@@ -30,7 +39,7 @@ export function makePriceMutations(ctx: MutationContext) {
     const parsed = parseManualPriceInput(p, input)
     if (parsed == null) return failWith(p.toError())
 
-    V17_notFuture(p, parsed.asOfDate, ctx.asOf)
+    V17_notFuture(p, parsed.asOfDate, ctx.asOf, '시세')
     if (!p.isEmpty) return failWith(p.toError())
 
     const { data, error } = await ctx.db
@@ -143,5 +152,46 @@ export function makePriceMutations(ctx: MutationContext) {
     return conflict == null ? okVoid() : failWith(conflict)
   }
 
-  return { saveManualPrice, refreshPrices, saveProviderSymbol }
+  /**
+   * §5.13 — 수동 환율 (P8 컷 a3). `UNIQUE(currency, as_of_date)` 기준 UPSERT, `source = 'MANUAL'`. §5.7과 같은
+   * 형태이고 같은 이유로 `.upsert()`를 그대로 쓴다 — 좌표는 동일값 재대입이라 동결 트리거(I-22)를 통과한다.
+   *
+   * ★ **`provider: null`을 명시해 싣는다.** PostgREST의 UPSERT는 payload에 있는 열만 `DO UPDATE SET`에
+   * 싣는다 — 빼면 자동 수집 행(c2 이후)을 사람이 정정할 때 `source = 'MANUAL'`인데 공급자가 남아
+   * `exchange_rates_provider_check`에 걸린다. 그 제약은 `NOT_USER_REACHABLE`(§3.2.1)이라 `BY_CONSTRAINT`에 없고,
+   * 그래서 SQLSTATE 기본값 — **`fields` 없는 `VALIDATION_FAILED`(「입력값을 확인한다.」)** — 가 된다. 사용자가 고칠
+   * 칸이 없는 검증 오류로 정정 경로가 막힌다 — 이 명시가 그 분류의 전제다(`tests/integration/exchange-rates.test.ts`가
+   * 계약 경로로, `tests/db/errors.test.ts`가 그 사상을 본다).
+   *
+   * **삭제 계약이 없다**(DOC-002 I-22 — DELETE의 권한·정책이 없다). 틀린 환율은 같은 좌표에 덮어써 고친다.
+   * 왕복 1 — 사전 조회가 없다. 확정값을 만들지 않는다(추정 전용 — DOC-007 §4.8).
+   */
+  async function saveExchangeRate(input: ExchangeRateInput): Promise<ActionResult<void>> {
+    const p = new Problems()
+    const parsed = parseExchangeRateInput(p, input)
+    if (parsed == null) return failWith(p.toError())
+
+    V17_notFuture(p, parsed.asOfDate, ctx.asOf, '환율')
+    if (!p.isEmpty) return failWith(p.toError())
+
+    const { data, error } = await ctx.db
+      .from('exchange_rates')
+      .upsert(
+        toInsert('exchange_rates', {
+          currency: parsed.currency,
+          as_of_date: parsed.asOfDate,
+          rate: parsed.rate,
+          source: 'MANUAL',
+          provider: null,
+        }),
+        { onConflict: 'currency,as_of_date' },
+      )
+      .select('id')
+    if (error != null) return failDb(error, '환율 입력')
+
+    const conflict = requireAffected(data)
+    return conflict == null ? okVoid() : failWith(conflict)
+  }
+
+  return { saveManualPrice, refreshPrices, saveProviderSymbol, saveExchangeRate }
 }

@@ -44,13 +44,15 @@ describe('queriesFor — 조회는 던진다 (Q-04)', () => {
   it('인증되면 계약 묶음을 주고 viewerId가 결속된다', () => {
     const queries = queriesFor(USER, CTX)
 
-    // §4.1~§4.9 아홉 개 — 전부다. §4.7 `getForecast`가 P4b 컷 7에서 들어왔다.
+    // §4.1~§4.9와 §4.11 열 개 — 전부다. §4.7 `getForecast`가 P4b 컷 7에서, §4.11
+    // `listExchangeRates`가 P8 컷 a3에서 들어왔다.
     expect(Object.keys(queries).sort()).toEqual([
       'getDashboard',
       'getForecast',
       'getProduct',
       'getTaxSummary',
       'listAssetPrices',
+      'listExchangeRates',
       'listProducts',
       'listSchedule',
       'listUserSummaries',
@@ -80,7 +82,7 @@ describe('mutationsFor — 변경은 값을 준다 (W-03)', () => {
     const keys = Object.keys(createUnauthenticatedMutations()) as Array<
       keyof typeof mutations
     >
-    expect(keys).toHaveLength(13) // P5a 컷 2b — §5.12가 더해져 12 → 13
+    expect(keys).toHaveLength(14) // P5a 컷 2b — §5.12가 더해져 12 → 13 · P8 컷 a3 — §5.13이 더해져 13 → 14
 
     for (const key of keys) {
       const result = await (mutations[key] as () => Promise<unknown>)()

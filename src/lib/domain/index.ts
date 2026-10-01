@@ -40,6 +40,8 @@ export {
 
 export {
   CURRENCY_ORDER,
+  estimateConversionOf,
+  FOREIGN_CURRENCIES,
   hasMinorUnitScale,
   MINOR_UNITS,
   moneyString,

@@ -9,6 +9,7 @@ import {
 } from '@/lib/db/mutations/payload'
 import {
   ELS_PRODUCT_COLUMNS,
+  EXCHANGE_RATE_COLUMNS,
   PRICE_COLUMNS,
   REDEMPTION_COLUMNS,
   SCHEDULE_COLUMNS,
@@ -110,8 +111,21 @@ describe('AQ-30 — 생성 타입의 쓰기 방향에 Q-08 방어가 생겼다',
       issue_date: '2026-01-02',
       // @ts-expect-error — 금액
       principal: 100000000,
+      // 통화를 적는다 — M-a2c(P8 컷 a3) 뒤로 필수다. 빠뜨리면 그 오류가 위 `@ts-expect-error`에 흡수되어
+      // 이 탐침이 「금액이 number라서」가 아니라 「통화가 없어서」 초록일 수 있다(반박 검토 지적)
+      currency: 'KRW',
       annual_coupon_rate: '0.08',
       account_type: 'GENERAL',
+    })
+
+    // 환율 — 금액이 아니지만 같은 부류다(Q-07′ · DOC-010 AQ-88). «부동소수로 만들고 싶어지는» 첫 값이다
+    toInsert('exchange_rates', {
+      currency: 'USD',
+      as_of_date: '2026-06-29',
+      // @ts-expect-error — 생성 타입은 `rate: number`를 요구한다
+      rate: 1392.4,
+      source: 'MANUAL',
+      provider: null,
     })
 
     toUpdate('redemptions', {
@@ -189,6 +203,8 @@ describe('금액 열 목록이 문서와 일치한다', () => {
       ['exchange_rate', 'gross_amount', 'taxable_income', 'withholding_tax'],
     ],
     ['asset_prices', PRICE_COLUMNS, ['price']],
+    // P8 컷 a3 — 환율은 시세와 같은 6자리 부류다(DOC-002 §4.12 · Q-07′)
+    ['exchange_rates', EXCHANGE_RATE_COLUMNS, ['rate']],
     ['tax_profiles', TAX_PROFILE_COLUMNS, ['other_financial_income', 'other_income_base']],
   ]
 

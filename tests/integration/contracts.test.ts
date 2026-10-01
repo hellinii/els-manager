@@ -20,7 +20,7 @@ import {
 } from './helpers/scenario'
 
 /**
- * 계약 9개의 정상 경로 + 왕복 수 계수
+ * 계약 10개의 정상 경로 + 왕복 수 계수
  *
  * 여기서 확인하는 것은 **DOC-011 §4의 서명대로 값이 나오는가**다. 계산의 정확성은
  * 순수 모듈 테스트(TC-01~22)가, 매핑 분기는 `tests/db/map.test.ts`가 본다.
@@ -703,6 +703,8 @@ describe('왕복 수 계수 — 실측', () => {
     ['listProducts', () => s.asA.listProducts()],
     ['listAssetPrices', () => s.asA.listAssetPrices()],
     ['getDashboard', () => s.asA.getDashboard({ scope: 'ALL' })],
+    // P8 컷 a3 — 미상환 수를 상품 한 번에서 센다. 상품 수에 비례해 묻지 않는다
+    ['listExchangeRates', () => s.asA.listExchangeRates()],
   ]
 
   const baseline = new Map<string, Record<string, number>>()
@@ -785,11 +787,20 @@ describe('왕복 수 계수 — 실측', () => {
       // tax_profiles를 `.lte()` 한 번으로 받는다 — 연도 수에 비례하지 않는 것이 요점이다
       getForecast: await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A })),
       getDashboard: await tables(() => s.asA.getDashboard({ scope: 'ALL' })),
+      // §4.11 — 환율(통화별 limit(1)) + 상품(미상환 수). 이력을 반환하지 않으므로 행이 늘어도 1이다
+      listExchangeRates: await tables(() => s.asA.listExchangeRates()),
     }
 
+    /*
+     * ★ **`exchange_rates: 1`이 다섯 계약에 붙는다 (P8 컷 a3 · §4.0 규칙 2).** 추정 환율을 요청당 한 번
+     * 읽고 모든 연도에 쓴다 — 연도마다(또는 상품마다) 읽는 구현도 값은 옳으므로 이 예산 말고는 어느
+     * 케이스에도 걸리지 않는다(§4.7 `getForecast`의 v2.5 각주와 같은 자리). 붙지 않는 넷(`listProducts`·
+     * `listSchedule`·`listAssetPrices`·`searchAssets`)은 금액을 상품 통화로만 싣는다.
+     */
     expect(budget.listProducts).toEqual({ els_products: 1, assets: 1 })
-    expect(budget.getProduct).toEqual({ els_products: 1, assets: 1 })
-    expect(budget.getProductNoUnderlying).toEqual({ els_products: 1 })
+    expect(budget.getProduct).toEqual({ els_products: 1, assets: 1, exchange_rates: 1 })
+    // 기초자산 0건이어도 환율은 이미 나갔다 — 상품과 **나란히** 첫 물결에서 나가므로(물결 2 그대로)
+    expect(budget.getProductNoUnderlying).toEqual({ els_products: 1, exchange_rates: 1 })
     // v3.3에서 `tax_years`가 늘었다 — `expectedNet`이 `separate_taxation_rate`를
     // 요구하고 절대 규칙 #5가 그 값을 코드에 두는 것을 막는다. 다중집합으로 세는
     // 이유가 여기서 값을 한다: 총합만 세면 「차수 2회」와 「차수 1회 + 세율 1회」가
@@ -805,13 +816,14 @@ describe('왕복 수 계수 — 실측', () => {
       tax_years: 1,
       tax_profiles: 1,
       els_products: 1,
+      exchange_rates: 1,
     })
 
     /**
      * ★ `tax_profiles: 1` — **사용자 수와 무관하게 1이다.**
      *
      * §4.8은 타인의 프로필을 읽지 않는다(D3). 사용자별로 물으면 총 왕복이 사용자
-     * 수에 비례하는데, 사용자 2명 픽스처에서는 총합이 4 → 5로만 늘어 "예산이 하나
+     * 수에 비례하는데, 사용자 2명 픽스처에서는 총합이 5 → 6으로만 늘어 "예산이 하나
      * 틀렸다"로 보인다. **본인 것만 읽는다는 전제가 깨졌다는 사실**은 이 항목만이 말한다.
      */
     expect(budget.listUserSummaries).toEqual({
@@ -819,12 +831,13 @@ describe('왕복 수 계수 — 실측', () => {
       els_products: 1,
       tax_years: 1,
       tax_profiles: 1,
+      exchange_rates: 1,
     })
 
     /**
      * ★ **`getTaxSummary`와 같은 다중집합이다 — 연도가 여섯인데.**
      *
-     * 세 테이블 각각 1이라는 것이 §4.7의 「연도 수에 비례하지 않는다」의 형태다.
+     * 네 테이블(P8 컷 a3의 추정 환율 포함) 각각 1이라는 것이 §4.7의 「연도 수에 비례하지 않는다」의 형태다.
      * `tax_years: 1`은 `loadAllTaxYears`가 시드 전체를 한 번에 가져와 순수한
      * `resolveTaxYear`를 연도마다 재사용하기 때문이고, `tax_profiles: 1`은 이월을
      * `.in(연도들)`이 아니라 `.lte(마지막 연도)` 하나로 받기 때문이다.
@@ -836,6 +849,7 @@ describe('왕복 수 계수 — 실측', () => {
       tax_years: 1,
       tax_profiles: 1,
       els_products: 1,
+      exchange_rates: 1,
     })
 
     expect(budget.getDashboard).toEqual({
@@ -843,10 +857,13 @@ describe('왕복 수 계수 — 실측', () => {
       assets: 1,
       tax_years: 1,
       tax_profiles: 1,
+      exchange_rates: 1,
     })
 
-    // 계약 9개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다 → 10)
-    expect(Object.keys(budget)).toHaveLength(10)
+    expect(budget.listExchangeRates).toEqual({ exchange_rates: 1, els_products: 1 })
+
+    // 계약 10개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다 → 11)
+    expect(Object.keys(budget)).toHaveLength(11)
   })
 
   it('DOC-011 §4.0의 왕복 수와 일치한다', async () => {
@@ -854,7 +871,8 @@ describe('왕복 수 계수 — 실측', () => {
       Object.values(m).reduce((a, b) => a + b, 0)
 
     expect(total(await tables(() => s.asA.listProducts()))).toBe(2)
-    expect(total(await tables(() => s.asA.getProduct(FX.productA)))).toBe(2)
+    // P8 컷 a3 — 다섯 계약이 +1(추정 환율). 물결 수는 그대로다
+    expect(total(await tables(() => s.asA.getProduct(FX.productA)))).toBe(3)
     expect(total(await tables(() => s.asA.listSchedule()))).toBe(3)
     expect(total(await tables(() => s.asA.searchAssets('단독')))).toBe(1)
     expect(total(await tables(() => s.asA.listAssetPrices()))).toBe(2)
@@ -862,21 +880,22 @@ describe('왕복 수 계수 — 실측', () => {
       total(
         await tables(() => s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })),
       ),
-    ).toBe(3)
-    expect(total(await tables(() => s.asA.listUserSummaries()))).toBe(4)
+    ).toBe(4)
+    expect(total(await tables(() => s.asA.listUserSummaries()))).toBe(5)
     /*
-     * ★ **연도 수에 비례하지 않는 것이 §4.7의 주장이다.** 기본 6년인데 왕복이 3이므로
+     * ★ **연도 수에 비례하지 않는 것이 §4.7의 주장이다.** 기본 6년인데 왕복이 4(P8 컷 a3 — 추정 환율 +1)이므로
      * 연도마다 세율을 읽지 않는다는 뜻이다 — `loadAllTaxYears`가 시드된 연도를 한 번에
      * 가져오고 순수한 `resolveTaxYear`를 연도마다 재사용한다. `years`를 늘려도 이 수가
      * 그대로임을 아래에서 함께 단언한다.
      */
     expect(
       total(await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A }))),
-    ).toBe(3)
+    ).toBe(4)
     expect(
       total(await tables(() => s.asA.getForecast({ ownerId: ITG_USER_A, years: 20 }))),
-    ).toBe(3)
-    expect(total(await tables(() => s.asA.getDashboard({ scope: 'ALL' })))).toBe(4)
+    ).toBe(4)
+    expect(total(await tables(() => s.asA.getDashboard({ scope: 'ALL' })))).toBe(5)
+    expect(total(await tables(() => s.asA.listExchangeRates()))).toBe(2)
   })
 
   /**

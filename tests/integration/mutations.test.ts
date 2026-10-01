@@ -16,6 +16,7 @@ import { FX, FX_NAME_PREFIX, ITG_USER_A, ITG_USER_B } from './helpers/fixtures'
 import { closeSeedConnection, resetFixtures } from './helpers/seed'
 import {
   AS_OF,
+  RATE_AS_OF,
   contractsFor,
   countRequests,
   setupScenario,
@@ -24,7 +25,7 @@ import {
 } from './helpers/scenario'
 
 /**
- * 변경 계약 11개 — 실제 JWT · PostgREST 왕복 (DOC-011 §5)
+ * 변경 계약 — 실제 JWT · PostgREST 왕복 (DOC-011 §5)
  *
  * ## 이 스위트만 증명할 수 있는 것
  *
@@ -1859,5 +1860,15 @@ describe('계약별 왕복 수', () => {
   it('§5.9 setKiTouched — 사전 조회 1 + 갱신 1', async () => {
     const paths = await measure(() => a.write.setKiTouched(FX.productA, null))
     expect(paths).toEqual({ els_products: 2 })
+  })
+
+  it('§5.13 saveExchangeRate — 사전 조회가 없으므로 1 (P8 컷 a3)', async () => {
+    // 예약 환율 날짜는 전부 `AS_OF` 뒤다 — V-17이 막지 않도록 같은 세션을 `RATE_AS_OF`로 묶는다(W-02)
+    const late = await contractsFor(ITG_USER_A, RATE_AS_OF)
+    expect(
+      await measure(() =>
+        late.write.saveExchangeRate({ currency: 'USD', asOfDate: '2026-07-05', rate: '1400' }),
+      ),
+    ).toEqual({ exchange_rates: 1 })
   })
 })

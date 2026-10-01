@@ -1,5 +1,5 @@
 import { dec, ZERO } from '@/lib/decimal'
-import { NO_ESTIMATE_RATES, type EstimateRates } from '@/lib/domain'
+import { type EstimateRates, type ExchangeRate } from '@/lib/domain'
 import {
   forecastYears,
   type ForecastItem,
@@ -11,13 +11,14 @@ import { attributionOf } from './attribution'
 import type { QueryContext } from './context'
 import {
   loadAllTaxYears,
+  loadEstimateRates,
   loadProducts,
   loadTaxProfiles,
   profileFor,
   resolveTaxYear,
   type ProductRow,
 } from './load'
-import { amountString, ratioString } from './map'
+import { amountString, exchangeRateBasisOf, ratioString, type ExchangeRateBasisView } from './map'
 import { contributionOf, toBrackets, toConstants } from './tax'
 
 /** §4.7 — 다년도 전망 (SCR-402) */
@@ -76,6 +77,15 @@ export type ForecastRow = {
    * 그래서 이 규칙에서는 모든 행이 같은 값이다(보유중·`Y₀` 상환 상품은 첫 행부터 필요하다).
    */
   excludedForeignCount: number
+  /**
+   * 이 행의 원화 환산에 쓴 추정 환율 (§4.7 v4.9 — P8 컷 a3) — **표 밖 표식 다섯째**(열이 아니다).
+   *
+   * `excludedForeignCount`와 **같은 규칙**으로 붙는다 — 환산한 외화 상품이 처음 원화 합에 필요해진 행부터
+   * 마지막 행까지다(누적 두 열이 뒤 행에서도 그 환산을 담는다). 그래서 모든 행이 같은 값이고, 추정 환율이
+   * 요청당 하나이므로(§4.0 규칙 2) 어느 상품에서 읽어도 같다. 기준 연도 이전에 상환된 외화 상품은 어느
+   * 열에도 없으므로 이 표식을 세우지 않는다.
+   */
+  exchangeRateBasis: ExchangeRateBasisView | null
 }
 
 /**
@@ -100,6 +110,11 @@ export type ForecastRow = {
 export type ForecastProductItem = ForecastItem & {
   /** 추정 환율이 없어 원화 합계 열에서 뺐고 `excludedForeignCount`가 센다 (§4.7 v4.9) */
   excludedForeign: boolean
+  /**
+   * 원화 합계 열로 환산하는 데 쓴 추정 환율 — `excludedForeign`의 거울이다(P8 컷 a3). 원화 상품 · 기준
+   * 연도 이전 상환(어느 열에도 없다) · 환율 없음(그쪽은 `excludedForeign`)이면 `null`
+   */
+  estimateRate: ExchangeRate | null
 }
 
 export function forecastItemOf(
@@ -134,8 +149,12 @@ export function forecastItemOf(
       gross,
       isEstimated: contribution?.isEstimated ?? false,
       excludedForeign: false,
+      estimateRate: null,
     }
   }
+
+  // 기준 연도 이전 상환 — 어느 열에도 없다(DOC-007 §7.5 분할 표 둘째 줄). 환율이 있든 없든 세지 않는다
+  const outOfRange = attribution.kind === 'REDEEMED' && attribution.year < currentYear(asOf)
 
   // 외화 · 추정 환율 있음 — 원금과 수령액을 **같은 `x`로** 바꾼다. 그래야 §7.5의 배타 분할
   // (한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 원화 표에서도 선다. 확정 달러
@@ -149,6 +168,7 @@ export function forecastItemOf(
       gross: gross.times(x),
       isEstimated: true,
       excludedForeign: false,
+      estimateRate: outOfRange ? null : rate,
     }
   }
 
@@ -160,9 +180,8 @@ export function forecastItemOf(
     principal: ZERO,
     gross: ZERO,
     isEstimated: contribution?.isEstimated ?? false,
-    excludedForeign: !(
-      attribution.kind === 'REDEEMED' && attribution.year < currentYear(asOf)
-    ),
+    excludedForeign: !outOfRange,
+    estimateRate: null,
   }
 }
 
@@ -170,12 +189,13 @@ export function forecastItemOf(
  * 아홉째 조회 계약 — **산식을 갖지 않는다.**
  *
  * §7.5 전부가 `lib/tax/forecast.ts`에 있고 적용 차수는 `queries/attribution.ts`에 있다.
- * 이 모듈이 하는 일은 셋이다: 왕복 셋을 한 물결로 내고, 행 → `ForecastItem` 사상을
+ * 이 모듈이 하는 일은 셋이다: 왕복 넷(세율 연도 · 프로필 · 상품 · 추정 환율)을 한 물결로 내고, 행 → `ForecastItem` 사상을
  * 만들고, 연도별 세법·프로필을 이월 규칙으로 붙인다.
  *
- * ## 왕복 3이며 연도 수에 비례하지 않는다
+ * ## 왕복 4이며 연도 수에 비례하지 않는다
  *
- * `loadAllTaxYears`가 시드된 연도를 **한 번에** 가져오고 `resolveTaxYear`(순수)를 연도마다
+ * 종전 3에 추정 환율 하나가 더해졌다(P8 컷 a3 — §4.0 규칙 2). 환율도 요청당 한 번이고 모든 연도에 같은 값을
+ * 쓴다 — 연도별 전망 환율이 없다(DOC-007 RD-09). `loadAllTaxYears`가 시드된 연도를 **한 번에** 가져오고 `resolveTaxYear`(순수)를 연도마다
  * 재사용한다 — 여섯 연도의 컨텍스트를 얻기 위해 왕복을 여섯 번 하지 않는다. 그 분해는
  * P4 컷 8이 AQ-22를 부분 처리하며 만든 것이고 그 독블록이 이 재사용을 예고했다.
  * 프로필도 `.lte()` 한 번이며, 상품은 소유자 필터 하나다.
@@ -224,15 +244,21 @@ export function makeForecastQueries(ctx: QueryContext) {
     const throughYear = startYear + years - 1
 
     // 셋 다 ctx.asOf·ctx.viewerId만으로 출발하고 서로 의존하지 않는다 — 한 물결이다.
-    const [taxYearRows, profiles, products] = await Promise.all([
+    // 추정 환율도 `ctx.asOf`에만 의존한다 — 같은 물결이다(왕복 3 → 4, §4.0 규칙 2)
+    const [taxYearRows, profiles, products, rates] = await Promise.all([
       loadAllTaxYears(ctx),
       loadTaxProfiles(ctx, ctx.viewerId, throughYear),
       loadProducts(ctx, { ownerId: ctx.viewerId }),
+      loadEstimateRates(ctx),
     ])
 
-    // 컷 a2에는 추정 환율이 없다 — 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다(왕복 3 → 4)
-    const items = products.map((row) => forecastItemOf(row, ctx.asOf, NO_ESTIMATE_RATES))
+    // 모든 연도에 같은 추정 환율을 쓴다 — 연도별 전망 환율을 두지 않는다(DOC-007 RD-09)
+    const items = products.map((row) => forecastItemOf(row, ctx.asOf, rates))
     const excludedForeignCount = items.filter((item) => item.excludedForeign).length
+    const exchangeRateBasis = exchangeRateBasisOf(
+      items.find((item) => item.estimateRate != null)?.estimateRate ?? null,
+      ctx.asOf,
+    )
 
     const yearInputs: ForecastYearInput[] = []
     for (let offset = 0; offset < years; offset += 1) {
@@ -278,6 +304,7 @@ export function makeForecastQueries(ctx: QueryContext) {
         cumulativeAssets: amountString(row.cumulativeAssets),
         hasEstimates: row.hasEstimates,
         excludedForeignCount,
+        exchangeRateBasis,
       }),
     )
   }

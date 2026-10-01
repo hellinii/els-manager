@@ -1,7 +1,10 @@
 import type { HealthInsuranceType } from '@/lib/tax'
 
+import { FOREIGN_CURRENCIES } from '@/lib/domain/currency'
+
 import type {
   AssetInput,
+  ExchangeRateInput,
   ManualPriceInput,
   ProductInput,
   ProviderSymbolInput,
@@ -19,6 +22,7 @@ import {
   optionalAmount,
   optionalExchangeRate,
   PRODUCT_CURRENCIES,
+  requireExchangeRate,
   optionalBoolean,
   optionalEnum,
   optionalInt,
@@ -574,6 +578,27 @@ export function parseManualPriceInput(p: Problems, raw: unknown): ManualPriceInp
 
   if (!allPresent([assetId, asOfDate, price])) return null
   return { assetId: assetId!, asOfDate: asOfDate!, price: price! }
+}
+
+/**
+ * §5.13 — 수동 환율 (V-24 ⓑ · V-17 · P8 컷 a3).
+ *
+ * `currency`는 **지원 외화만**이다 — 원화 환율은 1이고 행으로 두지 않는다(`exchange_rates_currency_check`가
+ * 두 번째 겹이다). 그래서 상품 통화의 V-22가 아니라 V-24의 몫이다(DOC-011 §6 V-24 ⓑ). `asOfDate`의 미래
+ * 거부(V-17)는 기준일을 아는 계약이 본다 — 형식만 여기서 본다.
+ */
+export function parseExchangeRateInput(p: Problems, raw: unknown): ExchangeRateInput | null {
+  if (!isPlainObject(raw)) {
+    p.add('V-24', 'rate', '입력 형식이 올바르지 않다.')
+    return null
+  }
+
+  const currency = requireEnum(p, 'V-24', 'currency', raw.currency, FOREIGN_CURRENCIES, '통화')
+  const asOfDate = requireIsoDate(p, 'V-17', 'asOfDate', raw.asOfDate, '기준일자')
+  const rate = requireExchangeRate(p, 'rate', raw.rate, '환율')
+
+  if (!allPresent([currency, asOfDate, rate])) return null
+  return { currency: currency!, asOfDate: asOfDate!, rate: rate! }
 }
 
 /**

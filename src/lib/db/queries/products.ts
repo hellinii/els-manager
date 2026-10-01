@@ -1,8 +1,14 @@
 import { dec } from '@/lib/decimal'
-import { CURRENCY_ORDER, NO_ESTIMATE_RATES, type KiStatus } from '@/lib/domain'
+import { CURRENCY_ORDER, type KiStatus } from '@/lib/domain'
 
 import type { QueryContext } from './context'
-import { loadLatestPrices, loadProduct, loadProducts, type ProductRow } from './load'
+import {
+  loadEstimateRates,
+  loadLatestPrices,
+  loadProduct,
+  loadProducts,
+  type ProductRow,
+} from './load'
 import {
   toProductDetailView,
   toProductListItem,
@@ -123,16 +129,21 @@ export function makeProductQueries(ctx: QueryContext) {
   }
 
   async function getProduct(id: string): Promise<ProductDetailView | null> {
-    const row = await loadProduct(ctx, id)
+    /*
+     * 추정 환율은 `ctx.asOf`에만 의존한다 — 상품과 **나란히** 첫 물결에 낸다(§4.0 규칙 2, 왕복 2 → 3 ·
+     * 물결 2 그대로). 상품이 없어도(`null`) 원화 상품에도 이미 나간 왕복이다.
+     *
+     * 상품을 읽은 뒤 통화를 보고 둘째 물결(시세와 나란히)에서 조건부로 내면 물결은 그대로 둘이고 원화 · 미존재
+     * 상품에서 왕복 하나를 아낀다 — 그래도 택하지 않는다. 다섯 계약이 같은 모양(첫 물결 · 무조건)이어야 §4.0
+     * 규칙 2가 한 문장으로 서고, 예산 다중집합이 상품의 통화와 무관하게 고정된다(`{exchange_rates: 1}`).
+     * 사용자 3명 규모에서 아끼는 왕복 하나는 그 균일함보다 싸다(DOC-011 §4.0 v4.13 각주).
+     */
+    const [row, rates] = await Promise.all([loadProduct(ctx, id), loadEstimateRates(ctx)])
     // 미존재는 null이다(§3.1). 예외를 던지지 않는다.
     if (row == null) return null
 
     const prices = await loadLatestPrices(ctx, assetIdsOf([row]))
-    // 컷 a2에는 `exchange_rates`가 없다 — 추정 환율이 늘 없으므로 미상환 달러 상품(일반 계좌 ·
-    // 달러 이익 > 0)의 `expectedTaxableIncome`은 E-09(`null`)다. 비과세 · 이익 ≤ 0은 환율 없이 `'0'`.
-    // 컷 a3가 `loadEstimateRates(ctx)`로 바꾼다
-    // (DOC-011 §4.0 「컷별 도달」 — 왕복 2 → 3)
-    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId, NO_ESTIMATE_RATES)
+    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId, rates)
   }
 
   return { listProducts, getProduct }

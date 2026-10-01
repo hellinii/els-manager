@@ -1,4 +1,4 @@
-import type { ProductCurrency } from '@/lib/domain/currency'
+import type { ForeignCurrency, ProductCurrency } from '@/lib/domain/currency'
 import type { HealthInsuranceType } from '@/lib/tax'
 import type { FailureClass } from '@/lib/providers/types'
 
@@ -107,6 +107,16 @@ export type ManualPriceInput = {
   assetId: string
   asOfDate: string
   price: string
+}
+
+/**
+ * §5.13 — 수동 환율 (P8 컷 a3). `source`·`provider`는 입력이 아니다 — 계약이 `MANUAL`·`null`로 박는다.
+ * 금액이 아니라 **환율**이다(1단위 외화당 원 · 소수 6자리 — Q-07′). 숫자로 받지 않는다(절대 규칙 #2)
+ */
+export type ExchangeRateInput = {
+  currency: ForeignCurrency
+  asOfDate: string
+  rate: string
 }
 
 export type AssetInput = {

@@ -31,11 +31,12 @@ export type MutationContext = {
 }
 
 /**
- * §5.1~§5.12의 계약 **13개** (§5.5가 두 개다).
+ * §5.1~§5.13의 계약 **14개** (§5.5가 두 개다).
  *
  * ★ 종전 주석은 「§5.1~§5.10의 계약 11개」였고 **이미 낡아 있었다** — §5.11
  * (`createRealizedProduct`)이 P6 컷 5에서 생겨 12였다. 그 수를 아무 단언도 보지
- * 않으므로 조용히 낡았다. P5a 컷 2b가 §5.12를 더해 13이 됐고, 이 주석을 함께 고친다.
+ * 않으므로 조용히 낡았다. P5a 컷 2b가 §5.12를 더해 13이 됐고, P8 컷 a3의 §5.13
+ * (`saveExchangeRate`)이 14로 만들었다 — 이 주석을 함께 고친다.
  */
 export type Mutations = ReturnType<typeof makeProductMutations> &
   ReturnType<typeof makeRedemptionMutations> &
@@ -83,6 +84,7 @@ export function createUnauthenticatedMutations(): Mutations {
     refreshPrices: async () => unauthenticated(),
     saveProviderSymbol: async () => unauthenticated(),
     createAsset: async () => unauthenticated(),
+    saveExchangeRate: async () => unauthenticated(),
   }
 }
 

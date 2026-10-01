@@ -106,12 +106,13 @@ const _witnessCatchesSingleSite: QueryAxisExhaustive<Without<'searchAssets'>> = 
 // ---------------------------------------------------------------------------
 
 describe('전수', () => {
-  it('계약 13개가 모두 항목을 갖는다', () => {
+  it('계약 14개가 모두 항목을 갖는다', () => {
     // 타입 수준에서도 `Record<MutationName, …>`가 강제하지만, 그쪽은 `keyof`가
     // 문서와 갈렸을 때를 보지 못한다 — 실제로 조립된 묶음의 키로 대조한다.
     // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12,
-    //  P5a 컷 2b에서 §5.12 `saveProviderSymbol`이 더해져 12 → 13)
-    expect(MUTATION_NAMES).toHaveLength(13)
+    //  P5a 컷 2b에서 §5.12 `saveProviderSymbol`이 더해져 12 → 13,
+    //  P8 컷 a3에서 §5.13 `saveExchangeRate`가 더해져 13 → 14)
+    expect(MUTATION_NAMES).toHaveLength(14)
     expect(Object.keys(INVALIDATION).sort()).toEqual([...MUTATION_NAMES].sort())
   })
 
@@ -127,7 +128,7 @@ describe('전수', () => {
     /*
      * 위 케이스의 **역방향**이며, 그 부재가 AQ-39의 fail-open이었다. 타입 수준
      * 파생(`_queryAxisIsExhaustive`)이 이미 이것을 강제하지만 그쪽은 `keyof`가
-     * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 11개가 모두 항목을 갖는다」가
+     * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 14개가 모두 항목을 갖는다」가
      * `Record`와 나란히 있는 것과 같은 이유로 실제 조립된 묶음의 키로 대조한다.
      */
     /*
@@ -169,6 +170,9 @@ describe('전수', () => {
       'createRedemption',
       'deleteProduct',
       'deleteRedemption',
+      // P8 컷 a3 — 추정 환율이 달러 상품의 추정 과세를 곱한다(EXCHANGE_RATE_WIDE). 아홉째가 되면서도
+      // 두 집합의 동일성은 유지된다 — 셋 다 그 축에 있다
+      'saveExchangeRate',
       'saveTaxProfile',
       'updateProduct',
       'updateRedemption',
@@ -705,6 +709,21 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
    * 바꾸지 않으므로 판정 입력이 그대로다.
    */
   saveProviderSymbol: ['/prices', '/products/[id]/edit', '/products/new'],
+  /*
+   * §5.13 — **세금 화면 둘(`/tax`·`/forecast`)이 있는 것이 이 행의 내용이다**(`refreshPrices` 행과 대조).
+   * `/prices`는 환율 절 자신, `/`는 홈 ③ 환산 · ② `krwEstimate`, 상품 상세 셋은 `projection`의 환산이다.
+   * `/products`·`/schedule`이 **없다** — 목록과 일정은 금액을 상품 통화로만 싣는다(§4.4 「달러 기준 참고」는
+   * 환율을 쓰지 않는다).
+   */
+  saveExchangeRate: [
+    '/',
+    '/forecast',
+    '/prices',
+    '/products/[id]',
+    '/products/[id]/edit',
+    '/products/[id]/redeem',
+    '/tax',
+  ],
 }
 
 describe('합성 — affects × ROUTE_QUERIES', () => {
@@ -745,8 +764,53 @@ describe('합성 — affects × ROUTE_QUERIES', () => {
     for (const name of ['saveManualPrice', 'refreshPrices'] as const) {
       expect(staleRoutesFor(name)).not.toContain(PATHS.tax)
       expect(staleRoutesFor(name)).not.toContain(PATHS.forecast)
-      expect(INVALIDATION[name].affects).not.toContain('getTaxSummary')
+      // 세금 계약 셋 전부 — 하나만 보면 `refreshPrices`에 전망만 들어가도 초록이다(SB-17 · P8 컷 a3)
+      for (const query of ['getTaxSummary', 'listUserSummaries', 'getForecast'] as const) {
+        expect(INVALIDATION[name].affects, `${name} → ${query}`).not.toContain(query)
+      }
     }
+  })
+
+  it('환율은 세금을 낡게 한다 — 시세의 거울상 (§5.13 · P8 컷 a3)', () => {
+    /*
+     * 위 케이스와 **같은 축의 반대 방향**을 함께 박는다(DOC-011 §5.13). 환율은 세금을 움직이는 첫 공용
+     * 입력이다(DOC-010 AQ-76) — 달러 상품의 추정 과세가 그 값을 곱한다(DOC-007 §4.8). 시세의 직관을
+     * 옮겨 「공용 관측 데이터는 세금이 아니다」로 두면 환율을 저장해도 세금 화면이 낡은 값으로 남는다.
+     */
+    expect(staleRoutesFor('saveExchangeRate')).toContain(PATHS.tax)
+    expect(staleRoutesFor('saveExchangeRate')).toContain(PATHS.forecast)
+    for (const query of ['getTaxSummary', 'listUserSummaries', 'getForecast'] as const) {
+      expect(INVALIDATION.saveExchangeRate.affects).toContain(query)
+    }
+    /*
+     * **집합 전체를 박는다.** 「들지 않는 것」을 하나씩 `not.toContain`으로 적으면 빠진 이름이 지켜지지 않는다 —
+     * `listAssetPrices`를 넣어도 `/prices`가 이미 `listExchangeRates`로 낡아 `STALE_ROUTES`가 그대로라 초록이었다
+     * (반박 검토 지적). 금액을 상품 통화로만 싣는 둘(`listProducts`·`listSchedule`)과 시세·자산 둘이 없다.
+     */
+    expect([...INVALIDATION.saveExchangeRate.affects].sort()).toEqual([
+      'getDashboard',
+      'getForecast',
+      'getProduct',
+      'getTaxSummary',
+      'listExchangeRates',
+      'listUserSummaries',
+    ])
+  })
+
+  it('환율 목록은 상품 축에도 낡는다 — 그 통화의 미상환 수 (§5.13 각주)', () => {
+    // `listAssetPrices`가 상품 축에 있는 이유와 같다. 기실현 등재와 KI 터치는 미상환 수를 움직이지 않는다
+    for (const name of [
+      'createProduct',
+      'updateProduct',
+      'deleteProduct',
+      'createRedemption',
+      'updateRedemption',
+      'deleteRedemption',
+    ] as const) {
+      expect(INVALIDATION[name].affects, name).toContain('listExchangeRates')
+    }
+    expect(INVALIDATION.createRealizedProduct.affects).not.toContain('listExchangeRates')
+    expect(INVALIDATION.setKiTouched.affects).not.toContain('listExchangeRates')
   })
 
   it('상환은 시세 화면을 낡게 한다', () => {
@@ -888,7 +952,7 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
     const documented = new Set(
       rows.flatMap(([, , mutations]) => identifiers(mutations ?? '')),
     )
-    // `signIn`·`signOut`은 §5의 열하나가 아니다(`lib/auth/session.ts`).
+    // `signIn`·`signOut`은 §5의 계약이 아니다(`lib/auth/session.ts`).
     documented.delete('signIn')
     documented.delete('signOut')
 

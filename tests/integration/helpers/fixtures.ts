@@ -75,7 +75,32 @@ export const FX = {
    * 죽였는지 갈리지 않는다.
    */
   productNoScheduleWithPrice: '00000000-0000-4000-8000-000000000307',
+
+  /**
+   * `exchange-rates.test.ts` (P8 컷 a3) — 달러 · 미상환 · 일반 계좌 · 이익 > 0. 적용 차수가 `RATE_AS_OF` 뒤의
+   * 같은 해(2026-12-01)라 그 기준일에 환산이 일어난다. 센트를 싣는다
+   */
+  productRateUsd: '00000000-0000-4000-8000-000000000311',
+  /**
+   * 같은 파일 — **B 소유** 달러 둘(보유중 하나 · 상환 완료 하나). `usedByActiveProducts`가 «전 사용자»의 «미상환»
+   * 수라는 두 규칙을 값으로 가른다(조회자로 좁히면 1, 상환을 세면 3, 옳으면 2). B 소유라 A의 세금 · 전망 · 홈
+   * 단언은 바뀌지 않는다
+   */
+  productRateUsdB: '00000000-0000-4000-8000-000000000312',
+  productRateUsdBRedeemed: '00000000-0000-4000-8000-000000000313',
 } as const
+
+/**
+ * 환율 픽스처의 기준일 — **예약 날짜이며 전부 `AS_OF`(2026-06-30) 뒤다** (P8 컷 a3).
+ *
+ * `exchange_rates`에는 소유자도 이름도 없다(공용 관측 — DOC-002 §4.12). 그래서 상품처럼 UUID·이름 대역으로
+ * 좁힐 수 없고 **날짜로 좁힌다** — `resetFixtures`가 이 날짜의 행만 지운다(소유자 커넥션은 DELETE 권한이
+ * 있다. 사용자에게는 없다). `AS_OF` 뒤에 두는 이유: `AS_OF`로 읽는 모든 파일에서 추정 환율이 **없는** 상태가
+ * 유지된다 — a2의 E-09 단언(`formats.test.ts`의 `taxableIncome = null` · `unconvertedCount = 1`)이 파일
+ * 순서와 무관하게 선다. 환율이 있는 상태는 `RATE_AS_OF`(scenario.ts)로 읽는 컨텍스트에서만 보인다.
+ */
+export const FX_RATE_DATES = ['2026-07-03', '2026-07-04', '2026-07-05'] as const
+export type FxRateDate = (typeof FX_RATE_DATES)[number]
 
 /** 이름 대역도 예약한다 — `assets_name_market_key`(NULLS NOT DISTINCT) 충돌 회피 */
 export const FX_NAME_PREFIX = '[ITG]'

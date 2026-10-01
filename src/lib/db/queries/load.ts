@@ -2,6 +2,7 @@ import {
   ASSET_COLUMNS,
   ASSET_OPTION_COLUMNS,
   ELS_PRODUCT_COLUMNS,
+  EXCHANGE_RATE_COLUMNS,
   PRICE_COLUMNS,
   PROVIDER_SYMBOL_COLUMNS,
   REDEMPTION_COLUMNS,
@@ -18,6 +19,7 @@ import {
   type SelectedRow,
 } from '../select'
 import type { QueryContext } from './context'
+import type { EstimateRates, ExchangeRate, ForeignCurrency } from '@/lib/domain'
 
 /**
  * 로더 — 행을 가져오는 곳. 뷰로 바꾸는 것은 `map.ts`가 한다.
@@ -57,6 +59,7 @@ export type ScheduleRow = SelectedRow<
   typeof SCHEDULE_COLUMNS
 >
 export type RedemptionRow = SelectedRow<'redemptions', typeof REDEMPTION_COLUMNS>
+export type ExchangeRateRow = SelectedRow<'exchange_rates', typeof EXCHANGE_RATE_COLUMNS>
 
 export type UnderlyingRow = SelectedRow<
   'els_underlyings',
@@ -304,6 +307,68 @@ export async function loadLatestPrices(
       },
     ]),
   )
+}
+
+// ---------------------------------------------------------------------------
+// 추정 환율 — DOC-011 §4.0 규칙 2 · §4.11 (P8 컷 a3)
+// ---------------------------------------------------------------------------
+
+/** 통화별 최신 환율 행. `null` = 그 통화의 `as_of_date ≤ asOf` 행이 없다 */
+export type LatestExchangeRates = Readonly<Record<ForeignCurrency, ExchangeRateRow | null>>
+
+async function loadLatestExchangeRate(
+  ctx: QueryContext,
+  currency: ForeignCurrency,
+): Promise<ExchangeRateRow | null> {
+  const { data, error } = await ctx.db
+    .from('exchange_rates')
+    .select(selectList(EXCHANGE_RATE_COLUMNS))
+    .eq('currency', currency)
+    .lte('as_of_date', ctx.asOf)
+    .order('as_of_date', { ascending: false })
+    .limit(1)
+    .overrideTypes<ExchangeRateRow[], { merge: false }>()
+
+  if (error != null) fail('추정 환율', error)
+  // `limit(1)`이므로 Q-06의 절단이 구조적으로 불가능하다(§4.0 규칙 2) — 절단 탐침을 걸지 않는다
+  return data[0] ?? null
+}
+
+/**
+ * 통화별 `as_of_date ≤ asOf` 최신 1건 — **추정 환율과 SCR-302의 「최신 값」이 이 한 함수에서 나온다**
+ * (§4.11 「`latestRate`는 추정 환율과 같은 행이다」). 규칙이 둘이면 SCR-302가 보인 환율과 SCR-401이
+ * 쓴 환율이 갈린다.
+ *
+ * 지원 외화를 **리터럴로** 적는다 — `ForeignCurrency`에 통화가 늘면 이 객체가 컴파일에서 깨진다.
+ * 목록을 돌려 만들면(`Object.fromEntries`) 빠진 통화가 `undefined`로 «환율 없음»처럼 읽힌다.
+ * 지원 외화가 `USD` 하나인 동안 왕복은 1이다.
+ */
+export async function loadLatestExchangeRates(ctx: QueryContext): Promise<LatestExchangeRates> {
+  return { USD: await loadLatestExchangeRate(ctx, 'USD') }
+}
+
+/**
+ * 환율 행 → 순수 모듈의 추정 환율. 출처는 계산에 쓰지 않고 근거 표시(`ExchangeRateBasisView`)로만 나른다.
+ * 통화는 행이 아니라 **물은 통화**에서 받는다 — 행의 열은 enum 전체(`KRW` 포함)로 타입이 잡힌다
+ */
+export function estimateRateOf(
+  currency: ForeignCurrency,
+  row: ExchangeRateRow | null,
+): ExchangeRate | null {
+  if (row == null) return null
+  return { currency, rate: row.rate, asOfDate: row.as_of_date, source: row.source }
+}
+
+/**
+ * 추정 환율 — **요청당 한 번, 통화당 하나** (§4.0 규칙 2). 그 하나를 모든 연도에 쓴다(DOC-007 RD-09).
+ * 기본 환율이 없다 — 행이 없으면 `null`이고 소비자가 센다(규칙 3 · E-09).
+ *
+ * `ctx.asOf`에만 의존하므로 다섯 계약(`getProduct`·`getDashboard`·`getTaxSummary`·`listUserSummaries`·
+ * `getForecast`)의 **첫 물결에서 나란히** 나간다 — 물결 수는 그대로다.
+ */
+export async function loadEstimateRates(ctx: QueryContext): Promise<EstimateRates> {
+  const latest = await loadLatestExchangeRates(ctx)
+  return { USD: estimateRateOf('USD', latest.USD) }
 }
 
 /**
