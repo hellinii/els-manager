@@ -21,8 +21,11 @@ import { resolveImportAssets, type AssetResolution } from './importAssets'
 import { importFillOf, type ImportNote } from './importFill'
 import {
   CLEARED_OBSERVATION_NOTE,
+  CURRENCY_CHANGED_NOTE,
   EDIT_REDEEMED_NOTE,
+  KEPT_CURRENCY_NOTE,
   KEPT_OBSERVATION_NOTE,
+  currencyChangedBy,
   hasImportGaps,
   importOverStored,
   storedChangesOf,
@@ -201,12 +204,19 @@ export function importPanelOf(input: {
   let kind = fill.kind
   if (editing) {
     initialValues = importOverStored(input.defaults, fill.values)
-    // 저장값의 관찰방식이 「관찰방식 미정」을 메운다 — 다른 빈 곳이 없으면 불러옴이다
-    if (kind === 'PARTIAL' && !hasImportGaps(initialValues)) kind = 'FILLED'
+    // 수정 화면의 상태는 **합친 값으로 양방향 다시 판정한다** — 저장값의 관찰방식이 「관찰방식 미정」을
+    // 메우면 불러옴이고(PARTIAL → FILLED), X-07이 투자원금을 비우면 일부 채움이다(FILLED → PARTIAL).
+    // 종전에는 올리기만 했다 — 노낙인 · 자산 전부 풀림 상품은 채움부터 FILLED라 X-07 렌더가 「불러옴」인 채
+    // 「투자원금 … 저장값 그대로다」를 말했다(반박 검토, P8 컷 a4)
+    kind = hasImportGaps(initialValues) ? 'PARTIAL' : 'FILLED'
     if (initialValues.kiObservation !== '') fieldNotes.kiObservation = KEPT_OBSERVATION_NOTE
     // 노낙인 상품이 저장값을 비웠다(V-16) — 구획의 문구는 관찰방식을 말하지 않으므로 칸이 말한다
     else if ((input.defaults.kiObservation ?? '') !== '') fieldNotes.kiObservation = CLEARED_OBSERVATION_NOTE
+    // 상품 통화의 증인이 없다 — 등록의 「고른다」가 아니라 저장값을 남겼다고 말한다(ADR-009 §7)
+    if ((fill.values.currency ?? '') === '') fieldNotes.currency = KEPT_CURRENCY_NOTE
     const changes = storedChangesOf(input.defaults, initialValues)
+    // X-07 — 통화가 바뀌어 투자원금을 비웠다. 요약 바로 뒤에 둔다(무엇을 다시 적어야 하는지가 먼저다)
+    if (currencyChangedBy(input.defaults, fill.values)) notes.unshift(CURRENCY_CHANGED_NOTE)
     notes.unshift(changes.summary)
     for (const [field, text] of Object.entries(changes.fieldNotes)) {
       fieldNotes[field] = fieldNotes[field] == null ? text : `${fieldNotes[field]} · ${text}`
@@ -228,8 +238,10 @@ export function importPanelOf(input: {
     ),
     initialValues,
     formKey: importFormKey(code, initialValues),
-    // 기초자산 목록만 실패해도 해결된 id가 비어 키가 바뀐다 — 같은 이유로 직전 키를 유지한다
-    keepPreviousKey: listed?.ok !== true,
+    // 기초자산 목록만 실패해도 해결된 id가 비어 키가 바뀐다 — 같은 이유로 직전 키를 유지한다.
+    // 같은 상품의 목록 행 검색만 실패해도(`CALL_FAILED`) 상품 통화가 빈칸이 되어 키가 바뀐다(P8 컷 a4 —
+    // 키가 통화를 싣는다). 일시 실패가 직전 폼의 통화와 적은 값을 지우지 않게 한다. `NOT_FOUND`는 일시가 아니다
+    keepPreviousKey: listed?.ok !== true || product.listingMiss === 'CALL_FAILED',
   }
 }
 

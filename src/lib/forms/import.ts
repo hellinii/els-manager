@@ -3,6 +3,8 @@ import type { ActionResult } from '@/lib/db/mutations/result'
 import type { AssetInput, ProviderSymbolInput } from '@/lib/db/mutations/types'
 import { PROVIDER_ID, UNDERLYING_TYPES } from '@/lib/providers/kiwoom/endpoints'
 import type { ListedAsset } from '@/lib/providers/kiwoom/parse'
+import type { ProductCurrency } from '@/lib/domain/currency'
+import { productCurrencyOf } from '@/lib/providers/kiwoom/currency'
 import { formatSymbol, parseSymbol } from '@/lib/providers/kiwoom/symbols'
 import type { KiwoomProductCandidate } from '@/lib/providers/kiwoom/terms-types'
 
@@ -35,6 +37,11 @@ export type CandidateRow = {
   exact: boolean
   /** 불러올 수 없는 상품이면 사유. 링크를 그리지 않는다 */
   refusal: string | null
+  /**
+   * 목록 행의 증인만으로 확정한 상품 통화(ADR-009 §7). 화면이 달러 후보에 「달러」 배지를 단다.
+   * `null`이면 확정하지 못했다 — 링크는 남는다(상세가 팝업 증인을 더해 다시 판정한다)
+   */
+  currency: ProductCurrency | null
 }
 
 /**
@@ -43,27 +50,36 @@ export type CandidateRow = {
  * 검색이 **부분 일치**라 「795」가 「3795회」·「2795호」도 낸다(실측). 회차가 검색어의 숫자와
  * 정확히 같은 것을 위로 올린다 — 나머지 순서는 원천의 순서 그대로다(안정 정렬).
  *
- * 거부 사유는 **목록에서 알 수 있는 것만** 미리 말한다(월지급·외화). 나머지(표 ≠ 사다리 등)는
- * 상세를 받아야 알 수 있고 그때 불러오기가 거부한다.
+ * 거부 사유는 **목록에서 알 수 있는 것만** 미리 말한다(월지급식 · 상품 통화의 충돌 · 원화·달러 밖).
+ * 나머지(표 ≠ 사다리 등)는 상세를 받아야 알 수 있고 그때 불러오기가 거부한다. **달러는 사유가 아니다**
+ * (P8 컷 a4) — 링크와 배지를 갖는다.
  */
 export function candidateRowsOf(
   query: string,
   candidates: readonly KiwoomProductCandidate[],
 ): CandidateRow[] {
   const wanted = /(\d+)\s*[회호]?\s*$/.exec(query.trim())?.[1] ?? null
-  const rows = candidates.map((candidate) => ({
-    candidate,
-    exact: wanted != null && candidate.roundNumber === wanted,
-    refusal: candidateRefusal(candidate),
-  }))
+  const rows = candidates.map((candidate) => {
+    const currency = productCurrencyOf({ popup: null, listing: candidate })
+    return {
+      candidate,
+      exact: wanted != null && candidate.roundNumber === wanted,
+      refusal: candidateRefusal(candidate, currency),
+      currency: currency.kind === 'DECIDED' ? currency.currency : null,
+    }
+  })
   return [...rows.filter((r) => r.exact), ...rows.filter((r) => !r.exact)]
 }
 
-function candidateRefusal(candidate: KiwoomProductCandidate): string | null {
-  if (candidate.monthlyPay || candidate.ladder.monthly) return '월지급식 — 이 모델이 표현하지 못한다'
-  const foreign =
-    candidate.ladder.dollar || (candidate.currency != null && candidate.currency !== 'KRW')
-  return foreign ? '외화 상품 — 투자원금·세액이 원화를 전제한다' : null
+function candidateRefusal(
+  candidate: KiwoomProductCandidate,
+  currency: ReturnType<typeof productCurrencyOf>,
+): string | null {
+  // 월지급식은 컷 b5까지 거부다 — 전진 검사가 그 컷이다
+  if (candidate.monthlyPay || candidate.ladder.monthly) return '월지급식 — 이 모델이 아직 표현하지 못한다'
+  if (currency.kind === 'CONFLICT') return '상품 통화의 표기가 서로 다르다 — 투자설명서로 확인한다'
+  if (currency.kind === 'UNSUPPORTED') return `원화·달러 밖의 통화(${currency.currency}) — 등록할 수 없다`
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +95,10 @@ function candidateRefusal(candidate: KiwoomProductCandidate): string | null {
  *
  * 대가: 다시 마운트되면 사용자가 적은 투자원금·계좌유형이 사라진다 — 구획이 「불러온 뒤 적는다」를
  * 말하는 것으로 받는다(DOC-008 v2.9).
+ *
+ * **상품 통화도 싣는다 (P8 컷 a4)** — 같은 상품을 다시 그린 렌더에서 통화만 달라질 수 있다(앞 렌더는 목록
+ * 행 검색이 실패해 빈칸, 이번 렌더는 확정). 키가 같으면 폼이 다시 서지 않아 확정된 통화가 폼에 닿지 않는다.
+ * 반대 방향(앞 렌더 확정, 이번 렌더 목록 실패)은 `keepPreviousKey`가 직전 폼을 지킨다(`importPanelOf`).
  */
 export function importFormKey(code: string | null, values: Readonly<Record<string, string>>): string {
   if (code == null) return 'blank'
@@ -86,7 +106,7 @@ export function importFormKey(code: string | null, values: Readonly<Record<strin
   for (let index = 0; values[`underlyings[${index}].assetId`] != null; index += 1) {
     ids.push(values[`underlyings[${index}].assetId`]!)
   }
-  return `${code}:${ids.join(',')}`
+  return `${code}:${ids.join(',')}:${values.currency ?? ''}`
 }
 
 // ---------------------------------------------------------------------------

@@ -47,15 +47,56 @@ describe('후보 목록', () => {
     )
   })
 
-  it('월지급·외화는 목록에서 사유를 말한다 — EM2048', () => {
+  it('월지급식은 목록에서 사유를 말한다 — EM2048 (컷 b5까지)', () => {
     const [row] = candidateRowsOf('2048', candidates(SEARCH_FIXTURES.q2048))
-    expect(row!.refusal).not.toBeNull()
+    expect(row!.refusal).toBe('월지급식 — 이 모델이 아직 표현하지 못한다')
+    // 통화는 확정된다 — 사유는 월지급식 하나다
+    expect(row!.currency).toBe('USD')
   })
 
-  it('보통 상품은 사유가 없다 — E04000', () => {
+  it('보통 상품은 사유가 없다 — E04000 · 원화로 확정', () => {
     const [row] = candidateRowsOf('4000', candidates(SEARCH_FIXTURES.q4000))
     expect(row!.refusal).toBeNull()
     expect(row!.exact).toBe(true)
+    expect(row!.currency).toBe('KRW')
+  })
+
+  it('★ 달러는 사유가 아니다 — EM2047은 링크(사유 없음)와 달러를 갖는다 (P8 컷 a4)', () => {
+    const [row] = candidateRowsOf('2047', candidates(SEARCH_FIXTURES.q2047))
+    expect([row!.candidate.productCode, row!.refusal, row!.currency]).toEqual(['EM2047', null, 'USD'])
+  })
+
+  it('★ 목록 40행 — 달러 9 중 월지급 아닌 6이 링크를 갖고, 월지급식 5가 사유를 갖는다', () => {
+    const rows = candidateRowsOf('100조', candidates(SEARCH_FIXTURES.q100jo))
+    const usd = rows.filter((r) => r.currency === 'USD')
+    expect(usd).toHaveLength(9)
+    expect(usd.filter((r) => r.refusal == null).map((r) => r.candidate.productCode)).toEqual([
+      'EM2047',
+      'EM2039',
+      'EM2031',
+      'EM2022',
+      'EM2015',
+      'EM2006',
+    ])
+    expect(rows.filter((r) => r.refusal != null).map((r) => r.candidate.productCode)).toEqual([
+      'EM2048',
+      'EM2040',
+      'EM2032',
+      'EM2014',
+      'EM2005',
+    ])
+    expect(rows.every((r) => r.currency != null)).toBe(true)
+  })
+
+  it('상품 통화의 증인이 충돌하거나 원화·달러 밖이면 사유 · 증인이 없으면 링크(상세가 다시 판정한다)', () => {
+    const [base] = candidates(SEARCH_FIXTURES.q4000)
+    const row = (patch: Partial<KiwoomProductCandidate>) => candidateRowsOf('4000', [{ ...base!, ...patch }])[0]!
+    expect(row({ currency: 'USD' })).toMatchObject({ refusal: '상품 통화의 표기가 서로 다르다 — 투자설명서로 확인한다', currency: null })
+    expect(row({ currency: 'JPY', redemptionUnit: null })).toMatchObject({
+      refusal: '원화·달러 밖의 통화(JPY) — 등록할 수 없다',
+      currency: null,
+    })
+    expect(row({ currency: null, redemptionUnit: null })).toMatchObject({ refusal: null, currency: null })
   })
 })
 

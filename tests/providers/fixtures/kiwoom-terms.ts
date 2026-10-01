@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
- * 키움 상품 조건 원천 실응답 픽스처 — **손으로 쓰지 않고 실제로 받아 온 것이다** (2026-09-24 KST 12:14~12:20)
+ * 키움 상품 조건 원천 실응답 픽스처 — **손으로 쓰지 않고 실제로 받아 온 것이다** (2026-09-24 KST 12:14~12:20 ·
+ * EM2047 둘은 2026-10-02 KST 02:22 — P8 컷 a4)
  *
  * 전부 쿠키 없는 `POST` · `application/x-www-form-urlencoded`다(`curl -X POST --data …`).
  *
@@ -24,10 +25,16 @@ import { join } from 'node:path'
  * | EM2046 | 리자드 2배(33.24 = 2 × 16.62) |
  * | E03060 | **파싱은 `ok`**, 대조가 `BLOCKING`(표 85/85 ↔ 사다리 88/88) · 만기 `rowspan=1` |
  * | EM2048 | 달러·월지급 · 수익률 전부 0 · `월지급배리어 50` · 목록 사다리 `KI` ↔ 팝업 `KI25` |
+ * | EM2047 | **달러 · 월지급 아님** — 불러오기가 채우는 첫 달러 상품(P8 컷 a4). 팝업 증인 `USD_` · `달러청약`, 배너는 `100dollar-ELS.jpg`(EM2048은 `dollar-ELS.png` — ADR-009 ⑲) · 해외 티커 TSLA·MU · 만기 사흘 평균 |
  * | E04262 | `PRE_ISSUANCE` — 기준가 0, 차수 없음, 만기는 날짜만 |
  * | E99999 | `EMPTY` — 없는 코드도 200 |
  * | E00795 | 주석에 「만기상환」이 있는데 구획이 없다 → `maturity: null` · 계단 없음 · 자산 셋 |
  * | EM1039 | **4자리 절사** — 엔비디아 85.905 × 0.75 = 64.42875 → `64.4287` |
+ *
+ * **비밀 · 개인정보 검사 (EM2047, 공개 저장소 — DOC-010 AQ-83).** 절단 전 원본의 `<head>`에 `loggedIn`·
+ * `viewuserdn` 메타가 있으나 값이 `N`이고 절단이 그 본문을 비운다. 절단본과 검색 JSON에서 키 · 토큰 ·
+ * 세션 · 쿠키 · 이메일 · 전화번호 · IP 형태를 찾았고 0건이다. 검색 JSON의 `user_dn` · `custNo` 등 사용자
+ * 칸은 전부 `null`이며 값이 있는 최상위 칸의 집합이 2048 픽스처와 같다(`currentPage` · `pageSize`뿐).
  *
  * ## 검색 JSON (`kiwoom-terms/search-<resp_code>-<검색어>.json`)
  *
@@ -48,6 +55,7 @@ export const POPUP_CODES = [
   'E99999',
   'E00795',
   'EM1039',
+  'EM2047',
 ] as const
 export type PopupCode = (typeof POPUP_CODES)[number]
 
@@ -102,6 +110,18 @@ export const SEARCH_FIXTURES = {
     respCode: '100000',
     bytes: 5139,
     sha256: 'c85f283fd549d2545a6e65633b48d0ce119aae0f9f2c636bfa704bc1f646eb8a',
+  },
+  /**
+   * `100000` — 1건(EM2047, 2026-10-02 수집). 달러 · 월지급 아님 — `crnc_code` `USD` · `rdmp_unit`
+   * `000000000000100` · `mm_pay_frml_yn` `N` · 사다리 `달러청약, 3년/6개월 (80-80-75-75-70-65) KI25`
+   */
+  q2047: {
+    file: 'search-100000-2047.json',
+    query: '2047회',
+    body: 'salFundNm=2047%ED%9A%8C&searchStartDt=&searchEndDt=&elsTp=1&prncaPayTp=&rpyYn=&ordTp=&sortTp=&contGubn=&nextData=',
+    respCode: '100000',
+    bytes: 5108,
+    sha256: '52b687e6995190da0ab58c0c16f595544f9f23424230dc69d7e298d79040a4bf',
   },
   /** `505065` — `g1`이 없다. E03060은 「3060**호**」라 「3060회」로는 안 나온다 */
   q3060: {

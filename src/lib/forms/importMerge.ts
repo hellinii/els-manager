@@ -26,20 +26,23 @@ import { path } from './fieldPath'
  * 화면에 없어 `importFillOf`가 비운다(SQ-09) — 수정 화면에서는 저장값이 사용자가 투자설명서로 고른
  * 값이다.
  *
- * **상품 통화(P8 컷 a2)** — 불러오기가 아직 채우지 않는다(통화 증인 읽기는 컷 a4 — ADR-009 개정).
- * 빠뜨리면 바닥의 `productDefaults()`가 `currency: ''`라 수정 화면의 선택 상자가 「선택」이 되고
- * 저장이 V-22로 막힌다(반박 검토가 잡은 회귀 — 이 컷 전에는 같은 흐름이 성공했다). DOC-008 SCR-204:
- * 「불러온 상품의 통화를 확인하지 못했으면 저장값의 통화가 남는다 — 등록은 빈 칸, 수정은 저장값」.
- * 컷 a4가 「불러온 통화가 있으면 그것, 없으면 저장값」으로 바꾸고 다르면 투자원금을 비운다(X-07).
+ * **상품 통화는 여기 없다 (P8 컷 a4)** — 원천에 «있을 수도» 있는 칸이다. 증인이 있으면 불러온 값이고
+ * 없으면 저장값이다(`importOverStored` · DOC-010 ADR-009 §7). 컷 a2~a3 동안 이 목록에 있었다 — 그때는
+ * 불러오기가 통화를 채우지 않았고, 빠뜨리면 바닥의 `currency: ''`가 이겨 저장이 V-22로 막혔다.
  */
-export const IMPORT_KEEPS_STORED = [
-  'principal',
-  'currency',
-  'accountType',
-  'note',
-  'kiObservation',
-] as const
+export const IMPORT_KEEPS_STORED = ['principal', 'accountType', 'note', 'kiObservation'] as const
 
+/**
+ * 저장값 위에 불러온 값.
+ *
+ * ## 상품 통화와 투자원금은 함께 움직인다 (DOC-011 X-07 · DOC-008 SCR-204)
+ *
+ * - 불러온 통화가 있으면 그것, 없으면(증인 없음 — `importFillOf`가 빈칸으로 둔다) 저장값이다.
+ * - **불러온 통화가 저장값과 다르면 투자원금을 비운다.** 투자원금은 원천에 없어 저장값이 남는데,
+ *   통화만 바뀌면 `10000000`(원)이 $10,000,000.00이 된다 — 형식이 정상이고 값만 거짓이며 자릿수가
+ *   맞으므로 V-23도 잡지 못한다. 환산하지 않는다(환율은 계약 조건이 아니다) — 비워서 다시 적게 한다.
+ * - 같으면 아무것도 비우지 않는다 — 같은 상품을 다시 불러와도 투자원금이 지워지지 않는다.
+ */
 export function importOverStored(
   stored: Readonly<Record<string, string>>,
   imported: Readonly<Record<string, string>>,
@@ -48,20 +51,41 @@ export function importOverStored(
   for (const name of IMPORT_KEEPS_STORED) kept[name] = stored[name] ?? ''
   // V-16 — 관찰방식은 KI 배리어의 짝이다. 불러온 상품이 노낙인이면 저장값을 실으면 저장이 거부된다
   if ((imported.kiBarrier ?? '') === '') kept.kiObservation = ''
+  const storedCurrency = stored.currency ?? ''
+  const importedCurrency = imported.currency ?? ''
+  kept.currency = importedCurrency === '' ? storedCurrency : importedCurrency
+  if (currencyChangedBy(stored, imported)) kept.principal = ''
   return { ...productDefaults(), ...imported, ...kept }
 }
 
 /**
- * 불러온 폼에 사람이 채울 곳이 남았는가 — 「일부 채움」의 판정 (DOC-008 SCR-204 상태 표)
+ * 불러온 상품 통화가 저장값과 다른가 — X-07의 조건. `importOverStored`가 이 참일 때만 투자원금을 비우고,
+ * `importPanelOf`가 같은 함수로 안내를 붙인다(조건을 두 곳에 따로 적지 않는다).
+ */
+export function currencyChangedBy(
+  stored: Readonly<Record<string, string>>,
+  imported: Readonly<Record<string, string>>,
+): boolean {
+  const importedCurrency = imported.currency ?? ''
+  return importedCurrency !== '' && importedCurrency !== (stored.currency ?? '')
+}
+
+/**
+ * 불러온 폼에 사람이 채울 곳이 남았는가 — 수정 화면의 「일부 채움」 판정 (DOC-008 SCR-204 상태 표)
  *
- * 값으로 판정한다: 비어 있는 기초자산(미해결·중복) 또는 KI 상품의 빈 관찰방식. 등록에서는
- * `importFillOf`의 판정과 같고, 수정에서는 **저장값의 관찰방식이 그 빈칸을 메운다** — 다른 빈 곳이
- * 없는 KI 상품은 「불러옴」이다.
+ * 값으로 판정한다: 비어 있는 기초자산(미해결·중복) · KI 상품의 빈 관찰방식 · 빈 상품 통화 · 빈 투자원금.
+ * 수정 화면에서만 부른다 — **저장값이 빈칸을 메운다**(관찰방식 · 증인 없는 상품 통화). 다른 빈 곳이 없는
+ * KI 상품은 「불러옴」이다.
+ *
+ * **빈 투자원금은 X-07이 비운 것이다**(저장값은 `NOT NULL`이라 그 밖에는 비지 않는다). 사람이 새 통화로
+ * 다시 적어야 하므로 빈 곳이다 — 「불러옴」으로 두면 수정 화면의 그 문구 「투자원금 · 계좌유형 · 비고는
+ * 저장값 그대로다」가 거짓인 렌더가 생긴다(DOC-011 v4.14).
  */
 export function hasImportGaps(values: Readonly<Record<string, string>>): boolean {
   for (let index = 0; values[path('underlyings', index, 'assetId')] != null; index += 1) {
     if (values[path('underlyings', index, 'assetId')] === '') return true
   }
+  if ((values.currency ?? '') === '' || (values.principal ?? '') === '') return true
   return (values.kiBarrier ?? '') !== '' && (values.kiObservation ?? '') === ''
 }
 
@@ -70,6 +94,12 @@ export const KEPT_OBSERVATION_NOTE = '관찰방식은 안내 화면에 없다 �
 
 /** 노낙인 상품을 불러와 관찰방식의 저장값을 비웠다 — V-16. 문구가 「저장값 그대로」라고 말하지 않으므로 칸이 말한다 */
 export const CLEARED_OBSERVATION_NOTE = '불러온 상품은 노낙인이다 — 관찰방식을 비웠다(KI 배리어가 없으면 둘 수 없다).'
+
+/** 불러온 상품의 통화를 확인하지 못했다 — 수정 화면은 저장값을 남긴다(ADR-009 §7). 등록의 「고른다」를 대신한다 */
+export const KEPT_CURRENCY_NOTE = '상품 통화를 안내 화면에서 확인하지 못했다 — 저장값을 남겼다. 투자설명서와 대조한다.'
+
+/** X-07 — 불러온 상품 통화가 저장값과 달라 투자원금을 비웠다. 구획이 말한다(DOC-008 SCR-204) */
+export const CURRENCY_CHANGED_NOTE = '상품 통화가 저장값과 다르다 — 투자원금을 비웠다. 새 통화로 다시 적는다.'
 
 /** 키움에서 상환된 상품 — 수정 화면에는 상품이 이미 있다. 기실현 등재가 아니라 상환 처리다 */
 export const EDIT_REDEEMED_NOTE = '키움에서는 이미 상환된 상품이다 — 상환 기록은 상세의 상환 처리에서 한다.'
@@ -89,9 +119,9 @@ const SCALARS: ReadonlyArray<{ name: string; label: string; hinted: boolean }> =
   { name: 'name', label: '상품명', hinted: true },
   { name: 'issuer', label: '발행사', hinted: true },
   { name: 'issueDate', label: '발행일', hinted: true },
-  // a4 전에는 저장값이 남으므로(위 `IMPORT_KEEPS_STORED`) 달라질 수 없다 — a4에서 불러온 통화가
-  // 저장값과 다르면 이 행이 그 사실을 말한다(X-07)
+  // 불러온 통화가 저장값과 다르면 이 둘이 함께 바뀐다(X-07) — 투자원금은 그때만 다르다
   { name: 'currency', label: '상품 통화', hinted: true },
+  { name: 'principal', label: '투자원금', hinted: true },
   { name: 'evaluationPeriodMonths', label: '평가주기', hinted: true },
   { name: 'totalRounds', label: '총 차수', hinted: false },
   { name: 'annualCouponRate', label: '연쿠폰율', hinted: true },

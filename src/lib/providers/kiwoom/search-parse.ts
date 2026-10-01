@@ -82,6 +82,7 @@ function candidateOf(r: Record<string, unknown>): KiwoomProductCandidate | null 
   const headlineText = str(r.expc_errt_infr)?.trim() ?? ''
   const isin = str(r.scty_code)?.trim() ?? ''
   const currency = str(r.crnc_code)?.trim() ?? ''
+  const unit = str(r.rdmp_unit)?.trim() ?? ''
 
   return {
     productCode,
@@ -98,6 +99,8 @@ function candidateOf(r: Record<string, unknown>): KiwoomProductCandidate | null 
     headlineAnnualPct: headlinePct(headlineText),
     underlyingNames: splitNames(str(r.base_aset) ?? ''),
     currency: /^[A-Z]{3}$/.test(currency) ? currency : null,
+    // 수로 바꾸지 않는다 — 앞의 0만 지운 문자열로 비교한다(`currency.ts` `REDEMPTION_UNIT_CURRENCY`)
+    redemptionUnit: /^\d{1,20}$/.test(unit) ? unit.replace(/^0+(?=\d)/, '') : null,
     monthlyPay: str(r.mm_pay_frml_yn) === 'Y',
     redeemed: str(r.rpy_yn) === 'Y',
   }

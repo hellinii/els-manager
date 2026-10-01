@@ -140,7 +140,8 @@ export function createKiwoomProductSource(deps: KiwoomProductSourceDeps): Kiwoom
     if (isFailure(parsed)) return failed(parsed)
 
     /*
-     * 목록 행은 **최선 노력**이다 — 월지급·외화·ISIN을 싣지만 없어도 조건은 성립한다.
+     * 목록 행은 **최선 노력**이다 — 월지급·통화·ISIN을 싣지만 없어도 조건은 성립한다. 다만 원화를 말하는
+     * 상품 통화의 증인은 이 행에만 있다(ADR-009 ⑲ — 없으면 원화 상품의 통화가 빈칸이다).
      * 검색어는 팝업의 정확한 상품명이고 사용자 입력 상한(30자) 밖이다(실측 최장 28자
      * `USD_키움 뉴글로벌 100조 ELS 2048회`). 부분 일치이므로 코드로 행을 고른다.
      */

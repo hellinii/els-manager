@@ -9,6 +9,7 @@ import { findSection, onlyTable, stripNoise } from '@/lib/providers/kiwoom/html'
 import { parseLadder, parseTenor } from '@/lib/providers/kiwoom/ladder'
 import { parseSearchBody } from '@/lib/providers/kiwoom/search-parse'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
+import { productCurrencyOf, REDEMPTION_UNIT_CURRENCY } from '@/lib/providers/kiwoom/currency'
 import { crossCheckTerms } from '@/lib/providers/kiwoom/terms-check'
 import {
   DISPLAY_SCALE,
@@ -270,16 +271,16 @@ describe('팝업 — EM2048 (달러·월지급)', () => {
     expect(p.ladder).toMatchObject({ monthly: true, monthlyBarrierPct: '50', dollar: true, kiPct: '25' })
   })
 
-  it('★ 값이 서로 맞아도 거부한다 — 월지급식·외화가 BLOCKING이다 (DOC-008 SCR-204)', () => {
+  it('★ 값이 서로 맞아도 거부한다 — 월지급식이 BLOCKING이다 (DOC-008 SCR-204) · 달러는 사유가 아니다 (P8 컷 a4)', () => {
     /*
      * 음성 대조의 반대편이다. 이 상품은 불일치가 **하나도 없다**(수익률 대조는 월지급식이라 건너뛴다).
-     * 불일치만 셌다면 BLOCKING 0건으로 폼이 채워졌을 것이다. 목록 없이도 사다리의 `월지급`·`달러청약`이
-     * 증인이므로 `actual`(목록 통화)은 null이다.
+     * 불일치만 셌다면 BLOCKING 0건으로 폼이 채워졌을 것이다. 목록 없이도 사다리의 `월지급`이 증인이다.
+     * 달러(`달러청약` · `USD_`)는 컷 a4부터 거부 사유가 아니라 채울 값이다 — 월지급식 거부는 b5까지 남는다.
      */
     expect(crossCheckTerms(withListing(p))).toEqual([
       { kind: 'MONTHLY_PAY', severity: 'BLOCKING', expected: null, actual: null },
-      { kind: 'FOREIGN_CURRENCY', severity: 'BLOCKING', expected: 'KRW', actual: null },
     ])
+    expect(productCurrencyOf({ popup: p, listing: null })).toMatchObject({ kind: 'DECIDED', currency: 'USD' })
   })
 
   it('목록 사다리(`…) KI`)는 팝업(`KI25`)과 달라 NOTE다 — 팝업이 정본이다(⑩)', () => {
@@ -288,17 +289,140 @@ describe('팝업 — EM2048 (달러·월지급)', () => {
     expect(listing.ladder.kiUnspecified).toBe(true)
     expect(listing.monthlyPay).toBe(true)
     expect(listing.currency).toBe('USD')
+    expect(listing.redemptionUnit).toBe('100')
     const d = crossCheckTerms(withListing(p, listing))
     expect(d.filter((x) => x.severity === 'BLOCKING')).toEqual([
       { kind: 'MONTHLY_PAY', severity: 'BLOCKING', expected: null, actual: null },
-      { kind: 'FOREIGN_CURRENCY', severity: 'BLOCKING', expected: 'KRW', actual: 'USD' },
     ])
     expect(d.filter((x) => x.kind === 'LISTING_LADDER_TEXT').map((x) => x.severity)).toEqual(['NOTE'])
   })
 
   it('맨 `KI`를 사다리로 쓰면 KI_PCT_UNKNOWN이다 — 비율 없는 KI를 건너뛰지 않는다', () => {
     const t = withListing({ ...p, ladder: parseLadder('달러청약, 월지급배리어 50, 3년/6개월\r\n(85-85-80-75-70-65) KI') })
-    expect(blocking(t).map((d) => d.kind)).toEqual(['MONTHLY_PAY', 'FOREIGN_CURRENCY', 'KI_PCT_UNKNOWN'])
+    expect(blocking(t).map((d) => d.kind)).toEqual(['MONTHLY_PAY', 'KI_PCT_UNKNOWN'])
+  })
+})
+
+describe('팝업 — EM2047 (달러 · 월지급 아님 — P8 컷 a4)', () => {
+  const p = parsed('EM2047')
+  const listing = () =>
+    (parseSearchBody(searchJson(SEARCH_FIXTURES.q2047)) as { candidates: KiwoomProductCandidate[] }).candidates[0]!
+
+  it('헤더 · 해외 티커 · 차수 다섯 · 만기 사흘 평균을 읽는다', () => {
+    expect(p.name).toBe('USD_키움 뉴글로벌 100조 ELS 2047회')
+    expect(p.status).toBe('ISSUED')
+    expect(p.header).toMatchObject({ headlineAnnualPct: '21.60', issueDate: '2026-09-18', maturityDate: '2029-09-20' })
+    expect(p.ladder).toMatchObject({ dollar: true, monthly: false, kiPct: '25', periodMonths: 6, tenorMonths: 36 })
+    expect(p.assets.map((a) => [a.name, a.ticker, a.basePrice])).toEqual([
+      ['테슬라', 'TSLA', '366.2'],
+      ['마이크론 테크놀로지', 'MU', '977.5'],
+    ])
+    expect(p.rounds.map((r) => [r.evaluationDate, r.barrierPct, r.cumulativeYieldPct])).toEqual([
+      ['2027-03-17', '80', '10.8'],
+      ['2027-09-17', '80', '21.6'],
+      ['2028-03-17', '75', '32.4'],
+      ['2028-09-15', '75', '43.2'],
+      ['2029-03-16', '70', '54'],
+    ])
+    expect(p.maturity!.evaluationDates).toEqual(['2029-09-13', '2029-09-14', '2029-09-17'])
+    expect(p.documents.map((d) => d.fileName)).toContain('BEM2047.pdf')
+  })
+
+  it('★ 대조가 아무것도 내지 않는다 — 목록이 있어도 없어도 (종전에는 FOREIGN_CURRENCY로 거부했다)', () => {
+    const l = listing()
+    expect([l.productCode, l.currency, l.redemptionUnit, l.monthlyPay]).toEqual(['EM2047', 'USD', '100', false])
+    expect(crossCheckTerms(withListing(p, l))).toEqual([])
+    expect(crossCheckTerms(withListing(p))).toEqual([])
+  })
+
+  it('★ 팝업만으로 달러가 확정된다 — 증인 둘(상품명 USD_ · 사다리 달러청약)', () => {
+    expect(productCurrencyOf({ popup: p, listing: null })).toEqual({
+      kind: 'DECIDED',
+      currency: 'USD',
+      claims: [
+        { witness: 'NAME_PREFIX', source: 'POPUP', currency: 'USD' },
+        { witness: 'LADDER_DOLLAR', source: 'POPUP', currency: 'USD' },
+      ],
+    })
+    // 목록이 붙으면 넷이 더해지고 판정은 같다
+    const both = productCurrencyOf({ popup: p, listing: listing() })
+    expect(both.kind === 'DECIDED' && both.currency).toBe('USD')
+    expect(both.claims.map((c) => `${c.source}:${c.witness}`)).toEqual([
+      'LISTING:LISTING_CODE',
+      'LISTING:LISTING_UNIT',
+      'POPUP:NAME_PREFIX',
+      'POPUP:LADDER_DOLLAR',
+      'LISTING:NAME_PREFIX',
+      'LISTING:LADDER_DOLLAR',
+    ])
+  })
+
+  it('★ ⑲ 배너는 증인이 아니다 — 달러 둘의 배너 파일명이 서로 다르다', () => {
+    // 전제 단언이다: 이 둘이 같은 이름이었다면 「배너를 읽지 않는다」의 근거가 이 픽스처에 없다
+    expect(popupHtml('EM2047')).toContain('/wm/upload/gds/100dollar-ELS.jpg')
+    expect(popupHtml('EM2047')).not.toContain('/wm/upload/gds/dollar-ELS.png')
+    expect(popupHtml('EM2048')).toContain('/wm/upload/gds/dollar-ELS.png')
+    expect(TERMS_NOT_READ).toHaveProperty('배너이미지')
+  })
+})
+
+describe('상품 통화 — productCurrencyOf (DOC-010 ADR-009 §7)', () => {
+  const rows = () =>
+    (parseSearchBody(searchJson(SEARCH_FIXTURES.q100jo)) as { candidates: KiwoomProductCandidate[] }).candidates
+
+  it('★ 목록 40행 — 네 증인이 행마다 한 통화를 말한다(USD 9 · KRW 31). 충돌 0', () => {
+    const verdicts = rows().map((c) => productCurrencyOf({ popup: null, listing: c }))
+    expect(verdicts).toHaveLength(40)
+    const decided = verdicts.map((v) => (v.kind === 'DECIDED' ? v.currency : v.kind))
+    expect(decided.filter((c) => c === 'USD')).toHaveLength(9)
+    expect(decided.filter((c) => c === 'KRW')).toHaveLength(31)
+    // 달러 행은 넷 다 말하고(코드 · 단위 · 상품명 · 사다리) 원화 행은 둘만 말한다(코드 · 단위)
+    for (const v of verdicts) {
+      const n = v.claims.length
+      expect(v.kind === 'DECIDED' && (v.currency === 'USD' ? n === 4 : n === 2)).toBe(true)
+    }
+  })
+
+  it('★ 없음은 증언이 아니다 — 원화 팝업만으로는 원화를 확정하지 않는다 (AQ-85)', () => {
+    for (const code of ['E04000', 'EM1740', 'EM2046', 'E03060', 'E00795', 'EM1039'] as const) {
+      expect(productCurrencyOf({ popup: parsed(code), listing: null }), code).toEqual({ kind: 'NO_WITNESS', claims: [] })
+    }
+  })
+
+  it('충돌은 다수결로 풀지 않는다 — 셋이 USD, 하나가 KRW여도 CONFLICT', () => {
+    const usd = rows().find((c) => c.productCode === 'EM2047')!
+    const v = productCurrencyOf({ popup: null, listing: { ...usd, redemptionUnit: '10000' } })
+    expect(v.kind).toBe('CONFLICT')
+    expect(v.claims.map((c) => c.currency)).toEqual(['USD', 'KRW', 'USD', 'USD'])
+  })
+
+  it('접두는 USD_ 하나만 읽는다 — `ELS_`가 통화를 말하지 않는다', () => {
+    const krw = rows().find((c) => c.productCode === 'EM2046')!
+    const bare = { ...krw, currency: null, redemptionUnit: null }
+    expect(productCurrencyOf({ popup: null, listing: { ...bare, name: 'ELS_키움 2046회' } }).kind).toBe('NO_WITNESS')
+    expect(productCurrencyOf({ popup: null, listing: { ...bare, name: 'EUR_키움 2046회' } }).kind).toBe('NO_WITNESS')
+    expect(productCurrencyOf({ popup: null, listing: { ...bare, name: ' USD_키움 2046회' } })).toMatchObject({
+      kind: 'DECIDED',
+      currency: 'USD',
+    })
+  })
+
+  it('상환 단위는 목록에 있는 두 값만 말한다 — 그 밖은 침묵이다', () => {
+    expect(REDEMPTION_UNIT_CURRENCY).toEqual({ '100': 'USD', '10000': 'KRW' })
+    const krw = rows().find((c) => c.productCode === 'EM2046')!
+    for (const unit of ['1000', '1', '0', null]) {
+      expect(productCurrencyOf({ popup: null, listing: { ...krw, currency: null, redemptionUnit: unit } }).kind).toBe(
+        'NO_WITNESS',
+      )
+    }
+  })
+
+  it('지원 밖 — 한 통화인데 KRW · USD 밖이면 UNSUPPORTED', () => {
+    const krw = rows().find((c) => c.productCode === 'EM2046')!
+    expect(productCurrencyOf({ popup: null, listing: { ...krw, currency: 'JPY', redemptionUnit: null } })).toMatchObject({
+      kind: 'UNSUPPORTED',
+      currency: 'JPY',
+    })
   })
 })
 
@@ -616,16 +740,31 @@ describe('대조 — 앞 방향 · 절사 (거꾸로 나누면 맞는 상품이 
     expect(crossCheckTerms(t).map((d) => d.kind)).not.toContain('KI_NOT_BELOW_LIZARD')
   })
 
-  it('월지급·외화는 목록 하나만 말해도 거부다 — 팝업 사다리에 낱말이 없어도', () => {
+  it('월지급식은 목록 하나만 말해도 거부다 — 팝업 사다리에 낱말이 없어도', () => {
     const listing = (parseSearchBody(searchJson(SEARCH_FIXTURES.q4000)) as { candidates: KiwoomProductCandidate[] })
       .candidates[0]!
     expect(listing.currency).toBe('KRW')
     expect(blocking(withListing(base, { ...listing, monthlyPay: true })).map((d) => d.kind)).toEqual(['MONTHLY_PAY'])
+  })
+
+  it('★ 상품 통화 — 증인이 서로 다르면 CURRENCY_CONFLICT · 원화·달러 밖이면 CURRENCY_UNSUPPORTED (ADR-009 §7)', () => {
+    const listing = (parseSearchBody(searchJson(SEARCH_FIXTURES.q4000)) as { candidates: KiwoomProductCandidate[] })
+      .candidates[0]!
+    expect([listing.currency, listing.redemptionUnit]).toEqual(['KRW', '10000'])
+    // 목록 코드만 USD로 — 상환 단위(10000 → KRW)가 반대를 말한다. 다수결을 하지 않는다
     expect(blocking(withListing(base, { ...listing, currency: 'USD' }))).toEqual([
-      { kind: 'FOREIGN_CURRENCY', severity: 'BLOCKING', expected: 'KRW', actual: 'USD' },
+      { kind: 'CURRENCY_CONFLICT', severity: 'BLOCKING', expected: null, actual: 'USD·KRW' },
     ])
-    // 통화를 읽지 못했으면(null) 판정하지 않는다 — 사다리의 `달러청약`이 남은 증인이다
-    expect(blocking(withListing(base, { ...listing, currency: null }))).toEqual([])
+    // 팝업이 달러를 말하는데(사다리) 목록은 원화 — 충돌
+    const dollarLadder = { ...base, ladder: { ...base.ladder, dollar: true } }
+    expect(blocking(withListing(dollarLadder, listing)).map((d) => d.kind)).toEqual(['CURRENCY_CONFLICT'])
+    // 지원 밖 — 코드와 단위가 같은 통화를 말해야 지원 밖이다(단위 10000은 KRW를 말하므로 지워 둔다)
+    expect(blocking(withListing(base, { ...listing, currency: 'EUR', redemptionUnit: null }))).toEqual([
+      { kind: 'CURRENCY_UNSUPPORTED', severity: 'BLOCKING', expected: 'KRW·USD', actual: 'EUR' },
+    ])
+    // 통화 증인이 하나도 없으면 거부가 아니다 — 채움 층이 빈칸으로 둔다
+    expect(blocking(withListing(base, { ...listing, currency: null, redemptionUnit: null }))).toEqual([])
+    expect(blocking(withListing(base))).toEqual([])
   })
 
   it('헤더 자산 개수가 표와 다르면 BLOCKING이다', () => {
@@ -722,9 +861,26 @@ describe('검색 — es020 응답', () => {
       headlineAnnualPct: '32.10',
       underlyingNames: ['삼성전자', 'SK하이닉스'],
       currency: 'KRW',
+      redemptionUnit: '10000',
       monthlyPay: false,
       redeemed: false,
     })
+  })
+
+  it('rdmp_unit — 앞의 0을 지운 문자열이다. 수로 바꾸지 않는다 · 숫자가 아니면 null', () => {
+    const good = (searchJson(SEARCH_FIXTURES.q4000) as { result: { resultMap: { g1: Record<string, unknown>[] } } }).result
+      .resultMap.g1[0]!
+    const unitOf = (rdmp_unit: unknown) => {
+      const r = parseSearchBody({ result: { resultMap: { resp_code: '100000', g1: [{ ...good, rdmp_unit }] } } })
+      return isFail(r) ? 'FAIL' : r.candidates[0]!.redemptionUnit
+    }
+    expect(unitOf('000000000000100')).toBe('100')
+    expect(unitOf('000000000010000')).toBe('10000')
+    expect(unitOf('000')).toBe('0')
+    expect(unitOf('1.5')).toBeNull()
+    expect(unitOf('')).toBeNull()
+    expect(unitOf(100)).toBeNull()
+    expect(unitOf(undefined)).toBeNull()
   })
 
   it('★ ki_yn을 읽지 않는다 — 「KI 터치 여부」가 불리언으로 새지 않는다', () => {
@@ -860,6 +1016,21 @@ describe('어댑터 — 던지지 않는다 · 쿠키 없음 · no-store', () =>
     const out = await createKiwoomProductSource({ fetchImpl }).getKiwoomProductTerms('E99999')
     expect(out).toMatchObject({ ok: false, code: 'EMPTY', failure: 'NO_DATA' })
     expect(calls).toHaveLength(1)
+  })
+
+  it('★ EM2047 — 팝업 다음 목록 행(2047회)을 붙이고 대조가 비었다 (P8 컷 a4)', async () => {
+    const { fetchImpl, calls } = router({ fndElsDetailPopup: html200('EM2047'), getEndElsMainJson: json200(SEARCH_FIXTURES.q2047) })
+    const out = await createKiwoomProductSource({ fetchImpl }).getKiwoomProductTerms('EM2047')
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect([out.data.listing?.isin, out.data.listing?.redemptionUnit, out.data.listingMiss]).toEqual([
+      'KR6KW00061S6',
+      '100',
+      null,
+    ])
+    // 목록 조회는 팝업의 정확한 상품명(28자 — 사용자 상한 30자 안)으로 한다
+    expect(new URLSearchParams(String(calls[1]!.init?.body)).get('salFundNm')).toBe('USD_키움 뉴글로벌 100조 ELS 2047회')
+    expect(crossCheckTerms(out.data)).toEqual([])
   })
 
   it('목록 조회가 실패해도 조건은 실패하지 않는다 — listingMiss로 말한다', async () => {

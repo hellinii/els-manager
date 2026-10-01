@@ -1,5 +1,11 @@
 import { dec, truncateToUnit } from '@/lib/decimal'
 import { dDay, generateEvaluationDates } from '@/lib/domain'
+import { PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
+import {
+  productCurrencyOf,
+  type CurrencyClaim,
+  type ProductCurrencyVerdict,
+} from '@/lib/providers/kiwoom/currency'
 import { parseTenor } from '@/lib/providers/kiwoom/ladder'
 import { crossCheckTerms } from '@/lib/providers/kiwoom/terms-check'
 import type {
@@ -35,6 +41,12 @@ import { EVALUATION_DATE_BASIS_FIELD } from './schedules'
  *
  * `principal`·`accountType`·`note` — 계좌 정보이고 원천에 없다(DOC-001 S-12).
  * `tests/app/importFill.test.ts`가 결과 키에 그 셋이 없음을 단언한다.
+ *
+ * ## 상품 통화는 «증인이 있을 때만» 채운다 (P8 컷 a4 · DOC-010 ADR-009 §7)
+ *
+ * 판정은 `productCurrencyOf` 하나다 — 이 층은 다시 판정하지 않고 그 값을 옮긴다. 확정이면 그 통화(원화도),
+ * **증인 없음이면 빈칸**이다 — 원화로 두지 않는다(민서 결정 2026-09-29). 빈칸은 「일부 채움」이고 그 칸이
+ * 「투자설명서로 고른다」를 말한다. 충돌 · 지원 밖은 어댑터의 `BLOCKING`이라 여기 오기 전에 거부된다.
  *
  * ## 던지지 않는다
  *
@@ -94,12 +106,14 @@ function fill(
   /*
    * ---------- 적격성 + 같은 페이지 안의 두 번째 증인과의 대조 (ADR-009 §3 둘째 겹)
    *
-   * 월지급·외화·만기 구획 없음·K ≥ L도 어댑터의 `BLOCKING`이다(`terms-check.ts`의 대응표).
+   * 월지급식·상품 통화(증인 충돌·원화·달러 밖)·만기 구획 없음·K ≥ L도 어댑터의 `BLOCKING`이다(`terms-check.ts`의 대응표).
    * 여기서 다시 판정하지 않는다 — 두 층이 같은 거부를 각자 하면 한쪽만 고쳐지는 날이 온다.
    * 이 층에 남는 거부는 **앱의 산식이 필요한 것**(평가일 10일)과 **폼의 단위로 옮길 수 없는 것**
    * (리자드 쿠폰의 연율 환산)뿐이다.
    */
   const discrepancies = crossCheckTerms(terms)
+  // 상품 통화 — 대조(`CURRENCY_CONFLICT` 등)와 같은 함수다. 사유 문구에 증인을 적으려고 여기서도 받는다
+  const currency = productCurrencyOf({ popup: terms, listing: terms.listing })
 
   /*
    * ---------- 청약 중은 거부다 (DOC-008 v2.11 — 반박 검토)
@@ -117,7 +131,7 @@ function fill(
 
   for (const d of discrepancies) {
     if (d.severity === 'BLOCKING') {
-      const text = reasonOf(d)
+      const text = reasonOf(d, currency)
       if (!reasons.includes(text)) reasons.push(text)
     }
   }
@@ -158,6 +172,8 @@ function fill(
     name: terms.name,
     issuer: IMPORT_ISSUER,
     issueDate: terms.header.issueDate,
+    // 증인 없음이면 빈칸 — 원화로 두지 않는다(ADR-009 §7). V-22가 선택을 요구한다
+    currency: currency.kind === 'DECIDED' ? currency.currency : '',
     evaluationPeriodMonths: String(period),
     totalRounds: String(totalRounds),
     annualCouponRate: pct(headline),
@@ -206,6 +222,12 @@ function fill(
   })
 
   /* ---------- 안내 */
+  if (currency.kind !== 'DECIDED') {
+    notes.push({ field: 'currency', text: CURRENCY_UNKNOWN_NOTE })
+  } else if (currency.currency === 'USD') {
+    // 투자원금은 원천에 없고 사용자가 적는 칸이다 — 단위를 구획이 말한다(DOC-008 SCR-204 「P8 달러 ELS」)
+    notes.push({ field: null, text: '달러 상품이다 — 투자원금은 달러로 적는다(센트까지).' })
+  }
   if (!ladder.noKi) {
     notes.push({
       field: 'kiObservation',
@@ -248,10 +270,14 @@ function fill(
     }
   }
 
-  // KI 상품은 관찰방식이 비므로 늘 PARTIAL이다 — 「무엇이 비었는지」를 화면이 말해야 한다
-  const partial = unresolved.length > 0 || !ladder.noKi || duplicate
+  // KI 상품은 관찰방식이 비므로 늘 PARTIAL이다 — 「무엇이 비었는지」를 화면이 말해야 한다.
+  // 상품 통화의 증인이 없어도 빈칸이 남는다(여기 오는 비확정은 `NO_WITNESS`뿐이다 — 나머지는 거부됐다)
+  const partial = unresolved.length > 0 || !ladder.noKi || duplicate || currency.kind !== 'DECIDED'
   return { kind: partial ? 'PARTIAL' : 'FILLED', values, notes, unresolved }
 }
+
+/** 상품 통화의 증인이 없다 — 등록 화면의 그 칸 힌트(DOC-008 SCR-204). 수정 화면은 저장값을 남기므로 다른 문구다 */
+export const CURRENCY_UNKNOWN_NOTE = '상품 통화를 확인하지 못했다 — 투자설명서로 고른다.'
 
 /** 퍼센트 문자열 — 폼이 기대하는 정규형(`ratioToPercent`와 같다: `'32.10'` → `'32.1'`) */
 function pct(raw: string): string {
@@ -364,7 +390,7 @@ function roundName(label: string | undefined): string {
  *
  * 문장이 조사를 피한다(`{값}와`는 끝 글자에 따라 `과`가 된다) — 「무엇이 · 무엇과」를 가운뎃점으로 가른다.
  */
-function reasonOf(d: TermsDiscrepancy): string {
+function reasonOf(d: TermsDiscrepancy, currency: ProductCurrencyVerdict): string {
   const where = roundName(d.round)
   const both = `사다리 ${d.expected ?? '없음'} · 표 ${d.actual ?? '없음'}`
   switch (d.kind) {
@@ -402,8 +428,10 @@ function reasonOf(d: TermsDiscrepancy): string {
       return `만기일이 다르다 — 안내 화면 ${d.expected} · 목록 ${d.actual}.`
     case 'MONTHLY_PAY':
       return '월지급식이다 — 이 모델은 매월 쿠폰을 표현하지 못한다(DOC-002 §8).'
-    case 'FOREIGN_CURRENCY':
-      return '외화 상품이다 — 투자원금과 세액이 원화를 전제하므로 등록할 수 없다.'
+    case 'CURRENCY_CONFLICT':
+      return `상품 통화의 표기가 서로 다르다 — ${currency.claims.map(claimText).join(' · ')}. 투자설명서로 확인한다.`
+    case 'CURRENCY_UNSUPPORTED':
+      return `상품 통화가 원화 · 달러 밖이다(${d.actual ?? '없음'}) — 원화와 달러 상품만 등록할 수 있다.`
     case 'MATURITY_ABSENT':
       return '만기상환 평가정보가 안내 화면에 없다 — 옛 상품은 투자설명서를 보고 직접 입력한다.'
     case 'KI_NOT_BELOW_LIZARD':
@@ -414,6 +442,18 @@ function reasonOf(d: TermsDiscrepancy): string {
     default:
       return `안내 화면의 값이 서로 맞지 않는다 (${d.kind}).`
   }
+}
+
+/** 증인 하나 → 사람의 말. 「어디의 무엇이 무엇을 말했나」 — 충돌 사유가 어느 표기를 볼지 알려 준다 */
+function claimText(claim: CurrencyClaim): string {
+  const where = {
+    NAME_PREFIX: claim.source === 'POPUP' ? '상품명' : '목록의 상품명',
+    LADDER_DOLLAR: claim.source === 'POPUP' ? '상환조건' : '목록의 상환조건',
+    LISTING_CODE: '목록의 통화 코드',
+    LISTING_UNIT: '목록의 상환 단위',
+  }[claim.witness]
+  const label = PRODUCT_CURRENCY_LABELS[claim.currency as keyof typeof PRODUCT_CURRENCY_LABELS] ?? claim.currency
+  return `${where} ${label}`
 }
 
 /** `NOTE` 불일치 → 안내. 사용자가 할 일이 없는 것은 말하지 않는다(`null`) */

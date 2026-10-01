@@ -79,7 +79,14 @@ export type KiwoomProductCandidate = {
   headlineText: string
   headlineAnnualPct: PctString | null
   underlyingNames: string[]
+  /** `crnc_code` — 세 글자 대문자가 아니면 `null`. 상품 통화의 증인 하나다(`currency.ts`) */
   currency: string | null
+  /**
+   * `rdmp_unit` — **앞의 0을 지운** 숫자 문자열(`'000000000000100'` → `'100'`). 수로 바꾸지 않는다
+   * (`els/provider-values`). 상품 통화의 증인 하나이며 뜻(1좌 액면 단위로 보인다)은 원문 미확인이다
+   * (DOC-010 ADR-009 §7). 숫자가 아니면 `null`
+   */
+  redemptionUnit: string | null
   monthlyPay: boolean
   redeemed: boolean
 }
@@ -178,7 +185,10 @@ export type KiwoomProductTerms = {
   documents: KiwoomDocument[]
   /** 공지 `<tr data-sqno>` — 뒤의 공지 조각을 위해 싣는다 */
   noticeIds: string[]
-  /** 같은 상품의 es020 행 — 월지급·외화·ISIN. **최선 노력**이며 없어도 조건은 실패하지 않는다 */
+  /**
+   * 같은 상품의 es020 행 — 월지급·통화·ISIN. **최선 노력**이며 없어도 조건은 실패하지 않는다.
+   * 다만 **원화를 말하는 증인은 이 행에만 있다**(ADR-009 ⑲) — 없으면 원화 상품의 통화는 빈칸이다(AQ-85)
+   */
   listing: KiwoomProductCandidate | null
   listingMiss: 'NOT_FOUND' | 'CALL_FAILED' | null
 }
@@ -224,10 +234,15 @@ export type TermsDiscrepancyKind =
    */
   | 'MONTHLY_PAY'
   /**
-   * 외화 상품(`달러청약` · 목록 통화 ≠ `KRW`) — **거부**(DOC-008 SCR-204). `expected`는 `'KRW'`,
-   * `actual`은 목록의 통화 코드다 — 목록이 없으면 `null`이고 사다리의 `달러청약`이 유일한 증인이다
+   * 상품 통화의 증인이 서로 다른 통화를 말한다 — **거부**(DOC-010 ADR-009 §7 · `currency.ts`).
+   * 다수결을 하지 않는다. `expected`는 `null`, `actual`은 말해진 통화들을 증인 순서대로 `·`로 이은 것이다.
+   * 어느 증인이 무엇을 말했는지는 `productCurrencyOf`가 정본이다 — 폼 층이 그것으로 사유를 쓴다
+   *
+   * *(v3.21 — 종전 `FOREIGN_CURRENCY`(달러면 거부)를 이것과 아래가 대신한다)*
    */
-  | 'FOREIGN_CURRENCY'
+  | 'CURRENCY_CONFLICT'
+  /** 상품 통화가 KRW · USD 밖이다 — **거부**. `expected`는 `'KRW·USD'`, `actual`은 그 통화 */
+  | 'CURRENCY_UNSUPPORTED'
   /**
    * KI 배리어 ≥ 리자드 배리어 — **거부**(DOC-002 DQ-09). 불러오기가 `lizard_requires_no_ki`를
    * 켜는 근거(K < L이면 T ⊆ A_t)가 성립하지 않는다. `expected` = L, `actual` = K

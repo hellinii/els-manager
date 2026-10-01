@@ -2,10 +2,12 @@ import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
 import { ImportAssetForm } from '@/components/products/ImportAssetForm'
+import { PRODUCT_CURRENCY_LABELS } from '@/lib/format'
 import type { ImportAssetState } from '@/lib/forms/import'
 import {
   IMPORT_AUTHORITY_NOTE,
   IMPORT_PANEL_STATES,
+  IMPORT_SEARCH_HINTS,
   importPanelMessageOf,
   type ImportPanelTone,
 } from '@/lib/format/importNotice'
@@ -49,7 +51,6 @@ export function KiwoomImport({
 }) {
   const state = IMPORT_PANEL_STATES[panel.state]
   const message = importPanelMessageOf(panel.state, panel.target.kind)
-  const editing = panel.target.kind === 'EDIT'
 
   return (
     <section
@@ -82,11 +83,7 @@ export function KiwoomImport({
         >
           찾기
         </button>
-        <p className="w-full text-xs text-neutral-500">
-          {editing
-            ? '상품명의 번호를 적는다(차수가 아니다). 불러오면 조건 칸이 키움 값으로 바뀐다 — 투자원금·계좌유형·비고와 KI 상품의 관찰방식은 저장값이 남고, 저장하기 전에는 아무것도 바뀌지 않는다.'
-            : '상품명의 번호를 적는다(차수가 아니다). 불러오면 아래 폼이 새로 채워진다 — 투자원금·계좌유형은 불러온 뒤 적는다.'}
-        </p>
+        <p className="w-full text-xs text-neutral-500">{IMPORT_SEARCH_HINTS[panel.target.kind]}</p>
       </form>
 
       {message != null && <Notice tone={state.tone}>{message}</Notice>}
@@ -122,11 +119,17 @@ export function KiwoomImport({
 
       {panel.state === 'CANDIDATES' && (
         <ul className="flex flex-col divide-y divide-neutral-100 rounded-md border border-neutral-200">
-          {panel.candidates.map(({ candidate, exact, refusal }) => (
+          {panel.candidates.map(({ candidate, exact, refusal, currency }) => (
             <li key={candidate.productCode} className="flex flex-col gap-1 px-3 py-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={exact ? 'font-medium' : ''}>{candidate.name}</span>
                 <span className="text-xs text-neutral-500">{candidate.productCode}</span>
+                {/* 달러 후보 — 링크가 남고 배지가 단위를 말한다(DOC-008 SCR-204 「P8 달러 ELS」). 원화는 배지가 없다 */}
+                {currency === 'USD' && (
+                  <span className="rounded border border-neutral-300 px-1.5 text-xs text-neutral-700">
+                    {PRODUCT_CURRENCY_LABELS.USD}
+                  </span>
+                )}
                 {candidate.redeemed && <span className="text-xs text-neutral-500">상환</span>}
               </div>
               <p className="text-xs text-neutral-600">

@@ -1,5 +1,6 @@
 import { dec, truncateToUnit, type DecimalValue } from '@/lib/decimal'
 
+import { productCurrencyOf } from './currency'
 import { parseTenor } from './ladder'
 import { DISPLAY_SCALE } from './terms-endpoints'
 import type {
@@ -29,13 +30,16 @@ import type {
  * ## ★ 「거부」의 대응표 — DOC-008 SCR-204
  *
  * 위 약속이 참이려면 그 화면의 거부 사유 중 **페이지만으로 판정되는 것이 전부** 여기 있어야
- * 한다. 불일치만 세면 월지급·외화 상품(EM2048)이 `BLOCKING` 0건으로 지나간다 — 형식은
+ * 한다. 불일치만 세면 월지급식 상품(EM2048)이 `BLOCKING` 0건으로 지나간다 — 형식은
  * 정상이고 값도 서로 맞는데 **불러와서는 안 되는** 상품이다. 그래서 적격성도 같은 목록에 싣는다.
+ * **달러는 P8 컷 a4부터 적격이다** — 상품 통화는 거부 사유가 아니라 채울 값이고, 거부는 증인이
+ * 충돌하거나 원화·달러 밖일 때뿐이다(DOC-010 ADR-009 §7).
  *
  * | SCR-204 거부 사유 | 자리 |
  * |---|---|
  * | 빈 안내 화면 · ELS 아님 · 날짜 이상(증가·발행일·지급일) | 파서의 실패(`EMPTY`·`MALFORMED`·`BAD_DATE`) — `ok`가 아니다 |
- * | 월지급식 · 외화 · 만기 구획 없음 · K ≥ L(리자드) | `MONTHLY_PAY` · `FOREIGN_CURRENCY` · `MATURITY_ABSENT` · `KI_NOT_BELOW_LIZARD` |
+ * | 월지급식 · 만기 구획 없음 · K ≥ L(리자드) | `MONTHLY_PAY` · `MATURITY_ABSENT` · `KI_NOT_BELOW_LIZARD` |
+ * | 상품 통화 — 증인 충돌 · 원화·달러 밖 *(P8 컷 a4)* | `CURRENCY_CONFLICT` · `CURRENCY_UNSUPPORTED` — 판정은 `currency.ts` |
  * | 사다리를 못 읽음 · 표 ≠ 사다리 | `LADDER_STEPS_ABSENT` · `LADDER_STEP_COUNT` · `LADDER_BARRIER` · `LIZARD_POSITION` |
  * | 가격 ≠ 기준가 × 배리어 · KI 비율 불일치 | `BARRIER_PRICE` · `KI_PRICE` · `KI_PCT_UNKNOWN` · `KI_CONFLICT` |
  * | 누적 수익률이 연율과 선형이 아님 | `CUMULATIVE_YIELD` · `LIZARD_MULTIPLE` · `HEADLINE_UNKNOWN` · `PERIOD_UNKNOWN` · `TENOR` |
@@ -113,14 +117,17 @@ export function crossCheckTerms(terms: KiwoomProductTerms): TermsDiscrepancy[] {
     }
   }
 
-  /* ---------------- 적격성 — 월지급식 · 외화 (EM2048: 사다리 `월지급`·`달러청약`, 목록 `Y`·`USD`) */
+  /* ---------------- 적격성 — 월지급식 (EM2048: 사다리 `월지급`, 목록 `Y`). 전진 검사는 컷 b5다 */
   const listing = terms.listing
   const monthly = ladder.monthly || listing?.monthlyPay === true
   if (monthly) add('MONTHLY_PAY', 'BLOCKING', null, null)
-  // 목록의 통화가 `null`(세 글자가 아니다)이면 판정하지 않는다 — 사다리가 남은 증인이다
-  const currency = listing?.currency ?? null
-  if (ladder.dollar || (currency != null && currency !== 'KRW')) {
-    add('FOREIGN_CURRENCY', 'BLOCKING', 'KRW', currency)
+
+  /* ---------------- 상품 통화 — 판정은 `productCurrencyOf` 하나다(ADR-009 §7). 증인 없음은 거부가 아니다 */
+  const currency = productCurrencyOf({ popup: terms, listing })
+  if (currency.kind === 'CONFLICT') {
+    add('CURRENCY_CONFLICT', 'BLOCKING', null, [...new Set(currency.claims.map((c) => c.currency))].join('·'))
+  } else if (currency.kind === 'UNSUPPORTED') {
+    add('CURRENCY_UNSUPPORTED', 'BLOCKING', 'KRW·USD', currency.currency)
   }
 
   /* ---------------- KI < 리자드 (DQ-09 — 이 포함 관계가 `lizard_requires_no_ki`를 켜는 근거다) */

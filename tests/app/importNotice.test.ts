@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   IMPORT_EDIT_MESSAGES,
   IMPORT_PANEL_STATES,
+  IMPORT_SEARCH_HINTS,
   importPanelMessageOf,
   importPanelStateOf,
 } from '@/lib/format/importNotice'
@@ -79,5 +80,18 @@ describe('수정 화면의 문구 (DOC-008 v2.12)', () => {
       expect(importPanelMessageOf(state, 'EDIT')).toBe(IMPORT_EDIT_MESSAGES[state] ?? IMPORT_PANEL_STATES[state].message)
     }
     expect(importPanelMessageOf('IDLE', 'EDIT')).toBeNull()
+  })
+
+  it('★ 「일부 채움」은 투자원금을 단정하지 않는다 — 상품 통화가 바뀐 렌더는 투자원금을 비운다 (v2.20 · X-07)', () => {
+    // 「불러옴」만 단정한다 — 비운 렌더는 「불러옴」이 되지 않는다(`hasImportGaps` — importPanel.test.ts가 본다)
+    expect(importPanelMessageOf('FILLED', 'EDIT')).toContain('투자원금·계좌유형·비고는 저장값 그대로다')
+    expect(importPanelMessageOf('PARTIAL', 'EDIT')).not.toContain('투자원금·계좌유형·비고는 저장값 그대로')
+    expect(importPanelMessageOf('PARTIAL', 'EDIT')).toContain('투자원금은 상품 통화가 바뀌었을 때만 비웠다')
+  })
+
+  it('★ 수정 화면의 검색 칸 설명도 투자원금을 단정하지 않는다 — 렌더 상태와 무관하게 늘 보이는 문장이다', () => {
+    expect(IMPORT_SEARCH_HINTS.EDIT).not.toMatch(/투자원금·계좌유형·비고와 KI 상품의 관찰방식은 저장값이 남/)
+    expect(IMPORT_SEARCH_HINTS.EDIT).toContain('투자원금은 상품 통화가 바뀌면 비운다')
+    expect(IMPORT_SEARCH_HINTS.NEW).toContain('투자원금·계좌유형은 불러온 뒤 적는다')
   })
 })

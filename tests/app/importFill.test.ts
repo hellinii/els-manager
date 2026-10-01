@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
-import { importFillOf, lizardCouponPct, type ImportFill } from '@/lib/forms/importFill'
+import { CURRENCY_UNKNOWN_NOTE, importFillOf, lizardCouponPct, type ImportFill } from '@/lib/forms/importFill'
 import { resolveImportAssets } from '@/lib/forms/importAssets'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { productDefaults } from '@/lib/forms/defaults'
 import { productFieldNames, transition, INTENT_FIELD } from '@/lib/forms/productForm'
 import type { ListedAsset } from '@/lib/providers/kiwoom/parse'
+import { parseSearchBody } from '@/lib/providers/kiwoom/search-parse'
 import { parseTermsHtml } from '@/lib/providers/kiwoom/terms-parse'
-import type { KiwoomProductTerms } from '@/lib/providers/kiwoom/terms-types'
+import type { KiwoomProductCandidate, KiwoomProductTerms } from '@/lib/providers/kiwoom/terms-types'
 
-import { popupHtml, type PopupCode } from '../providers/fixtures/kiwoom-terms'
+import { SEARCH_FIXTURES, popupHtml, searchJson, type PopupCode } from '../providers/fixtures/kiwoom-terms'
 
 /**
  * 키움 조건 → SCR-204 폼 값 (DOC-008 §5 SCR-204 v2.9 · DOC-010 ADR-009)
@@ -26,6 +27,15 @@ function termsOf(code: PopupCode): KiwoomProductTerms {
   const parsed = parseTermsHtml(popupHtml(code), code)
   if (!('status' in parsed)) throw new Error(`${code} 파싱 실패: ${parsed.detail}`)
   return { ...parsed, listing: null, listingMiss: null }
+}
+
+/** 같은 상품의 목록 행을 붙인 조건 — 어댑터가 하는 일(팝업 → 목록 행)을 픽스처로 되풀이한다 */
+function termsWithListing(code: PopupCode, fixture: (typeof SEARCH_FIXTURES)[keyof typeof SEARCH_FIXTURES]): KiwoomProductTerms {
+  const parsed = parseSearchBody(searchJson(fixture))
+  if (!('candidates' in parsed)) throw new Error(parsed.detail)
+  const listing = parsed.candidates.find((c: KiwoomProductCandidate) => c.productCode === code)
+  if (listing == null) throw new Error(`${code}: 목록 행이 없다`)
+  return { ...termsOf(code), listing, listingMiss: null }
 }
 
 const filled = (fill: ImportFill) => {
@@ -145,12 +155,11 @@ describe('거부 — 폼을 비운다', () => {
     expect('values' in fill).toBe(false)
   })
 
-  it('EM2048 — 월지급식 · 외화', () => {
+  it('EM2048 — 월지급식(컷 b5까지). 달러는 사유가 아니다(P8 컷 a4)', () => {
     const fill = importFillOf(termsOf('EM2048'), {})
     expect(fill.kind).toBe('REFUSED')
     if (fill.kind === 'REFUSED') {
-      expect(fill.reasons.some((r) => r.startsWith('월지급식이다'))).toBe(true)
-      expect(fill.reasons.some((r) => r.startsWith('외화 상품이다'))).toBe(true)
+      expect(fill.reasons).toEqual(['월지급식이다 — 이 모델은 매월 쿠폰을 표현하지 못한다(DOC-002 §8).'])
     }
   })
 
@@ -161,6 +170,90 @@ describe('거부 — 폼을 비운다', () => {
       expect(fill.reasons).toHaveLength(3)
       expect(fill.reasons.some((r) => r.includes('만기상환 평가정보가'))).toBe(true)
     }
+  })
+})
+
+describe('상품 통화 — 증인이 있을 때만 채운다 (P8 컷 a4 · DOC-010 ADR-009 §7)', () => {
+  it('★ EM2047 — 달러를 채우고 구획이 「투자원금은 달러로」를 말한다 · 목록이 없어도 같다', () => {
+    for (const terms of [termsWithListing('EM2047', SEARCH_FIXTURES.q2047), termsOf('EM2047')]) {
+      const fill = filled(importFillOf(terms, {}))
+      expect(fill.values.currency).toBe('USD')
+      expect(fill.notes).toContainEqual({ field: null, text: '달러 상품이다 — 투자원금은 달러로 적는다(센트까지).' })
+      expect(fill.notes.map((n) => n.field)).not.toContain('currency')
+      // 조건도 채운다 — 헤드라인 21.60 · KI25 · 차수 다섯 + 만기
+      expect([fill.values.annualCouponRate, fill.values.kiBarrier, fill.values.totalRounds]).toEqual(['21.6', '25', '6'])
+      expect(fill.values['schedules[5].evaluationDate']).toBe('2029-09-17')
+    }
+  })
+
+  it('★ E04000 + 목록 행 — 원화를 채운다(원화도 채울 수 있는 값이다 — U7)', () => {
+    const fill = filled(importFillOf(termsWithListing('E04000', SEARCH_FIXTURES.q4000), {}))
+    expect(fill.values.currency).toBe('KRW')
+    expect(fill.notes.map((n) => n.field)).not.toContain('currency')
+    expect(fill.notes.some((n) => n.text.includes('달러'))).toBe(false)
+  })
+
+  it('★ 목록 행이 없는 원화 상품 — 빈칸으로 두고 그 칸이 「투자설명서로 고른다」를 말한다. 원화로 두지 않는다', () => {
+    const fill = filled(importFillOf(termsOf('E04000'), {}))
+    expect(fill.values.currency).toBe('')
+    expect(fill.notes).toContainEqual({ field: 'currency', text: CURRENCY_UNKNOWN_NOTE })
+  })
+
+  it('★ 증인 없음만으로도 「일부 채움」이다 — 다른 빈 곳이 없는 상품에서', () => {
+    // 합성: 노낙인 · 기초자산 전부 풀림 — 상품 통화 말고는 빈 곳이 없다. 팝업 증인을 지운 달러 상품
+    const base = termsOf('EM2047')
+    const terms: KiwoomProductTerms = {
+      ...base,
+      name: '키움 뉴글로벌 100조 ELS 2047회',
+      ladder: { ...base.ladder, dollar: false, noKi: true, kiPct: null },
+      assets: base.assets.map((a) => ({ ...a, kiPrice: null })),
+    }
+    const listed = { underlyingType: '3', stkCode: 'X', name: 'x' } as const
+    const all = {
+      테슬라: { kind: 'RESOLVED', assetId: 'a1', symbol: '3:TSLA', listed },
+      '마이크론 테크놀로지': { kind: 'RESOLVED', assetId: 'a2', symbol: '3:MU', listed },
+    } as const
+    expect(importFillOf(terms, all).kind).toBe('PARTIAL')
+    // 음성 대조의 짝 — 증인이 하나 있으면 같은 상품이 「불러옴」이다
+    expect(importFillOf({ ...terms, ladder: { ...terms.ladder, dollar: true } }, all).kind).toBe('FILLED')
+  })
+
+  it('★ 증인이 충돌하면 거부 — 사유가 어느 표기가 무엇을 말했는지 적는다', () => {
+    const terms = termsWithListing('EM2047', SEARCH_FIXTURES.q2047)
+    const fill = importFillOf({ ...terms, listing: { ...terms.listing!, currency: 'KRW', redemptionUnit: '10000' } }, {})
+    expect(fill.kind).toBe('REFUSED')
+    if (fill.kind !== 'REFUSED') return
+    expect(fill.reasons).toEqual([
+      '상품 통화의 표기가 서로 다르다 — 목록의 통화 코드 원화 · 목록의 상환 단위 원화 · 상품명 달러 · 상환조건 달러 · 목록의 상품명 달러 · 목록의 상환조건 달러. 투자설명서로 확인한다.',
+    ])
+    expect('values' in fill).toBe(false)
+  })
+
+  it('원화 · 달러 밖이면 거부', () => {
+    const terms = termsWithListing('E04000', SEARCH_FIXTURES.q4000)
+    const fill = importFillOf({ ...terms, listing: { ...terms.listing!, currency: 'EUR', redemptionUnit: null } }, {})
+    expect(fill.kind === 'REFUSED' && fill.reasons).toEqual([
+      '상품 통화가 원화 · 달러 밖이다(EUR) — 원화와 달러 상품만 등록할 수 있다.',
+    ])
+  })
+
+  it('★ 왕복 — 불러온 달러 + 사용자 입력이 저장 제출을 지나 계약 입력이 된다(투자원금은 센트까지)', () => {
+    const v = filled(importFillOf(termsWithListing('EM2047', SEARCH_FIXTURES.q2047), {})).values
+    const next = transition(
+      formOfValues({
+        ...productDefaults(),
+        ...v,
+        principal: '10,000.50',
+        accountType: 'GENERAL',
+        kiObservation: 'CLOSING',
+        'underlyings[0].assetId': '00000000-0000-4000-8000-0000000000b1',
+        'underlyings[1].assetId': '00000000-0000-4000-8000-0000000000b2',
+        [INTENT_FIELD]: 'SUBMIT',
+      }),
+    )
+    expect(next.saveHeld).toBe(false)
+    const input = parseProductForm(formOfValues(next.values))
+    expect([input.currency, input.principal]).toEqual(['USD', '10000.50'])
   })
 })
 

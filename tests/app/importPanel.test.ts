@@ -4,7 +4,15 @@ import type { AssetOption } from '@/lib/db/queries/prices'
 import { productDefaults } from '@/lib/forms/defaults'
 import { importPanelOf } from '@/lib/forms/importPanel'
 import { formKeyAfter } from '@/lib/forms/importKey'
-import { CLEARED_OBSERVATION_NOTE, EDIT_REDEEMED_NOTE, KEPT_OBSERVATION_NOTE } from '@/lib/forms/importMerge'
+import { CURRENCY_UNKNOWN_NOTE } from '@/lib/forms/importFill'
+import {
+  CLEARED_OBSERVATION_NOTE,
+  CURRENCY_CHANGED_NOTE,
+  EDIT_REDEEMED_NOTE,
+  KEPT_CURRENCY_NOTE,
+  KEPT_OBSERVATION_NOTE,
+} from '@/lib/forms/importMerge'
+import { importPanelMessageOf } from '@/lib/format/importNotice'
 import { productFieldNames } from '@/lib/forms/productForm'
 import { IMPORT_NEW, type ImportTarget } from '@/lib/forms/query'
 import type { ListedAsset } from '@/lib/providers/kiwoom/parse'
@@ -26,6 +34,18 @@ const okTerms = (code: PopupCode): LookupOutcome<KiwoomProductTerms> => {
   const parsed = parseTermsHtml(popupHtml(code), code)
   if (!('status' in parsed)) throw new Error(parsed.detail)
   return { ok: true, data: { ...parsed, listing: null, listingMiss: null } }
+}
+
+/** 같은 상품의 목록 행을 붙인 상세 — 어댑터의 두 요청(팝업 → 목록 행)을 픽스처로 되풀이한다 */
+const okTermsWithListing = (
+  code: PopupCode,
+  fixture: (typeof SEARCH_FIXTURES)[keyof typeof SEARCH_FIXTURES],
+): LookupOutcome<KiwoomProductTerms> => {
+  const terms = okTerms(code)
+  const parsed = parseSearchBody(searchJson(fixture))
+  if (!terms.ok || !('candidates' in parsed)) throw new Error('fixture')
+  const listing = parsed.candidates.find((c) => c.productCode === code) ?? null
+  return { ok: true, data: { ...terms.data, listing, listingMiss: listing == null ? 'NOT_FOUND' : null } }
 }
 
 const okSearch = (
@@ -130,8 +150,11 @@ describe('상세 단계', () => {
         elsewhere: [],
       },
     })
-    // 칸 안내는 스칼라 칸으로, 나머지는 구획 머리로 갈라진다
-    expect(Object.keys(p.fieldNotes)).toEqual(['kiObservation'])
+    // 칸 안내는 스칼라 칸으로, 나머지는 구획 머리로 갈라진다. 목록 행이 없는 원화 상품은 상품 통화의 증인이
+    // 없다 — 원화로 두지 않고 빈칸 + 그 칸의 안내다(ADR-009 §7 · AQ-85)
+    expect(Object.keys(p.fieldNotes)).toEqual(['currency', 'kiObservation'])
+    expect(p.fieldNotes.currency).toBe(CURRENCY_UNKNOWN_NOTE)
+    expect(p.initialValues.currency).toBe('')
     expect(p.notes.length).toBeGreaterThan(0)
     // 기본값 위에 불러온 값 — 평가주기 기본값(6)을 불러온 값이 덮는다
     expect(p.initialValues.evaluationPeriodMonths).toBe('6')
@@ -252,7 +275,7 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
 
   const edit = (input: Partial<Parameters<typeof importPanelOf>[0]>) => panel({ target: EDIT, ...input })
 
-  it('★ 원천에 없는 다섯은 저장값, 나머지 조건은 불러온 값 (P8 컷 a2 — 상품 통화가 다섯째)', () => {
+  it('★ 원천에 없는 넷과 증인 없는 상품 통화는 저장값, 나머지 조건은 불러온 값 (P8 컷 a4)', () => {
     const stored = manual()
     const p = edit({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: BOTH, defaults: stored })
     const v = p.initialValues
@@ -316,13 +339,26 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     const stored: Record<string, string> = {
       ...importedNew(),
       principal: '1',
+      currency: 'KRW',
       accountType: 'GENERAL',
       note: '',
       kiObservation: 'CLOSING',
     }
     const p = edit({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: BOTH, defaults: stored })
     expect(p.notes[0]).toBe('저장값과 같다 — 불러온 값이 바꾸는 칸이 없다.')
-    expect(Object.keys(p.fieldNotes)).toEqual(['kiObservation'])
+    // 목록 행이 없어 상품 통화의 증인이 없다 — 저장값을 남겼다고 그 칸이 말한다(등록의 「고른다」가 아니다)
+    expect(Object.keys(p.fieldNotes)).toEqual(['currency', 'kiObservation'])
+    expect(p.fieldNotes.currency).toBe(KEPT_CURRENCY_NOTE)
+    // 목록 행이 있으면 원화가 확정되고 저장값과 같다 — 통화 칸에 안내가 없다
+    const withListing = edit({
+      query: E04000,
+      terms: okTermsWithListing('E04000', SEARCH_FIXTURES.q4000),
+      listed: LISTED,
+      options: BOTH,
+      defaults: stored,
+    })
+    expect(withListing.notes[0]).toBe('저장값과 같다 — 불러온 값이 바꾸는 칸이 없다.')
+    expect(Object.keys(withListing.fieldNotes)).toEqual(['kiObservation'])
     // 기초자산의 순서만 다르면 같은 구성이다 — 워스트오브에 순서가 없다
     const swapped = {
       ...stored,
@@ -359,10 +395,236 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
   })
 })
 
+describe('상품 통화 — 증인 · X-07 (P8 컷 a4 · DOC-010 ADR-009 §7 · DOC-011 X-07)', () => {
+  const EM2047 = { query: '2047', code: 'EM2047' }
+  const EDIT: ImportTarget = { kind: 'EDIT', productId: '00000000-0000-4000-8000-00000000e003' }
+  const TSLA_MU: LookupOutcome<ListedAsset[]> = {
+    ok: true,
+    data: [
+      { underlyingType: '3', stkCode: 'TSLA', name: '테슬라' },
+      { underlyingType: '3', stkCode: 'MU', name: '마이크론 테크놀로지' },
+    ],
+  }
+  const usdOption = (id: string, name: string, symbol: string): AssetOption => ({
+    id,
+    name,
+    market: null,
+    currency: 'USD',
+    assetType: 'STOCK',
+    hasPriceProvider: true,
+    providerSymbols: [{ provider: 'KIWOOM_ES040', symbol }],
+  })
+  const OPTIONS = [
+    usdOption('00000000-0000-4000-8000-0000000000d1', '테슬라', '3:TSLA'),
+    usdOption('00000000-0000-4000-8000-0000000000d2', '마이크론', '3:MU'),
+  ]
+  /** 등록 화면에서 불러온 EM2047(자산 둘 다 풀림)에 사용자가 적은 셋 — 저장값의 재료 */
+  const storedAs = (currency: string, principal: string): Record<string, string> => ({
+    ...panel({ query: EM2047, terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047), listed: TSLA_MU, options: OPTIONS })
+      .initialValues,
+    currency,
+    principal,
+    accountType: 'GENERAL',
+    kiObservation: 'CLOSING',
+  })
+  const editOf = (defaults: Record<string, string>) =>
+    panel({
+      target: EDIT,
+      query: EM2047,
+      terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047),
+      listed: TSLA_MU,
+      options: OPTIONS,
+      defaults,
+    })
+
+  it('★ 등록 — 달러를 채우고 구획이 「투자원금은 달러로」를 말한다. 관찰방식만 남아 일부 채움이다', () => {
+    const p = panel({ query: EM2047, terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047), listed: TSLA_MU, options: OPTIONS })
+    expect(p.state).toBe('PARTIAL')
+    expect(p.initialValues.currency).toBe('USD')
+    expect(p.notes).toContain('달러 상품이다 — 투자원금은 달러로 적는다(센트까지).')
+    expect(p.unresolved).toEqual([])
+    expect(Object.keys(p.fieldNotes)).toEqual(['kiObservation'])
+  })
+
+  it('★ X-07 — 원화로 저장된 상품에 달러를 불러오면 투자원금을 비우고 일부 채움이다 · 구획과 칸이 말한다', () => {
+    const p = editOf(storedAs('KRW', '10000000'))
+    expect([p.initialValues.currency, p.initialValues.principal]).toEqual(['USD', ''])
+    // 다른 빈 곳이 없다(자산 풀림 · 관찰방식 저장값) — 투자원금 하나가 「불러옴」을 막는다
+    expect(p.unresolved).toEqual([])
+    expect(p.initialValues.kiObservation).toBe('CLOSING')
+    expect(p.state).toBe('PARTIAL')
+    expect(p.notes[0]).toBe('저장값과 다른 곳 — 상품 통화, 투자원금. 저장하기 전에는 바뀌지 않는다.')
+    expect(p.notes[1]).toBe(CURRENCY_CHANGED_NOTE)
+    expect(p.fieldNotes.currency).toBe('저장값 원화')
+    expect(p.fieldNotes.principal).toBe('저장값 10000000')
+    // 그 상태의 문구가 「투자원금 … 저장값 그대로」라고 단정하지 않는다(DOC-008 v2.20)
+    expect(importPanelMessageOf(p.state, 'EDIT')).not.toMatch(/투자원금·계좌유형·비고는 저장값 그대로/)
+  })
+
+  it('★ 같은 통화면 아무것도 비우지 않는다 — 불러옴이고 투자원금은 저장값이다', () => {
+    const p = editOf(storedAs('USD', '10000.50'))
+    expect([p.initialValues.currency, p.initialValues.principal]).toEqual(['USD', '10000.50'])
+    expect(p.state).toBe('FILLED')
+    expect(p.notes).not.toContain(CURRENCY_CHANGED_NOTE)
+    expect(p.notes[0]).toBe('저장값과 같다 — 불러온 값이 바꾸는 칸이 없다.')
+  })
+
+  /**
+   * 노낙인 변형 — 채움부터 FILLED인 갈래(자산 전부 풀림 · 관찰방식 불요)다. KI 상품은 채움이 늘 PARTIAL이라
+   * 「불러옴」이 수정 화면의 올림에서만 나오므로 이 갈래가 없으면 아래 속성이 X-07을 시험하지 않는다
+   * (반박 검토 — 종전 시나리오 넷이 전부 KI 상품이었고, 노낙인 X-07 렌더가 「불러옴」으로 남았다)
+   */
+  const noKi = (terms: LookupOutcome<KiwoomProductTerms>): LookupOutcome<KiwoomProductTerms> => {
+    if (!terms.ok) throw new Error('fixture')
+    const t = terms.data
+    return {
+      ok: true,
+      data: { ...t, ladder: { ...t.ladder, noKi: true, kiPct: null }, assets: t.assets.map((a) => ({ ...a, kiPrice: null })) },
+    }
+  }
+
+  it('★ X-07 — 노낙인 · 자산 전부 풀림 상품(채움부터 「불러옴」)도 투자원금을 비우면 일부 채움이다', () => {
+    const terms = noKi(okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047))
+    // 등록 화면은 「불러옴」 — 채움부터 빈 곳이 없다
+    expect(panel({ query: EM2047, terms, listed: TSLA_MU, options: OPTIONS }).state).toBe('FILLED')
+    const p = panel({ target: EDIT, query: EM2047, terms, listed: TSLA_MU, options: OPTIONS, defaults: storedAs('KRW', '10000000') })
+    expect([p.initialValues.currency, p.initialValues.principal]).toEqual(['USD', ''])
+    expect(p.state).toBe('PARTIAL')
+    expect(p.notes).toContain(CURRENCY_CHANGED_NOTE)
+    // 같은 통화면 「불러옴」 그대로다
+    const same = panel({ target: EDIT, query: EM2047, terms, listed: TSLA_MU, options: OPTIONS, defaults: storedAs('USD', '10000.50') })
+    expect([same.state, same.initialValues.principal]).toEqual(['FILLED', '10000.50'])
+  })
+
+  it('★ 「불러옴」은 투자원금이 저장값일 때만 선다 — 그 문구가 단정하는 것이 늘 참이다', () => {
+    const HYNIX: AssetOption = {
+      id: '00000000-0000-4000-8000-0000000000a2',
+      name: 'SK하이닉스',
+      market: 'KRX',
+      currency: 'KRW',
+      assetType: 'STOCK',
+      hasPriceProvider: true,
+      providerSymbols: [{ provider: 'KIWOOM_ES040', symbol: '2:A000660' }],
+    }
+    const E04000 = { query: '4000', code: 'E04000' }
+    const scenarios = [
+      editOf(storedAs('KRW', '10000000')),
+      editOf(storedAs('USD', '10000.50')),
+      panel({
+        target: EDIT,
+        query: { query: '4000', code: 'E04000' },
+        terms: okTermsWithListing('E04000', SEARCH_FIXTURES.q4000),
+        listed: LISTED,
+        options: [SAMSUNG],
+        defaults: { ...storedAs('USD', '10000.50') },
+      }),
+      panel({
+        target: EDIT,
+        query: { query: '4000', code: 'E04000' },
+        terms: okTerms('E04000'),
+        listed: LISTED,
+        options: [SAMSUNG],
+        defaults: { ...storedAs('USD', '10000.50') },
+      }),
+      // 판별하는 갈래 — 노낙인이라 채움부터 FILLED다. 미해결 자산이 없어야 투자원금만이 「불러옴」을 가른다
+      ...(['EM2047', 'E04000'] as const).flatMap((code) =>
+        (['KRW', 'USD'] as const).map((storedCurrency) =>
+          panel({
+            target: EDIT,
+            query: code === 'EM2047' ? EM2047 : E04000,
+            terms: noKi(
+              code === 'EM2047'
+                ? okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047)
+                : okTermsWithListing('E04000', SEARCH_FIXTURES.q4000),
+            ),
+            listed: code === 'EM2047' ? TSLA_MU : LISTED,
+            options: code === 'EM2047' ? OPTIONS : [SAMSUNG, HYNIX],
+            defaults: storedAs(storedCurrency, storedCurrency === 'USD' ? '10000.50' : '10000000'),
+          }),
+        ),
+      ),
+    ]
+    // 노낙인 넷 중 둘은 통화가 같아 「불러옴」, 둘은 X-07로 「일부 채움」이다 — 갈래가 실제로 섞였는지부터 본다.
+    // 순서: EM2047(USD)←원화 저장값 · EM2047←달러 저장값 · E04000(KRW)←원화 저장값 · E04000←달러 저장값
+    expect(scenarios.slice(4).map((p) => [p.state, p.initialValues.principal === ''])).toEqual([
+      ['PARTIAL', true],
+      ['FILLED', false],
+      ['FILLED', false],
+      ['PARTIAL', true],
+    ])
+    expect(scenarios.map((p) => p.state)).toContain('FILLED')
+    expect(scenarios.map((p) => p.state)).toContain('PARTIAL')
+    for (const p of scenarios) {
+      if (p.state === 'FILLED') expect(p.initialValues.principal).not.toBe('')
+      if (p.initialValues.principal === '') expect(p.state).toBe('PARTIAL')
+    }
+    expect(importPanelMessageOf('FILLED', 'EDIT')).toContain('투자원금·계좌유형·비고는 저장값 그대로다')
+  })
+
+  it('★ 폼 키가 상품 통화를 싣는다 — 같은 상품을 다시 그려 통화가 확정되면 폼이 다시 선다', () => {
+    const before = panel({ query: EM2047, terms: okTerms('EM2047'), listed: TSLA_MU, options: OPTIONS })
+    const krw = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: okTerms('E04000'),
+      listed: LISTED,
+      options: [SAMSUNG],
+    })
+    const krwWithListing = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: okTermsWithListing('E04000', SEARCH_FIXTURES.q4000),
+      listed: LISTED,
+      options: [SAMSUNG],
+    })
+    expect(before.formKey.endsWith(':USD')).toBe(true)
+    // 목록 행 검색이 «없었던» 렌더(NOT_FOUND와 같은 모양) → 확정된 렌더: 키가 달라 새 폼이 선다
+    expect(krw.initialValues.currency).toBe('')
+    expect(krwWithListing.formKey).not.toBe(krw.formKey)
+    expect(formKeyAfter(krw.formKey, krwWithListing)).toBe(krwWithListing.formKey)
+  })
+
+  it('★ 목록 행 검색만 일시 실패한 재렌더는 직전 폼을 지킨다 — 통화와 적은 값이 지워지지 않는다', () => {
+    const ok = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: okTermsWithListing('E04000', SEARCH_FIXTURES.q4000),
+      listed: LISTED,
+      options: [SAMSUNG],
+    })
+    const terms = okTerms('E04000')
+    if (!terms.ok) throw new Error('fixture')
+    const failedListing = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: { ok: true, data: { ...terms.data, listing: null, listingMiss: 'CALL_FAILED' } },
+      listed: LISTED,
+      options: [SAMSUNG],
+    })
+    expect(failedListing.keepPreviousKey).toBe(true)
+    expect(formKeyAfter(ok.formKey, failedListing)).toBe(ok.formKey)
+    // 처음 고른 렌더라면(직전이 빈 폼) 이 렌더의 채움이 곧 새 폼이다
+    expect(formKeyAfter('blank', failedListing)).toBe(failedListing.formKey)
+    // 진짜로 없는 것(NOT_FOUND)은 일시가 아니다 — 직전 키를 붙잡지 않는다
+    const notFound = panel({
+      query: { query: '4000', code: 'E04000' },
+      terms: { ok: true, data: { ...terms.data, listing: null, listingMiss: 'NOT_FOUND' } },
+      listed: LISTED,
+      options: [SAMSUNG],
+    })
+    expect(notFound.keepPreviousKey).toBe(false)
+  })
+
+  it('목록 행이 없어도 달러는 확정된다 — 팝업 증인 둘(USD_ · 달러청약)', () => {
+    const p = panel({ query: EM2047, terms: okTerms('EM2047'), listed: TSLA_MU, options: OPTIONS })
+    expect(p.initialValues.currency).toBe('USD')
+    expect(p.fieldNotes.currency).toBeUndefined()
+  })
+})
+
 describe('수정 화면 — 노낙인 상품을 불러오면 관찰방식을 비운다 (V-16 · DOC-008 v2.13)', () => {
-  /** E04000의 노낙인 변형 — 사다리·자산 KI 가격을 함께 지운다(어댑터의 대조가 둘을 맞춰 본다) */
+  /**
+   * E04000의 노낙인 변형 — 사다리·자산 KI 가격을 함께 지운다(어댑터의 대조가 둘을 맞춰 본다). 목록 행을
+   * 붙인다 — 붙이지 않으면 상품 통화의 증인이 없어 등록 화면이 그 이유로 「일부 채움」이 된다(P8 컷 a4)
+   */
   const noKiTerms = (): LookupOutcome<KiwoomProductTerms> => {
-    const ok = okTerms('E04000')
+    const ok = okTermsWithListing('E04000', SEARCH_FIXTURES.q4000)
     if (!ok.ok) throw new Error('fixture')
     const t = ok.data
     return {
@@ -389,6 +651,7 @@ describe('수정 화면 — 노낙인 상품을 불러오면 관찰방식을 비
     kiBarrier: '45',
     kiObservation: 'CLOSING',
     principal: '1',
+    currency: 'KRW',
     accountType: 'GENERAL',
     'underlyings[0].assetId': SAMSUNG.id,
     'underlyings[0].basePrice': '1',

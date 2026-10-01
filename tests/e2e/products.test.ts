@@ -9,6 +9,7 @@ import {
   priceDisplay,
   won,
 } from '@/lib/format'
+import { IMPORT_SEARCH_HINTS } from '@/lib/format/importNotice'
 import { EVALUATION_DATE_OFFSET_DAYS, generateEvaluationDates } from '@/lib/domain'
 import { percentToRatio } from '@/lib/forms/parse'
 import { FILTER_KEYS, OWNER_ALL } from '@/lib/forms/query'
@@ -637,8 +638,10 @@ describe('SCR-204 수정 모드 (컷 5)', () => {
     const search = /<form(?=[^>]*method="GET")[^>]*>/i.exec(html)?.[0] ?? ''
     expect(search, '검색 폼이 없다').not.toBe('')
     expect(search).toContain(`action="${editPath}"`)
-    // 수정 화면의 설명 — 원천에 없는 칸은 저장값이 남는다
-    expect(html).toContain('저장값이 남고')
+    // 수정 화면의 설명 — 원천에 없는 칸은 저장값이 남는다. 렌더된 문장이 상시 스위트가 보는 상수 그대로다
+    // (P8 컷 a4 — 투자원금은 상품 통화가 바뀌면 비운다, `importNotice.test.ts`)
+    expect(html).toContain(IMPORT_SEARCH_HINTS.EDIT)
+    expect(html).not.toContain(IMPORT_SEARCH_HINTS.NEW)
     // 조작된 코드는 버려졌다 — 상세의 흔적이 없다
     expect(html).not.toContain('불러오기 취소')
 
