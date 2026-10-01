@@ -94,6 +94,8 @@ const NUMERIC_LEDGER: Record<string, NumericShape> = {
   // ── 시세·기준가·주입 상수 ─────────────────────────────────────────────
   'asset_prices.price': { precision: 18, scale: 6 },
   'els_underlyings.base_price': { precision: 18, scale: 6 },
+  // P8 컷 a3 — 환율은 시세와 같은 부류다(DOC-011 Q-07 — 형식 PRICE). 저장은 여섯 자리, 표시만 두 자리
+  'exchange_rates.rate': { precision: 18, scale: 6 },
   'tax_constants.value': { precision: 18, scale: 6 },
 }
 

@@ -24,7 +24,7 @@
  * 「0 DML」이라는 문서의 주장과 실제 GRANT가 갈려 있었고 그것을 판별할
  * 수단이 저장소에 없었다. 롤을 데이터 축으로 올리면 그 부류가 구조적으로
  * 사라진다: 새 롤이 생기면 `ROLES`에 넣어야 하고, 넣으면 **테이블 수만큼의** 셀을
- * 전부 결정해야 한다(P5a 컷 2a에서 `cron_runs`가 더해져 **13**이다 — 수를 여기
+ * 전부 결정해야 한다(P5a 컷 2a에서 `cron_runs`가 더해져 13, P8 컷 a3에서 `exchange_rates`가 더해져 **14**다 — 수를 여기
  * 적어 두면 테이블이 늘 때마다 이 주석이 낡으므로 «세지 않고» 관계로 적는다).
  *
  * ## 축의 방향 — 테이블 major
@@ -110,6 +110,14 @@ export const TABLE_PRIVILEGES = {
   },
   // 공용 데이터. 삭제 제외. 좌표 불변은 I-16(트리거)이 맡으므로 권한은 그대로다
   asset_prices: {
+    anon: NONE,
+    authenticated: ['INSERT', 'SELECT', 'UPDATE'],
+    service_role: NONE,
+  },
+  // P8 컷 a3 — `asset_prices`와 같은 셀이다(공용 관측 · 지울 수 없는 이력). 좌표 불변은 I-22(트리거)가
+  // 맡는다. **DELETE는 권한도 정책도 없다(두 겹)** — 「환율을 지우면 그 날의 추정이 사라진다」가 이력의 정의다.
+  // `service_role`은 0이다 — 자동 수집기의 실행 롤은 컷 c2가 정한다(ADR-010)
+  exchange_rates: {
     anon: NONE,
     authenticated: ['INSERT', 'SELECT', 'UPDATE'],
     service_role: NONE,

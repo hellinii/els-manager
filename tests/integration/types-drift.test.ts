@@ -147,6 +147,7 @@ describe('금액·비율 열이 캐스팅 대상으로 남아 있다', () => {
       'els_products.ki_barrier',
       'els_products.principal',
       'els_underlyings.base_price',
+      'exchange_rates.rate',
       'redemption_schedules.barrier',
       'redemption_schedules.lizard_barrier',
       'redemption_schedules.lizard_coupon_rate',
@@ -222,6 +223,8 @@ const SPEC_TABLES = {
   ASSET_OPTION_COLUMNS: 'assets',
   PROVIDER_SYMBOL_COLUMNS: 'asset_provider_symbols',
   PRICE_COLUMNS: 'asset_prices',
+  // P8 컷 a3 — 환율. 시세와 같은 부류(rate = numeric(18,6) → text)
+  EXCHANGE_RATE_COLUMNS: 'exchange_rates',
   TAX_PROFILE_COLUMNS: 'tax_profiles',
   TAX_BRACKET_COLUMNS: 'tax_brackets',
   TAX_CONSTANT_COLUMNS: 'tax_constants',

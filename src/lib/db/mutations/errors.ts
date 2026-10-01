@@ -245,6 +245,26 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     message: '적용 환율은 0보다 커야 한다.',
   },
 
+  // ── I-22 환율 (P8 컷 a3 · M-a3 — DOC-002 §4.12). 수동 입력 계약(§5.13)이 V-24로 앞에서 막으므로 대개
+  //    도달하지 않는다 — 그래도 사상하는 이유는 직접 PostgREST 호출이 같은 이름으로 그 칸에 닿게 하려는 것이다
+  exchange_rates_currency_check: {
+    rule: 'I-22 / V-24',
+    fields: ['currency'],
+    message: '원화 환율은 저장하지 않는다 — 환율은 외화에만 있다.',
+  },
+  exchange_rates_rate_check: {
+    rule: 'I-22 / V-24',
+    fields: ['rate'],
+    message: '환율은 0보다 커야 한다.',
+  },
+  // **검증 오류다 — 상태 충돌이 아니다.** `asset_prices_coordinates_immutable`과 같은 이유로 `*_immutable`을
+  // CONFLICT로 일반화하지 않는다(DOC-011 §3.2.1 산문). 좌표가 다른 환율은 정정이 아니라 새 관측이다
+  exchange_rates_coordinates_immutable: {
+    rule: 'I-22',
+    fields: ['currency', 'asOfDate'],
+    message: '환율의 통화·기준일은 바꿀 수 없다. 기준일이 다른 환율은 정정이 아니라 새 관측이다.',
+  },
+
   // ── I-07 하위 행 최소 개수 (쓰기 함수, P3b 6단계) ────────────────────────
   els_products_underlyings_required: {
     rule: 'I-07 / V-02',
@@ -297,6 +317,12 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     rule: 'I-05',
     fields: ['asOfDate'],
     message: '해당 자산·일자의 시세가 이미 있다.',
+  },
+  // P8 컷 a3 — §5.13이 UPSERT라 정상 경로에서는 도달하지 않는다(I-05와 같은 사정)
+  exchange_rates_currency_as_of_date_key: {
+    rule: 'I-22',
+    fields: ['asOfDate'],
+    message: '해당 통화·일자의 환율이 이미 있다.',
   },
 }
 

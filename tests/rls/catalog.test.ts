@@ -99,7 +99,7 @@ describe('카탈로그 — 정책 누락을 구조적으로 막는다', () => {
     expect(disabled.rows.map((r) => r.relname)).toEqual([])
   })
 
-  it('DOC-002 §3의 13개 엔티티가 모두 존재한다', async () => {
+  it('DOC-002 §3의 14개 엔티티가 모두 존재한다', async () => {
     const present = await asOwner<{ relname: string }>(
       `select c.relname
          from pg_class c

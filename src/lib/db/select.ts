@@ -365,6 +365,18 @@ export const PRICE_COLUMNS = defineColumns('asset_prices', {
   source: 'raw',
 })
 
+/**
+ * 환율 — DOC-002 §4.12 (P8 컷 a3). 시세와 같은 부류이고 같은 형식이다 — `rate`는 `numeric(18,6)`을
+ * 문자열로 읽는다(Q-07 · Q-08). 환율에 «부동소수로 만들고 싶어지는» 첫 값이라는 사정이 그대로 적용된다
+ * (DOC-010 AQ-88).
+ */
+export const EXCHANGE_RATE_COLUMNS = defineColumns('exchange_rates', {
+  currency: 'raw',
+  as_of_date: 'raw',
+  rate: 'text',
+  source: 'raw',
+})
+
 export const TAX_PROFILE_COLUMNS = defineColumns('tax_profiles', {
   user_id: 'raw',
   tax_year: 'raw',

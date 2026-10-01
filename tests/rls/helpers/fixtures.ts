@@ -32,4 +32,6 @@ export const RLS_TABLES = [
   'tax_constants',
   // P5a 컷 2a — 시세 배치 실행 기록. 12 → 13 (DOC-002 §4.11 · AQ-51 종결)
   'cron_runs',
+  // P8 컷 a3 — 추정용 환율의 공용 관측 이력. 13 → 14 (DOC-002 §4.12 · I-22)
+  'exchange_rates',
 ] as const

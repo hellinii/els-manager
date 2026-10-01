@@ -37,9 +37,9 @@ describe('생성은 본인 명의로만', () => {
   it('A는 자기 명의로 상품을 만든다', async () => {
     const created = await actingAs(USER_A).query<{ id: string }>(
       `insert into public.els_products
-         (owner_id, name, issue_date, principal, evaluation_period_months,
+         (owner_id, name, issue_date, principal, currency, evaluation_period_months,
           annual_coupon_rate, account_type)
-       values ($1, '내 상품', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')
+       values ($1, '내 상품', '2026-01-02', 100000000, 'KRW', 6, 0.08, 'GENERAL')
        returning id`,
       [USER_A],
     )
@@ -51,10 +51,11 @@ describe('생성은 본인 명의로만', () => {
     // 계약 계층이 아니라 DB가 강제한다
     await expectRlsViolation(() =>
       actingAs(USER_B).query(
+        // 통화를 싣는다 — 빼면 거부가 RLS(42501)인지 not null(23502)인지가 평가 순서에 기댄다(M-a2c 뒤)
         `insert into public.els_products
-           (owner_id, name, issue_date, principal, evaluation_period_months,
+           (owner_id, name, issue_date, principal, currency, evaluation_period_months,
             annual_coupon_rate, account_type)
-         values ($1, 'B가 A 명의로 만든 상품', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')`,
+         values ($1, 'B가 A 명의로 만든 상품', '2026-01-02', 100000000, 'KRW', 6, 0.08, 'GENERAL')`,
         [USER_A],
       ),
     )

@@ -180,7 +180,7 @@ export type Database = {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
           created_at?: string
-          currency?: Database["public"]["Enums"]["product_currency"]
+          currency: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
           evaluation_period_months?: number
           id?: string
@@ -262,6 +262,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      exchange_rates: {
+        Row: {
+          as_of_date: string
+          created_at: string
+          currency: Database["public"]["Enums"]["product_currency"]
+          id: string
+          provider: string | null
+          rate: number
+          source: Database["public"]["Enums"]["price_source"]
+        }
+        Insert: {
+          as_of_date: string
+          created_at?: string
+          currency: Database["public"]["Enums"]["product_currency"]
+          id?: string
+          provider?: string | null
+          rate: number
+          source: Database["public"]["Enums"]["price_source"]
+        }
+        Update: {
+          as_of_date?: string
+          created_at?: string
+          currency?: Database["public"]["Enums"]["product_currency"]
+          id?: string
+          provider?: string | null
+          rate?: number
+          source?: Database["public"]["Enums"]["price_source"]
+        }
+        Relationships: []
       }
       redemption_schedules: {
         Row: {

@@ -992,6 +992,8 @@ const NOT_CONTRACT_INPUT: Readonly<Record<string, string>> = {
   'users.email': 'handle_new_auth_user 트리거가 auth.users에서 복사한다 — 계약에 쓰기 경로가 없다',
   'users.display_name': '같은 트리거가 left(…, 50)으로 잘라 넣는다 — 계약에 쓰기 경로가 없다',
   'asset_prices.provider': '수집 배치(collect.ts)가 PRICE_PROVIDERS의 id를 쓴다 — 사용자 입력이 아니다',
+  // P8 컷 a3 — 같은 사유다. 자동 수집기(컷 c2)만 쓰고 수동 입력 계약(§5.13)은 null을 명시해 싣는다
+  'exchange_rates.provider': '자동 수집기만 쓴다 — 수동 입력 계약(§5.13)은 provider = null을 명시한다',
   'tax_constants.key': '세율 마이그레이션만 쓴다(ADR-005) — 계약에 쓰기 경로가 없다',
 }
 

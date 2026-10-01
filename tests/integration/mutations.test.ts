@@ -277,6 +277,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
       issuer: null,
       issueDate: '2026-01-02',
       principal: '10000000',
+      // M-a2c(W2) 뒤 필수다 — 빼면 기대한 23514(I-07) 대신 23502가 먼저 난다
+      currency: 'KRW',
       evaluationPeriodMonths: 6,
       annualCouponRate: '0.08',
       kiBarrier: null,
@@ -369,6 +371,7 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
         issuer: null,
         issueDate: '2026-01-02',
         principal: '1',
+        currency: 'KRW',
         evaluationPeriodMonths: 6,
         annualCouponRate: '0.08',
         kiBarrier: null,
@@ -416,6 +419,7 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
         issuer: null,
         issueDate: '2026-01-02',
         principal: '1',
+        currency: 'KRW',
         evaluationPeriodMonths: 6,
         annualCouponRate: '0.08',
         kiBarrier: null,
@@ -462,6 +466,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
           name: orphanName,
           issue_date: '2026-01-02',
           principal: '10000000',
+          // M-a2c(W2) 뒤 필수다 — 생성 타입이 그것을 요구한다(열 기본값이 없다)
+          currency: 'KRW',
           evaluation_period_months: 6,
           annual_coupon_rate: '0.08',
           account_type: 'GENERAL',

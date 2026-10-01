@@ -11,10 +11,11 @@ import { expectConstraintViolation } from './helpers/expect'
  * 센트는 `els_products_principal_scale_check` 하나에만, 원화 부모 아래의 센트 실수령액은 트리거
  * 하나에만 걸리도록 값을 고른다 — 정수부·소수 2자리 한도 안에 두면 digits CHECK가 끼지 않는다.
  *
- * 마지막 describe는 **배포 틈**을 본다. W1 마이그레이션이 운영에 먼저 올라가고 코드가 뒤따르므로
- * 그 사이에 도는 구 코드는 payload에 `currency`를 보내지 않는다. 그 요청이 오늘처럼 성공해야 하고,
- * 수정은 저장된 통화를 **지키지** 원화로 되돌리지 않아야 한다(DOC-013 §10.2.1). 이 둘은 컷 a3의
- * M-a2c(default·coalesce 제거) 이후 반대가 된다 — 그때 「통화 누락 → 23502」 단언으로 바뀐다.
+ * 마지막 describe는 **통화 누락 → 23502**를 영구 단언으로 둔다(DOC-002 §4.6 ★ · SB-12). W1은 배포 틈
+ * 동안 통화를 보내지 않는 구 코드를 받치려고 열 기본값과 RPC `coalesce`를 두었고, 컷 a3의 M-a2c
+ * (W2 · contract)가 그 둘을 뗐다 — 그 뒤로 통화 없는 쓰기는 **거부되어야** 한다. 쓰기 함수는 a2 · a3 ·
+ * b2 · b4에서 네 번 교체되고 옛 본문에서 출발하면 `coalesce`가 조용히 되살아나므로, 세 함수 모두 —
+ * 특히 update의 「저장값으로 떨어지는 coalesce」 — 를 교체마다 이 단언이 덮는다.
  */
 
 const insertProduct = `insert into public.els_products
@@ -42,7 +43,9 @@ describe('상품 통화 — enum', () => {
     await expect(productIn('EUR' as 'USD')).rejects.toMatchObject({ code: '22P02' })
   })
 
-  it('기존 행은 원화로 백필되고 원금 문자열이 바뀌지 않는다 — typmod 해제가 scale을 보존한다', async () => {
+  it('원금 문자열이 바뀌지 않는다 — typmod 해제가 scale을 보존한다', async () => {
+    // W1의 「기존 행 원화 백필」은 운영에서 실측했다(26건 전부 KRW — DOC-013 §10.2.1 ④). M-a2c 뒤에는
+    // 기본값이 없으므로 이 픽스처는 통화를 명시한다 — 여기서 보는 것은 scale 보존뿐이다
     const product = await seedProduct({ ownerId: USER_A })
     const row = await asOwner<{ currency: string; principal: string }>(
       'select currency::text, principal::text from public.els_products where id = $1',
@@ -145,8 +148,8 @@ describe('I-22 — 적용 환율 (redemptions_exchange_rate_check)', () => {
   })
 })
 
-describe('배포 틈 — W1 스키마 위의 구 코드 (expand 호환)', () => {
-  // 오늘의 ProductPayload와 같은 모양 — currency 키가 없다
+describe('통화 누락 → 23502 — M-a2c 뒤의 영구 단언 (DOC-002 §4.6 ★ · SB-12)', () => {
+  // W1의 구 코드 payload와 같은 모양 — currency 키가 없다
   async function legacyPayload(): Promise<Record<string, unknown>> {
     const asset = await seedAsset({})
     return {
@@ -161,19 +164,30 @@ describe('배포 틈 — W1 스키마 위의 구 코드 (expand 호환)', () => 
     }
   }
 
-  it('currency 없는 create_els_product가 성공하고 원화로 저장된다', async () => {
-    const created = await actingAs(USER_A).query<{ id: string }>(
-      'select public.create_els_product($1::jsonb) as id',
-      [JSON.stringify(await legacyPayload())],
+  /** 23502이고 그 열이 `currency`다 — 다른 열의 널 위반이 대신 초록을 만들지 않게 */
+  async function expectCurrencyNotNull(run: () => Promise<unknown>): Promise<void> {
+    await expect(run()).rejects.toMatchObject({ code: '23502', column: 'currency' })
+  }
+
+  it('열 기본값이 없다 — 카탈로그', async () => {
+    const row = await asOwner<{ has_default: boolean; not_null: boolean }>(
+      `select a.atthasdef as has_default, a.attnotnull as not_null
+         from pg_attribute a
+        where a.attrelid = 'public.els_products'::regclass and a.attname = 'currency'`,
     )
-    const row = await asOwner<{ currency: string }>(
-      'select currency::text from public.els_products where id = $1',
-      [created.rows[0].id],
-    )
-    expect(row.rows[0].currency).toBe('KRW')
+    expect(row.rows[0]).toEqual({ has_default: false, not_null: true })
   })
 
-  it('currency 없는 update_els_product는 저장된 통화를 지킨다 — 원화로 뒤집지 않는다', async () => {
+  it('currency 없는 create_els_product는 23502다', async () => {
+    const body = await legacyPayload()
+    await expectCurrencyNotNull(() =>
+      actingAs(USER_A).query('select public.create_els_product($1::jsonb) as id', [
+        JSON.stringify(body),
+      ]),
+    )
+  })
+
+  it('★ currency 없는 update_els_product는 23502다 — 저장값으로 받치던 coalesce가 되살아나면 여기가 빨갛다', async () => {
     const body = await legacyPayload()
     const created = await actingAs(USER_A).query<{ id: string }>(
       'select public.create_els_product($1::jsonb) as id',
@@ -181,22 +195,23 @@ describe('배포 틈 — W1 스키마 위의 구 코드 (expand 호환)', () => 
     )
     const id = created.rows[0].id
 
-    await actingAs(USER_A).query('select public.update_els_product($1, $2::jsonb)', [
-      id,
-      JSON.stringify({ ...body, principal: '10000.00', name: '구코드가 고침' }),
-    ])
-
-    const row = await asOwner<{ currency: string; name: string }>(
-      'select currency::text, name from public.els_products where id = $1',
+    await expectCurrencyNotNull(() =>
+      actingAs(USER_A).query('select public.update_els_product($1, $2::jsonb)', [
+        id,
+        JSON.stringify({ ...body, principal: '10000.00', name: '구코드가 고침' }),
+      ]),
+    )
+    // 저장된 통화가 그대로다 — 거부는 트랜잭션 단위다
+    const row = await asOwner<{ currency: string }>(
+      'select currency::text from public.els_products where id = $1',
       [id],
     )
-    expect(row.rows[0]).toEqual({ currency: 'USD', name: '구코드가 고침' })
+    expect(row.rows[0].currency).toBe('USD')
   })
 
-  it('currency 없는 create_realized_els_product가 성공하고 원화로 저장된다', async () => {
-    const created = await actingAs(USER_A).query<{ id: string }>(
-      'select public.create_realized_els_product($1::jsonb) as id',
-      [
+  it('currency 없는 create_realized_els_product는 23502다', async () => {
+    await expectCurrencyNotNull(() =>
+      actingAs(USER_A).query('select public.create_realized_els_product($1::jsonb) as id', [
         JSON.stringify({
           name: '구코드 기실현',
           principal: '19390000',
@@ -207,14 +222,19 @@ describe('배포 틈 — W1 스키마 위의 구 코드 (expand 호환)', () => 
           taxableIncome: '610000',
           isConfirmed: true,
         }),
-      ],
+      ]),
     )
-    const row = await asOwner<{ currency: string; exchange_rate: string | null }>(
-      `select p.currency::text, r.exchange_rate::text
-         from public.els_products p join public.redemptions r on r.els_id = p.id
-        where p.id = $1`,
-      [created.rows[0].id],
+  })
+
+  it('직접 INSERT도 23502다 — 기본값이 없다', async () => {
+    await expectCurrencyNotNull(() =>
+      actingAs(USER_A).query(
+        `insert into public.els_products
+           (owner_id, name, issue_date, principal, evaluation_period_months,
+            annual_coupon_rate, account_type)
+         values ($1, '통화 없음', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')`,
+        [USER_A],
+      ),
     )
-    expect(row.rows[0]).toEqual({ currency: 'KRW', exchange_rate: null })
   })
 })

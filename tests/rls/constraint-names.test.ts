@@ -47,6 +47,8 @@ const RAISE_ONLY = [
   'redemptions_round_no_required',
   // P8 컷 a2 — 부모의 상품 통화를 읽어야 하므로 CHECK로 쓸 수 없다(DOC-002 §4.9 · I-21)
   'redemptions_gross_amount_scale',
+  // P8 컷 a3 — I-16의 형태(좌표 동결 트리거). DOC-002 §4.12 · I-22
+  'exchange_rates_coordinates_immutable',
 ] as const
 
 /**
@@ -76,6 +78,10 @@ const NOT_USER_REACHABLE: Record<string, string> = {
     'I-19. 배치만 쓰는 테이블이고 가리킬 입력 필드가 없다 — 위반은 수집기 결함이다',
   cron_runs_interval_check:
     'I-20. 같은 이유. `started_at`·`finished_at`은 배치가 자기 시계로 넣는다',
+  // P8 컷 a3 — 수집기만 `AUTO`를 쓰고 수동 입력(§5.13)은 `provider = null`을 **명시해** 싣는다(그 명시가
+  // 이 분류의 전제다 — DOC-011 §5.13 ★). 그래서 사용자 입력에서 도달하지 않는다
+  exchange_rates_provider_check:
+    'I-22. 출처·공급자 짝 — 수동 입력 계약이 provider = null을 명시하므로 사용자 입력에서 도달하지 않는다',
 }
 
 const MIGRATIONS_DIR = join(process.cwd(), 'supabase', 'migrations')

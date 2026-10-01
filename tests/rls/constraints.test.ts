@@ -291,8 +291,8 @@ describe('I-18 — FULL은 계약 조건 두 열을 갖는다', () => {
    * 조건 판정의 입력이 조용히 사라진다(DOC-002 §8 I-18).
    */
   const insert = `insert into public.els_products
-      (owner_id, name, issue_date, principal, annual_coupon_rate, account_type, entry_mode)
-    values ($1, $2, $3, 100000000, $4, 'GENERAL', $5)`
+      (owner_id, name, issue_date, principal, currency, annual_coupon_rate, account_type, entry_mode)
+    values ($1, $2, $3, 100000000, 'KRW', $4, 'GENERAL', $5)`
 
   it('FULL인데 발행일이 없으면 거부한다', async () => {
     await expectConstraintViolation(
@@ -441,10 +441,10 @@ describe('I-13 — 상환의 차수는 실재해야 한다', () => {
 
 describe('I-11 — KI 배리어와 관찰 방식은 짝을 이룬다', () => {
   const insert = `insert into public.els_products
-      (owner_id, name, issue_date, principal, evaluation_period_months,
+      (owner_id, name, issue_date, principal, currency, evaluation_period_months,
        annual_coupon_rate, ki_barrier, ki_observation,
        ki_touched_at, account_type)
-    values ($1, 'KI 짝 검증', '2026-01-02', 100000000, 6, 0.08, $2, $3, $4, 'GENERAL')`
+    values ($1, 'KI 짝 검증', '2026-01-02', 100000000, 'KRW', 6, 0.08, $2, $3, $4, 'GENERAL')`
 
   it('배리어만 있고 관찰 방식이 없으면 거부한다', async () => {
     // DOC-007 §3.4 보조 판정이 CONTINUOUS와 CLOSING 중 무엇으로 관측할지
@@ -477,10 +477,10 @@ describe('I-11 — KI 배리어와 관찰 방식은 짝을 이룬다', () => {
 
 describe('I-15 — 노낙인 상품에 터치 이력이 붙을 수 없다', () => {
   const insert = `insert into public.els_products
-      (owner_id, name, issue_date, principal, evaluation_period_months,
+      (owner_id, name, issue_date, principal, currency, evaluation_period_months,
        annual_coupon_rate, ki_barrier, ki_observation,
        ki_touched_at, account_type)
-    values ($1, 'KI 터치 검증', '2026-01-02', 100000000, 6, 0.08, $2, $3, $4, 'GENERAL')`
+    values ($1, 'KI 터치 검증', '2026-01-02', 100000000, 'KRW', 6, 0.08, $2, $3, $4, 'GENERAL')`
 
   it('배리어 없이 터치 이력만 있으면 거부한다', async () => {
     // 통과하면 DOC-007 E-06이 그 이력을 무시한다. lizard_requires_no_ki인
@@ -686,9 +686,9 @@ describe('I-17 — 값 범위 (P3b, DQ-06 부분 해결)', () => {
    * 동시에 걸려 어느 쪽이 보고되는지가 이름 알파벳순에 의존한다.
    */
   const insertProduct = `insert into public.els_products
-      (owner_id, name, issue_date, principal, evaluation_period_months,
+      (owner_id, name, issue_date, principal, currency, evaluation_period_months,
        annual_coupon_rate, account_type)
-    values ($1, 'I17', '2026-01-02', $2, $3, 0.08, 'GENERAL')`
+    values ($1, 'I17', '2026-01-02', $2, 'KRW', $3, 0.08, 'GENERAL')`
 
   it('원금 0을 거부한다', async () => {
     await expectConstraintViolation(
