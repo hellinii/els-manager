@@ -2,10 +2,12 @@ import type { Metadata } from 'next'
 
 import { EmptyState } from '@/components/state/EmptyState'
 import { AssetForm } from '@/components/prices/AssetForm'
+import { ExchangeRateSection } from '@/components/prices/ExchangeRateSection'
 import { PriceRow } from '@/components/prices/PriceRow'
 import { RefreshButton } from '@/components/prices/RefreshButton'
 import { getAsOf, getQueries } from '@/lib/db/server'
 import { korDate } from '@/lib/format'
+import { EXCHANGE_RATE_SECTION } from '@/lib/routes/paths'
 
 /**
  * SCR-302 시세 관리 — **P4의 첫 화면** (DOC-008 §5, 계획 §3)
@@ -35,9 +37,21 @@ export const metadata: Metadata = {
   title: '시세 관리 · 언제들어오나',
 }
 
-export default async function PricesPage() {
+export default async function PricesPage({
+  searchParams,
+}: {
+  // Next 16의 searchParams는 Promise다. 이 화면이 읽는 것은 환율 절을 여는 표식 하나다(SQ-20)
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const queries = await getQueries()
-  const assets = await queries.listAssetPrices()
+  // 둘 다 `ctx`에만 의존한다 — 나란히(ROUTE_QUERIES['/prices']의 두 계약)
+  const [assets, rates, params] = await Promise.all([
+    queries.listAssetPrices(),
+    queries.listExchangeRates(),
+    searchParams,
+  ])
+  // ST-07 링크(`/prices?rate=open#exchange-rate`)로 왔으면 절을 연다 — 조각만으로는 JS 없이 `<details>`가 열리지 않는다
+  const rateOpen = params[EXCHANGE_RATE_SECTION.openParam] === EXCHANGE_RATE_SECTION.openValue
   // 화면과 계약이 **같은 기준일**을 본다(Q-02). V-17의 `max`가 여기서 나온다.
   const asOf = getAsOf()
 
@@ -104,6 +118,12 @@ export default async function PricesPage() {
           </details>
         </>
       )}
+
+      {/*
+        환율 절 — **자산 0건 삼항 밖이다**(DOC-008 SCR-302: 자산이 0건이어도 이 절은 그린다 — §6의 빈 상태는 자산
+        목록 자리의 것이다). 자산 목록 아래, 자산 등록 다음 자리다.
+      */}
+      <ExchangeRateSection rates={rates} asOf={asOf} forceOpen={rateOpen} />
     </section>
   )
 }

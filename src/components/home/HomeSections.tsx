@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Fragment } from 'react'
 
 import { Badge } from '@/components/display/Badge'
+import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
 import {
   ATTENTION_REASON_GRADES,
@@ -12,12 +13,13 @@ import {
   UPCOMING_VISIBLE,
   amount,
   barrierGap,
+  convertedIncludedLine,
   dDayLabel,
-  exchangeRateMissingNotice,
   groupAttention,
   heaviestGrade,
   isImminent,
   koreanWon,
+  krwEstimateLine,
   money,
   percent,
   signedMoney,
@@ -223,6 +225,20 @@ export function TotalsSection({
               </Fragment>
             ))}
           </dd>
+          {/*
+            원화 환산 합계 — **추정이며 사실 옆에 따로 선다**(DOC-011 §4.1 · DOC-008 SCR-101 ② a3). 보유중 외화가
+            없으면(원화뿐) `krwEstimate`가 `null`이라 이 줄이 없다 — 원화 홈의 마크업이 바뀌지 않는다. 환율이 없으면
+            두 필드가 함께 빈다(부분합 없음) — 줄을 생략하고 ST-07도 여기서는 띄우지 않는다(③이 말한다).
+          */}
+          {totals.krwEstimate?.activePrincipal != null &&
+            totals.krwEstimate.exchangeRateBasis != null && (
+              <p className="mt-0.5 text-xs text-neutral-500">
+                {krwEstimateLine(
+                  totals.krwEstimate.activePrincipal,
+                  totals.krwEstimate.exchangeRateBasis,
+                )}
+              </p>
+            )}
         </div>
         <div>
           <dt className="text-xs text-neutral-500">실현손익 (누적)</dt>
@@ -335,9 +351,18 @@ export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }
           «완성»하지 않는다(DOC-011 §4.6). 건수는 계약이 센다 — 화면이 세면 무엇이 추정이
           필요한 건인가(E-09)를 계약 밖에서 다시 판정하게 된다.
         */}
+        {/*
+          환산을 했으면 그 사실과 환율을 적는다(DOC-008 SCR-101 ③ a3). n은 계약의 `convertedCount`다 — 화면이 세지
+          않는다. 올해 귀속 달러 건이 전부 확정이거나 비과세면 0이라 줄이 없다.
+        */}
+        {tax.convertedCount > 0 && tax.exchangeRateBasis != null && (
+          <p className="text-xs text-neutral-500">
+            {convertedIncludedLine(tax.convertedCount, tax.exchangeRateBasis)}
+          </p>
+        )}
         {tax.unconvertedCount > 0 && (
           <p className="text-xs text-amber-900">
-            {exchangeRateMissingNotice({ kind: 'COUNT', count: tax.unconvertedCount })}
+            <ExchangeRateMissingNotice missing={{ kind: 'COUNT', count: tax.unconvertedCount }} />
           </p>
         )}
       </div>

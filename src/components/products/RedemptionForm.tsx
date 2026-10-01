@@ -6,7 +6,12 @@ import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import type { ProductCurrency } from '@/lib/domain/currency'
-import { REDEMPTION_TYPE_LABELS, korDate } from '@/lib/format'
+import {
+  REDEMPTION_TYPE_LABELS,
+  korDate,
+  redemptionTaxableHint,
+  type ExchangeRateBasisText,
+} from '@/lib/format'
 import {
   REDEMPTION_ID_FIELD,
   roundFillOf,
@@ -96,6 +101,7 @@ export function RedemptionForm({
   redemptionId,
   submitLabel,
   currency,
+  taxableHintBasis = null,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>
   initialValues: Record<string, string>
@@ -105,6 +111,11 @@ export function RedemptionForm({
    * 이 값에서 나온다(DOC-008 SCR-203 「P8 달러 ELS」): 실수령액의 단위 · 적용 환율 칸의 유무
    */
   currency: ProductCurrency
+  /**
+   * 달러 상품의 과세 칸 힌트에 적을 추정 환율(DOC-008 SCR-203 a3) — 상세 계약의 `projection.exchangeRateBasis`다.
+   * 없으면(원화 · 만기 상환 · 비과세 · 이익 ≤ 0 · 환율 없음) 힌트는 뒷절만이다(v2.19)
+   */
+  taxableHintBasis?: ExchangeRateBasisText | null
   /** §5.4 — 상환 처리. 상품 id를 나른다 */
   productId?: string
   /** §5.5 — 상환 수정. 상환 id를 나른다 */
@@ -285,8 +296,9 @@ export function RedemptionForm({
               ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
               : foreign
                 ? // 채우지 않는다(U1) — 과세표준은 지급일 환율로 환산한 원화이고 그 환율은 거래내역만 안다.
-                  // 힌트에 계산한 숫자를 넣지 않는다(실수령액을 고치면 JS 없는 경로에서 낡는다 — a3가 산식을 더한다)
-                  '거래내역의 원화 금액 — 증권사 거래내역의 「과표」를 옮긴다'
+                  // 힌트는 산식과 추정 환율로 크기만 말한다 — 계산한 숫자를 넣지 않는다(실수령액을 고치면
+                  // JS 없는 경로에서 낡는다). 근거 환율이 없으면 뒷절만이다(DOC-008 SCR-203 a3 · v2.19)
+                  redemptionTaxableHint(taxableHintBasis)
                 : '증권사 거래내역의 「과표」. 실수령액 − 원금이다'
           }
         >

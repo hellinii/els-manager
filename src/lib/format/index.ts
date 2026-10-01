@@ -24,9 +24,23 @@ export {
 } from './money'
 export { barrierGap, percent, percentPoint } from './ratio'
 export {
-  EXCHANGE_RATE_INPUT_TAIL,
+  EXCHANGE_RATE_INPUT_LINK_LABEL,
+  EXCHANGE_RATE_MISSING_JOINER,
+  EXCHANGE_RATE_SECTION_TEXT,
+  EXCHANGE_RATE_STALE_LABEL,
+  FOREIGN_FORECAST_DISCLAIMER,
+  FOREIGN_TAX_ASSUMPTION_NOTE,
+  REDEMPTION_KRW_TAXABLE_HINT,
+  SETTINGS_FOREIGN_DISCLAIMER,
+  convertedIncludedLine,
+  convertedTaxLine,
   exchangeRateMissingLead,
   exchangeRateMissingNotice,
+  forecastBasisLine,
+  krwEstimateLine,
+  projectionBasisLine,
+  redemptionTaxableHint,
+  type ExchangeRateBasisText,
   type ExchangeRateMissing,
 } from './exchangeRate'
 export { priceDisplay, refreshSummary } from './price'

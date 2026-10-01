@@ -44,6 +44,24 @@ export const PATHS = {
   settings: '/settings',
 } as const
 
+/**
+ * SCR-302의 「환율 (원/달러)」 절 — ST-07 뒷절 링크의 목적지 (DOC-008 SQ-20 결정, v2.19).
+ *
+ * **쿼리 인자가 절을 연다.** 조각(`#exchange-rate`)만으로는 JS 없이 `<details>`가 열리지 않는다 — 서버가
+ * `rate=open`을 보고 `open`을 그려야 한다. 그래서 조각은 스크롤만 하고 여는 일은 쿼리가 한다. 두 이름을
+ * 여기 하나로 두는 이유는 `PATHS`와 같다: 링크(네 화면)와 받는 쪽(SCR-302)이 같은 문자열을 본다.
+ *
+ * `PATHS`에 넣지 않는다 — 그 값들은 라우트 원장의 좌변(「실재하는 라우트」)이고 쿼리가 붙은 주소는 라우트가 아니다.
+ */
+export const EXCHANGE_RATE_SECTION = {
+  /** `<details id>` — 조각이 스크롤할 자리 */
+  id: 'exchange-rate',
+  /** 쿼리 키 · 값 — 서버가 이 쌍을 보면 절을 연다 */
+  openParam: 'rate',
+  openValue: 'open',
+  href: `${PATHS.prices}?rate=open#exchange-rate`,
+} as const
+
 export type NavItem = {
   /** UI 표시 문자열. 한글 표준 용어 (DOC-005) */
   label: string

@@ -1,9 +1,10 @@
 import type { Metadata } from 'next'
 
+import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import { ForecastTable } from '@/components/forecast/ForecastTable'
 import { EmptyState } from '@/components/state/EmptyState'
 import { getQueries, getViewerId } from '@/lib/db/server'
-import { exchangeRateMissingNotice, isForecastEmpty } from '@/lib/format'
+import { FOREIGN_FORECAST_DISCLAIMER, forecastBasisLine, isForecastEmpty } from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
@@ -46,6 +47,8 @@ export default async function ForecastPage() {
   const rows = await queries.getForecast({ ownerId: viewerId })
   const empty = isForecastEmpty(rows)
   const excludedForeign = Math.max(0, ...rows.map((row) => row.excludedForeignCount))
+  // 다섯째 표 밖 표식 — 행마다 오지만 RD-09가 전 연도에 한 값을 쓰므로 첫 비-null을 한 번 적는다(DOC-008 v2.19)
+  const rateBasis = rows.find((row) => row.exchangeRateBasis != null)?.exchangeRateBasis ?? null
 
   return (
     <section className="flex flex-col gap-6">
@@ -74,6 +77,8 @@ export default async function ForecastPage() {
             <strong>미상환 상품의 회수 시점은 추정이다.</strong> 다음 도래 평가일에
             조기상환된다고 가정하고 계산했으므로, 실제 상환이 뒤로 밀리면 그 원금과 세금이
             뒤 연도로 옮겨 간다.
+            {/* 면책(DOC-008 SCR-402 a3) — 환산이 있었을 때만. 빼기만 했으면 아래 ST-07이 말한다 */}
+            {rateBasis != null && <> {FOREIGN_FORECAST_DISCLAIMER}.</>}
           </p>
 
           {/*
@@ -83,11 +88,16 @@ export default async function ForecastPage() {
           */}
           {excludedForeign > 0 && (
             <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {exchangeRateMissingNotice({ kind: 'FORECAST', count: excludedForeign })}
+              <ExchangeRateMissingNotice missing={{ kind: 'FORECAST', count: excludedForeign }} />
             </p>
           )}
 
           <ForecastTable rows={rows} />
+
+          {/* 다섯째 표 밖 표식 — 환율 기준(DOC-008 SCR-402 a3). 표 아래 한 줄로 한 번 */}
+          {rateBasis != null && (
+            <p className="text-xs text-neutral-500">{forecastBasisLine(rateBasis)}</p>
+          )}
 
           <div className="flex flex-col gap-1 text-xs text-neutral-500">
             {/*

@@ -1,12 +1,19 @@
 'use server'
 
-import { createAsset, refreshPrices, saveManualPrice, saveProviderSymbol } from '@/app/actions'
+import {
+  createAsset,
+  refreshPrices,
+  saveExchangeRate,
+  saveManualPrice,
+  saveProviderSymbol,
+} from '@/app/actions'
 import {
   parseAssetForm,
+  parseExchangeRateForm,
   parseManualPriceForm,
   parseProviderSymbolForm,
 } from '@/lib/forms/parse'
-import { refreshSummary } from '@/lib/format'
+import { EXCHANGE_RATE_SECTION_TEXT, refreshSummary } from '@/lib/format'
 import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
 
 /**
@@ -29,6 +36,7 @@ import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
 const PRICE_FIELDS = ['assetId', 'asOfDate', 'price'] as const
 const ASSET_FIELDS = ['name', 'assetType', 'market', 'currency'] as const
 const PROVIDER_SYMBOL_FIELDS = ['assetId', 'provider', 'providerSymbol'] as const
+const EXCHANGE_RATE_FIELDS = ['currency', 'asOfDate', 'rate'] as const
 
 export async function saveManualPriceAction(
   _prev: FormState,
@@ -96,4 +104,17 @@ export async function saveProviderSymbolAction(
       ? '자동 수집을 해제했다.'
       : '공급자 매핑을 저장했다.',
   )
+}
+
+/**
+ * §5.13 — 수동 환율 (P8 컷 a3). 성공하면 같은 화면에 머물고 「환율을 저장했다」(DOC-008 SCR-302 — 「시세를
+ * 저장했다」와 같은 자리). 입력을 **비우지 않는다** — 저장한 값이 곧 그 절의 최신 값이고, 남아 있으면 같은
+ * 기준일을 고쳐 쓰는(정정) 다음 행동에 그대로 쓰인다.
+ */
+export async function saveExchangeRateAction(
+  _prev: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const result = await saveExchangeRate(parseExchangeRateForm(form))
+  return toFormState(result, valuesOf(form), EXCHANGE_RATE_FIELDS, EXCHANGE_RATE_SECTION_TEXT.saved)
 }

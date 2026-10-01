@@ -1,7 +1,19 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import {
+  EXCHANGE_RATE_INPUT_LINK_LABEL,
+  EXCHANGE_RATE_MISSING_JOINER,
+  EXCHANGE_RATE_SECTION_TEXT,
+  FOREIGN_FORECAST_DISCLAIMER,
+  FOREIGN_TAX_ASSUMPTION_NOTE,
+  convertedTaxLine,
+  exchangeRateMissingLead,
+} from '@/lib/format'
+import { TAX_KEYS } from '@/lib/forms/query'
 import { FOREIGN_ONLY_REDEMPTION_FIELDS } from '@/lib/forms/redemption'
-import { PATHS } from '@/lib/routes/paths'
+import { EXCHANGE_RATE_SECTION, PATHS } from '@/lib/routes/paths'
+
+import { sql } from '../integration/helpers/seed'
 
 import {
   actionIdOf,
@@ -34,6 +46,8 @@ import { cookieJar, get, locationPath } from './helpers/server'
 
 let jar: ReturnType<typeof cookieJar>
 let product: RegisteredProduct
+/** 이 파일이 저장한 환율의 기준일 — `afterAll`이 그 좌표만 지운다(사용자에게는 DELETE가 없다 — 소유자 커넥션) */
+let savedRateDate: string | null = null
 
 beforeAll(async () => {
   jar = await authenticatedJar()
@@ -45,6 +59,15 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  /*
+   * 환율은 공용이고 사용자는 지울 수 없다(DQ-13). 남기면 다른 파일의 ST-07 · 세금 · 전망이 「환율이 있는 상태」에서
+   * 돈다 — 이 파일이 먼저 돌았는가에 의존하게 된다. 소유자 커넥션으로 이 파일이 쓴 좌표 하나만 지운다.
+   */
+  if (savedRateDate != null) {
+    await sql(`delete from public.exchange_rates where currency = 'USD' and as_of_date = $1`, [
+      savedRateDate,
+    ])
+  }
   if (product == null) return
   const detailPath = PATHS.product(product.productId)
   const detail = await (await get(detailPath, jar)).text()
@@ -84,14 +107,110 @@ describe('SCR-204 → SCR-202 — 달러 상품이 상품 통화로 저장되고
     expect(detail).not.toContain('예상 수령액 (원)')
   })
 
-  it('★ 예상 과세 금융소득은 ST-07 한 상품 형태다 — 「0원」으로 적지 않는다 (E-09 · a2~a3 뒷절)', async () => {
+  it('★ 예상 과세 금융소득은 ST-07 한 상품 형태다 — 「0원」으로 적지 않는다 (E-09 · 뒷절은 환율 절 링크)', async () => {
     const detail = await (await get(PATHS.product(product.productId), jar)).text()
-    expect(detail).toContain('환율이 없어 추정 과세 금융소득을 계산하지 않았다 — 환율 입력은 아직 없다')
+    /*
+     * **세 조각이 한 문장으로 이어지는지** 본다 — 앞절 · 이음표 · 링크(주소와 글자). 조각을 따로 찾으면 화면이 이음표를
+     * 지우거나 바꿔도 초록이다(반박 검토 지적). React가 인접 텍스트 사이에 넣는 `<!-- -->`를 걷어 내고 본다.
+     * `#`·`?`·`=`는 속성 값에서 이스케이프되지 않는다
+     */
+    const joined = detail.replace(/<!-- -->/g, '')
+    expect(joined).toMatch(
+      new RegExp(
+        `${exchangeRateMissingLead({ kind: 'PRODUCT' })}${EXCHANGE_RATE_MISSING_JOINER}<a\\b[^>]*href="${EXCHANGE_RATE_SECTION.href.replace(/[?]/g, '\\?')}"[^>]*>${EXCHANGE_RATE_INPUT_LINK_LABEL}</a>`,
+      ),
+    )
   })
 
   it('홈 ②가 달러 원금을 원화와 더하지 않고 따로 적는다', async () => {
     const home = await (await get(PATHS.home, jar)).text()
     expect(home).toContain('$10,000.50')
+  })
+})
+
+/** `<details id="exchange-rate" …>` 태그 — 속성 순서에 기대지 않는다 */
+function rateSectionTag(html: string): string {
+  const tag = /<details\b[^>]*\bid="exchange-rate"[^>]*>/.exec(html)?.[0]
+  if (tag == null) throw new Error('환율 절이 렌더되지 않았다')
+  return tag
+}
+
+/*
+ * P8 컷 a3-3 — 환율을 화면에서 넣고 그 값이 화면들을 지난다. **상환(아래 SCR-203)보다 먼저다** — 상품이 미상환이어야
+ * 적용 차수의 추정이 있고 그 추정을 환산한다.
+ */
+describe('SCR-302 환율 절 → 추정 환율이 화면을 지난다 (P8 컷 a3-3)', () => {
+  it('환율 절이 있고 미상환 달러 상품이 있으니 열려 온다 · 값이 없으면 그 자리에서 말한다', async () => {
+    const html = await (await get(PATHS.prices, jar)).text()
+    expect(rateSectionTag(html)).toMatch(/\bopen\b/)
+    expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.title)
+    expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.missing)
+    // 수집 상태는 필드에서 파생된다 — 레지스트리가 비어 있다(컷 a3)
+    expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.notCollected)
+    expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.refreshExcludes)
+  })
+
+  it('ST-07 링크의 주소로 오면 열린 채로 그린다 — JS 없이 (SQ-20)', async () => {
+    const res = await get(EXCHANGE_RATE_SECTION.href.split('#')[0]!, jar)
+    expect(res.status).toBe(200)
+    expect(rateSectionTag(await res.text())).toMatch(/\bopen\b/)
+  })
+
+  it('수동 환율을 JS 없이 저장한다 — 같은 화면에 「환율을 저장했다」', async () => {
+    const html = await (await get(PATHS.prices, jar)).text()
+    const rendered = formValuesFor(html, actionIdOf('saveExchangeRateAction'))
+    // 기준일 칸의 기본값이 조회 기준일이다(V-17) — 그 좌표를 기억해 `afterAll`이 지운다
+    savedRateDate = rendered.find(([name]) => name === 'asOfDate')?.[1] ?? null
+    expect(savedRateDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+
+    const res = await submitAction(PATHS.prices, jar, [
+      ...rendered.filter(([name]) => name !== 'rate'),
+      ['rate', '1392.40'],
+    ])
+    /*
+     * **태그 안에서 찾는다** — 문구의 첫 등장은 `$ACTION_*` 히든 필드에 직렬화된 FormState일 수 있다(prices.test.ts의
+     * 같은 함정 — 반박 검토 지적). 히든 값은 `&lt;`로 이스케이프된 JSON이라 `<p>` 태그를 갖지 않는다
+     */
+    expect(await res.text()).toContain(`<p>${EXCHANGE_RATE_SECTION_TEXT.saved}</p>`)
+
+    const after = await (await get(PATHS.prices, jar)).text()
+    expect(after).toContain('1,392.40원/달러')
+    expect(after).not.toContain(EXCHANGE_RATE_SECTION_TEXT.missing)
+  })
+
+  it('상세 ⑤가 원화 과세와 근거를 보이고 ST-07이 사라진다', async () => {
+    const detail = await (await get(PATHS.product(product.productId), jar)).text()
+    expect(detail).toContain(`추정 · 1,392.40원/달러 · ${savedRateDate} 기준 추정 환율로 환산`)
+    expect(detail).not.toContain(exchangeRateMissingLead({ kind: 'PRODUCT' }))
+  })
+
+  it('상환 화면의 과세 칸 힌트가 산식과 추정 환율을 말한다 — 숫자를 넣지 않는다', async () => {
+    const html = await (await get(PATHS.productRedeem(product.productId), jar)).text()
+    expect(html).toContain(
+      `≈ (실수령액 − 투자원금) × 1,392.40원/달러 — ${savedRateDate} 기준 추정 환율이다. 거래내역의 원화 금액을 적는다`,
+    )
+  })
+
+  it('SCR-401 — 환율 기준 줄과 표시 주의 넷째 줄이 그 상품의 귀속연도에 뜬다 (convertedCount > 0)', async () => {
+    // 귀속연도는 오늘에 따라 달라진다 — 상세의 「귀속연도」에서 읽어 그 해를 연다(시각에 의존하지 않는 단언)
+    const detail = (await (await get(PATHS.product(product.productId), jar)).text()).replace(/<!-- -->/g, '')
+    const year = /귀속연도<\/dt><dd[^>]*>(\d{4})년/.exec(detail)?.[1]
+    expect(year, '상세에 귀속연도가 없다 — 적용 차수의 추정이 있어야 환산이 일어난다').toBeDefined()
+
+    const tax = await (await get(`${PATHS.tax}?${TAX_KEYS.year}=${year}`, jar)).text()
+    expect(tax).toContain(
+      convertedTaxLine(1, { rate: '1392.400000', asOfDate: savedRateDate!, isStale: false }),
+    )
+    expect(tax).toContain(FOREIGN_TAX_ASSUMPTION_NOTE)
+    expect(tax).not.toContain(exchangeRateMissingLead({ kind: 'COUNT', count: 1 }))
+  })
+
+  it('홈 ②에 원화 환산 합계 줄 · 전망에 다섯째 표식과 면책', async () => {
+    const home = await (await get(PATHS.home, jar)).text()
+    expect(home).toContain('원화 환산 합계 약')
+    const forecast = await (await get(PATHS.forecast, jar)).text()
+    expect(forecast).toContain(`환율 1,392.40원/달러(${savedRateDate} 기준) 가정`)
+    expect(forecast).toContain(FOREIGN_FORECAST_DISCLAIMER)
   })
 })
 
@@ -150,5 +269,37 @@ describe('SCR-203 — 달러 상품의 상환 칸', () => {
     const after = await (await get(detailPath, jar)).text()
     expect(after).toContain('비고만 고쳤다')
     expect(after).toContain('1,450.00원/달러')
+  })
+})
+
+/*
+ * ★ SQ-20의 바로 그 경우 — 위에서 상환했으므로 이 시점의 달러 상품은 **상환된 것뿐**이고 미상환 수가 0이다. 위
+ * 「ST-07 링크의 주소로 오면 열린 채로」는 미상환 상품이 있을 때라 그 단언만으로는 링크가 여는지 갈리지 않았다.
+ */
+describe('★ SQ-20 — 미상환 달러 상품이 0건이면 절은 접혀 오고, 링크 주소는 연다', () => {
+  it('그냥 오면 접혀 있다 · 링크 주소로 오면 열려 있다', async () => {
+    const plain = await (await get(PATHS.prices, jar)).text()
+    expect(rateSectionTag(plain)).not.toMatch(/\bopen\b/)
+    const linked = await (await get(EXCHANGE_RATE_SECTION.href.split('#')[0]!, jar)).text()
+    expect(rateSectionTag(linked)).toMatch(/\bopen\b/)
+  })
+
+  it('★ 접힌 절에서 JS 없이 저장해도 열린 절로 돌아온다 — 폼의 permalink가 절을 연 주소다', async () => {
+    /*
+     * 손으로 펼쳐 저장하면 응답이 새 문서이고 펼침은 서버가 다시 정한다 — permalink가 없으면 절이 다시 접혀 성공 문구가
+     * 그 안에 숨는다(반박 검토 지적). 폼의 `action`이 ST-07 링크와 같은 주소이고, 그 주소로 낸 응답에서 절이 열려 있다.
+     */
+    const plain = await (await get(PATHS.prices, jar)).text()
+    const actionId = actionIdOf('saveExchangeRateAction')
+    expect(formHtmlFor(plain, actionId)).toContain(`action="${EXCHANGE_RATE_SECTION.href}"`)
+
+    const rendered = formValuesFor(plain, actionId).filter(([name]) => name !== 'rate')
+    const res = await submitAction(EXCHANGE_RATE_SECTION.href.split('#')[0]!, jar, [
+      ...rendered,
+      ['rate', '1393.10'],
+    ])
+    const body = await res.text()
+    expect(rateSectionTag(body)).toMatch(/\bopen\b/)
+    expect(body).toContain(`<p>${EXCHANGE_RATE_SECTION_TEXT.saved}</p>`)
   })
 })

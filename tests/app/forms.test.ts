@@ -6,6 +6,7 @@ import {
   checkbox,
   optionalText,
   parseAssetForm,
+  parseExchangeRateForm,
   parseManualPriceForm,
   parseTaxProfileForm,
   percentToRatio,
@@ -152,6 +153,19 @@ describe('비율 정규화 — V-08 · DOC-002 M-04', () => {
     // `'0'`을 지어내면 사용자가 적지 않은 값을 우리가 만든 것이 된다.
     expect(percentToRatio('구십')).toBe('구십')
     expect(percentToRatio('90%')).toBe('90%')
+  })
+})
+
+describe('§5.13 수동 환율 입력 폼 (P8 컷 a3)', () => {
+  it('세 필드를 그대로 좁힌다 — 통화는 숨은 칸이다', () => {
+    expect(
+      parseExchangeRateForm(formData({ currency: 'USD', asOfDate: '2026-09-28', rate: ' 1392.40 ' })),
+    ).toEqual({ currency: 'USD', asOfDate: '2026-09-28', rate: '1392.40' })
+  })
+
+  it('환율을 숫자로 바꾸지 않는다 — 형식 검사는 계약(V-24 ⓑ)이 한다', () => {
+    // 쉼표가 든 입력도 그대로 넘긴다 — 여기서 고치면 규칙이 두 곳이 된다(계약이 「숫자로 입력한다」를 낸다)
+    expect(parseExchangeRateForm(formData({ rate: '1,392.4' })).rate).toBe('1,392.4')
   })
 })
 

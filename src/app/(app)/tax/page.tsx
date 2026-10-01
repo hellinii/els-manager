@@ -19,7 +19,11 @@ import { TaxSeedRangeError } from '@/lib/db/queries/load'
 import type { TaxOverride, TaxSummaryView } from '@/lib/db/queries/tax'
 import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
 import { currentYear } from '@/lib/db/today'
-import { HEALTH_INSURANCE_TYPE_LABELS, selectableYears } from '@/lib/format'
+import {
+  FOREIGN_TAX_ASSUMPTION_NOTE,
+  HEALTH_INSURANCE_TYPE_LABELS,
+  selectableYears,
+} from '@/lib/format'
 import { TAX_KEYS, parseTaxFilter, type QueryValues } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -213,6 +217,16 @@ export default async function TaxPage({
         본 화면의 값은 참고용 추정이며 <strong>세무 신고 자료가 아니다.</strong> 실제
         신고는 증권사 지급명세서와 국세청 자료를 기준으로 한다.
       </p>
+
+      {/*
+        「표시 주의」 넷째 줄(DOC-008 SCR-401 a3 · DOC-001 A-07) — 가정이 **실제로 쓰인** 해에만(`convertedCount > 0`,
+        v2.19). 환율이 없어 빠지기만 했으면 가정이 쓰이지 않았고 ST-07이 그 사실을 말한다.
+      */}
+      {summary.income.convertedCount > 0 && (
+        <p className="rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600">
+          {FOREIGN_TAX_ASSUMPTION_NOTE}
+        </p>
+      )}
     </section>
   )
 }

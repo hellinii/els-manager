@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import { Badge } from '@/components/display/Badge'
+import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import { DeleteProductForm } from '@/components/products/DeleteProductForm'
 import { KiTouchForm } from '@/components/products/KiTouchForm'
 import { RedemptionActions } from '@/components/products/RedemptionActions'
@@ -25,10 +26,10 @@ import {
   barrierGap,
   deriveDisplay,
   exchangeRateDisplay,
-  exchangeRateMissingNotice,
   korDate,
   money,
   percent,
+  projectionBasisLine,
   signedMoney,
   won,
   ymd,
@@ -427,10 +428,21 @@ function Projection({
         <Fact label="예상 과세 금융소득">
           {projection.expectedTaxableIncome == null ? (
             <span className="text-sm font-normal text-amber-900">
-              {exchangeRateMissingNotice({ kind: 'PRODUCT' })}
+              <ExchangeRateMissingNotice missing={{ kind: 'PRODUCT' }} />
             </span>
           ) : (
-            won(projection.expectedTaxableIncome)
+            <>
+              {won(projection.expectedTaxableIncome)}
+              {/*
+                환산 근거(DOC-008 SCR-202 ⑤ a3) — 환산했을 때만 계약이 근거를 준다. 원화 상품 · 비과세 · 달러
+                이익 ≤ 0은 환율 없이 값을 알아 근거가 없다(`exchangeRateBasis = null`).
+              */}
+              {projection.exchangeRateBasis != null && (
+                <span className="mt-0.5 block text-xs font-normal text-neutral-500">
+                  {projectionBasisLine(projection.exchangeRateBasis)}
+                </span>
+              )}
+            </>
           )}
         </Fact>
         <Fact label="귀속연도">{projection.attributionYear}년</Fact>

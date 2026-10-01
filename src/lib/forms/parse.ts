@@ -1,6 +1,7 @@
 import { dec } from '@/lib/decimal'
 import type {
   AssetInput,
+  ExchangeRateInput,
   ManualPriceInput,
   ProductInput,
   ProviderSymbolInput,
@@ -138,6 +139,20 @@ export function parseManualPriceForm(form: FormData): ManualPriceInput {
     assetId: text(form, 'assetId'),
     asOfDate: text(form, 'asOfDate'),
     price: text(form, 'price'),
+  }
+}
+
+/**
+ * §5.13 수동 환율 — SCR-302 환율 절 (P8 컷 a3).
+ *
+ * 통화는 숨은 칸이다 — 절이 다루는 통화가 달러 하나다(DOC-008 SCR-302). 형식 검사는 계약이 한다(V-24 ⓑ ·
+ * V-17) — 여기서 거르면 그 규칙이 두 곳이 된다. 환율 문자열을 숫자로 바꾸지 않는다(절대 규칙 #2).
+ */
+export function parseExchangeRateForm(form: FormData): ExchangeRateInput {
+  return {
+    currency: text(form, 'currency') as ExchangeRateInput['currency'],
+    asOfDate: text(form, 'asOfDate'),
+    rate: text(form, 'rate'),
   }
 }
 

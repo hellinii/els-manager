@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { Badge } from '@/components/display/Badge'
+import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import {
   HEALTH_INSURANCE_TYPE_LABELS,
@@ -8,7 +9,7 @@ import {
   INTEGRITY_ISSUE_LABELS,
   PRODUCT_CURRENCY_LABELS,
   amount,
-  exchangeRateMissingNotice,
+  convertedTaxLine,
   koreanWon,
   percent,
   won,
@@ -45,12 +46,22 @@ export function IncomeSection({ view }: { view: TaxSummaryView }) {
       </dl>
 
       {/*
+        환율 기준 줄(DOC-008 SCR-401 a3) — 추정을 하나라도 환산했으면 그 건수와 환율을 적는다. n은 계약의
+        `convertedCount`이고 SCR-101 ③과 같은 집계다. 환산값이 확정처럼 읽히지 않게 하는 ST-05의 자리다.
+      */}
+      {income.convertedCount > 0 && income.exchangeRateBasis != null && (
+        <p className="text-xs text-neutral-500">
+          {convertedTaxLine(income.convertedCount, income.exchangeRateBasis)}
+        </p>
+      )}
+
+      {/*
         E-09 — 합계 **바로 아래**, 접지 않는다(DOC-008 SCR-401). 빠진 몫이 있으면 합계 · 세액 ·
         보험료가 하한이고, 종합과세 기준금액 근처라면 그 몫이 판정을 뒤집을 수 있다.
       */}
       {income.unconvertedCount > 0 && (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          {exchangeRateMissingNotice({ kind: 'COUNT', count: income.unconvertedCount })}
+          <ExchangeRateMissingNotice missing={{ kind: 'COUNT', count: income.unconvertedCount }} />
         </p>
       )}
 
