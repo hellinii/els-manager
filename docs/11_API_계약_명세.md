@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.15 |
+| 버전 | 4.16 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.16 | 2026-10-02 | 민서 | **P8 컷 b1 — 월지급식 ELS(DOC-001 S-14)의 계약을 코드보다 먼저 쓴다. 본 버전은 선행 명세다 — `src/` 0줄, 마이그레이션 0, 테스트 0줄, 파서에 결속된 표(§6 규칙 표 · §3.2.1 제약 이름 표 · §8 매트릭스)의 행 0줄.** 달러 절반(v4.9)의 짝이다. 용어는 DOC-005 v1.11(쿠폰 지급방식 · 월지급식 · 상환 시 지급 · 월수익 · 월수익 연쿠폰율 · 월수익 일정 · 월수익 평가일 · 월수익 지급일 · 월수익 순번 · 월수익 배리어 · 월수익 지급 기록 · 월수익 미기록 · 받은 월수익 · 조기상환 가정 밖 · 월수익 흐름 끝). **(1) 공통 타입 다섯 — §4.0.** `CouponPayout` · `CouponOutcome` · `CouponState`(여섯 — 지급 · 미지급 · 미기록 · 예정 · 예정 · 조기상환 가정 밖 · 상환 후 없음) · `CouponConditionResult`(표시 전용) · `ContributionBasis`. 월수익 흐름 끝(상환일 / 적용 차수 평가일 / 무한 — 비교 키는 월수익 평가일, 경계 포함)과 구획표. 사건 규칙 넷 — 소득 사건 = 상환 0..1 + 월수익 0..K(I-01 · I-08 · D-01 불변 — 월지급식의 상환은 원금만) · 원금은 상환 사건에만 · 추정 월수익은 시세를 쓰지 않는다(`PRICE_WIDE`에 세금 없음 유지) · **빼는 단위는 사건, 세는 단위는 상품**(`unconvertedCount` · `convertedCount` · `excludedForeignCount` — DOC-008 ST-07 「달러 상품 n건」과 짝. 종전 「건 수」 문언 넷을 취소선으로). 월수익 두 테이블은 ~~`PRODUCT_SELECT` 임베드~~ 상품 루트 로더의 임베드(아래 개정 ⓒ) — 왕복 불변(페이로드는 DOC-010 AQ-77). 라벨 축은 코드 커밋(넷은 b3, `contributionBasis`는 b4). **(2) 뷰.** §4.1 `byCurrency[].receivedCoupons`(받은 월수익 — 보유중 상품의 PAID 합, 실현손익에 넣지 않는다 — 민서 결정(2026-10-02) ②) · `realizedPnl`은 상환된 상품만 · 월수익 포함(검산 B-2 −22,000,000) — 항등식은 통화별 그대로 · `upcomingEvaluations`는 조기상환 차수만(DOC-008 SQ-18) · 조치 사유 `COUPON_UNRECORDED`(상품 단위 · 상환된 상품에서도 — 순서 결함 → 월수익 미기록 → E-05 → KI → 시세 → 평가일 경과) · `COUPON_SCHEDULE_MISSING`. §4.2 `couponPayout` · `terms.monthlyCoupon` · `couponProgress`, null 원인표 1순위는 「판정 입력을 파괴한 결함」, D1에 셋째 결함(파괴 입력 `'COUPONS'` — 월수익 사건과 그 표시만 억제, 우선순위는 기존 결함 다음). §4.3 `coupons: CouponObservationView[] 또는 null`(조건 판정은 다음 한 행만 — RD-14 부분 해소) · 형제 필드 `remainingCoupons`(`projection` 밖 — NO_ROUND · 상환 완료에서도 F에 남는다) · 상환된 월지급 상품의 `realizedPnl`에 월수익. §4.4 조기상환 차수만 · `integrityIssue` 유니온에 `COUPON_SCHEDULE_MISSING`(그 상품은 차수가 있어 행을 갖는다). §4.6 `contributingProducts[]` 상품당 한 행 · `basis` · `breakdown` · `isEstimated` 유지(= `basis !== 'CONFIRMED'`) · `taxableIncome = null`은 사건이 전부 빠졌을 때만 · `exchangeRateMissing`은 하나라도 빠지면 참(a2의 동치가 깨진다) · `income.confirmedElsTaxableIncome` · `estimatedElsTaxableIncome`. §4.7 사건마다 항목 · 기준 연도 이전 사건 · 가정 문장(표 밖 표식) · 검산 B-7. §4.8 변경 없음(같은 `contributionOf` — 본인 F 항등의 통합 테스트는 b4). **(3) §4.12 `listMonthlyCouponSchedule` 신설 — 구현 b3, 조회 10 → 11.** 인자는 `listSchedule`과 같고 자기 루트 쿼리이며 `ScheduleItem` 합집합을 쓰지 않는다(`groupByProduct`의 `roundNo` 정렬). **(4) 입력.** §5.1 · §5.2 `couponPayout`(필수 · 기본값 없음 — V-25) · `monthlyCouponAnnualRate?` · `couponSchedules?`, 꼬리 검사 셋, 확장 웨이브(W4)의 `coalesce` → 축소(M-b2c, b4) 뒤 `23502` → `fields.couponPayout` 영구 단언. **계약은 b2부터 `MONTHLY`를 받고 폼은 b4까지 고를 수 없다**(SB-13 — P8 계획 결정). §5.2 **월수익 일정은 전체 교체가 아니다** — ~~기록 없는 달만 삭제~~ 입력에 없는 순번 삭제(아래 반박 검토 반영) + `coupon_no` upsert, 기록이 있으면 통화 · 지급방식 · 기록된 달 동결 → `CONFLICT`(민서 결정(2026-10-02) ④ — 동결 트리거는 값이 바뀔 때만 거부해야 upsert가 지난다). §5.3 기록 `RESTRICT` · 「개별 삭제 계약 없음」을 I-07 대상으로 좁혔다. §5.4 · §5.5 월지급 상품의 상환(V-29 — 같은 날 월수익은 §5.14, U6(P8 계획 결정) · 검산 B-3) · 삭제 동선 최대 3단계. §5.11 `couponPayout` 필수 · 기실현 월지급은 두 율 `NULL` · 이력은 §5.14의 순번 없는 PAID. **(5) §5.14 `recordCouponPayments` · §5.15 `updateCouponPayment` · `deleteCouponPayments` 신설 — 구현 b2, 변경 14 → 17.** 1..60건 · 다행 INSERT 한 번(전부 아니면 전무) · 원천징수 기본값 `withholdingFor(…, 'paymentDate')`(`WithholdingDateField`에 `'paymentDate'`) · 연도별 세율 한 번씩 · 오류 경로 `entries[i].<필드>`(색인 금지는 DB 사상의 규칙) · 세율 시드 없는 해의 빈 원천징수 → `entries[i].withholdingTax`(RD-16). 무효화 `COUPON_RECORD_WIDE`(세금이 있다) · `PRODUCT_WIDE` · `PRICE_WIDE`에 `listMonthlyCouponSchedule`(세금은 여전히 없다 — SB-17). **(6) §6 규칙 일곱의 문언**(산문) — V-08′ · V-20′(`couponNo` — `smallint` · 1 이상) · V-25~V-29 + 대상 확장 셋(V-23 · V-24ⓐ · V-11). **(7) §3.2.1 사상의 문언** — 「P8 월지급」 블록(I-23 CHECK · 꼬리 검사 셋 · `*_recorded_immutable` 둘 → `CONFLICT` · 기록의 형태 · 자릿수 · 부모 트리거 셋 · `redemptions` 트리거 둘 — AQ-87 ⓑ) · SQLSTATE 표 `23514` 행에 둘째 상태 충돌 접미사 · `NOT_NULL_FIELD`의 새 키 `couponPayout`(b4). §3.2.2 표에 §5.14 · §5.15. **(8) §8** 판정 기준 ①에 「추정 월수익도 시세를 쓰지 않는다」 · 「P8 월지급이 이 매트릭스에 더할 것」(SCR-206 행 · SCR-202 · SCR-301). **(9) §9** X-07 뒷절반 = **컷 b4**(폼이 월지급식을 고르게 되는 컷 — 저장은 b2부터 `els_products_coupon_recorded_immutable`이 막는다) · 계약면 표의 b1 자리 · **b1 결정이 답하지 않은 열여섯을 「P8 월지급 — b2 전에 정한다」 ①~⑯로 등재**(`fields` 키 · 「n개월 미기록」의 n · SCR-201의 배리어 · `getProduct`의 월수익 연쿠폰율 · 기실현 월지급의 표시 · `remainingCoupons`의 환율 기준 · §4.7 가정 표식 · §4.12 반환 행 · 상환일 쪽 사전 검사 · §5.14 반환 · 부분 삭제 · 기실현 기록 상한 · 월수익 연쿠폰율 상한 · §8 넣는 순서와 `createProduct` · b3/b4 경계 · DOC-007 RD-18의 계약 쪽). **★ 코드가 한 컷 앞섰다(P8 컷 b0, `d675efb`).** 소득 사건 모델이 이 문서보다 먼저 코드에 섰다 — `src/lib/db/queries/income.ts` `incomeEventsOf(row, asOf, rates, only?)` · `contributionOf`가 사건을 접는다(사건 ≤1을 별칭 없는 튜플로 단언) · `forecastItemOf` → `forecastItemsOf`(사건마다 항목 하나, 원금을 돌려주는 사건이 없으면 원금 항목 하나) · `excludedForeignCountOf`(상품 단위) · `withholdingFor(ctx, {date, taxableIncome, withholdingTax?}, dateField)` + `withholdingInputOf`(`WithholdingDateField = 'redemptionDate'`). **동작 불변**(HEAD 대 작업 트리 차분 0). §4.6 · §4.7 · §5.4에 그 사실을 적었고 §4.7의 낡은 `forecastItemOf` 참조를 `forecastItemsOf`로 고쳤다. **부수 정정(낡은 문장)**: §5.1 각주의 「정책 37개」(v4.12에 Q-01만 40으로 고쳤다 — b2 뒤 48) · §6 각주의 「20개 안에서의 오태그」 · §5.0.1 ②(「§5.5의 두 계약만 3이다」는 b2에서 낡는다고 예고). **선행 명세 → 구현 컷**: `CouponPayout` · `CouponOutcome` · 입력의 `couponPayout` · `monthlyCouponAnnualRate` · `couponSchedules` · §5.2 upsert · 동결 · §5.14 · §5.15 · `COUPON_RECORD_WIDE` · V-08′ · V-20′ · V-25~V-28 표 행 · §3.2.1 b2 사상 · `redemptions` 트리거 둘 · §8 변경 이름 셋 → **b2** · `CouponState` · `CouponConditionResult` · §4.1 `receivedCoupons` · `COUPON_UNRECORDED` · `realizedPnl`의 월수익 몫 · §4.2 · §4.3 `coupons` · `COUPON_SCHEDULE_MISSING` · §4.12 · `PRODUCT_WIDE` · `PRICE_WIDE`의 `listMonthlyCouponSchedule` · 라벨 축 넷 · §8 SCR-206 · SCR-301 행 · 왕복 표 행 → **b3** · `ContributionBasis` · 과세에 닿는 것 전부(§4.1 `currentYearTax` · §4.3 `remainingCoupons` · §4.6 분할 · §4.7 · §4.8) · V-29 표 행 · M-b2c(`coalesce` 제거 · `NOT_NULL_FIELD.couponPayout`) · 월지급식 선택 개방 · X-07 뒷절반 · `contributionBasis` 라벨 축 → **b4**. **개정 반영(같은 판 — b1 개정, 2026-10-02).** 위 (1)~(9) 중 아래가 바뀌었다. ⓐ **상환 뒤 지급 금지의 비교 키 = 그 달의 월수익 평가일**(DOC-007 RD-18 해결): V-27 「상환이 있으면 그 달의 월수익 평가일 ≤ 상환일」 · `monthly_coupon_payments_after_redemption`(그 달 일정의 `evaluation_date > redemption_date`면 거부) · `redemptions_before_coupon_payment`(~~`PAID`로~~ 기록된 달(지급 · 미지급 — 아래 반박 검토 반영)들의 `evaluation_date` 최댓값과 비교) · 순번 없는 기실현 기록은 검사 밖. 흐름 끝과 같은 키라 ⑯의 틈이 닫혔다. ⓑ **월수익 금액의 정의는 하나**(DOC-007 RD-10 ③ · DOC-008 SQ-21 ⓒ 해결): `q_k`는 `P × r_m / 12`의 보조단위 절사값이고 F · `expectedAmount` · `remainingCoupons` · SCR-206 기본값이 같은 값이다. 절사는 지급 금액의 정의라 「집계는 반올림하지 않는다」와 충돌하지 않는다(검산 값 불변 · 달러의 원화 과세 `q_k × x`는 반올림하지 않는다). ⓒ **임베드는 상품 루트만**: (1)의 「`PRODUCT_SELECT` 임베드」를 고쳤다 — 차수 루트 `loadScheduleRows`에는 넣지 않고 b3이 상품 루트 셀렉트와 차수 루트 셀렉트를 가른다(DOC-010 AQ-77 방향 유지). ⓓ **I-23 보강**(DOC-002 DQ-17 ③): `REALIZED_ONLY ⇒ monthly_coupon_annual_rate IS NULL`. ⓔ **(9)의 미결을 답으로**: DB 오류의 `fields`는 색인 없는 이름(①) · `attentionItems[].count`(②) · `terms.monthlyCoupon.barrier`(③ — 표시어 「월수익 배리어」) · `product.monthlyCouponAnnualRate`(④) · 기실현 월지급은 `coupons = []` · `unnumberedCouponRecords: CouponRecordView[]` · `couponProgress = null`(⑤) · `remainingCoupons`를 `{ byYear, exchangeRateBasis }` 컨테이너(nullable)로(⑥) · §4.7 표 밖 표식 여섯째 `monthlyCouponAssumption`(⑦) · §4.12 `MonthlyCouponScheduleItem`과 `EXCHANGE_RATE_WIDE` 제외(⑧) · 상환일 쪽 사전 검사 = V-27의 양방향 문언(⑨) · §5.14 반환 `{ ids }`(⑩) · §5.15 삭제는 사전 조회 + 한 문장 DELETE, 행 수 불일치는 `CONFLICT`(⑪) · 기실현 기록 상품당 60건(⑫) · 월수익 연쿠폰율 상한 = V-08(⑬ — DB는 `> 0`만, 받아들인 이탈) · 매트릭스 시점 b2/b3과 `createProduct` · `updateProduct`의 `affects`(⑭ — 부분) · 필드 컷 배정(⑮) · V-20′ 해석. 등재 행은 지우지 않고 「→ 해결」을 달았다. **남은 것** — ⑭의 두 몫(b2~b3 동안 기록 두 계약이 서는 매트릭스 행 — b2 전 · SCR-206이 읽는 조회 계약 — DOC-008 SQ-21 ⓘ로, b3 전)과 **⑰ 신설**(ⓒ의 뒤따름 — §4.4 `COUPON_SCHEDULE_MISSING` 탐지와 §4.12 부모 임베드의 K² 복제, b3 전). **b1 명세에 없던 필드 하나** — `CouponRecordView.paymentDate`(⑤의 답이 순번 없는 기록을 지급일 순으로 싣게 해 그 기록의 유일한 날짜가 되었고 §5.15 수정 폼의 초기값이다). 용어에 「소득 사건」을 더했다(DOC-005). SCR-203의 과세 0 고정은 §5.4에 인용만. **개정을 맞춰 보며 고친 문장 넷** — §4.0 「형식」의 비율 4자리에 `terms.monthlyCoupon`의 `annualRate` · `barrier`(③의 답이 더한 필드) · §5.11의 「DOC-002 I-23은 `FULL`만 보고」(ⓓ 뒤로는 기실현 행의 월수익 연쿠폰율 `NULL`도 그 `CHECK`가 강제한다) · §3.2.1 I-23 항목에 `coalesce(…, false)`(DOC-002가 같은 개정에서 찾은 `NULL` 통과 구멍) · §5.14 무효화 각주의 「지급방식이 기본형만」(→ 「월지급식이」 — 쿠폰 지급방식과 월지급 변형은 다른 축이다. 변형 명칭은 DOC-005 GQ-06 미결). §3.2.1 부모 트리거 항목과 §9 ①에 `monthly_coupon_payments_after_redemption`의 `ErrorCode` · 칸이 DOC-002 DQ-17 ②의 미결임을 가리켰다(①의 답은 키의 모양만 정했다). 선행 명세 → 구현 컷 추가분: §5.14 `{ ids }` 반환 · V-27의 양방향 사전 검사와 60건 상한 → **b2** · `attentionItems[].count` · `terms.monthlyCoupon.barrier` · `monthlyCouponAnnualRate` · `unnumberedCouponRecords` · §4.12 행 타입 → **b3** · `remainingCoupons.exchangeRateBasis` · `monthlyCouponAssumption` → **b4** **반박 검토 반영(같은 판)** — 「쿠폰 지급」 선택 상자(「선택」 · 「상환 시 지급」)와 §4.3 `product.couponPayout`을 V-25와 같은 **b2** 커밋으로 옮겼고(b2~b3 동안 폼 저장이 전부 거부되던 공백), §5.2는 입력에 없는 순번을 지우고 기록된 순번이 입력에서 빠지면 사전 검사가 `CONFLICT`(23503은 마지막 그물 · V-26은 입력에 적용)이며, 상환 쪽 사전 검사와 `redemptions_before_coupon_payment`가 기록 쪽처럼 지급 · 미지급 모든 기록을 보고(대칭) 그 사전 검사의 컷은 b2(§5.4 · §5.5 · §5.11 꼬리표)이고, V-28에 지급일 중복(`entries[i].paymentDate`) · §4.12에 부모 `MONTHLY` 조건 · §3.2.1 b2 이름 목록에 둘(기록의 `coupon_no >= 1` · 일정의 `els_id` FK) · 일정 동결 트리거에 `IS DISTINCT FROM`을 더했고, `remainingCoupons`를 「잔여 월수익」(DOC-005)으로 부르고 「DB가 양쪽에서 막는다」류를 단일 요청 순서로 좁혀 DOC-010 AQ-93을 인용했으며, `COUPON_SCHEDULE_MISSING`의 조치 사유를 해결로 표기(결함 둘이면 앞의 것)하고 `terms.monthlyCoupon.barrier = null`의 두 뜻 · 흐름 끝의 전제(DOC-007 RD-20) · b0 조기 반환의 b4 이동 · `hasEstimates`의 실제 정의(DOC-007 RD-19 ⓑ) · X-07 제목의 「월수익 지급 기록」을 적었고, 결정 ID를 「b1 개정」 · 「민서 결정(2026-10-02) ①~④」로 정리하고 U5 · U6 · SB-n의 첫 자리에 「P8 계획 결정」을 밝혔다 |
 | 4.15 | 2026-10-02 | 민서 | **P8 컷 a4-2 — X-07 앞절반이 코드로 섰다. §4.10 규칙 표에 X-07 행(코드 커밋과 함께 — v4.8의 약속).** `importOverStored`가 불러온 통화가 있으면 그것, 없으면 저장값을 싣고, 다르면 투자원금을 비운다. 조건은 `currencyChangedBy` 하나이며 비움과 구획 안내가 같은 함수를 부른다(조건을 두 곳에 적지 않는다). `hasImportGaps`가 빈 투자원금 · 빈 상품 통화를 빈 곳으로 세고 **수정 화면이 상태를 합친 값으로 양방향 다시 판정하므로** 비운 렌더는 「일부 채움」이다 — 「불러옴」은 투자원금이 저장값일 때만 선다는 속성을 테스트가 시나리오 여덟로 단언한다. *(반박 검토 반영 — 종전 판정은 올리기만 해서 노낙인 · 자산 전부 풀림 상품의 X-07 렌더가 「불러옴」으로 남았고, 속성 테스트의 시나리오 넷이 전부 KI 상품이라 그 갈래를 지나지 않았다. 노낙인 넷을 더했고 종전 판정으로 되돌리면 2건이 빨간불이다)* §9 X-07을 「앞절반 해결」로 고쳤다. 뒷절반(월수익 기록 있는 상품의 거부)은 그대로 b1이 컷을 정한다. **음성 대조**: 비움 한 줄을 지우면 3건, 통화를 늘 저장값으로 두면 3건, 빈 곳 판정을 빼면 3건이 빨간불이었다. §9 X-07의 `importMerge.ts:29` 줄 번호를 뺐다(식별자 `IMPORT_KEEPS_STORED`가 정본이다) |
 | 4.14 | 2026-10-02 | 민서 | **P8 컷 a4-1 — X-07 앞절반(불러온 상품 통화와 투자원금의 연동)의 판정 규칙을 코드보다 먼저 쓴다. 선행 명세다 — `src/` 0줄, §4.10 규칙 표의 행 0줄.** **(1) 「불러온 상품 통화」의 정의** — DOC-010 v3.21 ADR-009 §7 `productCurrencyOf`의 **확정** 판정이다. **증인 없음은 「불러온 통화 없음」**이며 수정 화면에서 저장값을 남긴다(「원천에 없는 것은 저장값」 — 투자원금도 남는다). 충돌 · 지원 밖은 거부라 폼이 저장값 그대로다. **(2) 다르면** 통화는 불러온 값 · 투자원금은 빈칸 · 구획 안내 · 상태 「일부 채움」. 빈 투자원금은 사람이 채울 곳이고, 「불러옴」으로 두면 수정 화면의 그 문구(「투자원금 · 계좌유형 · 비고는 저장값 그대로다」)가 **거짓인 렌더**가 생긴다. 같으면 아무것도 비우지 않는다 — 같은 상품의 재불러오기가 투자원금을 지우지 않는다. **(3) 뒷절반**(월수익 기록이 있는 상품의 거부)은 v4.8 그대로 b1이 컷을 정한다. **(4) §4.10의 서명은 바뀌지 않는다** — `KiwoomProductCandidate`에 목록의 상환 단위(`rdmp_unit`)가 실리지만 필드 전수의 정본은 `terms-types.ts`다(§4.10 머리). **선행 명세 → 구현 컷**: X-07 앞절반 · §4.10 표의 X-07 행 → **a4-2** |
 | 4.13 | 2026-10-01 | 민서 | **P8 컷 a3-2 — 추정 환율이 계약을 지난다. §4.11 `listExchangeRates`(조회 9 → 10) · §5.13 `saveExchangeRate`(변경 13 → 14) · v4.9 a3 몫의 뷰 필드 전부가 코드로 섰다. 화면은 아직이다(a3-3).** **(1) `loadEstimateRates(ctx)`** — `exchange_rates`에서 통화별 `as_of_date ≤ asOf` 최신 1건(`limit(1)`)을 요청당 한 번 읽는다. 다섯 호출부(`getProduct` · `getDashboard` · `getTaxSummary` · `listUserSummaries` · `getForecast`)의 `NO_ESTIMATE_RATES`를 그것으로 바꿨고 **전부 첫 물결에서 나란히** 나간다 — §4.0 왕복 표를 고쳤다(`listProducts`와 `getProduct`를 갈랐다 — `getProduct`만 3이다). `getProduct`는 종전 순차(`loadProduct` → 시세)였고 환율을 `loadProduct`와 같은 물결에 두었다 — 그래서 상품이 없거나 기초자산이 0건이어도 환율 왕복은 나간다(`getProductNoUnderlying` 예산 `{els_products: 1, exchange_rates: 1}`). §4.11과 **같은 로더**(`loadLatestExchangeRates`)와 같은 근거 사상(`exchangeRateBasisOf` — `priceString` · §4.5 `isStale`)을 지나므로 SCR-302의 최신 환율과 다른 화면이 쓴 환율이 갈릴 수 없다. **(2) 뷰 필드** — §4.0 `ExchangeRateBasisView` · §4.1 `totals.krwEstimate`(보유중 외화가 있을 때만, 외화 하나라도 환율이 없으면 두 필드가 함께 `null` — 부분합 없음) · `currentYearTax.exchangeRateBasis`·`convertedCount` · §4.3 `projection.exchangeRateBasis` · §4.6 `income.exchangeRateBasis`·`convertedCount` · §4.7 `ForecastRow.exchangeRateBasis`. **「환산함」의 신호** — v4.9가 이름을 정하지 않은 자리다. 순수 모듈에 `estimateConversionOf`(곱해야 하는 외화 또는 `null`)를 두고 **`taxableIncomeKrw`가 그 함수로 갈리게** 했다 — 분기 순서를 두 곳에 적으면 「환산한 건 + 빠진 건 = 곱해야 하는 건」이 조용히 깨진다(`tests/domain/currency.test.ts`가 48조합으로 둘의 일치를 본다). 기여(`contributionOf`)는 그 환율을 `estimateRate`로 나르고 `convertedCount`가 그것을 센다. **(3) §4.7 — 결정 둘(문서에 없던 것)** — `exchangeRateBasis`가 붙는 행은 `excludedForeignCount`와 **같은 규칙**(환산한 외화 상품이 처음 원화 합에 필요해진 행부터 마지막 행까지 — 그래서 모든 행이 같은 값, 기준 연도 이전 상환은 세우지 않는다)이고, `hasEstimates`의 행 축은 **그대로**다(누적 두 열의 앞 행 몫은 원화 추정에서도 세지 않았다 — 달러 환산만 다른 규칙을 두지 않는다). §4.7 「달러 상품의 전망」에 두 줄로 적었다. **(4) §6** — V-24 행의 ⓑ를 본문으로(필수 · 같은 수치 규칙 · 통화는 `USD`만), V-17 행에 환율. `V17_notFuture`가 **대상을 인자로** 받는다 — 문구에 「시세」가 박혀 있어 환율 폼에 「시세」가 뜰 자리였다(반박 검토 지적). 조사는 받침으로 갈린다(「환율은」 — `${subject}는`으로 조립하면 「환율는」이다). **(5) §8** — SCR-302 행에 두 계약. `EXCHANGE_RATE_WIDE`(세금이 «있다») · `PRODUCT_WIDE`·`createProduct`에 `listExchangeRates`(그 통화의 미상환 수 — `createRealizedProduct`·`setKiTouched`는 아니다) · `ROUTE_QUERIES['/prices']`. `refreshPrices`·`saveManualPrice`의 `affects`에 세금 계약 **셋 다** 없음을 단언한다(종전은 `getTaxSummary` 하나만 보았다 — SB-17). **(6) 정정 셋(낡은 문장)** — §5.0.1 `refreshPrices`의 「0 · 공급자 0개」는 P5a 컷 3 전의 값이었다(테스트는 그 컷부터 5를 단언했다) · §5.12는 그 표에서 잰 적이 없다고 적었다 · §4.11 「환율 없음 — 수동 입력」 예시를 지웠다(문구 정본은 DOC-008 SCR-302 「최신 값」 행이고 두 문구가 갈려 있었다). `usedByActiveProducts`가 §4.5처럼 **전 사용자의** 미상환 상품을 센다는 것을 명시했다 — DOC-008 SCR-302 「절」 행의 근거(「원화뿐인 사용자에게 매번 펼쳐진 절은 소음」)는 조회자 본인의 수를 전제하므로 그 차이는 화면 컷(a3-3)에서 민서에게 묻는다. **(7) 통합 스위트** — `exchange_rates`에는 소유자도 이름도 없고 사용자는 지울 수 없다. 그래서 픽스처 환율은 **`AS_OF` 뒤의 예약 날짜**(`FX_RATE_DATES`)에만 쓰고 `resetFixtures`가 그 날짜만 지운다(소유자 커넥션) — `AS_OF` 컨텍스트에서는 환율이 없어 a2의 E-09 단언이 파일 순서와 무관하게 서고, 환율이 있는 상태는 `RATE_AS_OF`로 읽는다. `formats.test.ts`가 새 경로(근거 뷰 다섯 접두사 · `krwEstimate` · `convertedCount` · §4.11)를 `PRICE`·`AMOUNT_KRW`·`NUMBER`로 등재하고 비-null·null을 둘 다 관측시킨다(`krwEstimate = null`은 원화뿐인 B의 홈). `exchange-rates.test.ts` 신설 — **계약 경로의 `provider: null`**(자동 행을 수동 정정하면 공급자가 지워진다) + 짝 통제(열을 뺀 PostgREST UPSERT는 `23514 exchange_rates_provider_check`) · 「같은 행」(SCR-302 = 세금 · 홈 둘 · 상세 · 전망 전 행) · **F의 항등**(`getTaxSummary` = `getForecast` Y₀ = 본인 `UserSummary` = 홈 — 환율 있음 · 없음 각각). **음성 대조**: `estimateRate`를 환산과 무관하게 채우면 · 부분합을 주면 · 기준 연도 이전 상환에 근거를 세우면 · `provider: null`을 빼면 · `asOf` 상한을 빼면 · 환율 탐침의 `number`를 문자열로 바꾸면 — 여섯 다 빨간불을 먼저 보았다. **반박 검토 반영(커밋 전, 확인된 19건 — 값 결함 0)**: ⓐ 낡은 왕복 수 — §4.7 본문 「왕복은 3이다」 → 4 · §4.0 v2.5 각주(다중집합에 `exchange_rates`) · 「a3에서 고친다」를 과거형으로 · §4.4 각주의 `listUserSummaries` 4(당시) · 코드·테스트 주석 넷 ⓑ **§5.13 ★의 오류 코드** — `provider_check`에 걸린 수동 정정은 `INTERNAL`이 아니라 **칸 없는 `VALIDATION_FAILED`**다(사상이 없는 `23514`의 기본값 — `tests/db/errors.test.ts`가 고정한다). 결론(정정 경로가 막힌다)은 같고 근거의 코드가 틀렸다 ⓒ §5.0.1 — `refreshPrices` 행을 조건부(매핑 0건 5 · 새 종가 N건 5+N · 대상 0건 2)로, ① 「사전 조회가 필요한 계약만 2 이상」을 사용자 데이터 계약으로 좁혔다(그 행이 반례다) ⓓ §8 SCR-302 행의 「공급자 미등재」(P5a 컷 3 이후 낡음)와 말미 각주의 현재형 ⓔ §9 원장의 줄 번호 참조를 케이스 이름으로 ⓕ `getProduct` 물결 근거 — 「통화를 보고 고르면 물결이 셋」은 사실이 아니었다(둘째 물결에서 조건부로 내면 둘 그대로다). 선택은 그대로이고 근거를 「규칙 2의 균일함 · 통화 무관한 예산」으로 고쳐 적었다 ⓖ 테스트 공백 셋 — `usedByActiveProducts`가 «전 사용자 · 미상환»임을 B의 달러 둘(보유 · 상환)로 값으로 가른다(조회자로 좁히면 1 · 상환을 세면 3 · 옳으면 2) · 원화 환율 거부를 계약의 문구로 가르고 DB CHECK 짝 통제를 더했다(칸만 보면 DB 겹도 같은 칸이다) · `saveExchangeRate.affects`를 집합 전체로 박았다(`listAssetPrices`를 넣어도 `/prices`가 이미 낡아 초록이었다). 「변경 계약 열하나」 등 사본 문장 아홉은 수를 빼고 고쳤다(다시 낡지 않게). **배포 순서**: 이 코드는 `exchange_rates`를 읽으므로 **W2 `db push` 뒤에만** `main`에 간다. 화면(a3-3)과 함께 간다 — 이 커밋만으로는 환율을 넣을 화면이 없어 운영 동작이 같다 |
@@ -163,7 +164,7 @@ type ActionError = {
 | SQLSTATE | 기본 `ErrorCode` | 근거 |
 |---|---|---|
 | `23505`(UNIQUE) · `23503`(FK) | `CONFLICT` | 다른 행의 존재가 원인이므로 입력만 고쳐서 풀리지 않는다. I-01 이중 상환, `redemptions`의 `RESTRICT`(§5.3)가 이 자리다 |
-| `23514`(CHECK · 트리거) | `VALIDATION_FAILED` | 단일 행 불변식이므로 그 행의 값이 원인이다. **단 제약 이름이 상태 충돌 부류(`*_redeemed_immutable`)면 `CONFLICT`로 올린다** |
+| `23514`(CHECK · 트리거) | `VALIDATION_FAILED` | 단일 행 불변식이므로 그 행의 값이 원인이다. **단 제약 이름이 상태 충돌 부류(`*_redeemed_immutable` · `*_recorded_immutable` *(v4.16 명세 · 구현 P8 컷 b2)*)면 `CONFLICT`로 올린다.** 접미사 `*_immutable` 전체가 아니다 — `*_coordinates_immutable`은 검증 오류다(아래 「P8 달러」 블록) |
 | `42501` | `FORBIDDEN` | RLS 위반과 권한 미부여를 구분하지 않는다 — 둘 다 "이 조회자는 이 조작을 할 수 없다"이고 화면 처리(SCR-902)가 같다 |
 | `22001`(길이) · `22003`(자릿수) · `22007`(날짜 형식) · `22P02`(그 밖의 형식) · `23502`(널) | `VALIDATION_FAILED` | 값의 형태가 원인이다. **대부분 필드를 특정할 수 없다** — V-19·V-20이 그 앞에서 잡는 이유다. `23502`만 예외로 `message`에 열 이름이 온다 |
 | 그 외 | `INTERNAL` | 원문 메시지를 사용자에게 노출하지 않고 로그에 남긴다 |
@@ -225,6 +226,24 @@ type ActionError = {
 >   - `exchange_rates_coordinates_immutable` — **트리거 라벨**(I-16의 형태). I-22 · `currency` · `asOfDate`. `RAISE_ONLY`에 든다. **`VALIDATION_FAILED`다 — `CONFLICT`가 아니다**: 접미사 `*_immutable`을 상태 충돌로 일반화하지 않는다(`asset_prices_coordinates_immutable`이 같은 이유로 검증 오류다. 상태 충돌 접미사 `*_recorded_immutable`은 컷 b1의 몫이다)
 >   - `exchange_rates_provider_check` — `CHECK`(`(source = 'AUTO') = (provider is not null)`). **사상하지 않는다 — `NOT_USER_REACHABLE`**(`tests/rls/constraint-names.test.ts`). 수집기만 `AUTO`를 쓰고 수동 입력(§5.13)은 `provider = null`을 **명시해** 실으므로 사용자 입력에서 도달하지 않는다 — **그 명시가 이 분류의 전제다**(§5.13 ★)
 
+> **P8 월지급 — 새 제약·라벨의 사상 (v4.16 선행 명세 — P8 컷 b1. 표 행은 해당 마이그레이션의 코드 커밋(b2 · b4)에 함께).** 위 달러 블록과 같은 이유로 산문이다 — 위 표는 `BY_CONSTRAINT`와 양방향으로 대조되므로 이름이 코드보다 먼저 서면 그 커밋이 빨간불이다. 불변식 번호는 DOC-002 I-23~I-27, 규칙 번호는 §6 말미 「P8 월지급 — 규칙 일곱」이다. 트리거 라벨은 전부 `RAISE_ONLY`에 들고 위 ①대로 `detail` 첫 줄에 `constraint=<이름>`을 싣는다.
+>
+> - **컷 b2 (M-b2 — 열 · 두 테이블 · 트리거 · 쓰기 함수 꼬리 검사)**
+>   - `els_products_monthly_terms_check` — `CHECK`(단일 행). I-23 / V-25 · V-08′. `entry_mode = 'FULL'`이면 — `MONTHLY ⇒ annual_coupon_rate = 0 ∧ monthly_coupon_annual_rate > 0`, `AT_REDEMPTION ⇒ monthly_coupon_annual_rate IS NULL`. **`entry_mode = 'REALIZED_ONLY'`이면 `monthly_coupon_annual_rate IS NULL`**(b1 개정 — DOC-002 DQ-17 ③ 해결. 비용 0으로 기실현에 월수익 조건이 남지 않게 한다 — D-07, 계약 조건이 없다). 식은 `coalesce(…, false)`로 감싼다 — `CHECK`는 `NULL`을 통과로 보므로 감싸지 않으면 `FULL` ∧ `MONTHLY` ∧ 월수익 연쿠폰율 `NULL`이 지난다(DOC-002 §8 I-23 각주 — 같은 개정에서 찾은 구멍). 율의 DB 쪽은 `> 0`뿐이고 상한은 계약(V-25 — V-08과 같은 상한, b1 개정)에만 있다 — 율 범위 `CHECK`가 없기 때문이다(받아들인 이탈). 필드는 `couponPayout`이다(b1 개정). 월지급 행에 연쿠폰율로 헤드라인 율을 넣으면 이 제약이 V-25와 함께 거부한다 — 이중 계상(DOC-005 「월수익 연쿠폰율」)
+>   - `els_products_monthly_schedules_required` · `els_products_monthly_schedules_forbidden` · `els_products_monthly_lizard_forbidden` — **쓰기 함수 꼬리 검사의 라벨**(RPC 셋을 `create or replace` — `els_products_*_required`와 같은 형태). I-25 / V-25. 차례로 `FULL ∧ MONTHLY`인데 월수익 일정 0행 · `AT_REDEMPTION`인데 월수익 일정 행 있음 · `MONTHLY`인데 리자드 차수(월지급+리자드는 v2). 셋 다 `VALIDATION_FAILED`이고 필드는 `couponSchedules` · `schedules`다(일정 둘은 `couponSchedules`, 리자드는 `schedules`). **직접 INSERT로 우회하는 경로는 AQ-29 부류다** — `MONTHLY` 0행은 조회가 결함 `COUPON_SCHEDULE_MISSING`으로 탐지하고(§4.2), `AT_REDEMPTION` 아래의 일정 행은 **계산과 §4.12가 지급방식으로 거르므로 무해하다**(등재만 — b1 개정. §4.12의 자기 루트 쿼리는 일정 행을 루트로 읽으므로 부모 `coupon_payout = 'MONTHLY'` 조건이 그 무해함의 전제다)
+>   - `els_products_coupon_recorded_immutable` — **트리거 라벨**. `els_products`의 `BEFORE UPDATE OF currency, coupon_payout` — 값이 바뀌고 그 상품에 `monthly_coupon_payments` 행이 있으면 거부한다. **상태 충돌 → `CONFLICT`**(DOC-002 DQ-14 · 민서 결정(2026-10-02) ④ — 어떤 쓰기 경로든 막는다. 단일 요청 순서에서다 — 첫 기록 INSERT와 동시에 도는 변경은 write skew로 둘 다 지날 수 있다, DOC-010 AQ-93). `fields` 없음 — `els_products_redeemed_immutable`과 같은 부류다
+>   - `monthly_coupon_schedules_recorded_immutable` — **트리거 라벨**. `BEFORE UPDATE OF evaluation_date, payment_date, coupon_no` — **세 열 중 하나라도 OLD와 NEW가 다르고(`IS DISTINCT FROM`)** 그 달에 기록이 있으면 거부한다(b1 개정 — DOC-002 §4.13 · DQ-14 · DOC-010 AQ-79와 같은 문언). **상태 충돌 → `CONFLICT`**. 기록된 달의 행 **삭제**는 복합 FK `RESTRICT`가 막는다(`23503` → `CONFLICT` — 위 SQLSTATE 표의 기존 사상). ★ **값이 바뀔 때만 거부해야 한다** — §5.2가 기록된 달의 행을 `coupon_no` 기준 upsert로 같은 값을 다시 대입하므로(월수익 배리어는 고칠 수 있다), 「`UPDATE OF` 열」만으로 거부하면 기록이 있는 상품의 수정이 전부 거부된다 — PostgreSQL의 `UPDATE OF` 트리거는 값이 같아도 그 열이 `SET` 목록에 있으면 발화한다. `*_coordinates_immutable`이 §5.7·§5.13의 동일값 재대입을 통과시키는 것과 같은 형태다(I-16 · I-22). b2의 테스트 목록에 「동일값 재대입은 통과한다」를 단언으로 둔다 — 그 단언이 없으면 조건을 빠뜨린 트리거가 기록 없는 상품의 수정에서는 초록이다
+>   - **접미사 `*_recorded_immutable`이 상태 충돌 부류에 든다** — `*_immutable` 전체로 일반화하지 않는다(`*_coordinates_immutable` 둘은 `VALIDATION_FAILED` — 위 달러 블록). 위 SQLSTATE 표의 `23514` 행이 두 이름을 함께 적는다
+>   - `monthly_coupon_payments_outcome_check` — `CHECK`(단일 행). I-26 / V-28. `PAID ⇒ payment_date · gross_amount · taxable_income NOT NULL ∧ gross_amount > 0` · `UNPAID ⇒ payment_date · gross_amount · taxable_income · withholding_tax · exchange_rate 전부 NULL ∧ coupon_no NOT NULL`(미지급은 그 달을 가리켜야 의미가 있다 — 기실현의 순번 없는 미지급은 받지 않는다)
+>   - `monthly_coupon_payments_gross_amount_digits_check` — `CHECK`(정수부 15 · scale ≤ 2). I-26 / V-23. `redemptions_gross_amount_digits_check`와 같은 이유로 `CHECK`다 — 데이터 전용 복원이 다시 검사한다
+>   - `monthly_coupon_payments_gross_amount_scale` — **트리거 라벨**(원화 부모 ⇒ 소수 0자리). I-26 / V-23. `check_amount_scale_by_currency()`를 이 테이블에 걸되 **라벨은 리터럴이다** — 위 달러 블록의 「테이블마다 분기하고 `TG_TABLE_NAME`으로 조립하지 않는다」를 이 컷이 지킨다
+>   - `monthly_coupon_payments_monthly_required` · `monthly_coupon_payments_coupon_no_required` · `monthly_coupon_payments_after_redemption` — **부모 트리거 라벨**. I-27 / V-27. 차례로 부모 `coupon_payout = 'MONTHLY'`(DQ-07 ③) · 부모 `FULL` ⇒ `coupon_no NOT NULL`, 부모 `REALIZED_ONLY` ⇒ `coupon_no IS NULL ∧ outcome = 'PAID'` · **부모에 상환이 있고 그 달 일정의 `evaluation_date > redemption_date`면 거부**(DQ-07 ② — 상환 뒤에 평가된 달의 기록은 흐름 밖 사건을 F에 넣는다). **결과(`PAID` · `UNPAID`)를 가리지 않는다** — 상환 쪽 트리거도 같은 집합을 본다(아래 — 대칭, b1 개정). **비교 키는 지급일이 아니라 그 달의 월수익 평가일이다**(b1 개정 — 흐름 끝 `t_k ≤ T_end`와 같은 키, DOC-007 RD-18 해결). 지급일로 비교하면 상환 대금이 그 달 월수익보다 하루라도 먼저 지급되는 상품에서 같은 날 평가된 마지막 월수익을 기록할 수 없다. **순번 없는 기실현 기록(`coupon_no IS NULL`)은 평가일이 없어 이 검사 밖이다** — 거래내역의 사실을 옮긴 것이다(등재만). 셋 다 `23514`이고 상태 충돌 접미사가 아니므로 위 SQLSTATE 표의 기본값은 `VALIDATION_FAILED`이며, 필드는 아래 「`fields` 키」의 여섯 중 하나다(제약마다의 사상 행은 b2 코드 커밋 — b1 개정). **다만 `monthly_coupon_payments_after_redemption`의 `ErrorCode`와 여섯 중 어느 칸인지, 그리고 접미사 표에 없는 라벨 셋(`*_after_redemption` · `*_before_coupon_payment` · `*_principal_only`)에 접미사 행을 둘지는 DOC-002 DQ-17 ②가 미결로 들고 있다**(b2 전에 정한다 — b1 개정은 키의 모양만 정했다)
+>   - `redemptions_before_coupon_payment` · `redemptions_monthly_principal_only` — **`redemptions`의 트리거 라벨**(DQ-07 ②의 반대쪽 · ⑤ — DOC-010 AQ-87 ⓑ의 DB 쪽 강제). 상환 INSERT·UPDATE 때 `redemption_date <` **기록된 달(`PAID` · `UNPAID`)들의 `evaluation_date` 최댓값**이면 거부(b1 개정 — 위 `monthly_coupon_payments_after_redemption`과 같은 키이고 **같은 집합이다**. 순번 없는 기록은 평가일이 없어 세지 않는다) · 부모 `MONTHLY`면 `gross_amount <= principal ∧ taxable_income = 0`. 둘 다 `VALIDATION_FAILED`이고 필드는 `redemptionDate` · `grossAmount`/`taxableIncome`. **두 방향이 같은 집합을 보는 이유**(b1 개정 — 반박 검토 반영): 상환 쪽이 `PAID`만 보면 미지급 기록이 있는 채로 상환일을 그 달 평가일 앞으로 옮길 수 있고, 그렇게 흐름 끝 뒤에 남은 미지급 기록은 기록 쪽 트리거가 `UPDATE`에도 돌므로 비고 하나 고칠 수 없게 된다(지우기만 된다). 계약 규칙 V-29(§5.4·§5.5·§5.11)는 컷 b4이므로 **b2~b4 사이에는 `redemptions_monthly_principal_only`가 먼저 서고** 그 경로의 응답은 이 사상이다. `redemptions_before_coupon_payment`의 계약 겹(V-27의 양방향 사전 검사)은 b2에 함께 선다(§5.4). 교차 테이블 트리거 둘(기록 ↔ 상환)과 위 동결 트리거는 **단일 요청 순서에서** 막는다 — 각자 상대 테이블의 커밋된 행만 보므로 동시 트랜잭션의 write skew(READ COMMITTED)는 막지 못한다(DOC-010 AQ-93 — 부모 행 `SELECT … FOR UPDATE`로 직렬화할지 b2 전에 판단)
+>   - **그 밖의 이름은 b2 마이그레이션이 정하고 그 커밋이 행을 더한다** — `monthly_coupon_schedules`의 I-24 넷(`UNIQUE(els_id, coupon_no)` · `coupon_no >= 1` · 월수익 배리어 범위 · `payment_date >= evaluation_date`) · `els_id` FK(`CASCADE` — 부모 삭제로는 오류가 나지 않는다. 기존 `redemption_schedules_els_id_fkey`도 위 표에 없다)와 `monthly_coupon_payments`의 `UNIQUE` 둘(`(els_id, coupon_no)` · `(els_id, payment_date)`) · 복합 FK `(els_id, coupon_no)` · `els_id` FK · **`coupon_no >= 1` `CHECK`**(I-26 — 일정과 같은 방어, V-20′) · 값 범위 셋(`taxable_income >= 0` · `withholding_tax >= 0` · `exchange_rate > 0`) *(두 이름은 b1 개정 — 반박 검토 반영으로 더했다)*. **SQLSTATE 기본값이 그대로 맞는다** — `UNIQUE`·FK는 `CONFLICT`, `CHECK`는 `VALIDATION_FAILED`. `monthly_coupon_payments.els_id`의 `RESTRICT`는 §5.3에서 `redemptions_els_id_fkey`와 같은 `CONFLICT`다. `UNIQUE(els_id, payment_date)`의 `CONFLICT`는 경합에서만 닿는다 — 정상 경로의 지급일 중복은 V-28이 행 키(`entries[i].paymentDate`)로 먼저 낸다(b1 개정)
+>   - **`fields` 키 — 색인 없는 이름이다** *(b1 개정 — §9 ① 해결)*. DB 제약 → `fields`는 위 「배열 인덱스를 붙이지 않는다」 그대로다: **월수익 지급 기록의 제약은 `paymentDate` · `grossAmount` · `taxableIncome` · `withholdingTax` · `outcome` · `couponNo`, 월수익 일정의 제약은 `couponSchedules`, 지급방식 짝(I-23)은 `couponPayout`**이다. §5.14(다행)와 §5.15(한 행)가 같은 키를 받는다. **행 단위 키(`entries[i].…` · `couponSchedules[i].…`)는 계약 계층의 사전 검증(V-25~V-28)이 낸다** — DB 오류는 그 검증을 지난 뒤의 마지막 그물이므로 몇 번째 행인지 말하지 못해도 된다. 정확한 사상 행(제약마다 어느 키인가)은 b2의 코드 커밋이 위 표에 더한다(`BY_CONSTRAINT` 결속). `NOT_NULL_FIELD`는 **열 이름**으로 걸리므로 — `monthly_coupon_payments.is_confirmed` → `isConfirmed`는 이 원칙대로이고, `monthly_coupon_schedules`의 열(`evaluation_date` 등)의 널 위반은 이 원칙으로 `couponSchedules`여야 하므로 조기상환 일정의 `evaluationDate`와 **테이블로 갈라** 사상하는 일이 그 커밋에 든다(정상 경로에서는 계약 계층이 먼저 막아 도달하지 않는다)
+> - **컷 b4 (M-b2c — 지급방식 기본값 제거)**
+>   - 널 위반 `coupon_payout` → `fields.couponPayout` — **`NOT_NULL_FIELD`에 새 키가 필요하다**(`currency`와 달리 기존 키가 없다). 확장 웨이브(W4) 동안 열 기본값이 가리므로 **축소(M-b2c) 이후에만 도달한다**(§5.1 — SB-12의 거울)
+
 **제약 이름의 출처 — 실측 (P3b 2단계).** `PostgrestError`는 `{code, message, details, hint}` 넷뿐이고 `pg`가 주는 `constraint` 필드가 **없다.** 실제 JWT로 열 형태를 위반시켜 본문을 측정했다(`tests/integration/error-shape.test.ts`가 이 표를 고정한다).
 
 | 형태 | `code` | 이름·열의 위치 | `details` |
@@ -258,10 +277,10 @@ type ActionError = {
 
 | 호출 지점 | 던지는 조건 | `ErrorCode` |
 |---|---|---|
-| `attributionYear` 등 날짜를 받는 순수 함수 (§5.4의 귀속연도) | 날짜 형식 · 존재하지 않는 날짜 | `VALIDATION_FAILED` + 해당 날짜 필드 |
+| `attributionYear` 등 날짜를 받는 순수 함수 (§5.4의 귀속연도 · §5.14·§5.15의 월수익 지급일 *(v4.16)*) | 날짜 형식 · 존재하지 않는 날짜 | `VALIDATION_FAILED` + 해당 날짜 필드 (§5.14는 `entries[i].paymentDate`) |
 | `dec()` (금액 · 비율 파싱) | 유한한 수가 아님 | `VALIDATION_FAILED` + 해당 필드 |
 | `assertPositiveInteger` | 양의 정수가 아님 | `VALIDATION_FAILED` + 해당 필드 |
-| `loadTaxYearContext` · `toTaxConstants` (§5.4 원천징수 산출) | 세율 시드 없음 · 상수 누락 | `INTERNAL` |
+| `loadTaxYearContext` · `toTaxConstants` (§5.4 원천징수 산출 · §5.14·§5.15 *(v4.16)*) | 세율 시드 없음 · 상수 누락 | `INTERNAL` (시드 범위보다 과거인 해는 §5.4 v1.7대로 `VALIDATION_FAILED` + `withholdingTax` — §5.14는 `entries[i].withholdingTax`, DOC-007 RD-16) |
 | **그 밖의 모든 `RangeError`** | — | `INTERNAL` + 로그 |
 
 > **§6의 검증이 순수 모듈 호출보다 앞선다.** 위 표는 그 앞선 검증을 통과한 뒤에도 남는 경로를 위한 것이다 — 예컨대 V-07은 날짜를 **문자열로** 비교한다(형식이 이미 `YYYY-MM-DD`로 검증되었으므로 사전순이 곧 시간순이다). 순수 모듈에 날짜를 넘기면 그쪽의 `RangeError`를 다시 변환해야 하므로, 변환 지점을 늘리지 않는 쪽을 고른다. 남는 것은 **계약이 저장된 값을 순수 모듈에 넘기는 자리**다.
@@ -299,7 +318,7 @@ type QueryContext = {
 
 | ID | 규약 | 근거 |
 |---|---|---|
-| Q-01 | 조회는 **사용자 세션으로만** 수행한다. `service_role`은 편의로도 쓰지 않는다 | RLS를 우회하면 정책 40개(v4.12 — `exchange_rates` 3. v4.8에 「32개」를 37로 정정)가 실제로 작동하는지 어떤 테스트도 증명하지 못한다 (ADR-002) |
+| Q-01 | 조회는 **사용자 세션으로만** 수행한다. `service_role`은 편의로도 쓰지 않는다 | RLS를 우회하면 정책 40개(v4.12 — `exchange_rates` 3. v4.8에 「32개」를 37로 정정 · 컷 b2 뒤 48 — 월수익 두 테이블에 넷씩, v4.16 명세)가 실제로 작동하는지 어떤 테스트도 증명하지 못한다 (ADR-002) |
 | Q-02 | **기준일은 `Asia/Seoul` 기준으로 산출**하고 요청당 한 번만 해석한다 | 실행 환경(Vercel·Node)은 UTC다. UTC 날짜를 쓰면 매일 KST 00:00~09:00 동안 **전날**이 기준일이 되어 D-Day가 하루 어긋나고, "오늘"인 평가일이 미래로 분류되며, 경과 차수를 놓치고, 1월 1일 KST에는 귀속연도가 전년이 되어 세율 연도까지 어긋난다. 두 계약이 각자 오늘을 구하면 자정을 걸친 렌더에 한 화면 두 기준일이 생긴다 |
 | Q-03 | 기준일은 순수 모듈과 **같은 값을 공유**한다 | DOC-007 §9.2의 `asOf`, `nextEvaluation`·`isPast`·`dDay`가 이미 기준일을 인자로 받는다 |
 | Q-04 | 미인증 상태(`viewerId` 부재)에서 조회 계약은 **예외를 던진다** | §3.1대로 조회는 결과 객체를 쓰지 않는다. §3.2의 `UNAUTHENTICATED`는 변경 계약의 `ActionError` 표이므로 조회에 적용되지 않는다. SCR-001 유도는 화면 층의 책임이다 |
@@ -415,12 +434,75 @@ type ExchangeRateBasisView = {
 
 1. **금액이 있는 곳에 통화가 있다.** 상품 통화 금액을 담는 뷰 객체는 같은 객체(또는 그 조상)에 `currency: ProductCurrency`를 담는다 — 상품 단위 뷰는 그 상품 객체에, 목록 항목은 그 항목에, 통화별 합계는 그 행에. **§4.3은 `product.currency`가 형제 가지(`schedules[]`·`projection`·`redemption`)의 통화다** — 그 가지들은 `product`의 자식이 아니므로 조상에 통화가 없고, 그래서 `MONEY` 헬퍼는 조상 다음으로 **루트의 `product.currency`**를 본다(Q-07′ 검증 계기 — 둘 다 없으면 여전히 던진다). 화면이 다른 필드에서 통화를 «추론»하게 두지 않는다 — 화면의 합성은 어느 스위트도 대조하지 않는다(DOC-010 AQ-23). Q-07′의 검증 계기(`MONEY` 부류)가 이 규칙에 기대고, 규칙을 어긴 뷰는 통합 스위트에서 **던진다**.
 2. **추정 환율은 요청당 한 번 읽고 통화당 하나다.** `loadEstimateRates(ctx)`가 `exchange_rates`에서 통화별 `as_of_date ≤ asOf` 최신 1건을 읽고(DOC-007 RD-09) 그 하나를 **모든 연도에** 쓴다. Q-02가 기준일을 요청당 한 번 해석하는 것과 같은 이유다 — 한 응답 안의 두 값이 다른 환율로 환산되면 둘을 비교할 수 없다. 통화별 `limit(1)`이므로 Q-06의 절단이 구조적으로 불가능하다.
-3. **기본 환율은 없다.** 한 건도 없으면 환산하지 않고 그 값을 `null`로 두며 **빠졌다는 사실을 개수로 말한다**(DOC-007 E-09 · DOC-008 ST-07). `1`·상수·과거 평균 모두 쓰지 않는다 — `1`을 넣으면 달러 이익이 그대로 원으로 읽혀 그 기여가 약 1/1,400이 되고 형식은 정상이다. 그 사실을 말하는 필드는 뷰마다 다르다 — `unconvertedCount`(§4.1·§4.6, 건 수) · `exchangeRateMissing`(§4.6 상품 행) · `excludedForeignCount`(§4.7, 행마다). `exchangeRateBasis = null`만으로는 「외화 금액이 없다」와 「환율이 없다」가 갈리지 않으므로 **둘을 가르는 것은 이 필드들이다.**
-4. **확정 원화 값은 환율과 무관하게 늘 들어간다.** E-09는 상품이 아니라 **건** 단위다(DOC-007 E-09 — 반박 검토 SB-3) — 추정이 필요한 달러 건만 빠지고, 거래내역에서 옮긴 원화 과세는 환율이 없어도 합계에 있다.
+3. **기본 환율은 없다.** 한 건도 없으면 환산하지 않고 그 값을 `null`로 두며 **빠졌다는 사실을 개수로 말한다**(DOC-007 E-09 · DOC-008 ST-07). `1`·상수·과거 평균 모두 쓰지 않는다 — `1`을 넣으면 달러 이익이 그대로 원으로 읽혀 그 기여가 약 1/1,400이 되고 형식은 정상이다. 그 사실을 말하는 필드는 뷰마다 다르다 — `unconvertedCount`(§4.1·§4.6, ~~건 수~~ **상품 수** *(v4.16 — 아래 「쿠폰 지급방식과 월수익」 규칙 4)*) · `exchangeRateMissing`(§4.6 상품 행) · `excludedForeignCount`(§4.7, 행마다 — 상품 수). `exchangeRateBasis = null`만으로는 「외화 금액이 없다」와 「환율이 없다」가 갈리지 않으므로 **둘을 가르는 것은 이 필드들이다.**
+4. **확정 원화 값은 환율과 무관하게 늘 들어간다.** E-09는 상품이 아니라 **건** 단위다(DOC-007 E-09 — 반박 검토 SB-3) — 추정이 필요한 달러 건만 빠지고, 거래내역에서 옮긴 원화 과세는 환율이 없어도 합계에 있다. *(v4.16 — 「건」은 소득 사건이고, 빠진 사실을 **세는** 단위는 상품이다. 아래 「쿠폰 지급방식과 월수익」 규칙 4)*
 
 **컷별 도달 — 필드가 서는 컷이 다르다.** 컷 a2(W1)에는 `exchange_rates`가 없으므로 추정 환율이 늘 없다 — 미상환 달러 상품의 추정은 전부 E-09이고(환율이 필요한 건 — 비과세 계좌 · 달러 이익 ≤ 0은 환율 없이 0이다, v4.11에서 좁혔다), 그래서 **개수 필드는 a2에서 선다.** `ExchangeRateBasisView`와 그것을 담는 필드(`exchangeRateBasis`·`krwEstimate`), 그리고 환산 건수 `convertedCount`(§4.1·§4.6)는 **a3에서 선다** — a2에 두면 모든 응답에서 `null`(건수는 0)인 **구조적 상수**가 된다(§4.1 v2.0이 `upcomingEvaluations.status`를 두지 않은 판단과 같다).
 
 **왕복 — 컷 a3에서 다섯 계약이 하나씩 는다 (위 왕복 표는 a3의 코드 커밋에서 고친다 — v4.13에서 고쳤다).** 추정 환율 한 왕복(`exchange_rates` ×1)이 원화 환산을 하는 계약에 붙는다 — `getProduct` 2 → 3 · `getTaxSummary` 3 → 4 · `getForecast` 3 → 4 · `getDashboard` 4 → 5 · `listUserSummaries` 4 → 5. `ctx.asOf`에만 의존하므로 **첫 물결에서 나란히** 나가고 물결 수는 그대로다(`listSchedule` v3.3 각주의 `loadAllTaxYears`와 같은 형태). **붙지 않는 계약**: `listProducts`·`listSchedule`(금액을 상품 통화로만 싣는다 — §4.4 「달러 기준 참고」) · `listAssetPrices` · `searchAssets`. 신설 `listExchangeRates`(§4.11)는 2다. `tests/integration/contracts.test.ts`의 다중집합 예산이 같은 커밋에 `{exchange_rates: 1}`을 더한다 — **환율을 연도마다 읽는 구현도 값은 옳으므로** 그 예산 말고는 어느 케이스에도 걸리지 않는다(§4.7 `getForecast`의 v2.5 각주와 같은 자리).
+
+#### 공통 타입 — 쿠폰 지급방식과 월수익 (v4.16 선행 명세 — P8 컷 b1, 구현 b2·b3·b4)
+
+달러 절반(바로 위)의 짝이다. 용어는 DOC-005 v1.11 — 쿠폰 지급방식 · 월지급식 · 상환 시 지급 · 월수익 · 월수익 연쿠폰율 · 월수익 일정 · 월수익 평가일 · 월수익 지급일 · 월수익 순번 · 월수익 배리어 · 월수익 지급 기록 · 월수익 미기록 · 받은 월수익 · 조기상환 가정 밖 · 월수익 흐름 끝 · 잔여 월수익(`remainingCoupons` — b1 개정) · **소득 사건**(상환 사건 · 월수익 사건 — 코드 `IncomeEvent` · `incomeEventsOf`). 「월수익 기록」은 SCR-206의 **화면 · 동작 이름**이고(§5.14 · §5.15의 절 이름 · 「월수익 기록 전부 지우기」) 엔티티는 「월수익 지급 기록」이다 — SCR-203 「상환 처리」와 같은 갈림이다(b1 개정).
+
+```ts
+/** 쿠폰 지급방식 (DOC-005 §3). 입력(§5.1·§5.2·§5.11)과 뷰(§4.2·§4.3)에 쓴다 */
+type CouponPayout = 'AT_REDEMPTION' | 'MONTHLY'
+
+/** 월수익 지급 기록의 결과 (DOC-002 §4.14 `coupon_outcome`) */
+type CouponOutcome = 'PAID' | 'UNPAID'
+
+/**
+ * 월수익 일정 한 행의 상태 — 아래 「구획」(DOC-007 §9.4 E-10)이 고른다.
+ * 표시: 지급 · 미지급 · 미기록 · 예정 · 예정 · 조기상환 가정 밖 · 상환 후 없음 (라벨 축은 컷 b3의 코드 커밋)
+ */
+type CouponState =
+  | 'PAID'               // 지급 — 기록이 정본이다(흐름 끝과 무관)
+  | 'UNPAID'             // 미지급 — 같다
+  | 'UNRECORDED'         // 미기록 — 흐름 끝 이내 · 기록 없음 · 월수익 지급일 < 기준일
+  | 'SCHEDULED'          // 예정 — 흐름 끝 이내 · 기록 없음 · 월수익 지급일 ≥ 기준일
+  | 'BEYOND_ASSUMPTION'  // 예정 · 조기상환 가정 밖 — 미상환 상품의 흐름 끝(적용 차수 평가일) 뒤 (민서 결정(2026-10-02) ③)
+  | 'ENDED'              // 상환 후 없음 — 상환된 상품의 흐름 끝(상환일) 뒤. 상환된 상품에만 쓴다 (민서 결정(2026-10-02) ③)
+
+/**
+ * 다음 월수익 한 행의 조건 판정 — **표시 전용이다** (DOC-007 §3.5). F에 쓰지 않는다.
+ * `UNKNOWN` = 그 행이 다음 행인데 워스트오브를 낼 수 없다(E-01) — §3.5의 판정 `null`이 이 값이다
+ */
+type CouponConditionResult = 'EXPECTED_PAID' | 'EXPECTED_UNPAID' | 'UNKNOWN'
+
+/** 한 상품의 그 해 과세 기여가 무엇으로 이루어졌는가 (§4.6. 라벨 축은 컷 b4의 코드 커밋) */
+type ContributionBasis = 'CONFIRMED' | 'ESTIMATED' | 'MIXED'
+```
+
+**월수익 흐름 끝(`T_end`)** — 추정에 넣는 마지막 월수익 평가일이다(DOC-005 · DOC-007 §7.6). 상환된 상품(`REDEEMED`)은 **상환일**, 적용 차수가 있는 미상환 상품(`ESTIMATED`)은 **적용 차수의 평가일**, 적용 차수가 없는 미상환 상품(`NO_ROUND`)은 **없음(무한)**이다. **비교 키는 월수익 평가일이고 경계를 포함한다**(`t_k ≤ T_end`) — 적용 차수와 같은 날 평가되는 그 달 월수익(지급은 +3영업일)이 흐름 안에 든다(DOC-007 RD-12 · U6). 이 정의가 V-27의 기록 상한 · DOC-002 DQ-07 ②와 짝이고 **비교 키가 같다** — 그쪽도 「그 달의 월수익 평가일 ≤ 상환일」이다(b1 개정 · DOC-007 RD-18 해결 · §9 ⑯). 지급일로 비교하면 상환 대금이 그 달 월수익보다 하루라도 먼저 지급되는 상품에서 같은 날 평가된 마지막 월수익이 흐름 안(추정 · 「미기록」)인데 기록할 수 없다. **전제 — 월수익 평가일이 조기상환 평가일과 겹친다**(EM2048 실측 — 6개월마다. b1 개정). 상환됨의 `T_end`(상환일 — 거래일자)와 미상환의 `T_end`(적용 차수 평가일)는 축이 달라, (상환 차수 평가일, 상환일] 사이에 평가된 달이 있으면 상환을 기록하는 순간 그 달의 상태가 「예정 · 조기상환 가정 밖」에서 추정(「미기록」 · 「예정」)으로 바뀐다. 겹치지 않는 상품의 처리는 DOC-007 RD-20이 들고 있다(b4 전에 정한다).
+
+**구획 — `CouponState`를 고른다 (DOC-007 §9.4 E-10 · SB-8 · U5 — 둘 다 P8 계획 결정).**
+
+| | 흐름 끝 이내 (`t_k ≤ T_end`) | 흐름 끝 이후 |
+|---|---|---|
+| 기록 없음 · `p_k < asOf` | `UNRECORDED` — 추정에 **지급으로** 넣고 주의를 띄운다 | 상환됨: `ENDED` · 적용 차수가 있는 미상환: `BEYOND_ASSUMPTION` — 추정에서 뺀다(민서 결정(2026-10-02) ③) |
+| 기록 없음 · `p_k ≥ asOf` | `SCHEDULED` — 추정에 넣는다 | 위와 같다 |
+| 기록 있음 | `PAID` · `UNPAID` — 기록이 정본이다(흐름 끝과 무관) | **단일 요청 순서에서는 도달하지 않는다 — `PAID` · `UNPAID` 모두**(b1 개정 — 대칭). 상환일 뒤에 평가된 달의 기록과, 기록된 달(지급 · 미지급)의 평가일보다 앞선 상환일을 계약(V-27 양방향)과 DB(I-27 · §3.2.1)가 함께 막는다. 동시 트랜잭션의 write skew는 그 보장 밖이다(DOC-010 AQ-93 — b2 전 판단) |
+
+`t_k`는 월수익 평가일, `p_k`는 월수익 지급일이다(DOC-007 §2의 기호). **「상환 후 없음」은 상환된 상품에만 쓴다** — 미상환 상품의 가정된 상환 뒤 달은 「예정 · 조기상환 가정 밖」이다(민서 결정(2026-10-02) ③). 둘을 한 값으로 두면 「아직 상환되지 않았는데 상환 후」라는 거짓 문구가 생긴다.
+
+**규칙 넷 — 소득 사건 (DOC-007 §7.6 · DOC-002 D-09).**
+
+1. **한 상품의 소득 사건 = 상환 사건(0..1) + 월수익 사건(0..K).** 상품당 상환 1건(I-01) · 손실 상환 과세 0(I-08) · 상태는 상환 레코드로 유도(D-01)는 **그대로다** — 월지급식의 상환 사건은 원금만이고(세전 ≤ 투자원금 · 과세 0 — V-29) 수익은 전부 월수익 사건이다. 월수익 순번 k마다: **기록이 있으면** `PAID` → 확정 사건(귀속 = `year(기록.payment_date)`, 과세 = 기록값을 `couponTaxableIncome()`으로 — 비과세 계좌는 0) · `UNPAID` → 사건 없음. **기록이 없으면** `t_k ≤ T_end`일 때 추정 사건(지급된 것으로 추정 — U5. 귀속 = `year(일정.payment_date)` — 평가일이 아니다, SB-5 — P8 계획 결정. 금액 `q_k` = `P × r_m / 12`를 상품 통화 보조단위로 절사한 값(아래 「형식」 — b1 개정), 과세는 DOC-007 §4.7·§4.8), 아니면 사건 없음. **확정/추정의 기준은 기록 유무다**(A-04 — 상환과 같다). `is_confirmed`는 별도의 표시 축이다(ST-05).
+2. **원금은 상환 사건에만 싣는다** — 월수익 사건의 원금 반환분은 0이다. §4.7의 배타 분할(한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 이것 하나에 기댄다.
+3. **추정 월수익은 시세를 쓰지 않는다.** 흐름 끝 안의 무기록 달은 조건과 무관하게 지급된 것으로 추정한다. §3.5의 조건 판정(`CouponConditionResult`)은 다음 한 행의 **표시 전용**이고 F에 쓰지 않는다 — 그래서 §8의 「`PRICE_WIDE`에는 세금이 없다」가 참으로 남는다.
+4. **E-09는 사건 단위로 빼고, 세는 단위는 상품이다.** 빠지는 것은 환율이 없는 추정 달러 **사건**뿐이고(위 달러 규칙 4) 확정 원화 과세는 늘 들어간다. 그 사실을 세는 세 필드 — `unconvertedCount`(그 해 추정 달러 사건 중 환율이 없어 빠진 것이 하나라도 있는 **상품** 수) · `convertedCount`(그 해 환산한 사건이 하나라도 있는 **상품** 수 — 환율은 요청당 통화별 하나라 한 상품이 둘에 동시에 들지 않는다) · `excludedForeignCount`(§4.7 — 상품 수) — 는 전부 **상품 수**다. DOC-008 ST-07 「달러 상품 n건」의 n과 짝이다. 월지급식이 한 상품에 사건 여럿을 내기 전까지 둘은 같았다 — a2·a3의 「건 수」가 틀린 적은 없고 코드는 처음부터 기여 행(= 상품)을 셌다(`queries/tax.ts`).
+
+**형식 (Q-07).** ⓐ 상품 통화 금액에 월수익 세전이 든다 — 기록의 `grossAmount` · `expectedAmount` · `remainingCoupons.byYear[].grossAmount` · `byCurrency[].receivedCoupons`. ⓑ 과세 축(원화 정수)에 기록의 `taxableIncome`·`withholdingTax` · `remainingCoupons.byYear[].taxableIncome` · §4.6 `breakdown`의 금액 · `income.confirmedElsTaxableIncome`·`estimatedElsTaxableIncome`이 든다. 비율 4자리에 `monthlyCouponAnnualRate`·`couponBarrier` · §4.2 `terms.monthlyCoupon`의 `annualRate`·`barrier`(b1 개정), 6자리(시세 부류)에 기록의 `exchangeRate`(적용 환율)가 든다. **월수익 금액의 정의는 하나다 — `q_k`는 `P × r_m / 12`를 상품 통화 보조단위로 절사한 값이다**(b1 개정 — DOC-007 RD-10 ③ 해결 · DOC-008 SQ-21 ⓒ 해결): 달러는 센트 미만 절사(투자설명서 원문 「센트미만은 절사」), 원화는 원 미만 절사(잠정 — RD-10 ①, 원문 근거가 없다). **F · 표시(`expectedAmount` · `remainingCoupons`) · 기록 화면(SCR-206)의 세전 기본값이 같은 값이다** — 같은 달의 금액을 두 화면이 다르게 적지 않는다. **절사는 집계의 반올림이 아니라 지급 금액의 정의다** — 월수익은 보조단위로 지급되므로 정확값 `P × r_m / 12`는 어디에도 지급되지 않는 수다. 그래서 DOC-007 §2 「집계는 반올림하지 않는다」와 충돌하지 않는다 — 합은 절사된 `q_k`들의 정확한 합이고 F 안에서 더 접지 않는다. `expectedAmount`가 Q-07의 `moneyString`을 지나도 값이 바뀌지 않는다(접을 자릿수가 이미 없다 — §5.1 `principal`과 같다). **달러 월수익의 원화 과세 `q_k × x`는 반올림하지 않는다**(검산 C — $202.00 × 1,385.20 = 279,810.4원, 출력에서만 Q-07 ⓑ로 접는다). 검산 값은 전부 그대로다(600,000 · $202.00 · 583,333 — 셋 다 이미 보조단위다). 원천징수의 끝수 규칙(Σ절사 대 절사Σ)은 여전히 RD-10 ②가 닫는다(검산 B-6). 월수익 금액을 담는 뷰 객체의 통화는 위 달러 규칙 1을 따른다 — §4.3의 `coupons[]`·`unnumberedCouponRecords[]`·`remainingCoupons`는 `product`의 형제이므로 `MONEY` 헬퍼가 루트의 `product.currency`를 본다.
+
+**왕복 — 늘지 않는다.** 월수익 두 테이블(`monthly_coupon_schedules` · `monthly_coupon_payments`)은 **상품이 루트인 로더**(`loadProducts` · `loadProduct`)의 **임베드**로 읽는다 — 위 왕복 표의 `getProduct` · `listProducts` · `getDashboard` · `getTaxSummary` · `getForecast` · `listUserSummaries`(§4.1 · §4.2 · §4.3 · §4.6 · §4.7 · §4.8)가 그대로다. **차수가 루트인 `loadScheduleRows`(§4.4)의 상품 임베드에는 넣지 않는다**(b1 개정 — DOC-010 AQ-77의 방향 유지). 지금은 세 로더가 같은 `PRODUCT_SELECT`를 쓰므로(`queries/load.ts`) 거기에 두 테이블을 더하면 그 상품의 월수익 전부가 **차수 수만큼 복제된다** — 그래서 b3은 `PRODUCT_SELECT`에 넣는 것이 아니라 **상품 루트 셀렉트와 차수 루트 셀렉트를 가른다.** 대가는 페이로드다(상품마다 최대 60행 × 두 테이블) — 실측은 DOC-010 AQ-77(컷 b3). `loadProducts`를 쓰는 §4.5 `listAssetPrices` · §4.11 `listExchangeRates`도 같은 임베드를 받는다 — 읽지 않는 행이라 값은 그대로이고 페이로드만 늘므로 AQ-77이 함께 잰다. 평가일정의 월수익 행은 `listMonthlyCouponSchedule`(§4.12)의 자기 루트 쿼리이고 그 왕복은 b3의 코드 커밋이 재서 위 표에 행으로 적는다.
+
+**컷별 도달 — §0의 원칙(스키마·계약 = b2, 화면 = b3, 세금·전망 = b4)대로 갈린다.**
+
+- **b2** — `CouponPayout`·`CouponOutcome`과 입력·기록 계약(§5.1·§5.2·§5.11의 `couponPayout` · §5.14·§5.15). **§4.3 `product.couponPayout`과 입력 계층의 「쿠폰 지급」 선택 상자(SCR-204 · SCR-205 — 선택지 「선택」 · 「상환 시 지급」. 「월지급식」은 b4 — SB-13)가 V-25와 같은 b2 코드 커밋에 선다** *(b1 개정 — 반박 검토 반영)*. V-25(필수 · 기본값 없음)만 b2에 서고 칸과 초기값이 b3에 서면, b2 배포(W4)부터 b3 배포(W5)까지 운영 폼의 등록 · 수정 · 기실현 등재가 전부 `fields.couponPayout`으로 거부된다 — 오류가 붙을 칸도 화면에 없다. 통화의 선례와 같다(a2-3a — V-22와 「선택 · 원화」 선택 상자가 같은 커밋). 수정 폼은 `product.couponPayout`으로 저장값을 되돌려 보낸다 — 그래서 그 필드가 b3이면 수정 경로에는 보낼 값이 없다. 저장값이 `MONTHLY`인 상품(dev 표본 · 통합 픽스처 — 계약으로만 만들 수 있다)을 b2~b3의 폼이 열면 선택지에 그 값을 더한다(`currencyOptionsOf` 선례 — DOC-008 SCR-204). 그 밖의 조회는 아직 월수익을 모른다.
+- **b3** — `CouponState`·`CouponConditionResult`와 표시 필드: §4.1 `receivedCoupons`·`COUPON_UNRECORDED`(와 그 `count`)·`realizedPnl`의 월수익 몫 · §4.2 `couponPayout`·`terms.monthlyCoupon`·`couponProgress` · §4.3 `monthlyCouponAnnualRate`·`coupons`·`unnumberedCouponRecords`·`realizedPnl`의 월수익 몫(§4.3 `couponPayout`은 b2 — 위) · 결함 `COUPON_SCHEDULE_MISSING` · §4.12.
+- **b4** — `ContributionBasis`와 **과세에 닿는 것 전부**: 월수익 사건이 F에 들어간다(§4.1 `currentYearTax` · §4.3 `remainingCoupons` · §4.6 `basis`·`breakdown`·확정/추정 분할 · §4.7(가정 표식 `monthlyCouponAssumption` 포함) · §4.8). 같은 사건 집합을 읽는 필드는 한 컷에 함께 선다 — 갈라 서면 §4.3과 §4.6이 같은 상품에 다른 과세를 말한다(v0.8이 고친 「두 화면 모순」의 부류). `remainingCoupons`는 SCR-202 ⑤(화면)에 쓰이지만 이 이유로 b4에 둔다 — 이 경계를 b1 개정이 받아들였다(§9 ⑮ 해결).
+- **b2~b4 사이** — 계약은 `MONTHLY`와 기록을 받지만(통합 테스트 · dev 표본 — SB-13) 과세는 아직 월수익 사건을 모르므로, 그 동안 월지급 상품의 F 기여는 상환 사건(원금만 — r = 0이라 과세 0)뿐이다. 폼이 b4까지 「월지급식」을 고를 수 없으므로 운영 사용자에게는 이 상태가 생기지 않는다.
 
 ### 4.1 대시보드 — SCR-101
 
@@ -448,8 +530,10 @@ type DashboardView = {
       currency: ProductCurrency
       activeCount: number
       activePrincipal: string           // 상품 통화 (Q-07 ⓐ)
-      realizedPnl: string               // 상품 통화. 음수 가능
-    }>                                  // KRW → USD 순. 상품 0건이면 [{ KRW, 0, '0', '0' }]
+      realizedPnl: string               // 상품 통화. 음수 가능. v4.16 — 상환된 상품만 · 월수익 포함 (아래 「통화별 합계」)
+      /** v4.16 (P8 컷 b1 명세 · 구현 b3) — 받은 월수익: 보유중 월지급 상품의 PAID 월수익 합. 상품 통화 (민서 결정(2026-10-02) ②) */
+      receivedCoupons: string
+    }>                                  // KRW → USD 순. 상품 0건이면 [{ KRW, 0, '0', '0', '0' }]
     /** v4.9 (P8 컷 a3) — 원화 환산 추정. 보유중 외화 원금이 있을 때만 객체다 */
     krwEstimate: {
       activePrincipal: string | null    // 원화 + Σ 외화 × 추정 환율. null = 환율 없음 (E-09)
@@ -462,8 +546,8 @@ type DashboardView = {
     isComprehensive: boolean
     additionalTax: string
     exchangeRateBasis: ExchangeRateBasisView | null     // v4.9 (P8 컷 a3) — 달러 추정을 환산했으면
-    convertedCount: number              // v4.9 (P8 컷 a3) — 추정 환율로 환산해 넣은 달러 추정 건 수
-    unconvertedCount: number            // v4.9 (P8 컷 a2) — 환율이 없어 빠진 추정 건 수 (E-09)
+    convertedCount: number              // v4.9 (P8 컷 a3) — 추정 환율로 환산해 넣은 사건이 있는 상품 수 (v4.16 — 종전 「건 수」)
+    unconvertedCount: number            // v4.9 (P8 컷 a2) — 환율이 없어 빠진 추정 사건이 있는 상품 수 (E-09 · v4.16 — 종전 「건 수」)
   }
   attentionItems: Array<{
     productId: string
@@ -477,6 +561,10 @@ type DashboardView = {
       | 'PRICE_MISSING'
       | 'UNDERLYING_MISSING'   // 무결성 결함 (§4.2)
       | 'SCHEDULE_MISSING'
+      | 'COUPON_SCHEDULE_MISSING'  // v4.16 (P8 컷 b1 명세 · 구현 b3) — 무결성 결함 (§4.2). 월지급식 FULL인데 월수익 일정 0행. 조치 사유로도 싣는다 (DOC-008 SQ-21 ⓓ 해결 — b1 개정)
+      | 'COUPON_UNRECORDED'    // v4.16 (같음) — 월수익 미기록 (DOC-007 E-10). 상품 단위 · 상환된 상품에서도 뜬다
+    /** v4.16 (구현 b3 · b1 개정) — `COUPON_UNRECORDED`에만: 그 상품의 미기록 달 수(「n개월 미기록」의 n). 다른 사유에는 없다 */
+    count?: number
   }>
   recentRedemptions: Array<{
     productId: string
@@ -486,7 +574,7 @@ type DashboardView = {
     redemptionDate: string
     currency: ProductCurrency         // v4.9 (P8 컷 a2) — grossAmount·realizedPnl의 통화
     grossAmount: string
-    realizedPnl: string               // 파생값. 음수 가능
+    realizedPnl: string               // 파생값(포트폴리오 손익). 음수 가능. v4.16 — 월지급 상품은 Σ PAID 월수익 포함
     isConfirmed: boolean
   }>
 }
@@ -502,7 +590,7 @@ type DashboardView = {
 >
 > **`worstOf`를 담는 다른 세 뷰는 사정이 다르다** — §4.2 `ProductListItem`·§4.3 `ProductDetailView`·§4.4 `ScheduleItem`이 `integrityIssue`를 함께 담으므로 그쪽에서는 원인이 갈린다(그 셋이 `deriveDisplay`의 소비자인 이유다). 이 필드의 뜻이 뷰마다 다른 것이 아니라, **`worstOf`를 담는 뷰 넷 중 원인을 갈라 말할 수 없는 것이 이 뷰 하나**다.
 
-**`upcomingEvaluations`는 기간 창을 두지 않는다.** 미상환 상품의 다음 평가일(DOC-007 §9.2 `nextEvaluation`) 전체를 `dDay` 오름차순으로 반환하며, 표시 건수는 화면이 정한다. "임박"의 경계를 계약에 박으면 그 값이 어느 문서에도 근거가 없는 상수가 되고, 창 밖의 상품은 화면에서 사라져 SCR-101의 목적("곧 평가일이 오는 상품이 있는가")이 조용히 좁아진다. 이미 경과한 차수는 이 목록이 아니라 `attentionItems`의 `EVALUATION_PASSED`가 담당한다(DOC-007 §9.2가 두 구간을 배타적으로 나눈다).
+**`upcomingEvaluations`는 기간 창을 두지 않는다.** 미상환 상품의 다음 평가일(DOC-007 §9.2 `nextEvaluation`) 전체를 `dDay` 오름차순으로 반환하며, 표시 건수는 화면이 정한다. "임박"의 경계를 계약에 박으면 그 값이 어느 문서에도 근거가 없는 상수가 되고, 창 밖의 상품은 화면에서 사라져 SCR-101의 목적("곧 평가일이 오는 상품이 있는가")이 조용히 좁아진다. 이미 경과한 차수는 이 목록이 아니라 `attentionItems`의 `EVALUATION_PASSED`가 담당한다(DOC-007 §9.2가 두 구간을 배타적으로 나눈다). **이 목록은 조기상환 차수만 담는다** *(v4.16 — P8 컷 b1, DOC-008 SQ-18 해소)* — 월수익 평가일은 매월이라 월지급 상품이 있으면 늘 「임박」이고, 섞으면 조기상환 평가일이 그 아래로 밀린다. 월수익 일정은 SCR-301(§4.12)과 SCR-202 ⑦(§4.3 `coupons`)이 보여 준다.
 
 > **`KI_BELOW`를 신설한 이유 (v0.6).** 종전 열거값에는 표시 등급 `BELOW`(`W ≤ ki_barrier`, DOC-007 §3.4)와 터치 후보에 해당하는 값이 없었다. 그런데 시스템이 `ki_touched_at`을 자동 확정하지 않으므로(D-04) **이 상태가 사용자 확인이 필요한 유일한 상태**이고, 조치 목록의 존재 이유에 가장 가깝다. `KI_NEAR`(주의)로 접으면 확인 요청이 경고로 격하되고 `KI_TOUCHED`로 접으면 확정되지 않은 사실을 확정으로 표시한다.
 
@@ -514,13 +602,21 @@ type DashboardView = {
 | `UNDERLYING_MISSING` + 경과 평가일 | `['UNDERLYING_MISSING', 'EVALUATION_PASSED']` |
 | `UNDERLYING_MISSING` | `PRICE_MISSING`을 **내지 않는다** |
 | `SCHEDULE_MISSING` + 시세 없음 | `PRICE_MISSING`을 낸다 (진짜 E-01이다) |
-| 상환 완료 + 결함 | 결함만. 상환은 결함을 해소하지 않는다 |
+| 상환 완료 + 결함 | 결함만. 상환은 결함을 해소하지 않는다 *(v4.16 — 월수익 미기록은 함께 뜬다, 아래 행)* |
+| 상환 완료 + 월수익 미기록 *(v4.16)* | `['COUPON_UNRECORDED']` — **E-05의 조기 반환 앞에서** 계산한다(SB-1 — P8 계획 결정). 상환된 상품의 흐름 끝(상환일) 안 무기록 달은 추정에 지급으로 들어가 있으므로 기록을 요구할 이유가 상환 뒤에도 남는다 |
+| 월수익 미기록 + KI 하회 *(v4.16)* | `['COUPON_UNRECORDED', 'KI_BELOW']` |
+| `COUPON_SCHEDULE_MISSING` *(v4.16)* | 결함만이 아니다 — 파괴한 입력이 월수익뿐이므로(§4.2 D1) 시세·차수에서 나오는 사유(KI · `PRICE_MISSING` · `EVALUATION_PASSED`)는 그대로 함께 뜬다 |
+| `COUPON_SCHEDULE_MISSING` + 다른 결함 *(v4.16 — b1 개정)* | **앞 결함 하나만** — 결함 사유는 `integrityIssue`(값 하나)에서 오므로 기존 결함 사유의 규칙 그대로다(`UNDERLYING_MISSING` → `SCHEDULE_MISSING` → `COUPON_SCHEDULE_MISSING` — §4.2 D1). 셋째 결함은 앞 결함을 고친 뒤 드러난다. 함께 뜨는 사유는 보고된 결함이 파괴한 입력을 따른다 |
 
 > **억제하면 그 상태가 시스템 어디에서도 보이지 않는다.** 일정 0건 상품은 §4.4에 **행이 생기지 않고** `upcomingEvaluations`도 `nextEvaluation = null`로 제외하므로, **이 목록이 유일한 창구다.** `KI_BELOW`는 사용자 확인이 필요한 유일한 상태인데(D-04, 위 각주), 결함으로 가리면 결함을 고치기 전까지 그 확인 요청이 사라진다. 결함 수정(SCR-204)과 KI 확인은 **다른 조치**다.
 >
 > **`PRICE_MISSING`은 시세 입력이 파괴된 결함에서 내지 않는다.** 그 표시는 "시세가 수집되면 해소된다"는 약속인데, 기초자산 0건에서 그것은 **영원히 오지 않을 시세를 기다리게 하는** 바로 그 상태다(DOC-007 §3.1, §4.2 순위표가 존재하는 이유). 판별은 결함 이름이 아니라 **파괴된 입력**으로 한다 — 이름으로 판별하면 시세 입력을 파괴하는 세 번째 결함이 생겼을 때 조용히 틀린다.
 
-**배열의 순서는 결함 우선으로 고정한다 (v0.8).** 결함은 사용자가 직접 고쳐야 해소되고(SCR-204) 나머지는 시장 상황이므로 조치의 성격이 다르다. 순서를 정하지 않으면 구현이 임의로 정하고, 화면은 첫 사유를 대표값으로 읽는다. 결함 다음은 KI(`TOUCHED` → `BELOW` → `NEAR` 중 하나) → `PRICE_MISSING` → `EVALUATION_PASSED`다.
+> **셋째 결함도 조치 사유다 (v4.16 — b1 개정, 반박 검토 반영).** `COUPON_SCHEDULE_MISSING`은 위 유니온에 있고 화면은 계약이 준 사유를 거르지 않는다 — DOC-008 SQ-21 ⓓ의 「④가 결함 사유로도 싣는가」는 이 계약으로 해결이고, SCR-101 ④ 사유 표 · DOC-005 라벨 축(`attentionReason`)에 그 값이 b3 코드 커밋에 함께 온다(`ATTENTION_REASON_LABELS` · `ATTENTION_REASON_GRADES`가 `Record<AttentionReason, …>`이므로 유니온이 늘면 컴파일이 그것을 요구한다).
+
+**배열의 순서는 결함 우선으로 고정한다 (v0.8).** 결함은 사용자가 직접 고쳐야 해소되고(SCR-204) 나머지는 시장 상황이므로 조치의 성격이 다르다. 순서를 정하지 않으면 구현이 임의로 정하고, 화면은 첫 사유를 대표값으로 읽는다. 결함 다음은 KI(`TOUCHED` → `BELOW` → `NEAR` 중 하나) → `PRICE_MISSING` → `EVALUATION_PASSED`다. *(v4.16 — P8 컷 b1 명세 · 구현 b3: **결함 → `COUPON_UNRECORDED` → (상환 완료면 여기서 끝 — E-05) → KI → `PRICE_MISSING` → `EVALUATION_PASSED`**(DOC-007 §9.4 E-10). 월수익 미기록이 KI보다 앞인 이유는 결함과 같다 — 사용자가 거래내역을 옮겨야 해소되고 시장 상황으로는 사라지지 않는다.)*
+
+> **`COUPON_UNRECORDED`는 상품 단위다 (v4.16).** 미기록 달이 여럿이어도 한 상품에 한 항목이고 화면은 「n개월 미기록」으로 말한다(DOC-008 SCR-101 ④). 주의는 **월수익 지급일 다음 날부터**다 — `CouponState = 'UNRECORDED'`의 조건이 `p_k < asOf`이므로 경과일(`asOf − p_k`)은 1 이상이다(U5. DOC-007 검산 E — 지급일 2026-10-21 · 기준일 2026-10-25면 4일. 평가일부터 세지 않는다). **n은 그 항목의 `count`다** *(b1 개정 — §9 ② 해결)* — 그 상품에서 `CouponState = 'UNRECORDED'`인 달의 수이고 1 이상이다. 다른 사유의 항목에는 없다(선택 필드). 화면이 다른 뷰에서 세지 않는다 — 세면 E-10의 판정을 계약 밖에서 다시 하게 되고(DOC-010 AQ-23 부류) SCR-101 ③이 `convertedCount`를 계약에서 받는 근거와 같다.
 
 > **`attentionItems[].ownerName` 신설 (v2.0, P4 컷 9).** 종전 항목은 `productId`·`productName`·`reason` 셋이었고 **소유자를 말하지 않았다.** `scope = 'ALL'`에서 그것이 문제가 된다 — 이 목록의 사유는 저마다 조치를 지목하는데(`KI_BELOW` → SCR-202에서 사용자가 터치를 확정한다, 결함 둘 → SCR-204에서 고친다) **그 조치는 소유자만 할 수 있다**(ST-04·W-01). 소유자를 모르면 사용자는 자기가 할 수 없는 일이 목록에 있는 이유를 알 수 없고, 상세로 들어가서야 액션이 없음을 발견한다. 같은 뷰의 `upcomingEvaluations`가 이미 `ownerName`을 담고 있으며 그 필드가 있는 이유가 정확히 이것이다 — **한 뷰 안에서 두 목록의 주어가 달랐다.** `scope = 'MINE'`에서는 전부 본인이므로 중복이지만, 그 중복은 표시 계층이 지우면 되고 부재는 채울 수 없다.
 
@@ -550,8 +646,9 @@ type DashboardView = {
 | 필드 | 정의 |
 |---|---|
 | `activeCount` | 보유중 상품 수. **개수는 통화를 넘어 더한다** — 단위가 없으므로 `= Σ byCurrency[].activeCount`가 항등식이다 |
-| `byCurrency[]` | 범위(`scope`) 안에 상품이 하나라도 있는 통화마다 한 행이며 **보유중·상환 완료를 가리지 않는다**(`realizedPnl`이 상환 완료 상품에서 나온다). 순서는 `ProductCurrency`의 선언 순서(KRW → USD)이고 금액 순이 아니다. **상품이 0건이면 `[{ currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0' }]` 한 행**이다 — 빈 배열을 주지 않는다(종전 `totals`가 0건에서 `'0'`을 준 것과 같은 모양이고, §4.7 「빈 상태를 `[]`로 표현하지 않는다」와 같은 판단) |
-| `byCurrency[].realizedPnl` | 그 통화 상품들의 포트폴리오 손익 합(DOC-005 — 실수령액 − 투자원금. 월수익을 더하는 산식은 컷 b1의 명세). 음수 가능. **항등식은 통화별이다** — `byCurrency[c].realizedPnl = Σ recentRedemptions[currency = c].realizedPnl`. 통화를 넘는 합은 값이 아니므로 항등식도 아니다 |
+| `byCurrency[]` | 범위(`scope`) 안에 상품이 하나라도 있는 통화마다 한 행이며 **보유중·상환 완료를 가리지 않는다**(`realizedPnl`이 상환 완료 상품에서 나온다). 순서는 `ProductCurrency`의 선언 순서(KRW → USD)이고 금액 순이 아니다. **상품이 0건이면 `[{ currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0', receivedCoupons: '0' }]` 한 행**이다(`receivedCoupons`는 v4.16) — 빈 배열을 주지 않는다(종전 `totals`가 0건에서 `'0'`을 준 것과 같은 모양이고, §4.7 「빈 상태를 `[]`로 표현하지 않는다」와 같은 판단) |
+| `byCurrency[].realizedPnl` | 그 통화 상품들의 포트폴리오 손익 합(DOC-005 — 실수령액 − 투자원금. ~~월수익을 더하는 산식은 컷 b1의 명세~~). 음수 가능. **항등식은 통화별이다** — `byCurrency[c].realizedPnl = Σ recentRedemptions[currency = c].realizedPnl`. 통화를 넘는 합은 값이 아니므로 항등식도 아니다. *(v4.16 — P8 컷 b1 명세 · 구현 b3)* **상환된 상품만 넣는다**(민서 결정(2026-10-02) ②) — 상환된 월지급 상품의 손익은 상환 세전 + Σ 지급(`PAID`) 월수익 − 투자원금이다(DOC-007 §7.7 · 검산 B-2: 60,000,000 + 18,000,000 − 100,000,000 = −22,000,000). **항등식은 그대로 선다** — `recentRedemptions[].realizedPnl`의 정의를 같은 산식으로 넓혔고, 보유중 상품의 월수익은 이 합에도 저 배열에도 없다(아래 `receivedCoupons`) |
+| `byCurrency[].receivedCoupons` *(v4.16)* | **받은 월수익** — 그 통화의 **보유중** 월지급 상품이 이미 받은 월수익(`PAID` 기록의 세전) 합. 상품 통화 · 0 이상. **실현손익에 넣지 않는다**(민서 결정(2026-10-02) ②) — 만기에 KI 손실이 나면 원금 손실과 월수익을 합쳐야 손익이 확정되므로, 상환 전의 월수익을 손익으로 부르면 나중에 부호가 뒤집힐 값을 확정처럼 보인다. 그 상품이 상환되는 순간 이 합에서 빠져 `realizedPnl`로 옮겨 간다. 상환 시 지급 상품만 있으면 `'0'`이고 화면은 그 줄을 그리지 않는다(DOC-008 SCR-101 ②) |
 | `krwEstimate` | **보유중 외화 원금이 있을 때만** 객체다(외화 행의 `activeCount > 0`). 원화 전용이거나 외화 상품이 전부 상환 완료면 `null`이다 — 상환된 외화 상품의 손익은 환산하지 않는다(환차손익은 모델 밖 — DOC-002 DQ-15 · DOC-007 RD-15) |
 | `krwEstimate.activePrincipal` | `Σ byCurrency[c].activePrincipal × x(c)`(원화는 `x = 1`)를 원 단위로 접은 값(Q-07 ⓑ). **외화 중 하나라도 추정 환율이 없으면 `null`이다 — 부분합을 주지 않는다.** 부분합은 합계처럼 보이고, 빠지는 몫이 원금 통째라 「건 단위로 빼고 센다」(§4.0 규칙 3)가 여기서는 정직한 표시가 되지 못한다 |
 | `krwEstimate.exchangeRateBasis` | 쓴 추정 환율. `activePrincipal`과 **함께 빈다** |
@@ -560,9 +657,9 @@ type DashboardView = {
 
 **② 마커는 여전히 `totals` 한 키다.** `tests/app/dashboard.test.ts`의 `ELEMENT_SOURCES`가 ②를 `totals`로 사상하고 그 사상은 바뀌지 않는다 — 새 필드는 ②의 **안쪽**이다. ⑥을 만들지 않는다.
 
-**`currentYearTax`의 세 필드.** 값은 §4.6 `income`과 **같은 집계**이고 E-09도 같다 — 확정 원화 과세는 늘 들어가고 추정이 필요한 달러 건만 환율이 없을 때 빠진다. `unconvertedCount`가 그 건 수이며(§4.6 `income.unconvertedCount`와 같은 값) `exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다. **`convertedCount`는 환산해 넣은 달러 추정 건 수다** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음(§4.6 `income.convertedCount`와 같은 값). DOC-008 SCR-101 ③의 「달러 상품 n건의 추정을 원화로 환산해 포함했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌(`TAX_FREE`)와 달러 이익 ≤ 0의 달러 추정은 환율 없이 0이므로(DOC-007 §4.8 · 검산 A-2) **어느 쪽으로도** 세지 않는다. 홈은 이 값들로 ③의 불완전함과 환산 사실을 말한다 — 문구는 DOC-008 ST-07이다.
+**`currentYearTax`의 세 필드.** 값은 §4.6 `income`과 **같은 집계**이고 E-09도 같다 — 확정 원화 과세는 늘 들어가고 추정이 필요한 달러 건만 환율이 없을 때 빠진다. `unconvertedCount`가 그 ~~건 수~~ **상품 수**이며(§4.6 `income.unconvertedCount`와 같은 값) `exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다. **`convertedCount`는 환산해 넣은 달러 추정 ~~건 수~~ 사건이 있는 상품 수다** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음(§4.6 `income.convertedCount`와 같은 값). *(v4.16 — 세는 단위는 상품이다. §4.0 「쿠폰 지급방식과 월수익」 규칙 4. 월지급식은 한 상품에 사건이 여럿이라 둘이 갈린다 — 달러 추정 월수익의 과세에는 원금이 없으므로 `max(0, …)`가 없고 늘 환율이 필요하다, DOC-007 §4.8)* DOC-008 SCR-101 ③의 「달러 상품 n건의 추정을 원화로 환산해 포함했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌(`TAX_FREE`)와 달러 이익 ≤ 0의 달러 추정은 환율 없이 0이므로(DOC-007 §4.8 · 검산 A-2) **어느 쪽으로도** 세지 않는다. 홈은 이 값들로 ③의 불완전함과 환산 사실을 말한다 — 문구는 DOC-008 ST-07이다.
 
-**컷**: `byCurrency`·`recentRedemptions[].currency`·`unconvertedCount`는 a2, `krwEstimate`·`exchangeRateBasis`·`convertedCount`는 a3다(§4.0 「컷별 도달」 — a2에는 추정 환율이 없어 `convertedCount`가 늘 0인 구조적 상수다).
+**컷**: `byCurrency`·`recentRedemptions[].currency`·`unconvertedCount`는 a2, `krwEstimate`·`exchangeRateBasis`·`convertedCount`는 a3다(§4.0 「컷별 도달」 — a2에는 추정 환율이 없어 `convertedCount`가 늘 0인 구조적 상수다). *(v4.16)* `receivedCoupons` · `realizedPnl`의 월수익 몫 · `COUPON_UNRECORDED`(와 그 `count` — b1 개정) · `COUPON_SCHEDULE_MISSING`은 b3, `currentYearTax`에 월수익 사건이 드는 것은 b4다(§4.0 「쿠폰 지급방식과 월수익」 컷별 도달). `krwEstimate`는 바뀌지 않는다 — 원금만 환산하고 받은 월수익은 환산하지 않는다(사실은 통화별 — DOC-007 §7.7).
 
 ### 4.2 상품 목록 — SCR-201
 
@@ -594,8 +691,21 @@ type ProductListItem = {
   worstOf: string | null
   conditionResult: 'EARLY' | 'LIZARD' | 'CARRY_OVER' | null
   kiStatus: 'NO_KI' | 'SAFE' | 'WARNING' | 'BELOW' | 'TOUCHED' | null
-  integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | null
+  integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | 'COUPON_SCHEDULE_MISSING' | null  // 셋째는 v4.16 (구현 b3) — 아래 D1
   isOwner: boolean                      // 액션 버튼 노출 판단
+  couponPayout: CouponPayout            // v4.16 (P8 컷 b1 명세 · 구현 b3) — 쿠폰 지급방식 (§4.0)
+
+  /**
+   * 월수익 진행 — v4.16 (구현 b3). DOC-008 SCR-201 ⑮ 「지급 5/36 · 다음 D-12」의 자료원.
+   * `null` = 상환 시 지급(그 축이 없다), 또는 결함 `COUPON_SCHEDULE_MISSING`의 억제(D1 — 원인은 `integrityIssue`가 말한다),
+   * 또는 기실현 월지급(일정 0행 — 분모가 없다. b1 개정 · §9 ⑤ 해결)
+   */
+  couponProgress: {
+    paid: number                        // PAID 기록 수 — 「지급 5/36」의 분자. UNPAID는 세지 않는다
+    recorded: number                    // 기록 수(PAID + UNPAID)
+    total: number                       // 월수익 일정 행 수 — 분모
+    nextEvaluationDate: string | null   // 다음 월수익 평가일 — 「다음 D-12」. 기준일 당일 포함. 상환 완료이거나 남은 평가일이 없으면 null
+  } | null
 
   /**
    * 기초자산별 **관측** — `terms.underlyings`의 형제다 (v3.4 신설, DOC-008 §5 ⑧)
@@ -625,8 +735,16 @@ type ProductListItem = {
    * 있다(오히려 그때 화면이 보여줄 것이 이것뿐이다).
    */
   terms: {
-    /** `null` = 기실현 등재 (v3.2. `entryMode`의 짝이며 I-18이 `FULL`에서 보장한다) */
+    /**
+     * `null` = 기실현 등재 (v3.2. `entryMode`의 짝이며 I-18이 `FULL`에서 보장한다).
+     * v4.16 — 월지급식 FULL이면 `'0.0000'`이다(I-23 · V-08′). 수익은 아래 `monthlyCoupon`에 있다
+     */
     annualCouponRate: string | null
+    /**
+     * v4.16 (구현 b3) — 월지급식 FULL의 월수익 조건. 상환 시 지급 · 기실현 등재(일정 없음)면 null (I-23 · b1 개정).
+     * `barrier` = 모든 월수익 일정 행의 월수익 배리어가 같을 때 그 값, 다르면 null(화면 「월수익 배리어 달마다 다름」)
+     */
+    monthlyCoupon: { annualRate: string; barrier: string | null } | null
     kiBarrier: string | null            // null = 노낙인 (I-11의 짝)
     kiObservation: 'CONTINUOUS' | 'CLOSING' | null
     /**
@@ -669,6 +787,8 @@ type ProductListItem = {
 > **금액·비율은 문자열이다** — `basePrice`는 `numeric(18,6)`, 비율은 `numeric(6,4)`의
 > `::text`다(§4.0 Q-08). 화면이 `priceDisplay`·`percent`로 표시만 바꾼다.
 
+> **월수익 세 필드 — `couponPayout` · `terms.monthlyCoupon` · `couponProgress` (v4.16 선행 명세 — P8 컷 b1, 구현 b3).** `terms`에 드는 것은 **계약 조건**(월수익 연쿠폰율 · 월수익 배리어)뿐이고 진행(`couponProgress`)은 기록에서 나오는 관측이라 `terms` 밖에 둔다 — `terms`가 「D1이 미치지 않는다」로 정의된 것과 같은 가름이다(진행은 결함에 억제된다). **왕복은 늘지 않는다** — 월수익 두 테이블이 `loadProducts`(상품 루트)의 임베드로 오기 때문이다(§4.0 「쿠폰 지급방식과 월수익」 — 차수 루트 셀렉트에는 넣지 않는다, b1 개정). `couponProgress.paid`는 **`PAID`만** 센다 — 「지급 5/36」은 받은 달 수이고 미지급을 기록한 달은 분자에 들지 않는다(DOC-008 SCR-201 ⑮). `nextEvaluationDate`는 §4.2 `nextEvaluation`과 같은 규칙(기준일 당일 포함 가장 이른 날, 상환 완료면 `null`)을 월수익 일정에 적용한 것이고 **조기상환 차수와 섞지 않는다**. **SCR-201 ⑮의 「월수익 배리어 50%」는 `terms.monthlyCoupon.barrier`다** *(b1 개정 — §9 ③ 해결. 표시어가 「월수익 배리어」인 것은 DOC-005 §8.2가 수식어 없는 「배리어」를 금하기 때문이다)*. 월수익 배리어는 일정 **행마다** 있으므로 대표값을 따로 정의한다: 모든 행이 같으면 그 값, 다르면 `null`이고 화면은 「월수익 배리어 달마다 다름」을 적는다. 결함 `COUPON_SCHEDULE_MISSING`(일정 0행)이면 고를 값이 없어 `null`이다 — `terms`는 D1이 억제하지 않으므로 `annualRate`는 남는다. **그래서 `barrier = null`의 뜻이 둘이고 `integrityIssue`가 가른다** *(b1 개정 — 반박 검토 반영)* — `integrityIssue = 'COUPON_SCHEDULE_MISSING'`인 상품은 화면이 월수익 요약을 그리지 않고 결함 문구를 따른다(DOC-008 SCR-201 · ST-06 — 「달마다 다름」은 일정이 있을 때만 참이다).
+
 **`sortBy = 'PRINCIPAL'`은 상품 통화로 먼저 묶고 그 안에서 원금 큰 순이다 (v4.9 선행 명세 — P8 컷 a1, 구현 a2. DOC-008 SQ-15의 계약 쪽 규칙).** 종전 정렬은 `principal`만 비교했고(`queries/products.ts`) 통화를 보지 않는다 — 달러 상품이 들어오면 `$70,000`(약 9,700만 원)이 `10,000,000원`보다 뒤에 온다. 형식은 정상이고 순서만 거짓이다.
 
 - **통화 순서는 `ProductCurrency`의 선언 순서(KRW → USD)다.** 그 안에서 원금 큰 순이고, 동률은 종전처럼 입력 순서를 지킨다(안정 정렬).
@@ -689,6 +809,8 @@ type ProductListItem = {
 | 1 | **무결성 결함 (I-07)** | `integrityIssue ≠ null` | "기초자산 없음 — 수정 필요". 시세를 기다려도 해소되지 않는다. SCR-204로 유도한다 |
 | 2 | E-05 상환 완료 | `status = 'REDEEMED'` | 판정 생략 — 표시값은 상환 실적이다. 영구적이다 |
 | 3 | E-01 시세 없음 | `status = 'ACTIVE'` 이고 `worstOf = null` | "시세 없음" — 시세가 수집되면 값이 생긴다 |
+
+> **1순위의 조건은 「판정 입력을 파괴한 결함」이다 (v4.16 — P8 컷 b1 명세 · 구현 b3).** `COUPON_SCHEDULE_MISSING`은 `integrityIssue ≠ null`이지만 파괴한 입력이 **월수익뿐이라**(아래 D1) `conditionResult`·`kiStatus`를 억제하지 않는다. 그 상품의 `null`은 결함 때문이 아니므로 1순위로 잡으면 시세가 없는 것을 「수정 필요」로 잘못 설명한다 — 그 상품의 `null`은 2·3순위가 그대로 가른다. 판별은 결함 **이름**이 아니라 **파괴된 입력**으로 한다(§4.1 `PRICE_MISSING`이 이미 그 규칙이다). 결함 자체의 표시는 DOC-008 ST-06이다.
 
 **순위가 필요한 이유.** 무결성 결함 상품은 `status = 'ACTIVE'`이고 `worstOf = null`이므로 3순위 조건을 **그대로 만족한다.** 순서를 정하지 않으면 화면이 "시세 없음"을 표시하며 **영원히 오지 않을 시세를 기다린다** — DOC-007 §3.1의 각주가 막으려던 바로 그 상태다. `integrityIssue`는 그 두 상태와 성질이 다르므로 `status`로 구분할 수 없고 별도 필드가 필요하다.
 
@@ -712,6 +834,8 @@ type ProductListItem = {
 | §4.1 조치 사유 | 사유별로 다르다 | §4.1의 표 | §4.1의 표 |
 
 > `SCHEDULE_MISSING` 열의 `null`은 **억제가 아니라 자연 결과**다 — 차수가 0건이면 고를 적용 차수가 없다. 둘을 구분하지 않으면 차수가 생겼을 때 무엇이 되살아나야 하는지 알 수 없다.
+
+> **셋째 결함 `COUPON_SCHEDULE_MISSING` (v4.16 선행 명세 — P8 컷 b1, 구현 b3).** 월지급식(`MONTHLY`) FULL인데 월수익 일정이 0행이다(I-25 위반 — 쓰기 함수 꼬리 검사 `els_products_monthly_schedules_required`가 계약 경로를 막고, 직접 INSERT 우회만 남는다 — §3.2.1. **그 꼬리 검사는 b2의 쓰기 쪽이고 이 결함의 판정 · 표시는 b3다** — 둘은 다른 것이다, b1 개정 · DOC-008 ST-06). **파괴한 입력은 월수익이다** — `DestroyedInput`에 `'COUPONS'`가 더해지고, 억제는 **월수익 사건과 그 표시뿐**이다. 위 표의 모든 행이 이 결함에서 「산출」이다(상환 판정은 산다). 월수익 쪽 파생값(§4.2 `couponProgress` · §4.3 `coupons`·`remainingCoupons` · §4.6 월수익 사건 · §4.1 `COUPON_UNRECORDED`)은 억제된다 — 일정이 없어 어차피 비지만, `SCHEDULE_MISSING` 열과 같은 이유로 「억제」와 「자연 결과」를 이름으로 가른다. **`integrityIssue`는 값이 하나다** — 우선순위는 **기존 결함 다음**이다(`UNDERLYING_MISSING` → `SCHEDULE_MISSING` → `COUPON_SCHEDULE_MISSING`). 결함이 둘인 상품은 앞의 것만 보고되고, 뒤의 것은 앞의 것을 고친 뒤에 드러난다 — `DESTROYED_BY`도 값이 하나이므로 억제가 보고된 결함을 따른다. **기실현 월지급은 이 결함이 아니다** — 일정 0행이 정의다(I-25는 `FULL`만 본다).
 
 **★ 이 표는 `integrityIssue` 축만 규정한다 — E-05는 별개 축이다.** 위 표의 "산출"은 **결함 축이 막지 않는다**는 뜻이지 값이 반드시 나온다는 뜻이 아니다. E-05(상환 완료)는 **독립적으로 적용되며**, 두 축이 겹치면 둘 다 걸리고 막는 쪽이 이긴다.
 
@@ -751,6 +875,8 @@ type ProductListItem = {
 
 **단 하나의 예외 — 상환이 취소된 기실현 상품은 결함이다.** `deleteRedemption`이 그 상품을 보유중으로 되돌리면 계약 조건도 상환도 없는 상태가 되고(DOC-002 §7), 그때는 `integrityIssue = 'UNDERLYING_MISSING'`이다. 즉 이 축의 판정은 `entry_mode`만이 아니라 **`entry_mode` ∧ 상환 존재**다. `entry_mode`만 보면 판정 입력이 하나도 없는 보유중 상품이 정상으로 읽힌다.
 
+> **기실현 월지급 (v4.16 선행 명세 — P8 컷 b1).** `coupon_payout = 'MONTHLY'`인 기실현 등재는 연쿠폰율도 월수익 연쿠폰율도 `NULL`이고(I-23 — `REALIZED_ONLY`는 계약 조건이 없다, D-07) 월수익 일정이 0행이며, 월수익 이력은 등재 뒤 §5.14로 **순번 없는 `PAID` 기록**을 적는다(I-27 · DOC-008 SQ-17). 그 기록은 **확정 사건**이다(귀속 = 지급일 연도 — §4.0 「쿠폰 지급방식과 월수익」 규칙 1). 일정 0행이 정의이므로 `COUPON_SCHEDULE_MISSING`이 **아니다**(위 D1 각주). **표시는 b1 개정이 정했다**(§9 ⑤ 해결 · DOC-008 SQ-17의 계약 쪽) — 목록(§4.2)에서 `terms.monthlyCoupon = null` · `couponProgress = null`(분모가 없다), 상세(§4.3)에서 `coupons = []`이고 순번 없는 기록은 형제 필드 `unnumberedCouponRecords`(지급일 순)에 실린다 — `coupons`는 일정 행마다라 순번 없는 기록이 들 자리가 없기 때문이다. 상품당 기록은 60건 이하다(V-27 — b1 개정).
+
 ### 4.3 상품 상세 — SCR-202
 
 ```ts
@@ -775,8 +901,11 @@ type ProductDetailView = {
     entryMode: 'FULL' | 'REALIZED_ONLY' // v3.2. 목록과 같은 필드다
     worstOf: string | null
     kiStatus: 'NO_KI' | 'SAFE' | 'WARNING' | 'BELOW' | 'TOUCHED' | null
-    integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | null
-    annualCouponRate: string | null     // v3.2 — 위 issueDate와 같은 짝
+    integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | 'COUPON_SCHEDULE_MISSING' | null  // 셋째는 v4.16 (§4.2 D1)
+    annualCouponRate: string | null     // v3.2 — 위 issueDate와 같은 짝. v4.16 — 월지급식 FULL이면 '0.0000' (V-08′)
+    couponPayout: CouponPayout          // v4.16 (P8 컷 b1 명세 · 구현 b2 — b1 개정: 수정 폼의 초기값이라 「쿠폰 지급」 선택 상자 · V-25와 같은 커밋, §4.0 컷별 도달) — 쿠폰 지급방식
+    /** v4.16 (구현 b3 · b1 개정) — 월수익 연쿠폰율. 4자리. 월지급식 FULL만 값, 상환 시 지급 · 기실현 등재면 null (I-23). SCR-204 수정 화면의 초기값 */
+    monthlyCouponAnnualRate: string | null
     kiBarrier: string | null
     kiObservation: 'CONTINUOUS' | 'CLOSING' | null
     kiTouchedAt: string | null
@@ -813,6 +942,58 @@ type ProductDetailView = {
     attributionYear: number
   } | null                              // 아래 두 경우에 null
   redemption: RedemptionView | null
+
+  /**
+   * v4.16 (P8 컷 b1 명세 · 구현 b3) — 월수익 일정 행마다 하나, 월수익 순번 오름차순.
+   * null = 상환 시 지급, 또는 결함 `COUPON_SCHEDULE_MISSING`의 억제(§4.2 D1).
+   * 기실현 월지급은 [] — 일정 행이 없다(b1 개정). 아래 「월지급 상품」
+   */
+  coupons: CouponObservationView[] | null
+  /**
+   * v4.16 (구현 b3 · b1 개정) — 순번 없는 월수익 지급 기록(기실현 월지급의 `PAID`), 월수익 지급일 순.
+   * `coupons`는 일정 행마다라 이 기록이 들 자리가 없다. 그 밖의 상품은 [] (FULL의 기록은 늘 순번이 있다 — I-27)
+   */
+  unnumberedCouponRecords: CouponRecordView[]
+  /**
+   * v4.16 (구현 b4 · 모양은 b1 개정) — 잔여 월수익(DOC-005 §6): 흐름 끝 안 **추정** 월수익을 연도별로. `projection`의 **형제**다 — 안에 두지 않는다:
+   * `projection`은 NO_ROUND · 상환 완료에서 null인데 이 사건들은 F에 남는다.
+   * null = `coupons`와 같은 경우(상환 시 지급 · `COUPON_SCHEDULE_MISSING`의 억제). 추정이 없으면 `byYear`가 빈 배열
+   */
+  remainingCoupons: {
+    byYear: Array<{
+      year: number                      // 귀속연도 = year(월수익 지급일)
+      count: number                     // 그 해의 추정 월수익 사건 수
+      grossAmount: string               // 상품 통화 — Σ q_k (q_k는 보조단위 절사값 — §4.0 「형식」, b1 개정)
+      taxableIncome: string | null      // 원화(과세 축). null = E-09 — 달러 · 추정 환율 없음. 비과세 계좌는 '0'
+    }>
+    /** 달러 추정 월수익을 환산한 추정 환율. 원화 상품 · 환산하지 않았으면 null (projection이 null인 상품에서도 남는다) */
+    exchangeRateBasis: ExchangeRateBasisView | null
+  } | null
+}
+
+/** v4.16 — 월수익 일정 한 행과 그 달의 기록·상태 */
+type CouponObservationView = {
+  couponNo: number                      // 월수익 순번 — 화면 표시 「5번째 · 2027-02-16」(순번 + 월수익 평가일 — 민서 결정(2026-10-02) ①)
+  evaluationDate: string                // 월수익 평가일
+  paymentDate: string                   // 월수익 지급일 (일정의 값)
+  couponBarrier: string                 // 월수익 배리어. 4자리
+  state: CouponState                    // §4.0 「구획」
+  record: CouponRecordView | null       // 그 달의 월수익 지급 기록. 없으면 null
+  expectedAmount: string                // 상품 통화 — q_k(보조단위 절사값 — §4.0 「형식」, b1 개정). F · SCR-206 기본값과 같은 값
+  conditionResult: CouponConditionResult | null   // 다음 한 행에만 값. 나머지 행은 null (DOC-007 §3.5)
+}
+
+/** v4.16 — 월수익 지급 기록 하나. `coupons[].record`와 `unnumberedCouponRecords[]`가 같은 모양이다(b1 개정) */
+type CouponRecordView = {
+  id: string                            // §5.15의 대상
+  outcome: CouponOutcome
+  paymentDate: string | null            // 기록의 월수익 지급일(거래내역). UNPAID면 null (I-26). 일정의 지급일과 다를 수 있다
+  grossAmount: string | null            // 상품 통화. UNPAID면 null (I-26)
+  taxableIncome: string | null          // 원화. UNPAID면 null
+  withholdingTax: string | null         // 원화
+  exchangeRate: string | null           // 적용 환율(참고) — 계산에 쓰지 않는다
+  isConfirmed: boolean
+  note: string | null
 }
 
 type RedemptionView = {
@@ -825,7 +1006,7 @@ type RedemptionView = {
   withholdingTax: string | null
   exchangeRate: string | null           // v4.9 (P8 컷 a2) — 적용 환율(참고). 계산에 쓰지 않는다
   isConfirmed: boolean
-  realizedPnl: string                   // 파생값(포트폴리오 손익). 상품 통화. 음수 가능
+  realizedPnl: string                   // 파생값(포트폴리오 손익). 상품 통화. 음수 가능. v4.16 — 월지급 상품은 Σ PAID 월수익 포함
   note: string | null
 }
 ```
@@ -865,7 +1046,7 @@ v1.3까지 이 뷰에는 `integrityIssue`만 있었고 `status`·`worstOf`·`kiS
 | 필드 | 원화 상품 | 달러 상품 |
 |---|---|---|
 | `projection.expectedTaxableIncome` | 종전 값 그대로(`taxableIncome()` — 비과세 계좌 0 포함) | 일반 계좌: `max(0, expectedGross − principal)_USD × x`를 원 단위로 접은 값(DOC-007 §4.8). `x`는 추정 환율(§4.0 규칙 2). 없으면 `null`(E-09). 비과세 계좌: 환율 없이 `'0'`(검산 A-2) |
-| 〃 — 일반 계좌 · 달러 이익 ≤ 0 | — | **환율 없이 `'0'`**(DOC-007 §4.8 — `x`보다 먼저 본다). E-09가 아니며 세지 않는다. a1 범위의 이 값(조기상환 가정)에서는 V-08이 연쿠폰율 `> 0`을 요구해 도달하지 않지만, 이 분기가 없으면 월지급식(컷 b1 — 조기상환·만기 수익률 0)의 달러 추정이 전부 E-09로 표시된다 |
+| 〃 — 일반 계좌 · 달러 이익 ≤ 0 | — | **환율 없이 `'0'`**(DOC-007 §4.8 — `x`보다 먼저 본다). E-09가 아니며 세지 않는다. a1 범위의 이 값(조기상환 가정)에서는 V-08이 연쿠폰율 `> 0`을 요구해 도달하지 않지만, 이 분기가 없으면 월지급식(컷 b1 — 조기상환·만기 수익률 0)의 달러 추정이 전부 E-09로 표시된다. *(v4.16 — 도달한다: V-08′가 월지급식 FULL에 연쿠폰율 0을 요구하므로 `expectedGross = principal`이고 이 줄이 그 상품의 상환 추정이다)* |
 | `projection.exchangeRateBasis` | 항상 `null` | 환산했으면 그 추정 환율, 아니면 `null` |
 | `redemption.taxableIncome`·`withholdingTax` | 거래내역 값 | 거래내역의 **원화** 값(A-04 · U1). 환율을 곱해 만든 값이 아니다 |
 | `redemption.exchangeRate` | 항상 `null`(V-24가 원화 상품에서 거부한다) | 사용자가 거래내역에서 옮긴 지급일 환율 — 참고값이다 |
@@ -876,9 +1057,36 @@ v1.3까지 이 뷰에는 `integrityIssue`만 있었고 `status`·`worstOf`·`kiS
 
 **`redemption.exchangeRate`는 어떤 계산에도 쓰이지 않는다.** 과세 금융소득·원천징수세액의 정본은 거래내역의 원화 값이고(U1) 추정 환율의 원천도 아니다 — 추정 환율은 `exchange_rates`에서만 나온다(DOC-007 RD-09). 한 상품의 지급일 환율을 다른 상품의 추정에 쓰면 그 환율의 날짜가 기준일과 무관해진다.
 
-**`redemption.realizedPnl`은 상품 통화의 포트폴리오 손익이다** — `grossAmount − principal`이고 환차손익을 넣지 않는다(DOC-005 §8.5). 월수익을 더하는 산식(`portfolioPnl`)은 컷 b1의 명세다.
+**`redemption.realizedPnl`은 상품 통화의 포트폴리오 손익이다** — `grossAmount − principal`이고 환차손익을 넣지 않는다(DOC-005 §8.5). ~~월수익을 더하는 산식(`portfolioPnl`)은 컷 b1의 명세다.~~ → 월지급 상품은 `grossAmount + Σ PAID 월수익 − principal`이다 — 아래 「월지급 상품」 *(v4.16)*.
 
 **컷**: `currency`·`exchangeRate`·`expectedTaxableIncome`의 `null`(E-09)은 a2, `exchangeRateBasis`와 실제 환산은 a3다. a2~a3 사이 미상환 달러 상품의 `expectedTaxableIncome`은 **일반 계좌 · 달러 이익 > 0이면** 늘 `null`이다(비과세 계좌와 이익 ≤ 0은 환율 없이 `'0'` — 위 표. v4.11에서 범위를 좁혔다).
+
+#### 월지급 상품 — 월수익 목록과 손익 (v4.16 선행 명세 — P8 컷 b1, 구현 b3 · `remainingCoupons`는 b4)
+
+**상환 쪽은 그대로다.** 월지급식 FULL은 연쿠폰율이 0이므로(V-08′) `schedules[].expectedGross`·`projection.expectedGross`가 투자원금이고 `projection.expectedTaxableIncome`은 `'0'`이다(r = 0 — 이익이 없다. 달러도 위 표의 「이익 ≤ 0」 줄로 환율 없이 0). **수익은 전부 `coupons`와 `remainingCoupons`가 말한다** — `projection`에 월수익을 접지 않는다. `projection`은 상환 사건 하나의 추정이고(§4.0 「쿠폰 지급방식과 월수익」 규칙 1) 월수익을 넣으면 상환 시 지급 상품과 같은 필드가 다른 것을 뜻한다.
+
+**`coupons` — 일정 행마다 하나.**
+
+- **`state`는 §4.0의 「구획」이 고른다.** 흐름 끝(`T_end`)은 `redemption`이 있으면 그 상환일, 없으면 `projection.appliedRoundNo` 차수의 평가일, 적용 차수가 없으면 무한이다 — **`projection`의 적용 차수와 같은 차수다**(DOC-007 §7.6. 두 값이 갈리면 「예정 · 조기상환 가정 밖」의 경계가 ⑤의 가정과 어긋난다). 기록이 있으면 `record`가 정본이고 `state`는 `PAID`·`UNPAID`다.
+- **`expectedAmount`는 모든 행에 정의된다** — `q_k`는 계약 조건(투자원금 · 월수익 연쿠폰율)에서만 나오고 시세를 쓰지 않는다. `PAID` 행의 실제 금액은 `record.grossAmount`이고 둘은 다른 값이다(`schedules[].expectedGross`와 `redemption.grossAmount`의 관계와 같다). SCR-202 ⑦의 금액 표시가 이 값이다. **값은 `q_k` — 보조단위 절사값이고 F · SCR-206의 세전 기본값과 같다**(§4.0 「형식」 — b1 개정, DOC-007 RD-10 ③ 해결).
+- **`conditionResult`는 다음 한 행에만 값이 있다** — 기준일 당일 포함 가장 이른 월수익 평가일의 행이고, **보유중 상품만**이다(DOC-007 §3.5 — `W(t_k) ≥ β_k`면 `EXPECTED_PAID`, 경계 포함. `W`를 낼 수 없으면 `UNKNOWN`). 나머지 행과 상환 완료 상품의 모든 행은 `null`이다. 최신 시세로 판정하므로 **그 달의 결과를 예고하는 표시일 뿐이고** F에도 기록에도 쓰지 않는다(§4.0 규칙 3). `schedules[].conditionResult`(적용 차수 한 행 — v2.2)의 거울이고 근거도 같다: 다른 달의 배리어로 지금 시세를 판정하면 그 달이 왔을 때의 결과인 척하는 값이 된다. **지난 달의 결과를 제안하지 않는다**(DOC-007 RD-14 부분 해소) — 기록 화면(SCR-206)은 결과 빈칸에서 시작한다. KI 터치와 무관하다(기본형 — GQ-06 · DOC-002 DQ-16).
+- **`record.id`가 SCR-202 ⑦의 액션 대상이다** — 행마다 「수정」(SCR-206의 한 행 폼 → §5.15 `updateCouponPayment`) · 「삭제」(§5.15 `deleteCouponPayments`) · 구획의 「월수익 기록 전부 지우기」(같은 계약에 그 상품의 기록 id 전부). 표시 문구는 DOC-008 SCR-202 ⑦이다.
+- **`record.paymentDate`는 기록의 값이다** — 거래내역의 지급일이고 일정의 `paymentDate`와 다를 수 있다(SCR-206은 일정의 지급일로 채우고 사용자가 거래내역의 날짜로 고친다). 확정 사건의 귀속이 이 값의 연도이고(§4.0 규칙 1) 수정 폼(`?edit=<id>`)의 초기값이 이 값이다. *(b1 결정의 `record` 목록에는 없던 필드다 — b1 개정이 순번 없는 기록을 「지급일 순」으로 싣게 하면서 그 기록의 유일한 날짜가 되었고, 순번 있는 기록에서도 §5.15 전체 교체의 초기값이 이것이므로 같은 모양 `CouponRecordView`에 둔다)*
+
+**`unnumberedCouponRecords` — 순번 없는 기록 (구현 b3 · b1 개정).** 기실현 월지급 상품의 월수익 지급 기록(전부 `PAID` — I-27)을 월수익 지급일 순으로 싣는다. 그 상품은 일정이 없어 `coupons = []`이고 §4.2 `couponProgress = null`이다(분모가 없다). 이 기록도 **확정 사건**이다(귀속 = 기록의 지급일 연도 — §4.0 규칙 1). SCR-202 ⑦의 「수정」 · 「삭제」 · 「월수익 기록 전부 지우기」가 이 배열의 `id`에도 같다. 상품당 60건 이하다(V-27 — b1 개정). 그 밖의 상품은 `[]`다 — FULL의 기록은 늘 순번이 있다(I-27).
+
+**`remainingCoupons` — 잔여 월수익 (구현 b4 · 모양은 b1 개정).** 낱말은 DOC-005 §6 「잔여 월수익」이다 — 「잔여 원금」의 짝이고 「잔여」는 「아직 오지 않은」이 아니라 **「아직 기록되지 않은」**이다 *(b1 개정 — 반박 검토 반영: 종전 이 절은 같은 것을 「연도별 추정 월수익」이라 불러 DOC-008 SCR-202 ⑤의 낱말과 동의어가 둘이었다)*. `byYear`는 기록이 없고 흐름 끝 안(`t_k ≤ T_end`)인 달 — 곧 **추정 월수익 사건 전부**를 귀속연도(`year(일정.payment_date)`)별로 묶은 것이고 연도 오름차순이다. **미기록(지급일이 지난 무기록 달)도 든다** — 추정 사건이므로 F에 들어가 있다(U5). 그래서 이 배열은 §4.6의 그 상품 그 해 `breakdown.coupons`의 추정 몫과 **같은 사건 집합**이다 — `remainingCoupons.byYear`의 `year = Y` 원소의 `taxableIncome` = `getTaxSummary(Y)`의 그 상품 행 `breakdown.coupons.estimatedTaxableIncome`. 컨테이너가 `null`인 것은 `coupons`와 같은 경우다(상환 시 지급 · `COUPON_SCHEDULE_MISSING`의 억제). 기실현 월지급은 추정 사건이 없으므로 `{ byYear: [], exchangeRateBasis: null }`이다.
+
+- **`projection` 밖에 두는 이유** — `projection`은 상환 완료와 적용 차수 없음(NO_ROUND)에서 `null`이지만 **두 경우 모두 추정 월수익이 F에 남는다.** 상환된 상품은 흐름 끝(상환일) 안의 무기록 달이, NO_ROUND 상품은 흐름 끝이 무한이라 남은 모든 달이 추정 사건이다. 안에 두면 F에 든 값이 이 화면에서만 사라진다 — v0.8이 고친 「§4.3·§4.6 모순」의 재발이다.
+- **`taxableIncome`** — 원화 일반계좌는 `Σ q_k`, 달러 일반계좌는 `Σ q_k × x`(DOC-007 §4.8 — 원금이 없으므로 `max(0, …)`가 필요 없다), 비과세 계좌는 `'0'`(환율 없이). 달러인데 추정 환율이 없으면 `null`(E-09) — `count`·`grossAmount`는 남는다.
+- **`exchangeRateBasis` — 쓴 추정 환율은 이 컨테이너가 싣는다** *(b1 개정 — §9 ⑥ 해결)*. `projection.exchangeRateBasis`는 `projection`이 `null`인 상품(NO_ROUND · 상환 완료)에서 함께 사라지는데 그 상품들의 추정 월수익은 남으므로, 근거를 값 곁에 둔다(DOC-008 SCR-202 ⑤ 「환율 기준 또는 「환율 없음」」). 달러 추정 월수익을 환산했으면 그 추정 환율이고, 원화 상품 · 비과세 계좌(환율 없이 0) · 추정 환율 없음(E-09 — `taxableIncome = null`이 말한다)이면 `null`이다. 추정 환율이 요청당 통화별 하나이므로(§4.0 달러 규칙 2) `projection.exchangeRateBasis`가 함께 있으면 같은 값이다.
+- **검산 B-1** (DOC-007 — 원화 · 일반계좌 · P 100,000,000 · 월수익 연쿠폰율 0.072 · 기준일 2026-07-28 · 기록 없음 · 흐름 끝 2027-01-19): `{ byYear: [{ year: 2026, count: 5, grossAmount: '3000000', taxableIncome: '3000000' }, { year: 2027, count: 1, grossAmount: '600000', taxableIncome: '600000' }], exchangeRateBasis: null }` — 6번째 달(평가 2027-01-19 · 지급 2027-01-22)은 흐름 끝과 같은 날 평가되므로 든다(경계 포함). 상환 사건의 과세는 0이다(r = 0). 0.072를 연쿠폰율에 넣는 틀린 일괄 모델이면 F(2026) = 0 · F(2027) = 3,600,000이다.
+
+**`redemption.realizedPnl` — 상환된 월지급 상품은 월수익을 포함한다.** 포트폴리오 손익 = 상환 세전 + Σ 지급(`PAID`) 월수익(상품 통화) − 투자원금이다(DOC-007 §7.7 · 민서 결정(2026-10-02) ②). `UNPAID`는 더하지 않는다. 검산 B-2: 만기 손실 상환 세전 60,000,000 + `PAID` 30달 18,000,000 − 100,000,000 = **−22,000,000** · B-3: 1차 조기상환 세전 = 투자원금 + 6달 `PAID` → **+3,600,000**. **보유중 상품에는 이 값이 없다**(`redemption = null`) — 받은 월수익은 §4.1 `receivedCoupons`가 통화별로 말하고 실현손익에 넣지 않는다(민서 결정(2026-10-02) ②).
+
+**결함 `COUPON_SCHEDULE_MISSING`** — `product.integrityIssue`가 그 값이고 `coupons`와 `remainingCoupons`는 `null`이다(억제 — §4.2 D1. `remainingCoupons`의 `null`은 b1 개정이 컨테이너를 nullable로 둔 뒤의 표기다). 상환 쪽(`schedules[]`·`projection`·`kiStatus`)은 산다.
+
+> **수정 화면이 같은 계약을 읽는다** — SCR-204 수정 모드의 초기값(`productValuesOf`)이 `getProduct`에서 온다. 월수익 일정의 행 값(순번 · 평가일 · 지급일 · 배리어)은 `coupons`가, 월수익 연쿠폰율은 `product.monthlyCouponAnnualRate`가 싣는다 *(b1 개정 — §9 ④ 해결. 종전에는 그 율을 싣는 필드가 §4.3에 없었다)*. 쿠폰 지급방식은 `product.couponPayout`이 싣고 **그 필드만 b2다**(「쿠폰 지급」 선택 상자 · V-25와 같은 커밋 — §4.0 컷별 도달, b1 개정). 율과 일정의 초기값은 월지급 블록과 함께 b3다 — 그 사이 저장값이 `MONTHLY`인 상품(dev 표본 · 통합 픽스처뿐 — 운영 폼은 b4까지 「월지급식」을 고를 수 없다)의 수정 저장은 V-25에 걸린다.
 
 ### 4.4 평가일정 — SCR-301
 
@@ -903,7 +1111,7 @@ type ScheduleItem = {
   status: 'ACTIVE' | 'REDEEMED'        // v1.8 신설 — §4.2 우선순위표의 E-05 단
   worstOf: string | null
   conditionResult: 'EARLY' | 'LIZARD' | 'CARRY_OVER' | null
-  integrityIssue: 'UNDERLYING_MISSING' | null
+  integrityIssue: 'UNDERLYING_MISSING' | 'COUPON_SCHEDULE_MISSING' | null   // 둘째는 v4.16 (구현 b3) — 아래 「한 값뿐인 이유」
   isPast: boolean
 
   // v3.3 신설 다섯 — SCR-301 상품별 보기. 앞의 넷은 차수마다 «같은 값»이다
@@ -958,7 +1166,9 @@ type ScheduleProceeds = {
 
 **`isPast`와 `status`는 직교한다.** 앞은 그 차수의 평가일이 기준일보다 앞서는가이고 뒤는 그 상품이 상환되었는가다. 넷 중 셋이 실재한다 — 미상환의 경과 차수(E-07 · §4.1의 `EVALUATION_PASSED`), 미상환의 미래 차수, 상환 완료의 과거 차수. 남은 하나(상환 완료 + 미래 차수)도 정상이며 그것이 이 필드를 만든 상태다: **상환일 이후의 차수 행은 지워지지 않는다**(I-01은 상환을 상품당 하나로 제한할 뿐 일정을 지우지 않는다).
 
-**`integrityIssue`가 여기서는 한 값뿐인 이유.** 일정 0건인 상품은 이 목록에 **행 자체가 생기지 않으므로** `SCHEDULE_MISSING`은 도달할 수 없다. §4.2·§4.3과 같은 유니온을 주면 결코 관측되지 않는 값을 화면이 처리하게 되고, 타입이 사실과 어긋난다.
+**`integrityIssue`가 여기서는 ~~한 값뿐인~~ 좁은 이유.** 일정 0건인 상품은 이 목록에 **행 자체가 생기지 않으므로** `SCHEDULE_MISSING`은 도달할 수 없다. §4.2·§4.3과 같은 유니온을 주면 결코 관측되지 않는 값을 화면이 처리하게 되고, 타입이 사실과 어긋난다. *(v4.16 — P8 컷 b1 명세 · 구현 b3)* **`COUPON_SCHEDULE_MISSING`은 도달한다** — 그 상품은 **조기상환** 차수가 있으므로 이 목록에 행을 갖는다(없는 것은 월수익 일정이다). 그래서 유니온이 둘이 된다 — 같은 논증(「행 단위가 차수다」)이 이번에는 넓히는 쪽으로 작동한다. 이 결함은 이 목록의 판정을 억제하지 않는다(§4.2 D1 — 파괴한 입력이 월수익뿐이다). ⚠ **판정에는 그 상품의 월수익 일정 존재 여부가 필요한데, 이 계약의 상품 임베드(차수 루트)에는 월수익 두 테이블을 넣지 않는다**(아래 「월지급 상품의 차수 행」 — b1 개정). 「전부」를 넣지 않는 것이지 존재 탐침까지 막는 것은 아니지만 그 형태(행 하나만 · 열 하나만 · 이 목록에서는 결함을 싣지 않기)는 b1 명세에 없다 — §9 「P8 월지급 — b2 전에 정한다」 ⑰(b3 전).
+
+**월지급 상품의 차수 행은 그대로다 (v4.16 — P8 컷 b1).** 이 목록은 **조기상환 차수만** 담는다. 월지급식 FULL은 연쿠폰율이 0이므로(V-08′) `proceeds.expectedGross`가 투자원금이고 `expectedPnl`은 0 · `expectedWithholding`은 0이다 — **월수익은 차수의 금액에 들지 않는다**(같은 날 지급되는 그 달 월수익도 별개다 — U6). 월수익 행은 별도 계약 §4.12 `listMonthlyCouponSchedule`이 낸다. 이 유니온(`ScheduleItem`)에 섞지 않는 이유는 그 절에 있다 — 화면의 `groupByProduct`가 `roundNo`로 정렬하므로 순번이 다른 축의 행이 들어오면 그 정렬이 깨진다. **이 계약의 상품 임베드(`loadScheduleRows` — 차수 루트)는 월수익 두 테이블을 담지 않는다**(b1 개정 · DOC-010 AQ-77) — 담으면 그 상품의 월수익 전부가 차수 행 수만큼 복제되는데 이 목록은 그것을 읽지 않는다. 그래서 b3은 지금 공유하는 `PRODUCT_SELECT`를 상품 루트 셀렉트와 차수 루트 셀렉트로 가른다(§4.0 「쿠폰 지급방식과 월수익」 왕복).
 
 **`conditionResult`는 적용 차수 한 행에만 값이 있다 (v2.2에서 명문화, P4.5).** 정의는 §4.3 필드 정의 표의 `schedules[].conditionResult`와 **같다** — 두 뷰가 같은 `judge()`의 같은 값을 같은 조건으로 싣는다(적용 차수와 행의 차수가 일치할 때만). 상품 하나가 여섯 차수를 가지면 그 상품에서 나온 여섯 행 중 최대 하나가 값을 갖는다.
 
@@ -1099,13 +1309,16 @@ type TaxSummaryView = {
   }
   income: {
     elsTaxableIncome: string
+    /** v4.16 (P8 컷 b1 명세 · 구현 b4) — elsTaxableIncome의 확정/추정 분할. 둘의 합이 elsTaxableIncome이다 */
+    confirmedElsTaxableIncome: string   // 확정 사건(상환 기록 · PAID 기록)의 과세 합. 환율과 무관하다
+    estimatedElsTaxableIncome: string   // 추정 사건 중 F에 들어간 것(원화 · 환산된 달러 · 비과세 0)의 합
     otherFinancialIncome: string
     total: string                       // F
     isComprehensive: boolean            // F > 종합과세 기준금액
     thresholdGap: string                // 초과분 또는 여유분
     exchangeRateBasis: ExchangeRateBasisView | null  // v4.9 (P8 컷 a3) — 달러 추정을 환산한 추정 환율
-    convertedCount: number              // v4.9 (P8 컷 a3) — 추정 환율로 환산해 F에 넣은 달러 추정 건 수
-    unconvertedCount: number            // v4.9 (P8 컷 a2) — 환율이 없어 F에서 빠진 추정 건 수 (E-09)
+    convertedCount: number              // v4.9 (P8 컷 a3) — 추정 환율로 환산해 F에 넣은 사건이 있는 상품 수 (v4.16 — 종전 「건 수」)
+    unconvertedCount: number            // v4.9 (P8 컷 a2) — 환율이 없어 F에서 빠진 추정 사건이 있는 상품 수 (E-09 · v4.16 — 종전 「건 수」)
   }
   tax: {
     method1: string | null              // 분리 기준 (DOC-007 §5.2). null = 비교과세 미적용
@@ -1129,14 +1342,25 @@ type TaxSummaryView = {
     incomeTaxRate: string
     realMarginalRate: string
   }>
-  contributingProducts: Array<{
+  contributingProducts: Array<{        // v4.16 — 상품당 한 행. 그 상품의 그 해 사건을 접는다 (아래 「월지급 상품의 기여」)
     productId: string
     productName: string
     currency: ProductCurrency           // v4.9 (P8 컷 a2) — 그 상품의 통화. taxableIncome은 늘 원화다
-    taxableIncome: string | null        // v4.9 — 원화. null = 환율이 없어 뺐다 (아래 「건 단위 E-09」)
-    isEstimated: boolean
-    exchangeRateMissing: boolean        // v4.9 (P8 컷 a2) — 이 상품의 추정분이 E-09로 빠졌다
-    integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | null
+    taxableIncome: string | null        // v4.9 — 원화. null = 환율이 없어 뺐다 (아래 「건 단위 E-09」). v4.16 — 사건이 «전부» 빠졌을 때만 null
+    isEstimated: boolean                // v4.16 — 유지한다. = basis !== 'CONFIRMED'
+    basis: ContributionBasis            // v4.16 (P8 컷 b1 명세 · 구현 b4) — 확정 · 추정 · 둘 다
+    /** v4.16 (구현 b4) — 사건 종류별 내역. 그 해에 그 종류의 사건이 없으면 null */
+    breakdown: {
+      redemption: { taxableIncome: string | null; isEstimated: boolean } | null
+      coupons: {
+        confirmedCount: number          // PAID 기록 수
+        confirmedTaxableIncome: string  // 원화 — 기록값(couponTaxableIncome). 환율과 무관하다
+        estimatedCount: number          // 추정 월수익 사건 수
+        estimatedTaxableIncome: string | null   // 원화. null = 달러 추정인데 추정 환율이 없다 (E-09)
+      } | null
+    }
+    exchangeRateMissing: boolean        // v4.9 (P8 컷 a2) — 이 상품의 추정분이 E-09로 빠졌다. v4.16 — 추정 달러 사건이 «하나라도» 빠졌으면 참
+    integrityIssue: 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | 'COUPON_SCHEDULE_MISSING' | null  // 셋째는 v4.16 (§4.2 D1)
   }>
 }
 ```
@@ -1145,7 +1369,7 @@ type TaxSummaryView = {
 
 > **표식이 없으면 두 화면이 모순으로 읽힌다.** SCR-202에서는 `integrityIssue`로 "수정 필요"가 표시되는 같은 상품이 SCR-401에는 아무 표식 없이 숫자로만 나타난다. 사용자는 그것을 데이터 오류로 읽는다.
 >
-> **`isEstimated`와 다른 필드로 둔다.** `isEstimated`는 "증권사 확정값이 아니라 시스템 추정"을 뜻하고 미상환 상품이면 전부 `true`다. 결함 여부는 그것과 **직교**하며, 결함 상품의 확정 상환도 존재한다(아래 표).
+> **`isEstimated`와 다른 필드로 둔다.** `isEstimated`는 "증권사 확정값이 아니라 시스템 추정"을 뜻하고 미상환 상품이면 전부 `true`다. 결함 여부는 그것과 **직교**하며, 결함 상품의 확정 상환도 존재한다(아래 표). *(v4.16 — 「미상환 상품이면 전부 `true`」는 상환 시 지급 상품에서만 참이다. 확정 월수익만 있는 해의 미상환 월지급 상품은 `basis = 'CONFIRMED'`이고 `isEstimated = false`다 — `isEstimated`는 이제 `basis !== 'CONFIRMED'`의 파생이다. 아래 「월지급 상품의 기여」)*
 >
 > **§4.4처럼 한 값으로 좁히지 않는다 — `SCHEDULE_MISSING`도 도달한다.** "일정 0건이면 적용 차수가 없어 기여하지 않는다"는 **추정 분기에서만** 참이다. 상환 완료 분기가 일정 검사보다 **먼저** 반환하고, I-13 FK(`redemptions(els_id, round_no)` → `redemption_schedules`)는 `MATCH SIMPLE`이라 **`round_no IS NULL`인 만기 상환은 검사하지 않는다**(DOC-002 §4.9가 의도한 상태이며 마이그레이션 주석이 명시한다). 즉 만기 상환 상품은 일정 행이 전부 지워져도 `ON DELETE RESTRICT`에 걸리지 않고, 증권사 확정값으로 기여하면서 `SCHEDULE_MISSING`이다.
 >
@@ -1155,6 +1379,8 @@ type TaxSummaryView = {
 |---|---|---|
 | `isEstimated = true` (추정) | 도달 | **불가** — 적용 차수가 없다 |
 | `isEstimated = false` (확정) | 도달 | **도달** — 만기 상환 + 일정 0건 |
+
+> *(v4.16)* **셋째 결함 `COUPON_SCHEDULE_MISSING`은 두 행 모두 도달한다** — 파괴한 입력이 월수익뿐이라 상환 사건(추정 · 확정)은 산다(§4.2 D1). 그 행의 `breakdown.coupons`는 `null`이다(월수익 사건이 억제된다). 위 표의 `SCHEDULE_MISSING` 열 「불가」는 **상환** 사건의 진술이다 — 일정 0건이라도 `NO_ROUND`인 월지급 상품의 추정 **월수익** 사건은 흐름 끝이 무한이라 남는다(§4.3 `remainingCoupons`).
 
 **본 계약은 본인 전용이다.** `ownerId ≠ 조회자`이면 예외를 던진다(§3.1의 시스템 오류, 즉 호출부의 프로그래밍 오류다).
 
@@ -1218,14 +1444,39 @@ v2.0까지 본 계약은 `override`의 **타입만** 적었고 값의 형식·�
 | 상환 완료 (확정) | 거래내역의 원화 `taxable_income`(A-04 · U1) | 쓰지 않는다 — **환율이 없어도 늘 들어간다** |
 | 미상환 (추정) | `max(0, 예상 수령액 − 투자원금)_USD × x`(DOC-007 §4.8). 비과세 계좌는 0 | 추정 환율 `x`. 없으면 **그 건만** 뺀다(E-09) |
 | 미상환 (추정) · 달러 이익 ≤ 0 | 0 | 쓰지 않는다 — **환율 없이 0**(DOC-007 §4.8 — `x`보다 먼저 본다). E-09가 아니며 어느 건수에도 세지 않는다. 월지급식(컷 b1)의 상환 추정이 이 줄이다 |
+| 월수익 `PAID` 기록 (확정) *(v4.16)* | 거래내역의 원화 `taxable_income`을 `couponTaxableIncome()`으로(비과세 계좌 0 — 상환의 `taxableIncome()`과 같은 규칙) | 쓰지 않는다 — **환율이 없어도 늘 들어간다**(A-04 · U1). 귀속 = `year(기록.payment_date)` |
+| 월수익 추정 (무기록 · 흐름 끝 안) *(v4.16)* | 원화 일반계좌 `q_k` · 달러 일반계좌 `q_k × x` · 비과세 계좌 0 (DOC-007 §4.7·§4.8) | 달러 일반계좌만 추정 환율 `x` — 원금이 없으므로 `max(0, …)`가 없고 **늘** 환율이 필요하다. 없으면 **그 사건만** 뺀다(E-09). 귀속 = `year(일정.payment_date)` — 평가일이 아니다(SB-5) |
+| 월수익 `UNPAID` 기록 *(v4.16)* | — | **사건이 아니다** — F에도 건수에도 들지 않는다 |
 
-- **E-09는 건 단위다 — 상품 단위가 아니다**(DOC-007 E-09). 빠지는 것은 추정이 필요한 달러 건뿐이고 `income.unconvertedCount`가 그 수다. 상품 단위로 빼면 확정된 원화 과세까지 F에서 사라진다 — 월지급식이 들어오면 한 상품에 확정 월수익과 추정 상환이 함께 있다(컷 b1).
-- **빠진 상품도 기여 행에 남는다.** 한 상품 한 행(`productId`가 화면의 키다)이고 `taxableIncome = null` · `exchangeRateMissing = true`다 — 행을 지우면 「그 상품은 올해 과세되지 않는다」로 읽힌다. **컷 a1의 범위(상환 시 일괄)에서는 한 상품의 기여가 한 건이므로 `exchangeRateMissing ⇔ taxableIncome = null`이다.** 월지급식이 들어오면 확정 월수익이 있는 채로 추정분만 빠질 수 있어 이 동치가 깨진다 — 그때의 확정·추정 분할은 **컷 b1의 명세**다.
+- **E-09는 건 단위다 — 상품 단위가 아니다**(DOC-007 E-09). 빠지는 것은 추정이 필요한 달러 건뿐이고 `income.unconvertedCount`가 그 수다. 상품 단위로 빼면 확정된 원화 과세까지 F에서 사라진다 — 월지급식이 들어오면 한 상품에 확정 월수익과 추정 상환이 함께 있다(컷 b1). *(v4.16 — 「건」은 소득 사건이다. **빼는 단위는 사건이고 세는 단위는 상품이다** — `unconvertedCount`는 빠진 사건이 하나라도 있는 상품 수다. §4.0 「쿠폰 지급방식과 월수익」 규칙 4)*
+- **빠진 상품도 기여 행에 남는다.** 한 상품 한 행(`productId`가 화면의 키다)이고 `taxableIncome = null` · `exchangeRateMissing = true`다 — 행을 지우면 「그 상품은 올해 과세되지 않는다」로 읽힌다. **컷 a1의 범위(상환 시 일괄)에서는 한 상품의 기여가 한 건이므로 `exchangeRateMissing ⇔ taxableIncome = null`이다.** 월지급식이 들어오면 확정 월수익이 있는 채로 추정분만 빠질 수 있어 이 동치가 깨진다 — 그때의 확정·추정 분할은 ~~**컷 b1의 명세**다~~ → 아래 「월지급 상품의 기여」 *(v4.16)*.
 - **비과세 계좌의 달러 추정은 환율 없이 0이다**(DOC-007 검산 A-2) — E-09가 아니며 세지 않는다.
 - **`income.exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다.** 기여 행마다 두지 않는다 — 추정 환율은 요청당 통화별 하나이므로(§4.0 규칙 2) 행마다 같은 값이 된다.
-- **`income.convertedCount`는 환산해 F에 넣은 달러 추정 건 수다 (컷 a3)** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음. DOC-008 SCR-401 환율 기준 줄 「달러 상품 n건의 추정을 … 환산했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌와 달러 이익 ≤ 0인 건은 환율 없이 0이라 `convertedCount`에도 `unconvertedCount`에도 들지 않는다. 추정 환율이 요청당 통화별 하나이므로 지원 외화가 `USD` 하나인 동안 **둘 중 하나는 늘 0이다.**
+- **`income.convertedCount`는 환산해 F에 넣은 달러 추정 ~~건 수~~ 사건이 있는 상품 수다 (컷 a3 · 단위는 v4.16)** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음. DOC-008 SCR-401 환율 기준 줄 「달러 상품 n건의 추정을 … 환산했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌와 달러 이익 ≤ 0인 건은 환율 없이 0이라 `convertedCount`에도 `unconvertedCount`에도 들지 않는다. 추정 환율이 요청당 통화별 하나이므로 지원 외화가 `USD` 하나인 동안 **둘 중 하나는 늘 0이다.**
 - **`total`·`isComprehensive`·`tax`는 뺀 뒤의 F로 계산한다.** 빠진 몫만큼 종합과세 판정이 낮은 쪽으로 틀릴 수 있으므로 화면은 `unconvertedCount > 0`이면 판정 옆에 그 사실을 말한다(DOC-008 ST-07). 기본 환율로 채워 판정을 «완성»하지 않는다 — 그 판정은 그럴싸한 숫자다.
 - **§4.1 `currentYearTax` · §4.7의 첫 행 · §4.8의 본인 행과 같은 사건 집합, 같은 추정 환율이다.** 그래서 `getTaxSummary(Y₀).income.total` = `getForecast()`의 `Y₀` 행 `financialIncome` = 본인 `UserSummary.currentYearFinancialIncome`의 항등이 환율 유무와 무관하게 유지된다. `listUserSummaries`는 `contributionOf`의 **둘째 소비자**이므로 서명 변경이 두 곳에 함께 닿아야 하고, 컷 a3의 통합 스위트가 달러 픽스처로 그 항등을 단언한다.
+
+> **코드가 한 컷 앞섰다 (P8 컷 b0, `d675efb` — v4.16에서 기록).** 소득 사건 모델이 이 문서보다 먼저 코드에 섰다 — `src/lib/db/queries/income.ts`의 `incomeEventsOf(row, asOf, rates, only?)`가 상품 → 사건의 단일 원천이고, `contributionOf`(§4.6 · §4.1 · §4.8)는 그 해의 사건을 **접는** 함수가 되었다. 사건이 상품당 최대 하나(상환)인 것을 **별칭 없는 튜플**(`readonly []` 또는 원소 하나)로 단언하므로, 월수익 사건이 들어와 반환형이 넓어지는 컷(b4)에서 `contributionOf`의 대입이 **컴파일 오류**가 된다 — 사건 여럿을 접는 규칙(아래 「월지급 상품의 기여」)을 정하지 않은 채 첫 사건만 읽는 구현이 조용히 서지 않는다. `only.year`는 **값을 계산하기 전에** 연도로 거른다(다른 해에 귀속되는 사건의 산식이 그 해의 조회를 죽이지 않게 — DOC-010 AQ-92). **동작 불변**이다(HEAD 대 작업 트리 차분 0 — 기존 고정값 전부 그대로). ⚠ **b0의 조기 반환 셋은 상품 단위다** *(b1 개정 — 반박 검토 반영)* — 적용 차수 없음(`NO_ROUND`) · 다른 해(`only.year` ≠ 상환 사건의 귀속연도) · 계약 조건 없음이면 그 상품의 사건 전부가 `[]`다. 사건이 상환 하나뿐인 동안은 같은 말이지만 월지급식에서는 틀린다 — `NO_ROUND` 월지급 상품은 흐름 끝이 무한이라 일정 전부가 추정 사건이고, 상환이 2027년에 귀속되는 상품의 2026년 월수익도 있다(DOC-007 검산 B-1). 그래서 **b4가 조기 반환을 상환 사건에만 적용되도록 내리고 연도 거름을 사건마다로 바꾼다**(상환 = 귀속연도 · 월수익 = 지급일의 연도 — DOC-007 §7.6의 b0/b4 대조표). 검산 B-1을 `contributionOf(only.year = 2026 · 2027)` 경로로도 단언하고 「연도마다 Σ `contributionOf` = Σ `forecastItemsOf`」에 월지급 표본(`NO_ROUND` 포함)을 넣는다(b4 테스트 목록) — 매퍼 경유(`only` 없음)만으로는 이 거름을 지나지 않는다.
+
+#### 월지급 상품의 기여 — 상품당 한 행 · 확정/추정 분할 (v4.16 선행 명세 — P8 컷 b1, 구현 b4)
+
+**행은 여전히 상품당 하나다** — `productId`가 화면의 키이고(DOC-008 SCR-401) 한 행이 그 상품의 **그 해 사건 전부**를 접는다. 사건마다 행을 두면 같은 상품이 한 표에 여러 번 나오고, 상품 단위인 `integrityIssue`·`exchangeRateMissing`이 행마다 반복된다.
+
+| 필드 | 정의 |
+|---|---|
+| `basis` | 그 해 그 상품의 사건이 **전부 확정**(상환 기록 · `PAID` 기록)이면 `CONFIRMED`, **전부 추정**이면 `ESTIMATED`, 둘 다 있으면 `MIXED`다. 확정/추정의 기준은 기록 유무다(A-04) — `is_confirmed`는 별도의 표시 축이다(ST-05) |
+| `isEstimated` | **유지한다** — `basis !== 'CONFIRMED'`와 같다. 상환 시 지급 상품에서는 종전 값과 같다(사건이 하나다) |
+| `breakdown.redemption` | 그 해에 상환 사건이 있으면 `{ taxableIncome, isEstimated }`, 없으면 `null`. `taxableIncome = null`은 그 상환 추정이 E-09로 빠졌다는 뜻이다 |
+| `breakdown.coupons` | 그 해에 월수익 사건이 하나라도 있으면 객체, 없으면 `null`(상환 시 지급 상품은 늘 `null`). `confirmedCount`·`confirmedTaxableIncome`은 `PAID` 기록 — 환율과 무관해 `null`이 없다. `estimatedCount`·`estimatedTaxableIncome`은 추정 사건 — 달러 일반계좌인데 추정 환율이 없으면 `estimatedTaxableIncome = null`이다(환율은 요청당 통화별 하나라 한 상품의 추정 달러 월수익은 함께 들어가거나 함께 빠진다). `UNPAID`는 어느 수에도 들지 않는다 |
+| `taxableIncome` | **들어간 사건**(확정 + 환산된 추정 + 원화 추정 + 비과세 0)의 합이다. **`null`은 그 상품의 그 해 사건이 전부 빠졌을 때만이다** — 확정 월수익이 있는 채로 추정분만 빠지면 확정분의 합이 남는다(`MIXED`) |
+| `exchangeRateMissing` | 그 해 그 상품의 **추정 달러 사건이 하나라도** 빠졌으면 참이다. 그래서 a2의 동치 `exchangeRateMissing ⇔ taxableIncome = null`이 월지급식에서 **깨진다** — 위 둘째 항목이 예고한 대로다. 화면은 `taxableIncome`이 있어도 이 표식이 서면 「일부 빠짐」을 말한다(DOC-008 SCR-401 · ST-07) |
+| `income.confirmedElsTaxableIncome` · `estimatedElsTaxableIncome` | `elsTaxableIncome`의 확정/추정 분할 — 모든 기여 행의 확정 사건 과세 합과 들어간 추정 사건 과세 합. **둘의 합이 `elsTaxableIncome`이다**(빠진 사건은 어느 쪽에도 없다). SCR-401의 분할 표시가 이 둘이다 |
+
+- **귀속은 사건마다다** — 상환은 종전 그대로(상환일 · 추정은 적용 차수 평가일의 연도), 기록된 `PAID` 월수익은 `year(payment_date)`, 추정 월수익은 `year(일정.payment_date)`다(DOC-007 §7.2 — 평가일이 아니다. 검산 B-4: 평가 2026-12-29 · 지급 2027-01-04 → **2027 귀속**). 그래서 한 상품이 여러 해의 기여 행에 나타난다. 상환 추정(평가일 연도 — RD-02)과 월수익 추정(지급일 연도)이 같은 날 평가되어 해를 가를 수 있다 — DOC-007 RD-17(연말 경계)이 미결로 들고 있고 화면 문구는 두지 않는다.
+- **흐름 끝 밖의 달은 어느 행에도 없다** — 「예정 · 조기상환 가정 밖」(민서 결정(2026-10-02) ③)은 추정에서 빠지고, 「상환 후 없음」은 사건이 없다(§4.0 「구획」).
+- **세는 단위는 상품이다** — `income.unconvertedCount` = 그 해 추정 달러 사건 중 빠진 것이 하나라도 있는 상품 수 = `exchangeRateMissing = true`인 행 수, `income.convertedCount` = 그 해 환산한 사건이 하나라도 있는 상품 수다(§4.0 규칙 4).
+- **검산 B-1** (원화 · 일반계좌 — §4.3 「월지급 상품」): `getTaxSummary(2026)`의 그 행은 `basis = 'ESTIMATED'` · `breakdown.redemption = null` · `breakdown.coupons = { confirmedCount: 0, confirmedTaxableIncome: '0', estimatedCount: 5, estimatedTaxableIncome: '3000000' }` · `taxableIncome = '3000000'`이고, 2027은 상환 사건(과세 `'0'` — r = 0)과 6번째 달(`'600000'`)이 한 행에 접힌다. **검산 C** (달러 · P $10,000 · 월수익 연쿠폰율 0.2424 · 추정 환율 1,385.20): 한 달의 추정 과세는 `q_k` $202.00 × 1,385.20 = **279,810.4**원이고 F 안에서 반올림하지 않는다(화면 279,810 — Q-07 ⓑ는 출력에서 접는다).
+- **`tax.withheld`는 바꾸지 않는다** — 기록의 원천징수 합과 F의 원천징수가 원 단위로 갈리는 것(검산 B-6 — 건별 절사 12건 1,077,996원 대 연간 1,077,999원, 3원)은 기대값이고 DOC-007 RD-10 · RD-01이 함께 닫는다.
 
 ### 4.7 다년도 전망 — SCR-402
 
@@ -1262,6 +1513,8 @@ type ForecastRow = {
   /** v4.9 (P8 컷 a3) — 이 행의 원화 환산에 쓴 추정 환율. 표 밖 표식 다섯째 — 넷째는 a2의 `excludedForeignCount` (DOC-008 SCR-402) */
   exchangeRateBasis: ExchangeRateBasisView | null
   excludedForeignCount: number          // v4.9 (P8 컷 a2) — 환율이 없어 이 행의 원화 합계에서 빠진 외화 상품 수
+  /** v4.16 (P8 컷 b1 명세 · 구현 b4 · b1 개정) — 표 밖 표식 여섯째. 그 표에 추정 월수익 사건이 하나라도 있으면 참 — 「월지급식은 적용 차수까지 매월 지급 가정」 */
+  monthlyCouponAssumption: boolean
 }
 ```
 
@@ -1302,7 +1555,7 @@ profileFor(profiles, Y) = argmax { p.tax_year | p ∈ profiles, p.tax_year ≤ Y
 
 상품이 0건이어도 **`years`개 행을 반환한다.** `[]`를 주면 상품 0건 + ELS 외 금융소득이 있는 사용자에게서 세금 행이 사라져 **§8.1의 E 부류를 재현한다** — SCR-101의 빈 상태 분기가 요소 ③을 함께 지운 것과 같은 형태다(그 사용자의 종합과세 여부와 보험료는 상품과 무관하게 실재한다). 「전망할 데이터 없음」(DOC-008 §6)의 판정은 화면 층의 순수 함수가 담당한다.
 
-**나머지 필드는 §4.6과 같은 집계·세액 경로를 쓴다.** `grossProceeds`는 그 해에 귀속된 상품의 세전 실수령액 합계이고(§7.5의 `Σ gross`), 세액·부담률·보험료는 §5·§6이며, `financialIncome`·`isComprehensive`·`thresholdGap`은 §4.6의 `income`과 같은 값이다.
+**나머지 필드는 §4.6과 같은 집계·세액 경로를 쓴다.** `grossProceeds`는 그 해에 귀속된 ~~상품의~~ **사건(상환 · 월수익)의** 세전 실수령액 합계이고 *(v4.16 — 아래 「월지급 상품의 전망」)*(§7.5의 `Σ gross`), 세액·부담률·보험료는 §5·§6이며, `financialIncome`·`isComprehensive`·`thresholdGap`은 §4.6의 `income`과 같은 값이다.
 
 **왕복은 4다** *(v4.13 — 종전 3에 추정 환율이 더해졌다)* — 세율 연도 전체(1) + 본인의 과세 프로필 전체(1) + 상품(1) + 추정 환율(1 — `loadEstimateRates`, 첫 물결에서 나란히). §4.6과 같은 수이며 연도 수에 비례하지 않는다: `loadAllTaxYears`가 시드된 연도를 한 번에 가져오고(§9 AQ-22가 그 분해의 부수 효과로 적었다) 프로필은 `tax_year ≤ Y₀ + years − 1` 한 번으로 받아 위 LOCF를 적용하며, 추정 환율도 요청당 한 번 읽어 모든 연도에 쓴다(§4.0 규칙 2).
 
@@ -1316,12 +1569,25 @@ profileFor(profiles, Y) = argmax { p.tax_year | p ∈ profiles, p.tax_year ≤ Y
 | `grossProceeds`·`netProceeds`·`cumulativeNet`·`remainingPrincipal`·`cumulativeAssets` | 달러 금액 `× x`. 원금과 수령액을 **같은 `x`로** 바꾸므로 DOC-007 §7.5의 배타 분할(한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 그대로 성립한다 |
 
 - **추정 환율이 없으면 그 상품은 이 행의 원화 합계 열에서 빠지고 `excludedForeignCount`가 센다** — 단 F의 확정 원화 과세는 빠지지 않는다(§4.6의 표 첫 줄). 매퍼의 「항목을 떨어뜨리지 않는다 — 떨어뜨리면 그 원금이 표에서 사라진다」(`queries/forecast.ts`)의 **예외**이고, 예외인 이유가 그 규칙의 이유와 같다: 사라지는 것을 숨기지 않으려고 센다. 기본 환율로 채우면 원금이 약 1/1,400로 «있는 것처럼» 보인다.
-- **행마다 센다 — 그 상품이 처음 원화 합에 필요해진 행부터 마지막 행까지다.** 누적 두 열(`cumulativeNet`·`cumulativeAssets`)이 **뒤 행에서도** 그 상품을 잃기 때문이다(DOC-007 §7.5 — `cumulativeNet(Y)`는 `[Y₀, Y]`의 합이다). 미상환 달러 상품은 상환 연도 전의 행에서는 잔여 원금으로, 상환 연도에는 수령액으로, **그 뒤 행에서는 누적으로** 빠지므로 첫 행부터 마지막 행까지 각각 1이다. `Y₀`에 상환된 달러 상품도 첫 행부터 1이고, `Y₀` 이전에 상환된 상품은 어느 열에도 없으므로(DOC-007 §7.5 분할 표 둘째 줄) 세지 않는다. 「상환 연도까지」만 세면 뒤 행의 누적 두 열이 그 상품 없이 짧은데 건수는 0으로 읽힌다.
+- **행마다 센다 — 그 상품이 처음 원화 합에 필요해진 행부터 마지막 행까지다.** 누적 두 열(`cumulativeNet`·`cumulativeAssets`)이 **뒤 행에서도** 그 상품을 잃기 때문이다(DOC-007 §7.5 — `cumulativeNet(Y)`는 `[Y₀, Y]`의 합이다). 미상환 달러 상품은 상환 연도 전의 행에서는 잔여 원금으로, 상환 연도에는 수령액으로, **그 뒤 행에서는 누적으로** 빠지므로 첫 행부터 마지막 행까지 각각 1이다. `Y₀`에 상환된 달러 상품도 첫 행부터 1이고, `Y₀` 이전에 상환된 상품은 어느 열에도 없으므로(DOC-007 §7.5 분할 표 둘째 줄) 세지 않는다. 「상환 연도까지」만 세면 뒤 행의 누적 두 열이 그 상품 없이 짧은데 건수는 0으로 읽힌다. *(v4.16 — 「`Y₀` 이전에 상환된 상품」은 **`Y₀` 이전의 사건**으로 넓어진다: 확정이든 추정이든 기준 연도 이전의 사건은 어느 열에도 없고 세지 않는다 — 상환된 상품의 흐름 끝 안 무기록 월수익이 전년도일 수 있다(U5). 그리고 **세는 단위는 상품이다** — 한 상품의 사건 여럿이 빠져도 1이다(`excludedForeignCountOf` — P8 컷 b0)*
 - **`hasEstimates`는 환산에도 참이다.** 종전 뜻(적용 차수 가정에 의존한다)에 「원화 환산을 포함한다」를 더한다 — 확정 상환만 있는 해라도 달러 수령액을 환산했으면 참이다.
 - **`exchangeRateBasis`는 표 밖 표식 다섯째다**(넷째는 a2의 `excludedForeignCount` — DOC-008 SCR-402, 반박 검토 반영). 열이 아니라 표 전체의 조건이므로 `taxLawYear`·`profileYear`·`hasEstimates`와 같은 부류이며 DOC-008 SCR-402의 「표 밖 표식」 행이 규정한다. **`excludedForeignCount`도 열이 아니다** — `tests/app/forecast.test.ts`의 `OutsideTable`이 둘을 다 더해야 `_NoUnmappedField`가 선다(a2가 `excludedForeignCount`, a3가 `exchangeRateBasis`). 추정 환율이 요청당 하나이므로(§4.0 규칙 2) 환산이 있는 행들의 값은 같다.
-- **어느 행에 붙는가 — `excludedForeignCount`와 같은 규칙이다 (v4.13 — 구현에서 정함).** 환산한 외화 상품이 처음 원화 합에 필요해진 행부터 **마지막 행까지**이고, 그 규칙에서는 보유중 · `Y₀` 상환 상품이 첫 행부터 필요하므로 **모든 행이 같은 값**이다. 기준 연도 이전에 상환된 외화 상품은 어느 열에도 없으므로 환율이 있어도 표식을 세우지 않는다(`forecastItemOf`의 `estimateRate` — `excludedForeign`의 거울이며 한 항목에 둘이 동시에 서지 않는다). 「귀속연도 행에만」으로 두면 뒤 행의 누적 두 열이 환산값을 담는데 근거가 비어 확정처럼 읽힌다(ST-05).
+- **어느 행에 붙는가 — `excludedForeignCount`와 같은 규칙이다 (v4.13 — 구현에서 정함).** 환산한 외화 상품이 처음 원화 합에 필요해진 행부터 **마지막 행까지**이고, 그 규칙에서는 보유중 · `Y₀` 상환 상품이 첫 행부터 필요하므로 **모든 행이 같은 값**이다. 기준 연도 이전에 상환된 외화 상품은 어느 열에도 없으므로 환율이 있어도 표식을 세우지 않는다(~~`forecastItemOf`의~~ `forecastItemsOf` 항목의 `estimateRate` — `excludedForeign`의 거울이며 한 항목에 둘이 동시에 서지 않는다. *v4.16 — P8 컷 b0이 `forecastItemOf`를 `forecastItemsOf`로 바꿨고 `estimateRate`는 `ForecastProductItem`의 필드다. 「기준 연도 이전에 상환된 상품」은 「기준 연도 이전의 사건」으로 넓어진다 — 위 항목*). 「귀속연도 행에만」으로 두면 뒤 행의 누적 두 열이 환산값을 담는데 근거가 비어 확정처럼 읽힌다(ST-05).
 - **`hasEstimates`의 행 축은 그대로다 (v4.13 — 정리).** 종전 뜻은 「그 해의 귀속 항목 또는 잔여 항목이 가정에 의존한다」이고 누적 두 열의 **앞 행 몫은 세지 않는다** — 원화 추정 상환(`Y₀`)도 뒤 행의 `cumulativeNet`에 들어 있지만 그 행의 `hasEstimates`는 거짓이다. 달러 환산도 같은 규칙을 따른다: `Y₀`에 상환된 달러 상품은 `Y₀` 행에서 참이고 뒤 행에서는 누적에만 있다. 누적이 환산을 담는다는 사실은 표 전체의 조건인 `exchangeRateBasis`가 말한다 — 행 축을 넓히면 원화 추정과 달러 환산에 다른 규칙이 생긴다(`lib/tax/forecast.ts`는 바뀌지 않는다).
 - **모든 미래 연도에 같은 환율을 쓴다**(DOC-007 RD-09) — 연도별 전망 환율을 두지 않는다. 화면 고지가 그 가정을 말한다(DOC-008 SCR-402).
+
+#### 월지급 상품의 전망 — 사건마다 항목 하나 (v4.16 선행 명세 — P8 컷 b1, 구현 b4)
+
+**코드가 한 컷 앞섰다 (P8 컷 b0, `d675efb`).** `forecastItemOf`(상품 → 항목 하나)가 `forecastItemsOf`가 되었다 — 상품마다 `incomeEventsOf`를 **한 번** 읽어 **사건마다 항목 하나**를 만들고, **원금을 돌려주는 사건(상환)이 없으면 원금 항목 하나**를 둔다(귀속 = 적용 차수의 연도, 적용 차수가 없으면 `null` — 전 연도의 잔여 원금, E-07의 시각적 형태). 원화 합계에서 빠진 외화 상품은 평탄화 **전에** 상품 단위로 센다(`excludedForeignCountOf`). 그 컷까지 사건은 상품당 최대 하나라 **동작 불변**이다(HEAD 대 작업 트리 차분 0). 이 절은 그 형태가 월지급식에서 무엇을 뜻하는지 적는다.
+
+- **원금은 상환 항목에만 싣는다** — 월수익 항목의 원금 반환분은 0이다(§4.0 「쿠폰 지급방식과 월수익」 규칙 2). DOC-007 §7.5의 배타 분할(한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 그대로 선다.
+- **조건이 「사건이 없음」이 아니라 「원금을 돌려주는 사건이 없음」인 이유** — 적용 차수가 없는(NO_ROUND) 월지급 상품은 흐름 끝이 무한이라 월수익 사건은 있는데 상환 사건이 없다. 「사건이 없으면 원금 항목」으로 두면 그 원금이 표에서 증발한다(b0 반박 검토가 찾았다 — `queries/forecast.ts`의 주석).
+- **`grossProceeds`·`netProceeds`의 항은 사건이다** — 월수익 사건의 세전은 `PAID` 기록의 세전 또는 추정 `q_k`이고 원금이 없다. 그래서 월지급 상품의 한 해 세후 회수에는 그 해의 월수익(추정 포함)이 들고 원금은 상환 사건의 해에 한 번만 든다(DOC-007 §7.4).
+- **기준 연도 이전의 사건은 확정이든 추정이든 어느 열에도 없다** — 상환된 상품의 흐름 끝 안 무기록 월수익은 추정 사건이면서 전년도일 수 있다(U5). 그런 사건은 세지도 않는다(`excludedForeignCount` · `exchangeRateBasis` — 위 달러 항목의 v4.16 각주).
+- **`excludedForeignCount`는 상품 수다** — 한 상품의 월수익 사건 여럿이 빠져도 그 행에서 1이다(§4.0 규칙 4).
+- **`hasEstimates`는 그 해에 추정 월수익 사건이 있어도 참이다** — 무기록 달을 지급된 것으로 넣는 것도 가정이다. 정의를 새로 쓰지 않는다 — 항목이 사건마다 하나이고 추정 사건의 항목이 추정 표식을 싣는다(DOC-007 §7.5). **정의는 위 v4.13 각주 그대로다** *(b1 개정 — 반박 검토 반영)* — 그 해에 귀속되는 항목 중 추정이 있거나, **연도 말에 남은 항목**(그 해까지 돌려받지 않은 항목) 중 추정이거나 귀속이 `null`인 것이 있으면 참이다(`lib/tax/forecast.ts`). 그래서 월지급식에서는 **원금 0인 미래 추정 월수익 항목이 남은 항목으로 앞 행을 참으로 만든다** — 그 행의 값은 그 항목에 의존하지 않는데도 그렇다. 그 항목을 「남은 항목」 판정에서 뺄지는 DOC-007 RD-19 ⓑ가 들고 있다(b4 전에 정한다).
+- **가정 문장 — 「월지급식은 적용 차수까지 매월 지급 가정」** — 표 밖 표식이다(열이 아니다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`·`exchangeRateBasis`와 같은 부류). 미상환 월지급 상품의 추정은 적용 차수(가정된 상환)의 평가일까지 매월 지급된다고 놓고 그 뒤 달은 넣지 않는다(「예정 · 조기상환 가정 밖」 — 민서 결정(2026-10-02) ③). **결속된 면책 문장을 고치지 않고 별개 문장이다** — 문구 상수는 b4의 코드 커밋에 선다(DOC-008 SCR-402). **표식은 `monthlyCouponAssumption: boolean` — 표 밖 표식 여섯째다** *(b1 개정 — §9 ⑦ 해결)*. 그 표(연도 범위 `[Y₀, Y₀ + years − 1]`)에 추정 월수익 사건이 하나라도 있으면 참이고 그것이 문장의 조건이다 — 표 전체의 조건이므로 모든 행이 같은 값이다(`exchangeRateBasis`와 같은 형태). 기준 연도 이전의 사건은 표에 없으므로 세지 않는다(위 항목). 구현 b4의 코드 커밋에서 `tests/app/forecast.test.ts`의 `OutsideTable`이 이 필드를 더해야 `_NoUnmappedField`가 선다. **화면 전체 고지의 조건(DOC-007 RD-19)은 그대로 b4 전에 정한다** — 이 필드는 표의 표식이고 그 미결을 닫지 않는다.
+- **검산 B-7** (DOC-007 — §4.3의 B-1 상품 · 기준 연도 2026 · 다른 소득 0): 2026 행 `grossProceeds` 3,000,000 · `netProceeds` **2,538,000** · `remainingPrincipal` 100,000,000 · `cumulativeAssets` **102,538,000** / 2027 행 `grossProceeds` **100,600,000**(상환 투자원금 + 6번째 달) · `netProceeds` **100,507,600** · `remainingPrincipal` 0 · `cumulativeAssets` **103,045,600**. 음성 대조 — 월수익 항목에 원금을 실으면 2026 잔여 원금 200,000,000 · 누적 자산 202,538,000(이중 계상). 매퍼(`forecastItemsOf`)를 거쳐 검증한다(`tests/db/income.test.ts` — SB-9, P8 계획 결정).
 
 ### 4.8 사용자별 현황 — SCR-501
 
@@ -1367,6 +1633,8 @@ type UserSummary = {
 > **`activePrincipal` → `activePrincipalByCurrency` (v4.9 선행 명세 — P8 컷 a1, 구현 a2).** §4.1 `totals`와 같은 이유로 통화를 넘어 더하지 않는다. 행은 그 사용자에게 **보유중** 상품이 있는 통화마다 하나이고(원금만 담으므로 §4.1과 달리 상환 완료를 세지 않는다) 없으면 원화 0 한 행이다. 원화 환산 합계는 두지 않는다 — 화면이 없고(SQ-01) 사용자 간 비교에 추정을 섞을 이유가 없다.
 >
 > **`currentYearFinancialIncome`은 §4.6과 같은 E-09를 따른다** — 환율이 없으면 추정 달러 건이 빠진 값이다. **그 불완전함의 표식은 지금 두지 않는다.** 화면이 없고(SQ-01), 위 v0.8 판단대로 표식을 더하게 되면 `includesOtherFinancialIncome`에 접지 않고 **별도 필드**여야 한다 — 앞은 RLS가 감춘 값이고 뒤는 환율이 없어 만들지 못한 값이다. SQ-01이 존치로 닫히면 그때 연다.
+>
+> **월지급식에서도 변경이 없다 (v4.16 선행 명세 — P8 컷 b1, 구현 b4).** `currentYearFinancialIncome`은 같은 `contributionOf`를 지나므로(SB-4 — P8 계획 결정) 월수익 사건(확정 · 추정)을 §4.6과 **같은 사건 집합**으로 담는다 — 서명도 필드도 그대로이고, 확정/추정 분할과 표식은 여전히 두지 않는다(위 v0.8 판단 · SQ-01). **본인 행의 F가 §4.6 `income.total`과 같다는 통합 테스트를 b4에 둔다** — `listUserSummaries`가 `contributionOf`의 둘째 소비자라 사건을 접는 규칙이 한쪽에만 닿으면 두 화면이 갈린다(§4.6 마지막 항목의 항등). `activePrincipalByCurrency`는 원금만이라 월수익과 무관하다.
 
 ### 4.9 자산 검색 — SCR-204
 
@@ -1423,7 +1691,7 @@ type LookupOutcome<T> =
 | X-04 | **결과를 저장하지 않는다** | DB에 닿는 경로는 §5.1·§5.2(상품 — 수정은 v4.6)·§5.10(자산)·§5.12(매핑)뿐이며 **V-규칙이 전부 적용된다.** 불러온 값은 사용자가 폼에서 확인한 뒤 그 계약을 지난다 |
 | X-05 | **`Queries` 묶음 밖, 무효화 축 밖이다** | 무효화할 DB 상태가 없다 — `QueryName`에 넣으면 `_queryAxisIsExhaustive`가 어느 변경의 `affects`에도 없는 이름을 거부하고, 넣으려면 가짜 `affects`를 지어내야 한다. 대신 **라우트별 외부 조회 원장**(`ROUTE_EXTERNAL_LOOKUPS`)에 등재하고 §8이 그 원장과 대조한다 |
 | X-06 | **시간 예산** — 요청당 8초, 한 번의 렌더 안에서 15초. 쿠키를 싣지 않는다 | 배치(15초/요청)보다 짧다 — 사람이 기다리는 화면이다. 쿠키 규약은 ADR-008 §2 ③과 같다 |
-| X-07 | **불러온 상품 통화가 저장값과 다르면 투자원금을 비운다** *(v4.15 · P8 컷 a4 — 앞절반)*. 「불러온 상품 통화」는 DOC-010 ADR-009 §7 `productCurrencyOf`의 확정 판정이고, 증인이 없으면 통화도 투자원금도 저장값이다. 같으면 아무것도 비우지 않는다. 비운 렌더는 「일부 채움」이다 | 통화와 투자원금은 함께 움직인다 — 투자원금은 원천에 없어 저장값이 남는데 통화만 바뀌면 `10000000`(원)이 $10,000,000.00이 된다. 형식이 정상이고 자릿수가 맞아 V-23도 못 잡는다. 환산하지 않는다(환율은 계약 조건이 아니다). 기록 있는 상품의 거부(뒷절반)는 §9 — b1이 컷을 정한다 |
+| X-07 | **불러온 상품 통화가 저장값과 다르면 투자원금을 비운다** *(v4.15 · P8 컷 a4 — 앞절반)*. 「불러온 상품 통화」는 DOC-010 ADR-009 §7 `productCurrencyOf`의 확정 판정이고, 증인이 없으면 통화도 투자원금도 저장값이다. 같으면 아무것도 비우지 않는다. 비운 렌더는 「일부 채움」이다 | 통화와 투자원금은 함께 움직인다 — 투자원금은 원천에 없어 저장값이 남는데 통화만 바뀌면 `10000000`(원)이 $10,000,000.00이 된다. 형식이 정상이고 자릿수가 맞아 V-23도 못 잡는다. 환산하지 않는다(환율은 계약 조건이 아니다). 기록 있는 상품의 거부(뒷절반)는 §9 — ~~b1이 컷을 정한다~~ **컷 b4**다 *(v4.16 — 뒷절반의 규칙 문언은 b4의 코드 커밋이 이 행에 더한다)* |
 
 **`resp_code`(검색)의 해석** — HTTP는 항상 200이고 성패가 본문에 있다.
 
@@ -1469,7 +1737,48 @@ type ExchangeRateView = {
 
 **조회 계약 9 → 10 (컷 a3).** 결속 원장이 같은 커밋에 움직인다 — `Queries` 묶음(`queries/context.ts`의 「9개」), `tests/integration/`의 `formats.test.ts`·`serialization.test.ts`·`contracts.test.ts`·`integrity-inputs.test.ts`의 계약 수, `ROUTE_QUERIES['/prices']`, §8 SCR-302 행(표 행은 그 코드 커밋에 함께 — §8 말미 각주).
 
-> §4.12 `listMonthlyCouponSchedule`은 컷 b1의 명세다(§9 「P8 계약면 증가」).
+### 4.12 월수익 일정 — SCR-301 (v4.16 선행 명세 — P8 컷 b1, 구현 b3)
+
+```ts
+function listMonthlyCouponSchedule(params: {
+  from?: string
+  to?: string
+  ownerId?: string
+  activeOnly?: boolean
+}): Promise<MonthlyCouponScheduleItem[]>   // 행 = 월수익 일정 한 행(상품 × 월수익 순번)
+
+/** v4.16 (b1 개정 — §9 ⑧ 해결) — 월수익 일정 한 행. 정의는 §4.3 `CouponObservationView`와 같다 */
+type MonthlyCouponScheduleItem = {
+  productId: string
+  productName: string
+  ownerName: string
+  currency: ProductCurrency             // expectedAmount · record.grossAmount의 통화 (§4.0 달러 규칙 1 — 금액이 있는 곳에 통화가 있다)
+  couponNo: number                      // 월수익 순번 — 「5번째 · 2027-02-16」
+  evaluationDate: string                // 월수익 평가일
+  paymentDate: string                   // 월수익 지급일 (일정의 값)
+  couponBarrier: string                 // 월수익 배리어. 4자리
+  state: CouponState                    // §4.0 「구획」
+  expectedAmount: string                // 상품 통화 — q_k(보조단위 절사값 — §4.0 「형식」)
+  record: { outcome: CouponOutcome; grossAmount: string | null } | null   // 그 달의 기록. UNPAID면 grossAmount null
+  conditionResult: CouponConditionResult | null   // 다음 한 행에만 값 (§4.3과 같다)
+}
+```
+
+**인자는 §4.4 `listSchedule`과 같다.** 네 값 모두 저장된 열의 조건이므로 질의로 내린다(Q-05). 날짜 범위는 **월수익 평가일**에 걸린다 — `monthly_coupon_schedules.evaluation_date`의 인덱스가 이 화면을 위한 것이다(DOC-002 §4.13). `ownerId`는 부모 열 조건, `activeOnly`는 부모의 상환 부재 조건이다(§4.4와 같은 형태). **그리고 인자와 무관하게 부모 `coupon_payout = 'MONTHLY'`인 행만 읽는다** *(b1 개정 — 반박 검토 반영)*. 계약 밖 쓰기(직접 INSERT · 기록 없는 상품의 지급방식 직접 UPDATE — 동결 트리거는 기록이 있을 때만 발화한다)로 상환 시 지급 상품 아래에 일정 행이 남을 수 있는데(§3.2.1 — AQ-29 부류), 그 행은 월수익 연쿠폰율이 `NULL`이라(I-23) `expectedAmount`(`q_k`)가 정의되지 않는다. 걸러 내지 않으면 그 행이 SCR-301에 월수익 행으로 나오고, 산식이 던지면 SELECT가 `using (true)`이므로 남의 상품 하나가 모든 사용자의 평가일정을 죽인다(DOC-010 AQ-92와 같은 부류). 지급방식은 부모 열 조건이므로 질의로 내린다(Q-05).
+
+**질의의 루트는 `monthly_coupon_schedules`다 — 자기 루트 쿼리.** §4.4 「질의의 루트」 각주와 같은 이유다: 상품을 루트로 두고 월수익 일정을 임베드하면 `from`·`to`가 임베드 필터가 되어 **잘린 일정 집합**에서 다음 행(조건 판정)을 고르게 된다. 루트를 월수익 행으로 두고 부모 상품이 자기 월수익 일정 · 기록 · 조기상환 일정 · 상환 **전체**를 다시 담으면 상태(§4.0 「구획」 — 흐름 끝이 적용 차수 · 상환일에서 나온다)와 다음 행 판정이 온전하다. ⚠ **그 「전체」는 상품마다 월수익 행 수만큼 복제된다** — 한 상품에서 K행(최대 60)이 저마다 부모의 K행을 다시 담으므로 K²이다. b1 개정이 차수 루트(§4.4)에서 피한 복제와 같은 부류이고 크기만 다르다(그쪽은 차수 수 × 월수익 수). 다음 행 판정과 흐름 끝에 필요한 것은 부모의 월수익 평가일들과 기록 유무이므로 부모 임베드를 그 열로 좁힐 수 있는지는 b1 명세에 없다 — §9 「P8 월지급 — b2 전에 정한다」 ⑰(b3 전, 페이로드 실측은 DOC-010 AQ-77).
+
+**`ScheduleItem` 합집합을 쓰지 않는다.** §4.4의 행과 한 유니온으로 섞으면 화면의 `groupByProduct`가 `roundNo`로 정렬하는 것이 깨진다 — 월수익 순번은 차수가 아니다(DOC-005 §8.3). 그리고 차수 행의 판정(`conditionResult` · `isPast` · `proceeds`)을 월수익 행에서 다시 해석해야 하고, 그 해석은 어느 스위트도 대조하지 않는 화면 합성이 된다(DOC-010 AQ-23). **두 계약을 화면이 나란히 읽는다** — 상품별 보기의 카드에는 월수익 평가일 하위 목록(다음 월수익 하나 + 펼치기 — DOC-008 SQ-14 해소)이, 시간순 보기에는 「종류」 필터와 함께 월수익 행이 선다(DOC-008 SCR-301 ⑮⑯).
+
+**상태와 조건 판정은 §4.3 `coupons`와 같은 정의다** — 같은 상품의 같은 달에 두 화면이 다른 상태를 말할 수 없다. 판정 삼종을 §4.2·§4.3·§4.4가 같은 `judge()`로 내는 것과 같은 이유이며, 구현은 한 함수를 공유한다.
+
+**Q-06 — 이 계약이 상한에 가장 먼저 닿는다.** 행 단위가 월수익 행이라 월지급 상품 × 약 36행(최대 60 — V-26)으로 늘어 `listSchedule`(상품 × 약 6차수)보다 빠르다. 상한에 닿으면 던진다 — 그때가 AQ-09(페이지네이션)를 닫을 신호다.
+
+**무효화 — 세금이 없다.** `PRODUCT_WIDE`(상품 · 상환 — 행의 존재와 흐름 끝, 「상환 후 없음」이 바뀐다) · `PRICE_WIDE`(다음 행의 조건 판정이 최신 시세를 쓴다) · `COUPON_RECORD_WIDE`(행의 상태와 기록 — §5.14·§5.15)에 든다. 이 계약이 `PRICE_WIDE`에 들어도 그 축의 「세금이 없다」는 그대로다(§8 · §5.14 무효화 각주). **`createProduct` · `updateProduct`의 `affects`에도 든다**(b1 개정 — §9 ⑭) — 새 월지급 상품이 월수익 행을 만들고 수정이 행을 바꾼다. `updateProduct`는 `PRODUCT_WIDE`를 쓰고 `createProduct`는 축을 쓰지 않고 따로 적으므로(`routes/invalidation.ts`) 둘 다에 더한다 — `listSchedule`이 `createProduct`에 드는 것과 같은 근거다. `createRealizedProduct`에는 들지 않는다 — 기실현은 월수익 일정이 없어 이 목록에 행이 생기지 않는다(`listSchedule`이 들지 않는 것과 같다). **`EXCHANGE_RATE_WIDE`에는 들지 않는다**(b1 개정) — 위 행 타입이 원화 환산 값을 싣지 않는다.
+
+**왕복**은 b3의 코드 커밋이 재서 §4.0 왕복 표에 행으로 적는다(예상을 적지 않는다 — §5.0.1의 §5.12 각주와 같은 태도).
+
+**조회 계약 10 → 11 (컷 b3).** 결속 원장이 같은 커밋에 움직인다 — `Queries` 묶음(`queries/context.ts`의 「10개」) · `tests/integration/`의 계약 수(`formats.test.ts`·`serialization.test.ts`·`contracts.test.ts`·`integrity-inputs.test.ts`) · `ROUTE_QUERIES[PATHS.schedule]` · `INVALIDATION`의 세 축(`_queryAxisIsExhaustive`가 어느 `affects`에도 없는 조회를 거부한다) · §8 SCR-301 행(표 행은 그 코드 커밋에 함께 — §8 말미 각주). **`tests/app/scheduleMarkers.test.ts`도 b3에서 넓힌다** — SCR-301 요소 마커가 `keyof ScheduleItem`을 전수로 보는데 ⑮⑯의 월수익 마커가 이 계약의 타입을 가리키게 된다(마커 자체도 b3 코드 커밋 — DOC-008 SCR-301).
 
 ---
 
@@ -1519,6 +1828,8 @@ type MutationContext = {
 
 > §5.12 `saveProviderSymbol`은 이 표에서 잰 적이 없다 *(v4.13 확인 — 그 계약이 선 P5a 컷 2b가 이 표에 행을 더하지 않았다)*. 형태는 §5.7과 같은 UPSERT 한 번이지만 측정이 아니므로 행으로 적지 않는다.
 
+> **§5.14·§5.15의 행은 b2의 실측 커밋에 둔다 (v4.16 선행 명세).** 예상을 행으로 적지 않는다(바로 위와 같은 태도). 형태만 적는다 — 세 계약 모두 부모 상품의 사전 조회가 있고(W-05 · V-27), `recordCouponPayments`는 다행 INSERT **한 번**이며 원천징수 기본값이 필요한 행이 있으면 **그 지급일의 연도마다** `tax_years`를 한 번씩 읽는다(같은 해는 다시 읽지 않는다 — §5.14). 그래서 이 계약의 왕복은 입력에 따라 변하고, 다중집합 예산은 경우를 갈라 단언해야 한다(§5.8 `refreshPrices` 행과 같은 형태). **아래 ②는 b2에서 낡는다** — §5.15 `updateCouponPayment`도 상품이 아니라 기록 `id`를 받아 부모를 얻는 왕복을 강제하므로 「§5.5의 두 계약만」이 아니게 된다.
+
 세 가지가 이 표에서 읽힌다.
 
 ① **사용자 데이터를 바꾸는 계약에서는 사전 조회가 필요한 계약만 2 이상이다.** `createProduct`·`saveTaxProfile`·`saveManualPrice`·`createAsset`·`saveExchangeRate`는 소유자를 판정할 대상이 없거나(생성) 소유자 개념이 없으므로(공용 데이터) 1이다. W-05의 비용이 어디에 붙는지가 그대로 보인다. §5.8 `refreshPrices`(5)는 이 명제 밖이다 — 사전 조회가 아니라 수집 대상을 읽고 결과를 쓰는 왕복이며 소유자 판정이 없다 *(v4.13 — 그 행을 정정하면서 이 명제를 좁혔다)*.
@@ -1542,7 +1853,15 @@ type ProductInput = {
   principal: string                     // 상품 통화 금액 — V-01′ · V-23
   evaluationPeriodMonths: number
   totalRounds: number
-  annualCouponRate: string
+  annualCouponRate: string              // v4.16 — 월지급식이면 '0' (V-08′)
+  couponPayout: CouponPayout            // v4.16 (P8 컷 b1 명세 · 구현 b2) — 쿠폰 지급방식. 필수, 기본값 없음 (V-25)
+  monthlyCouponAnnualRate?: string      // v4.16 — 월수익 연쿠폰율(비율 문자열). MONTHLY면 필수, AT_REDEMPTION이면 없다 (V-25)
+  couponSchedules?: Array<{             // v4.16 — 월수익 일정. MONTHLY면 1..60행 (V-25 · V-26), AT_REDEMPTION이면 없다
+    couponNo: number
+    evaluationDate: string
+    paymentDate: string
+    couponBarrier: string
+  }>
   kiBarrier?: string
   kiObservation?: 'CONTINUOUS' | 'CLOSING'
   accountType: 'GENERAL' | 'TAX_FREE'
@@ -1571,6 +1890,10 @@ type ProductInput = {
 - **평가일은 칸의 값이다**(v4.2). 빈 칸을 산식(`발행일 + n × 평가주기 − 1일`)으로 채우는 것은 입력 계층(SCR-204 폼)의 일이며, 계약은 `schedules[].evaluationDate`를 받은 그대로 V-07로 검사한다 — 산식에서 왔는지 사용자·불러온 값에서 왔는지 계약은 모른다(DOC-002 §4.8 v1.6)
 - **상품 통화는 입력이며 기본값이 없다** (v4.9 선행 명세 — P8 컷 a1, 구현 a2). `currency`가 없거나 `KRW`·`USD` 밖이면 V-22로 거부한다. 원화로 채우지 않는 이유 — `$10,000` 상품이 `10,000원`으로 저장되면 모든 금액이 약 1,400배 틀리는데 **형식은 정상**이라 어느 검증에도 걸리지 않는다(DOC-001 U7 — 직접 입력은 빈칸에서 시작한다). `principal`은 그 통화의 보조단위 자릿수로 검사하고(V-23) **V-23을 지난 뒤** `moneyString`으로 정규화해 싣는다 — 값은 바뀌지 않는다(접을 자릿수가 이미 없다). **순서를 뒤집으면 안 된다** — 정규화가 먼저면 `10000.555`가 `10000.56`으로 조용히 접혀 V-23이 볼 것이 사라진다(AQ-16과 같은 부류)
 - **쓰기 함수가 `payload->>'currency'`를 읽는다** (컷 a2 — M-a2). **확장 웨이브(W1) 동안만** `coalesce(payload->>'currency', 'KRW')`로 받는다 — `db push`와 배포 사이에 통화를 보내지 않는 **구 코드**가 돌기 때문이다(열의 `default 'KRW'`도 같은 이유로 그 웨이브에만 있다). 새 코드는 V-22 때문에 언제나 보낸다. **축소 마이그레이션(M-a2c — 컷 a3, W2)이 열 기본값과 `coalesce`를 함께 뗀다.** 그 뒤로 통화 없는 payload는 `23502` → `VALIDATION_FAILED` + `fields.currency`다(§3.2.1 — `NOT_NULL_FIELD`의 `currency` 키는 이미 있다). **그 거부를 영구 단언으로 둔다**(반박 검토 SB-12) — 이 함수를 이후 다시 `create or replace`하는 컷(b2 · b4의 M-b2c — DOC-002 §4.6)이 축소 이전 본문에서 출발하면 `coalesce`가 조용히 돌아오고, 그 회귀는 값이 옳아 보이는 원화 상품을 만든다
+- **쿠폰 지급방식은 입력이며 기본값이 없다** (v4.16 선행 명세 — P8 컷 b1, 구현 b2). `couponPayout`이 없거나 `AT_REDEMPTION`·`MONTHLY` 밖이면 V-25로 거부한다 — 빈칸은 그 칸의 오류이고 V-22(상품 통화)와 같은 형태다(DOC-001 U7). 상환 시 지급으로 채우지 않는 이유는 통화와 같다 — 월지급 상품이 상환 시 지급으로 저장되면 월수익이 통째로 사라지는데 **형식은 정상**이다. **그 값을 싣는 칸이 같은 b2 코드 커밋에 선다** *(b1 개정 — 반박 검토 반영)* — SCR-204 평가 조건 구획 맨 위와 SCR-205의 「쿠폰 지급」 선택 상자(선택지 「선택」 · 「상환 시 지급」)와 수정 폼의 초기값 §4.3 `product.couponPayout`이다. V-25만 먼저 서면 b2(W4)~b3(W5) 동안 폼의 모든 저장이 칸 없는 오류로 거부된다(§4.0 컷별 도달 — 통화 a2-3a 선례). 칸을 숨겨 `AT_REDEMPTION`을 몰래 실으면 그것이 곧 기본값이다(DOC-001 U7)
+- **월지급식의 계약 조건** (v4.16, V-25 · V-08′ · V-26). `MONTHLY`이면 `annualCouponRate = '0'`(DOC-002 DQ-11 — 수익은 전부 월수익 연쿠폰율에서 나온다. 0이 아니면 연 24.24%가 상환 시 일괄 쿠폰으로도 읽혀 **이중 계상**된다) · `monthlyCouponAnnualRate > 0`(상한은 연쿠폰율과 같은 V-08의 `x ≤ 2` — b1 개정) · `couponSchedules` 1..60행 · 리자드 차수 없음(월지급+리자드는 v2). `AT_REDEMPTION`이면 `monthlyCouponAnnualRate`·`couponSchedules`가 없다. **월수익 평가일 · 지급일은 칸의 값이다** — 산식(평가일 = 발행일 + k개월 − 1일, 지급일 = 평가일 + 3영업일 — 주말만 건너뛴다)으로 채우는 것은 입력 계층(SCR-204 폼)의 일이고 계약은 받은 그대로 V-26으로 검사한다(위 「평가일은 칸의 값이다」(v4.2)와 같다). 지급일 기본값의 「+3영업일」은 투자설명서 원문이다(EM2048 — §9 X-08)
+- **쓰기 함수가 지급방식 · 월수익 연쿠폰율 · 월수익 일정을 함께 싣는다** (v4.16 — 구현 b2, M-b2). 상품 · 기초자산 · 조기상환 일정 · **월수익 일정**이 한 트랜잭션이다. 함수 꼬리 검사 셋이 I-25를 DB 층에서 한 번 더 막는다 — `els_products_monthly_schedules_required`(`FULL ∧ MONTHLY`인데 일정 0행) · `els_products_monthly_schedules_forbidden`(`AT_REDEMPTION`인데 일정 행) · `els_products_monthly_lizard_forbidden`(`MONTHLY`인데 리자드 — §3.2.1). **확장 웨이브(W4) 동안만** `coalesce(payload->>'coupon_payout', 'AT_REDEMPTION')`로 받는다 — `db push`와 배포 사이에 지급방식을 보내지 않는 구 코드가 돈다(열의 `default 'AT_REDEMPTION'` 백필도 그 웨이브에만 있다). **축소(M-b2c — 컷 b4, W6)가 기본값과 `coalesce`를 함께 뗀다** — 그 뒤로 지급방식 없는 payload는 `23502` → `VALIDATION_FAILED` + `fields.couponPayout`이다(§3.2.1 — `NOT_NULL_FIELD`에 새 키). **그 거부도 영구 단언으로 둔다** — 위 통화의 SB-12와 같은 이유이고, 이 함수를 b2와 b4가 두 번 `create or replace`하므로 그 회귀 경로가 둘이다
+- **계약은 b2부터 `MONTHLY`를 받는다 — 폼은 b4까지 「월지급식」을 고를 수 없다** (v4.16 — SB-13). 통합 테스트와 dev 표본이 월지급 상품을 계약으로 만들어야 b2·b3가 검증된다. 운영 사용자가 그 상품을 만드는 경로(SCR-204의 선택지)는 세금·전망이 월수익 사건을 아는 컷(b4)에 함께 열린다 — 먼저 열면 F가 월수익 없이 계산되는 상품이 운영에 생긴다(§4.0 「쿠폰 지급방식과 월수익」 컷별 도달). 그 전의 폼이 저장값 `MONTHLY`인 상품을 열면 선택지에 그 값을 더한다(`currencyOptionsOf` 선례 — b1 개정, DOC-008 SCR-204) — 더하지 않으면 수정 화면이 「선택」으로 떨어져 저장이 V-25 오류이거나 지급방식이 뒤집힌다
 
 **권한:** 인증 사용자 누구나 (본인 소유로 생성)
 
@@ -1580,7 +1903,7 @@ type ProductInput = {
 >
 > **함수를 쓰는 이유는 원자성 하나가 아니다.** ① `owner_id`를 함수가 `auth.uid()`로 박으므로 "입력값으로 받지 않는다"가 규율이 아니라 구조가 된다. ② 함수 말미에서 하위 행 수를 검사하면 **I-07이 DB 층 방어를 처음 갖는다** — DOC-002 §8이 I-07을 애플리케이션 검증으로 분류하고 DOC-010 AQ-14가 "예방이 한 층뿐"으로 남긴 항목이 여기서 두 층이 된다.
 >
-> **함수는 새로운 fail-open 축이다.** `EXECUTE`는 기본으로 `PUBLIC`에 부여되므로 회수 후 `authenticated`에만 명시 부여한다 — 뷰의 `security_invoker`(AQ-20)·신규 테이블의 TRUNCATE(§7.1)와 같은 부류이며, 카탈로그 테스트가 함수 축을 열거하지 않으면 어떤 단언도 이를 잡지 못한다. `SECURITY INVOKER`(기본값)를 유지하므로 함수 안의 INSERT에도 RLS가 그대로 적용된다 — `SECURITY DEFINER`로 쓰면 정책 37개(v4.8 정정 — 종전 「32개」)를 우회하는 쓰기 경로가 생긴다. DOC-010 §7·AQ-28.
+> **함수는 새로운 fail-open 축이다.** `EXECUTE`는 기본으로 `PUBLIC`에 부여되므로 회수 후 `authenticated`에만 명시 부여한다 — 뷰의 `security_invoker`(AQ-20)·신규 테이블의 TRUNCATE(§7.1)와 같은 부류이며, 카탈로그 테스트가 함수 축을 열거하지 않으면 어떤 단언도 이를 잡지 못한다. `SECURITY INVOKER`(기본값)를 유지하므로 함수 안의 INSERT에도 RLS가 그대로 적용된다 — `SECURITY DEFINER`로 쓰면 정책 ~~37개(v4.8 정정 — 종전 「32개」)~~ 전부(현재 40 — Q-01, v4.12. 컷 b2 뒤 48)를 우회하는 쓰기 경로가 생긴다 *(v4.16 — 이 수는 v4.12에서 낡았다. a3가 Q-01만 고쳤다)*. DOC-010 §7·AQ-28.
 
 ### 5.2 상품 수정 — SCR-204
 
@@ -1592,12 +1915,15 @@ function updateProduct(
 ```
 
 **권한:** 소유자
-**동작:** 쓰기 함수 `update_els_product(p_id uuid, payload jsonb)`를 경유한다 — 상품 열 갱신과 하위 배열 **전체 교체**(삭제 + 삽입)가 한 트랜잭션 안에서 일어난다(v0.9. 근거는 §5.1 각주).
+**동작:** 쓰기 함수 `update_els_product(p_id uuid, payload jsonb)`를 경유한다 — 상품 열 갱신과 하위 배열 **전체 교체**(삭제 + 삽입)가 한 트랜잭션 안에서 일어난다(v0.9. 근거는 §5.1 각주). *(v4.16 — P8 컷 b1 명세 · 구현 b2)* **전체 교체는 기초자산과 조기상환 일정의 규칙이다 — 월수익 일정은 아니다.** 월수익 일정은 **입력에 없는 순번의 행을 삭제하고 입력의 행은 `coupon_no` 기준 upsert**한다(DOC-002 DQ-14 — 아래 「월수익 일정은 전체 교체가 아니다」. b1 개정 — 종전 「기록 없는 달만 삭제」는 입력에서 빠진 기록된 달을 조용히 남겼다).
 **제약**
 - 상환 완료 상품은 수정 불가 → `CONFLICT`. 계약이 사전 조회로 판정하고, 함수도 `els_products_redeemed_immutable`로 거부한다 — 사전 조회와 변경 사이의 창을 막는 두 번째 겹이다(W-05)
 - `kiBarrier`·`kiObservation`은 함께 설정하거나 함께 비운다(V-16, I-11). **낙인형을 해제하면 `kiTouchedAt`도 함께 비워야 한다**(V-18, I-15) — 셋 중 일부만 비우는 입력은 DB가 `23514`로 거부한다
 - 하위 배열 교체가 V-02·V-03을 만족해야 한다. 기초자산·차수를 0건으로 줄이는 수정은 거부된다 (I-07) — v0.9부터 계약 계층과 **함수 말미 검사** 두 층이 이를 막는다
-- **상품 통화를 바꿀 수 있다 — 미상환 상품에서** (v4.9 선행 명세 — P8 컷 a1, 구현 a2). 상환 완료 상품은 위 첫 제약이 이미 막으므로 상환 금액의 scale(DOC-002 I-21 — 부모 통화를 읽는 트리거)이 뒤늦게 어긋날 경로가 계약에는 없다(직접 UPDATE 우회는 DOC-010 AQ-79). `principal`은 **새** 통화로 V-23을 다시 지난다. 계약은 두 필드의 **뜻의 짝**(통화를 원화에서 달러로 바꿨는데 원금 `10000000`을 그대로 두었는가)을 판정할 수 없다 — 형식은 둘 다 정상이다. 그 짝은 입력 계층이 지킨다: 불러오기는 X-07(컷 a4)이, 직접 수정은 SCR-204가(DOC-008). **V-22에 기본값이 없는 것이 수정 경로의 방어이기도 하다** — 수정 폼의 초기값(`productValuesOf`)이 통화를 빠뜨리면 원화로 조용히 뒤집히지 않고 V-22가 거부한다. 쓰기 함수는 확장 웨이브 동안 `coalesce(payload->>'currency', 저장값)`으로 받는다(§5.1과 같은 이유). 월수익 기록이 있는 상품의 통화 동결은 컷 b1의 명세다
+- **상품 통화를 바꿀 수 있다 — 미상환 상품에서** (v4.9 선행 명세 — P8 컷 a1, 구현 a2). 상환 완료 상품은 위 첫 제약이 이미 막으므로 상환 금액의 scale(DOC-002 I-21 — 부모 통화를 읽는 트리거)이 뒤늦게 어긋날 경로가 계약에는 없다(직접 UPDATE 우회는 DOC-010 AQ-79). `principal`은 **새** 통화로 V-23을 다시 지난다. 계약은 두 필드의 **뜻의 짝**(통화를 원화에서 달러로 바꿨는데 원금 `10000000`을 그대로 두었는가)을 판정할 수 없다 — 형식은 둘 다 정상이다. 그 짝은 입력 계층이 지킨다: 불러오기는 X-07(컷 a4)이, 직접 수정은 SCR-204가(DOC-008). **V-22에 기본값이 없는 것이 수정 경로의 방어이기도 하다** — 수정 폼의 초기값(`productValuesOf`)이 통화를 빠뜨리면 원화로 조용히 뒤집히지 않고 V-22가 거부한다. 쓰기 함수는 확장 웨이브 동안 `coalesce(payload->>'currency', 저장값)`으로 받는다(§5.1과 같은 이유). ~~월수익 기록이 있는 상품의 통화 동결은 컷 b1의 명세다~~ → 아래 항목 *(v4.16)*
+- **월수익 지급 기록이 있는 상품은 상품 통화 · 쿠폰 지급방식을 바꿀 수 없다 → `CONFLICT`** (v4.16 선행 명세 — P8 컷 b1, 구현 b2. DOC-002 DQ-14 · 민서 결정(2026-10-02) ④). DB 트리거 `els_products_coupon_recorded_immutable`이 **어떤 쓰기 경로든** 막는다(§3.2.1 — 상태 충돌. 단일 요청 순서에서 — 동시 트랜잭션의 write skew는 DOC-010 AQ-93). 통화가 바뀌면 기록의 세전(상품 통화)과 자릿수 규칙(I-26)이 뒤늦게 다른 통화로 읽히고, 지급방식이 상환 시 지급으로 바뀌면 월수익 지급 기록이 F와 「받은 월수익」에서 통째로 사라진다. **원금 · 월수익 연쿠폰율 · 월수익 배리어는 고칠 수 있다** — 기록은 거래내역의 값이고 계약 조건으로 재계산되지 않는다(A-04)
+- **기록된 달의 월수익 일정은 바꿀 수도 지울 수도 없다 → `CONFLICT`** (v4.16). **계약이 사전 조회로 먼저 본다** *(b1 개정 — 반박 검토 반영)*: 그 상품의 기록된 순번 집합이 입력의 순번 집합에 포함되지 않으면(기록된 달이 입력에서 빠졌다 — 총 차수를 줄였거나 행을 지웠다) `CONFLICT`이고 문구는 그 달을 가리킨다(「기록된 달은 지울 수 없다 — 5번째 · 2027-02-16」 — 민서 결정(2026-10-02) ①의 표시). 기록된 순번은 위 첫 제약(상환 완료)을 판정하는 사전 조회에서 함께 읽는다 — 왕복은 b2가 잰다(§5.0.1). 그 창을 지난 경합은 DB가 막는다 — 평가일 · 지급일 · 순번을 바꾸면 `monthly_coupon_schedules_recorded_immutable`, 입력에 없는 기록된 달을 지우려 하면 복합 FK `RESTRICT`(`23503` — 마지막 그물)다(§3.2.1). 그 달의 기록을 먼저 지우면(§5.15) 고치거나 지울 수 있다. 수정 화면은 기록된 달을 `readOnly`로 그린다(DOC-008 SCR-204)
+- **지급방식 · 월수익 조건의 짝은 생성과 같다** — V-25 · V-26과 함수 꼬리 검사 셋(§5.1). `couponPayout`은 확장 웨이브 동안 `coalesce(payload->>'coupon_payout', 저장값)`으로 받는다(통화와 같은 이유 — 구 코드가 보내지 않는다). 새 코드의 수정 폼은 §4.3 `product.couponPayout`(b2 — b1 개정)으로 저장값을 싣는다
 
 > **함수의 반환 `null`은 "영향 행 0"이다 (v0.9).** 대상이 없거나 RLS의 `USING`이 감춘 경우이며, 둘을 함수가 구분하지 않는다 — 구분할 문맥은 계약 계층의 사전 조회에 있다(W-05). 함수가 `42501`을 던지게 만들면 **없는 상품도 권한 오류**가 되어 `NOT_FOUND`를 만들 수 없다.
 >
@@ -1607,6 +1933,8 @@ function updateProduct(
 
 > **전체 교체가 원자적이어야 하는 이유는 `createProduct`보다 강하다.** 생성은 실패해도 "만들어지지 않은 상품"이 남을 뿐이고 보상 삭제로 지울 수 있다. 교체는 **기존 행을 지운 상태**를 경유하므로, 그 사이에 끊기면 0건 상태가 남고 원본은 이미 없다. 되돌리려면 계약이 삭제 전 행을 들고 있다가 다시 넣어야 하는데, 그 재삽입이 또 실패할 수 있으므로 규율의 층을 늘리는 것으로는 닫히지 않는다.
 
+> **월수익 일정은 전체 교체가 아니다 (v4.16 선행 명세 — P8 컷 b1, 구현 b2. DOC-002 DQ-14).** 전체 교체로는 **기록이 하나라도 있는 월지급 상품을 수정할 수 없다** — 기록된 달의 행을 지우면 복합 FK `RESTRICT`(`monthly_coupon_payments(els_id, coupon_no)` → 일정)에 걸리고, 지우지 않고 다시 넣으면 `UNIQUE(els_id, coupon_no)`에 걸린다. 그래서 쓰기 함수는 **입력에 없는 순번의 행을 지우고, 입력의 행은 `coupon_no` 기준으로 upsert**한다 *(b1 개정 — 반박 검토 반영)* — 기록된 달은 upsert가 같은 평가일 · 지급일 · 순번을 다시 대입하므로 동결 트리거(값이 바뀔 때만 거부 — §3.2.1)를 지나고 월수익 배리어만 바뀐다. 입력이 기록된 달의 날짜 · 순번을 바꾸면 `CONFLICT`다(위 제약). **기록된 달이 입력에서 빠지면 계약의 사전 검사가 `CONFLICT`로 막고, 그 창을 지나면 그 행의 삭제가 복합 FK에 걸린다**(`23503` → `CONFLICT` — 위 제약). 종전 문언(「기록 없는 달만 지운다」)은 그 행을 지우려 하지 않으므로 23503도 나지 않고 **저장이 성공하며 그 행이 조용히 남았다** — 총 차수를 줄이면 저장된 일정이 `1..K′`에 남은 기록된 달이 붙은 불연속이 되고, V-26은 입력만 보며 DB는 연속을 보지 않으므로(I-24) 어느 겹도 그것을 거부하지 않는다. **V-26은 입력에 적용한다 — 입력이 곧 저장 결과다**(입력에 없는 순번은 남지 않는다). 그래서 「월수익 횟수의 정본은 행 수」(DOC-002 §4.13)와 §4.2 `couponProgress.total`이 입력의 K를 읽는다. 원자성은 같다 — 함수 하나가 한 트랜잭션이다. 위 「전체 교체가 평가일을 보존한다」(v4.2)의 논거(폼이 저장값을 싣는다)는 월수익 일정에도 그대로 성립한다.
+
 ### 5.3 상품 삭제 — SCR-202
 
 ```ts
@@ -1614,12 +1942,13 @@ function deleteProduct(id: string): Promise<ActionResult<void>>
 ```
 
 **권한:** 소유자
-**동작:** 기초자산·평가일정을 함께 삭제한다(FK `CASCADE`).
+**동작:** 기초자산·평가일정을 함께 삭제한다(FK `CASCADE`). *(v4.16)* 월수익 일정도 `CASCADE`다(DOC-002 §4.13 — 상세 테이블).
 **제약**
 - **상환 완료 상품은 삭제할 수 없다** → `CONFLICT`. `redemptions.els_id`의 FK가 `RESTRICT`이므로 DB가 거부한다(DOC-002 §8.1, I-01)
-- **하위 행을 개별 삭제하는 계약은 존재하지 않는다.** 기초자산·평가일정을 줄이는 유일한 경로는 §5.2 `updateProduct`의 전체 교체이며 그 입력은 V-02·V-03이 검증한다. 결과적으로 계약을 경유하는 어떤 조작도 기초자산 0건·차수 0건 상태를 만들 수 없다 (I-07)
+- **월수익 지급 기록이 있는 상품은 삭제할 수 없다** → `CONFLICT` *(v4.16 선행 명세 — P8 컷 b1, 구현 b2)*. `monthly_coupon_payments.els_id`의 FK가 `RESTRICT`다(`23503` — DOC-002 §4.14. 기록은 상환과 같은 트랜잭션 테이블이다 — 과세 이력이라 지우는 경로가 좁다). 미지급(`UNPAID`) 기록만 있어도 같다
+- **~~하위 행을 개별 삭제하는 계약은 존재하지 않는다.~~ 기초자산·평가일정을 개별 삭제하는 계약은 존재하지 않는다** *(v4.16 — 범위를 I-07의 대상으로 좁혔다. 월수익 지급 기록은 §5.15 `deleteCouponPayments`가 행 단위로 지운다 — 일정이 아니라 과세 이력이고, 지우는 경로가 있어야 상품을 지울 수 있다)*. 기초자산·평가일정을 줄이는 유일한 경로는 §5.2 `updateProduct`의 전체 교체이며 그 입력은 V-02·V-03이 검증한다. 결과적으로 계약을 경유하는 어떤 조작도 기초자산 0건·차수 0건 상태를 만들 수 없다 (I-07)
 
-> **상환을 먼저 취소해야 하는 이유.** 상환 실적은 증권사가 확정한 외부 값이고 시스템이 유도할 수 없다(A-04). 상품 삭제가 상환까지 연쇄 삭제하면 조작 한 번으로 실현된 과세 이력이 사라지고, 해당 귀속연도의 금융소득 합계와 세액이 **아무 경고 없이** 바뀐다. `deleteRedemption`(§5.5) → `deleteProduct`의 2단계로 두면 사용자가 과세 이력을 지운다는 사실을 명시적으로 확인한다. DQ-01(소프트 삭제)을 도입하지 않기로 한 결정의 짝이다.
+> **상환을 먼저 취소해야 하는 이유.** 상환 실적은 증권사가 확정한 외부 값이고 시스템이 유도할 수 없다(A-04). 상품 삭제가 상환까지 연쇄 삭제하면 조작 한 번으로 실현된 과세 이력이 사라지고, 해당 귀속연도의 금융소득 합계와 세액이 **아무 경고 없이** 바뀐다. `deleteRedemption`(§5.5) → `deleteProduct`의 2단계로 두면 사용자가 과세 이력을 지운다는 사실을 명시적으로 확인한다. DQ-01(소프트 삭제)을 도입하지 않기로 한 결정의 짝이다. *(v4.16)* **월지급 상품은 최대 3단계다** — 월수익 기록 전부 지우기(§5.15 `deleteCouponPayments`) → 상환 취소(§5.5) → 상품 삭제. 월수익 지급 기록도 과세 이력이므로 같은 근거로 연쇄 삭제하지 않는다(DOC-002 DQ-14).
 
 > **I-07은 생성 시점 규칙이 아니다.** DOC-002 v0.4가 I-07의 적용 범위를 모든 변경 경로로 넓혔다. `createProduct`만 검증하면 등록 직후에 하위 행을 지워 0건에 도달할 수 있다. `deleteUnderlying` 같은 계약을 만들지 않는 것 자체가 이 방어의 형태다 — 하위 행은 항상 상품 단위로 통째로 교체된다.
 >
@@ -1666,6 +1995,8 @@ type RedemptionInput = {
 > | 어떻게 접는가 | 원 단위 절사(DOC-007 §2 "세액·보험료 최종값", RD-01의 기본값). `gross_amount`·`withholding_tax`가 `numeric(15,0)`이므로 접지 않으면 DB가 반올림한다 — **접는 규칙을 DB에 맡기면 절사가 조용히 반올림이 된다**(AQ-16과 같은 부류) |
 >
 > 이 값은 **사용자가 덮어쓸 수 있는 기본값**이다. 증권사가 확정한 실제 징수액이 있으면 그것이 정본이며(A-04) 계약은 입력값을 그대로 저장한다. 산출은 미입력 시에만 일어난다.
+>
+> **코드가 한 컷 앞섰다 (P8 컷 b0, `d675efb` — v4.16에서 기록).** 이 산출은 `withholdingFor(ctx, { date, taxableIncome, withholdingTax? }, dateField)` + `withholdingInputOf`(상환 입력 → 그 셋)로 일반화되었다 — 종전에는 `RedemptionInput.redemptionDate`를 직접 읽어 상환에 묶여 있었다. 날짜 칸은 `WithholdingDateField = 'redemptionDate'` 하나이고, 칸마다 **귀속 규칙**과 **형식 오류 문구**를 표 둘(`Record<WithholdingDateField, …>`)이 정의하므로 칸을 더하면 두 표가 함께 컴파일을 요구한다. §5.5 · §5.11이 같은 함수를 지난다. **동작 불변**이다. §5.14가 `'paymentDate'`를 더한다(귀속 = 월수익 지급일의 연도).
 
 > **시드보다 과거 연도의 상환은 산출할 수 없다 (v1.1).** 산출이 `year(redemptionDate)`의 상수를 요구하는데 조회 계층은 시드보다 과거 연도를 **거부한다** — 뒤 연도의 법으로 과거를 계산하면 재현성이 깨진다(ADR-005). **정상 경로는 막히지 않는다** — 실제 징수액이 정본이므로 값을 적어 넣으면 그대로 저장되고 세율 조회 자체가 일어나지 않는다.
 >
@@ -1694,6 +2025,20 @@ type RedemptionInput = {
 >
 > **§5.5 `updateRedemption`도 같은 입력이다** — 통화는 참조 조회(`redemptions` → `els_products`)의 부모에서 오고 왕복은 그대로다.
 
+> **월지급 상품의 상환 (v4.16 선행 명세 — P8 컷 b1. 구현 — V-29는 b4 · DB 겹 둘과 상환일 쪽 사전 검사(V-27)는 b2).**
+>
+> **상환은 원금만이다 — V-29.** 월지급식 상품의 상환은 `grossAmount ≤ principal` **이고** `taxableIncome = 0`이다. 수익은 전부 월수익이고(연쿠폰율 0 — V-08′) 조기상환·만기의 상환금액은 원금을 넘지 않는다(DOC-005 「월지급식」). **같은 날 나오는 그 달 월수익은 상환에 합치지 않고 §5.14로 따로 적는다**(DOC-001 U6 — 거래내역도 둘을 따로 적는다). 합치면 그 달 월수익이 월수익 사건이 아니라 상환으로 셈해진다 — 받은 달 수(「지급 n/K」)와 월수익 지급 기록이 그 달을 모르고, 무기록 달로 남은 그 달이 추정에 한 번 더 든다. 검산 B-3: 1차 조기상환 세전 100,600,000(투자원금 + 6번째 달 월수익)은 V-29가 거부한다 · B-2: 36번째 달 월수익을 만기 손실 상환 행에 합친 입력도 거부한다.
+>
+> **부모의 지급방식은 사전 조회에서 온다.** 계약이 이미 하는 사전 조회(§5.0.1 — `els_products` ×1)의 select에 `coupon_payout`을 더하므로 **왕복이 늘지 않는다** — 통화(v4.9)와 같은 자리다. 원천징수 기본값은 과세 0이므로 0이다(위 산출 그대로).
+>
+> **DB 겹이 둘이고 b2에 먼저 선다**(§3.2.1 — DOC-010 AQ-87 ⓑ의 DB 쪽 강제). `redemptions_monthly_principal_only`가 V-29를, `redemptions_before_coupon_payment`가 DOC-002 DQ-07 ②의 반대쪽 — **상환일이 기록된 달(`PAID` · `UNPAID`)들의 월수익 평가일 최댓값보다 앞서면** 거부한다(`VALIDATION_FAILED` · `redemptionDate`). 비교 키는 지급일이 아니라 **월수익 평가일**이다(b1 개정 — 흐름 끝과 같은 키, DOC-007 RD-18 해결). 앞쪽(기록이 상환 뒤로 가는 것)은 V-27과 `monthly_coupon_payments_after_redemption`이 막는다. **두 쪽이 같은 집합(지급 · 미지급 모든 기록)을 본다** *(b1 개정 — 반박 검토 반영)* — 상환 쪽만 `PAID`를 보면 흐름 끝 뒤에 미지급 기록이 남고, 그 기록은 기록 쪽 검사 때문에 고칠 수 없다(§3.2.1). 계약 계층 V-29는 b4이므로 b2~b4 사이 V-29 입력의 응답은 DB 사상이다(필드는 같다).
+>
+> **상환일 쪽 사전 검사 — V-27의 양방향 문언이다** *(b1 개정 — §9 ⑨ 해결)* *(V-27 — 구현 b2. 이 블록 머리의 b4는 V-29의 몫이다 — 반박 검토 반영)*. §5.4 · §5.5 · §5.11은 사전 조회로 **「상환일 ≥ 기록된 달(`PAID` · `UNPAID`)들의 월수익 평가일 최댓값」**을 먼저 보고, 어기면 `VALIDATION_FAILED` · `fields.redemptionDate`다. V-27의 표 행이 b2에 서고 그 대상에 상환 쪽 셋이 들므로 `RULE_TARGETS` · `CASES`의 양방향 대조가 b2 커밋에 이 케이스를 요구한다. 새 규칙 ID를 만들지 않는다 — 기록 쪽(「상환이 있으면 그 달의 월수익 평가일 ≤ 상환일」)과 같은 사실을 반대쪽에서 보는 것이므로 V-27이 두 방향을 함께 진다(§6 말미). DB 트리거 `redemptions_before_coupon_payment`가 마지막 그물이다(사전 조회와 쓰기 사이의 창 — 단일 요청 순서에서. 동시 트랜잭션의 write skew는 DOC-010 AQ-93). 순번 없는 기실현 기록은 평가일이 없어 이 검사 밖이다(§3.2.1). 부모의 기록(지급 · 미지급)과 그 달의 평가일은 위 「부모의 지급방식」과 같은 사전 조회의 임베드로 읽는다 — 그렇게 두면 왕복이 늘지 않고, 실측은 b2(§5.0.1 각주)다.
+>
+> **SCR-203은 과세 금융소득 칸을 0으로 미리 채우고 고칠 수 없게 그린다**(DOC-008 SCR-203 · b1 개정) — V-29가 저장을 막는 것과 별개로 입력 전에 알린다. 계약은 받은 값을 그대로 검사한다.
+>
+> **상환 뒤의 월수익 일정** — 상환일이 흐름 끝이 된다. 상환일 이전 평가의 무기록 달은 추정에 남고(「미기록」 — 주의가 상환 뒤에도 뜬다, §4.1) 그 뒤 달은 「상환 후 없음」이다(§4.0 「구획」). 기실현 월지급(§5.11)도 같은 V-29를 지난다.
+
 ### 5.5 상환 수정 · 취소 — SCR-202
 
 ```ts
@@ -1705,10 +2050,11 @@ function deleteRedemption(id: string): Promise<ActionResult<void>>
 **제약**
 - `updateRedemption`이 `roundNo`를 바꾸면 **귀속연도가 이동한다.** 아래 참조
 - 두 계약 모두 상품이 아니라 상환 `id`를 받는다. 소유자 판정은 부모 상품을 경유한다(정책이 `exists (select 1 from els_products …)`로 판정하는 것과 같은 경로)
+- **월지급 상품이면 `updateRedemption`도 V-29를 지난다** *(v4.16 — 구현 b4 · DB 겹 `redemptions_monthly_principal_only`는 b2)*. **상환일을 기록된 달(`PAID` · `UNPAID`)들의 월수익 평가일 최댓값보다 앞으로 옮기면 사전 검사가 거부한다** *(V-27의 양방향 문언 — 구현 b2. b1 개정 — 반박 검토 반영)*. 그 창을 지나면 `redemptions_before_coupon_payment`가 거부한다(`VALIDATION_FAILED` · `redemptionDate` — §5.4 「월지급 상품의 상환」. 비교 키는 지급일이 아니라 평가일이다 — b1 개정). 상환일을 옮기면 **월수익 흐름 끝이 함께 움직인다** — 그 사이 무기록 달이 「미기록」과 「상환 후 없음」 사이를 오가고 그 해의 F가 바뀐다(§4.0 「구획」)
 
 > **`deleteRedemption`은 상품을 보유중 상태로 되돌린다.** 잘못 입력한 상환을 취소하는 유일한 경로이므로 반드시 제공한다. 실행 전 확인 절차를 둔다.
 
-> **이것이 상품 삭제 2단계의 첫 단계다 (v0.9).** §5.3이 상환 완료 상품의 삭제를 `CONFLICT`로 막으므로, 상품을 지우려는 사용자는 반드시 이 계약을 먼저 통과한다. **그 순서가 우연이 아니라 설계다** — 상품 삭제가 상환까지 연쇄 삭제하면 조작 한 번으로 실현된 과세 이력이 사라지고 해당 귀속연도의 금융소득 합계와 세액이 아무 경고 없이 바뀐다(DOC-002 §8.1). 2단계로 쪼개면 사용자가 **과세 이력을 지운다는 사실을 명시적으로 확인**하게 되고, 확인 문구도 두 단계에서 서로 다른 것을 말한다 — 첫 단계는 "이 해의 금융소득이 바뀐다", 둘째 단계는 "상품이 사라진다"다. DQ-01(소프트 삭제)을 도입하지 않기로 한 결정의 짝이다.
+> **이것이 상품 삭제 2단계의 첫 단계다 (v0.9).** §5.3이 상환 완료 상품의 삭제를 `CONFLICT`로 막으므로, 상품을 지우려는 사용자는 반드시 이 계약을 먼저 통과한다. **그 순서가 우연이 아니라 설계다** — 상품 삭제가 상환까지 연쇄 삭제하면 조작 한 번으로 실현된 과세 이력이 사라지고 해당 귀속연도의 금융소득 합계와 세액이 아무 경고 없이 바뀐다(DOC-002 §8.1). 2단계로 쪼개면 사용자가 **과세 이력을 지운다는 사실을 명시적으로 확인**하게 되고, 확인 문구도 두 단계에서 서로 다른 것을 말한다 — 첫 단계는 "이 해의 금융소득이 바뀐다", 둘째 단계는 "상품이 사라진다"다. DQ-01(소프트 삭제)을 도입하지 않기로 한 결정의 짝이다. *(v4.16)* **월수익 지급 기록이 있으면 그 앞에 한 단계가 더 있다(최대 3단계)** — 월수익 기록 전부 지우기(§5.15) → 이 계약 → 상품 삭제(§5.3). 상환 취소만으로는 기록이 남아 상품 삭제가 `monthly_coupon_payments.els_id`의 `RESTRICT`에 걸린다. 상환을 취소해도 기록은 지워지지 않는다 — 월수익은 상환과 별개의 사건이다(DOC-002 D-09).
 >
 > **세액 영향은 `updateRedemption`에도 있다.** `taxableIncome`·`redemptionDate`를 고치면 §4.6의 연도별 집계가 그대로 바뀌므로, 이 계약도 "값을 고치는 일"이 아니라 "확정된 과세 이력을 고치는 일"이다. 화면은 두 계약에 같은 수준의 확인을 둔다.
 >
@@ -1849,6 +2195,7 @@ type RealizedProductInput = {
   name: string
   issuer?: string
   currency: ProductCurrency             // v4.9 (P8 컷 a2) — 필수, 기본값 없음 (V-22)
+  couponPayout: CouponPayout            // v4.16 (P8 컷 b1 명세 · 구현 b2) — 필수, 기본값 없음 (V-25). 일정·율은 받지 않는다
   principal: string                     // 상품 통화 금액 — V-01′ · V-23
   accountType: 'GENERAL' | 'TAX_FREE'
   redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
@@ -1865,7 +2212,8 @@ type RealizedProductInput = {
 **동작**
 
 - 쓰기 함수 `create_realized_els_product`로 **`els_products` 1건 + `redemptions` 1건을 한 트랜잭션에** 만든다. `entry_mode`는 함수가 `REALIZED_ONLY`로 박는다 — 입력값으로 받지 않는다(`owner_id`와 같은 이유: 규율이 아니라 구조)
-- 기초자산·평가일정은 **만들지 않는다.** `issue_date`·`annual_coupon_rate`는 `NULL`이다
+- 기초자산·평가일정은 **만들지 않는다.** `issue_date`·`annual_coupon_rate`는 `NULL`이다 *(v4.16 — 월지급식 기실현도 같다: 월수익 일정을 만들지 않고 `monthly_coupon_annual_rate`도 `NULL`이다. DOC-002 I-23의 지급방식 짝은 `FULL`만 보고, `REALIZED_ONLY`는 두 율 모두 `NULL` — 그중 월수익 연쿠폰율은 같은 `CHECK`가 `REALIZED_ONLY ⇒ monthly_coupon_annual_rate IS NULL`로 강제한다(b1 개정 — DOC-002 DQ-17 ③ 해결 · §3.2.1. `annual_coupon_rate`의 기실현 `NULL`은 종전대로 이 함수가 넣는 값이다 — DOC-002가 강제를 넓히지 않았다). DQ-11의 「`MONTHLY`면 연쿠폰율 0」은 계약 조건이 있는 `FULL`의 규칙이다)*
+- **쿠폰 지급방식은 받는다** *(v4.16 선행 명세 — P8 컷 b1, 구현 b2)*. `couponPayout`은 필수이고 기본값이 없다(V-25 — §5.1과 같은 형태). 쓰기 함수가 `->>`로 읽고 확장 웨이브(W4) 동안만 `coalesce(…, 'AT_REDEMPTION')`을 둔다(§5.1). SCR-205의 「쿠폰 지급」 선택 상자(「선택」 · 「상환 시 지급」)가 같은 b2 코드 커밋에 선다(§5.1 — b1 개정). **`MONTHLY` 기실현의 월수익 이력은 등재 뒤 §5.14로 적는다** — 일정이 없으므로 `couponNo: null`인 `PAID` 행이다(DOC-002 I-27 · DOC-008 SQ-17 · SCR-206의 「빈 행 추가」)
 - `round_no`는 **항상 `NULL`이다.** 입력에 그 필드가 없다 — 일정 행이 0건이므로 실재하는 차수가 없고(I-13), 조기·리자드 상환도 그렇다(I-14 트리거가 면제한다)
 - `withholdingTax` 미입력 시 `taxableIncome × 분리과세율`로 산출한다 — **§5.4와 같은 산출을 쓴다**(같은 상수·같은 연도·같은 절사)
 - 반환하는 `id`는 **상품 id**다. 화면이 상세(SCR-202)로 이동한다
@@ -1874,6 +2222,7 @@ type RealizedProductInput = {
 **제약**
 - `principal > 0` (V-01 / I-17) · `taxableIncome >= 0` (V-11 / I-12) · 만기손실이면 `taxableIncome = 0` (V-12 / I-08) · `grossAmount >= 0` (I-17)
 - **달러 기실현** (v4.9 선행 명세 — P8 컷 a1, 구현 a2) — `currency`는 V-22(기본값 없음), `principal`·`grossAmount`는 **입력의** `currency`로 V-23을 지난다(부모가 아직 없으므로 사전 조회가 아니라 같은 입력에서 온다). `exchangeRate`는 §5.4와 같은 참고값이며 V-24가 원화에서 거부한다. 쓰기 함수가 `currency`·`exchangeRate`를 `->>`로 읽고(W-04) 확장 웨이브 동안만 `coalesce(…, 'KRW')`를 둔다(§5.1과 같다). 과세 두 값과 원천징수 기본값은 §5.4와 같다
+- **월지급 기실현** *(v4.16 — 구현 b4 · DB 겹은 b2)* — 상환은 원금만이다: `grossAmount ≤ principal` ∧ `taxableIncome = 0`(V-29 — §5.4 「월지급 상품의 상환」). 수익은 등재 뒤 §5.14의 월수익 지급 기록으로 들어온다. 상환일 쪽 사전 검사(V-27의 양방향 문언 — 구현 b2, b1 개정)의 대상이지만 이 계약에서는 걸릴 일이 없다 — 상품과 상환이 한 트랜잭션에 함께 태어나 그 전에 기록이 없고, 그 뒤의 기록은 순번이 없어 평가일 검사 밖이다(§3.2.1)
 - 문자열 길이는 열 선언 이내 (V-19)
 
 > **적용되지 않는 규칙이 둘이다.** V-10(`redemptionDate >= issueDate`)은 **비교 대상이 없다** — 발행일을 입력받지 않으므로 검사할 수 없고, 그 사실이 이 계약의 정의다. V-13(조기·리자드는 차수 필수)은 **입력에 `roundNo`가 없어** 위반이 표현 불가다. 두 규칙에 예외를 「두는」 것이 아니라 **입력의 형태가 그 규칙의 전제를 없앤다** — §6의 규칙은 입력의 형태에 대한 진술이므로 새 V-id를 부여하지 않는다(§5.4 v1.7이 시드 범위 조건에 V-id를 주지 않은 것과 같은 판단).
@@ -1992,7 +2341,99 @@ function saveExchangeRate(input: {
 
 **변경 계약 13 → 14 (컷 a3).** 결속 원장이 같은 커밋에 움직인다 — `INVALIDATION`(`satisfies Record<MutationName, …>`가 축을 정하지 않은 계약을 컴파일에서 거부한다) · `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts`) · `tests/db/mutations.test.ts`의 `CONTRACTS` · `createUnauthenticatedMutations` · `mutations/context.ts`·`app/actions.ts`의 「13개」 · §8 SCR-302 행(표 행은 그 코드 커밋에 함께 — §8 말미 각주). **왕복 1** — `exchange_rates` ×1(§5.7과 같다 — 소유자가 없으므로 사전 조회가 없다). §5.0.1 표의 행과 `tests/integration/mutations.test.ts`의 다중집합도 그 커밋에 함께다.
 
-> §5.14·§5.15(월수익 기록 계약)는 컷 b1의 명세다(§9 「P8 계약면 증가」).
+### 5.14 월수익 기록 — SCR-206 (v4.16 선행 명세 — P8 컷 b1, 구현 b2)
+
+```ts
+function recordCouponPayments(
+  productId: string,
+  input: { entries: CouponPaymentInput[] }   // 1..60건
+): Promise<ActionResult<{ ids: string[] }>>  // 만든 기록의 id, 입력 순서 (b1 개정 — §9 ⑩ 해결)
+
+/** 월수익 한 달의 지급 기록 (DOC-005 「월수익 지급 기록」). 타입 이름은 이 문서의 표기 — `RedemptionInput`의 짝 */
+type CouponPaymentInput = {
+  couponNo: number | null               // 월수익 순번. FULL이면 일정에 있는 순번, 기실현이면 null (V-27)
+  outcome: CouponOutcome
+  paymentDate?: string                  // PAID면 필수 · UNPAID면 없다 (V-28)
+  grossAmount?: string                  // 상품 통화 — 부모 상품의 통화로 V-23. PAID면 필수
+  taxableIncome?: string                // 원화 — V-11. PAID면 필수
+  withholdingTax?: string               // 원화. PAID이고 없으면 서버가 채운다 (아래)
+  exchangeRate?: string                 // 적용 환율(참고) — V-24ⓐ. 외화 상품의 PAID만
+  isConfirmed: boolean
+  note?: string
+}
+```
+
+**권한:** 상품 소유자
+**동작**
+
+- **`entries` 1..60건을 다행 INSERT 한 번으로 저장한다** — 요청 하나가 트랜잭션 하나이므로 **전부 아니면 전무**다. 한 행이라도 DB가 거부하면 아무 행도 남지 않는다. 쓰기 함수가 필요하지 않다 — §5.4의 「행이 하나이므로 요청 하나로 원자적」과 같은 근거가 다행 INSERT 한 문장에도 선다. 상한 60은 월수익 일정의 상한(V-26)과 같다 — `FULL` 상품의 한 화면 제출이 일정 전체를 넘지 않는다.
+- **사전 조회** — 부모 상품(소유자 · 지급방식 · `entry_mode` · 통화 · 월수익 일정 · 기록 · 상환)을 읽어 W-05의 `FORBIDDEN`·`NOT_FOUND`를 가르고 V-27 · V-28 · V-23 · V-24ⓐ를 판정한다. 왕복 수는 b2가 잰다(§5.0.1 각주).
+- **원천징수 기본값** — `PAID`이고 `withholdingTax`가 없으면 `withholdingFor(ctx, { date: paymentDate, taxableIncome }, 'paymentDate')`로 채운다 — §5.4와 **같은 함수**다(분리과세율 조회 · 원 단위 절사 — DOC-007 §4.7). **`WithholdingDateField`에 `'paymentDate'`를 더한다** — 귀속 = `year(paymentDate)`(월수익의 귀속연도는 지급일이다 — DOC-005 「월수익 지급일」), 형식 오류 문구는 「월수익 지급일을 YYYY-MM-DD 형식으로 입력한다.」다. 세율은 조회한다(절대 규칙 #5). `UNPAID`는 원천징수가 없다(I-26). 이 값은 덮어쓸 수 있는 기본값이고 거래내역·지급명세서의 실제 징수액이 정본이다(A-04).
+- **연도별로 세율을 한 번씩 읽는다.** 12월 · 1월에 걸친 묶음은 두 해의 세율을 각각 한 번 읽고, 같은 해는 다시 읽지 않는다. 행마다 읽는 구현도 값은 옳으므로 §5.0.1의 다중집합 예산 말고는 어느 케이스에도 걸리지 않는다(§4.7 `getForecast`의 v2.5 각주와 같은 자리).
+- **세율 시드가 없는 해의 빈 원천징수는 `entries[i].withholdingTax`에 `VALIDATION_FAILED`다**(DOC-007 RD-16 — 시드를 더하지 않는다). 문구는 상환의 `taxSeedError`와 같은 규칙이다(§5.4 v1.7 — 「그 해는 지원하지 않는다」가 아니라 「실제 징수액을 입력한다」). 2026년 이전에 받은 기실현 월수익이 이 경로다. 시드가 **아예 없는** 장애는 여전히 `INTERNAL`이다(§3.2.2).
+- **오류 경로는 행 단위 `entries[i].<필드>`다.** 계약 계층은 몇 번째 행인지 알므로 색인을 붙인다 — §3.2.1의 「배열 인덱스를 붙이지 않는다」는 **DB 오류 사상**의 규칙이다(DB는 몇 번째 행인지 말하지 않는다). `withholdingFor`가 내는 칸(`paymentDate` · `withholdingTax`)도 계약이 `entries[i].`를 붙여 옮긴다. 건수(1..60)의 위반은 `entries`다. DB까지 간 거부의 키는 **색인 없는 이름**이다(`paymentDate` · `grossAmount` · … — §3.2.1, b1 개정) — DB는 몇 번째 행인지 말하지 않고, 그 거부는 이 사전 검증을 지난 뒤의 마지막 그물이다.
+- **반환은 만든 기록의 id다** *(b1 개정 — §9 ⑩ 해결)* — `{ ids }`, `entries`의 입력 순서. 다행 INSERT 한 번의 결과 행에서 나오므로 왕복이 늘지 않는다.
+- **달러 상품** — `grossAmount`는 부모 통화로 V-23을 지난 **뒤** `moneyString`으로 정규화해 싣는다(§5.1의 순서와 같은 이유). 과세 두 값은 거래내역의 **원화** 값이고(A-04 · U1) `exchangeRate`는 참고값이다 — 과세를 이 값으로 산출하지 않는다. SCR-206은 달러 상품의 과세 칸을 미리 채우지 않고 힌트만 준다(「≈ 세전 × 최신 추정 환율」 — DOC-008 SCR-206. §5.4의 SCR-203과 같은 이유 — 달러 수가 원화 칸에 들어간다).
+- **기록이 그 달의 사건을 바꾼다** — `PAID`를 적으면 그 달은 추정에서 빠지고 기록값의 확정 사건이 되며, `UNPAID`를 적으면 사건이 사라진다(§4.0 규칙 1 · DOC-007 검산 E). `isConfirmed`는 표시 축이다(ST-05).
+
+**제약**
+
+- V-27(기록 대상) · V-28(형태) · V-23 · V-24ⓐ · V-11 · V-20′(`couponNo`). DB 겹은 §3.2.1의 I-26(형태 · 자릿수) · I-27(부모) · `UNIQUE` 둘 · 복합 FK다
+- **부모가 상환 시 지급이면 기록할 수 없다** — V-27. DB 겹 `monthly_coupon_payments_monthly_required`(DQ-07 ③)
+- **이미 기록된 달은 다시 기록할 수 없다** — V-27(입력 안의 중복 포함). 정정은 §5.15다. DB 겹 `UNIQUE(els_id, coupon_no)` → `CONFLICT`
+- **`PAID`의 지급일은 겹치지 않는다** — 그 상품의 다른 `PAID` 기록 · 같은 입력의 다른 행과 같은 지급일이면 `entries[i].paymentDate`에 `VALIDATION_FAILED`(V-28 — b1 개정, 반박 검토 반영). DB 겹 `UNIQUE(els_id, payment_date)` → `CONFLICT`는 사전 검사와 쓰기 사이의 경합에서만 닿는다. 순번이 없는 기실현 기록에서는 이 규칙이 유일한 중복 방어다
+- **상환이 있으면 그 달의 월수익 평가일 ≤ 상환일** — V-27. **결과를 가리지 않는다 — 지급 · 미지급 모두**이고 상환 쪽(§5.4 · §5.5 — 기록된 달 전부의 평가일)과 같은 집합이다(b1 개정 — 대칭). 비교 키는 지급일이 아니라 평가일이다(b1 개정 — 흐름 끝과 같은 키, DOC-007 RD-18 해결). 그래서 상환 대금이 먼저 지급되어도 같은 날 평가된 마지막 달은 기록할 수 있다. 순번 없는 기실현 기록은 평가일이 없어 이 검사 밖이다. DB 겹 `monthly_coupon_payments_after_redemption`(DQ-07 ②)
+- **기실현 월지급 상품의 순번 없는 기록은 상품당 60건 이하다** — V-27(b1 개정). 일괄 기록(1..60)과 「월수익 기록 전부 지우기」(§5.15 — 1..60)가 한 번에 되도록 맞춘다. `FULL` 상품은 일정(V-26 — 60행 이하)과 `UNIQUE(els_id, coupon_no)`가 이미 같은 상한을 준다. DB 겹은 없다(계약에만 있다 — 직접 INSERT 우회는 AQ-29 부류)
+- **아직 오지 않은 지급은 기록하지 않는다** — `PAID`의 지급일 ≤ 기준일(V-28 — V-17과 같은 이유로 DB 제약이 아니다: `current_date`는 `CHECK`에 쓸 수 없다)
+
+> **무효화 — `COUPON_RECORD_WIDE` 신설 (컷 b2 · `listMonthlyCouponSchedule`은 그 계약이 서는 b3). 세금이 «있다».** §5.14 · §5.15의 세 계약이 이 축을 쓴다. 판정 기준은 §8 그대로 「어느 입력을 읽는가」다.
+>
+> | 조회 계약 | 이 기록을 읽는 자리 |
+> |---|---|
+> | `getProduct` | `coupons[].state`·`record` · `unnumberedCouponRecords` · `remainingCoupons` · `redemption.realizedPnl`(§4.3) |
+> | `listProducts` | `couponProgress`(§4.2) |
+> | `getDashboard` | `receivedCoupons` · `realizedPnl` · `COUPON_UNRECORDED`와 그 `count` · `currentYearTax`(§4.1) |
+> | `getTaxSummary` | 확정 월수익 사건 · `basis` · `breakdown`(§4.6) |
+> | `listUserSummaries` | `currentYearFinancialIncome` — 같은 사건 집합(§4.8) |
+> | `getForecast` | F와 금액 열(§4.7) |
+> | `listMonthlyCouponSchedule` | 행의 `state`(§4.12) |
+>
+> **들지 않는 것**: `listSchedule`(조기상환 차수만 — §4.4) · `listAssetPrices` · `searchAssets` · `listExchangeRates`(기록은 상환 여부를 바꾸지 않으므로 「미상환」 수가 그대로다 — §4.11).
+>
+> **`PRODUCT_WIDE`와 `PRICE_WIDE`에도 `listMonthlyCouponSchedule`이 든다 (b3)** — 상품·상환은 행의 존재와 흐름 끝을, 시세는 다음 행의 조건 판정을 바꾼다. **`createProduct`의 `affects`에도 든다**(b1 개정 — 그 계약은 축을 쓰지 않고 따로 적으므로 따로 더한다. §4.12). **`PRICE_WIDE`에는 여전히 세금이 없다** — 추정 월수익은 시세를 쓰지 않는다(§4.0 「쿠폰 지급방식과 월수익」 규칙 3). v4.13이 박은 단언(`refreshPrices`·`saveManualPrice`의 `affects`에 세금 계약 셋 다 없음 — SB-17)이 그대로 지킨다. 월지급식이 기본형만인 것이 이 문장의 전제다 — KI 터치 후 중단형(변형 명칭은 DOC-005 GQ-06 미결 — b1 개정)을 들이면 시세·KI 터치가 F를 움직인다(DOC-002 DQ-16 ②).
+
+**변경 계약 14 → 17 (컷 b2 — 셋이 한 커밋에).** 결속 원장이 같은 커밋에 움직인다 — `INVALIDATION`(`satisfies Record<MutationName, …>`가 축을 정하지 않은 계약을 컴파일에서 거부한다) · `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts` 「계약 14개가 모두 항목을 갖는다」) · `tests/db/mutations.test.ts`의 `CONTRACTS` · `createUnauthenticatedMutations` · `mutations/context.ts`·`app/actions.ts`의 「14개」 · §8 매트릭스(변경 칸 대조가 **양방향**이므로 세 이름이 b2 커밋에 선다 — b1 개정. SCR-206 화면 행은 b3이고, b2~b3 동안 `recordCouponPayments` · `updateCouponPayment`가 서는 행은 §9 ⑭의 남은 몫이다) · §5.0.1 표의 행과 `tests/integration/mutations.test.ts`의 다중집합.
+
+### 5.15 월수익 기록 수정 · 삭제 — SCR-206 · SCR-202 (v4.16 선행 명세 — P8 컷 b1, 구현 b2)
+
+```ts
+function updateCouponPayment(
+  id: string,
+  input: Omit<CouponPaymentInput, 'couponNo'>    // 한 기록 전체 교체 — 순번 · 상품은 바꾸지 않는다(입력에 없다)
+): Promise<ActionResult<void>>
+
+function deleteCouponPayments(
+  productId: string,
+  input: { ids: string[] }                       // 1..60건
+): Promise<ActionResult<void>>
+```
+
+**권한:** 상품 소유자 — `updateCouponPayment`는 기록 `id`를 받으므로 소유자 판정이 부모 상품을 경유한다(§5.5와 같은 경로).
+
+**`updateCouponPayment` — 한 기록 전체 교체.**
+
+- 순번과 상품은 **입력에 없다** — 바꿀 수 없다. 다른 달의 기록이면 지우고 그 달에 새로 적는다(§5.14). 결과(`outcome`)는 바꿀 수 있다 — 전체 교체이므로 미지급 ↔ 지급 정정도 이 계약이다(I-26의 형태를 새 결과로 다시 지난다).
+- 규칙은 §5.14의 한 행과 같다 — V-27(그 기록 자신을 뺀 「아직 기록되지 않았고」) · V-28(지급일 중복도 그 기록 자신을 뺀다 — b1 개정) · V-23 · V-24ⓐ · V-11. 원천징수 기본값도 같다(`withholdingFor(…, 'paymentDate')` — §5.5가 §5.4를 따르는 것과 같다). **오류 경로는 색인 없는 필드 이름**이다(`withholdingTax` · `paymentDate` — 한 행이다).
+- W-05 — 영향 행 수가 1이 아니면 성공을 주장하지 않는다.
+
+**`deleteCouponPayments` — 한 상품의 기록 1..60건.**
+
+- **사전 조회 뒤 한 문장이다** *(b1 개정 — §9 ⑪ 해결)*. 사전 조회가 `ids` 전부가 그 상품의 기록인지 먼저 본다 — 다른 상품의 id가 섞이면 지우기 전에 거부한다. 그 뒤 **`DELETE … WHERE els_id = $1 AND id = ANY($2)` 한 문장**으로 지운다 — 한 문장은 원자적이다(쓰기 함수가 필요하지 않다). **영향 행 수가 `ids`의 길이와 다르면 `CONFLICT`다** — 사전 조회와 DELETE 사이에 다른 요청이 그 기록을 지웠거나 옮겼다는 뜻이고, `requireAffected`(W-05 — 「그 사이에 상태가 바뀌었다. 화면을 갱신한다」)와 같은 판정이다. `els_id = $1` 조건이 있으므로 그 사이 다른 상품으로 옮겨진 기록은 지우지 않는다. 남는 상태는 「요청한 기록 중 아직 그 상품에 있던 것이 전부 지워졌다」이고 사용자는 화면을 갱신해 확인한다.
+- **「월수익 기록 전부 지우기」도 이 계약이다** — 그 상품의 기록 id 전부를 싣는다. `FULL` 상품은 기록 수가 일정 행 수 이하이고 일정은 60행 이하이므로(V-26) 한 번에 된다. 기실현 월지급의 순번 없는 기록도 상품당 60건 이하이므로(V-27 — b1 개정, §9 ⑫ 해결) 한 번에 된다.
+- **삭제 동선은 최대 3단계다** — 월수익 기록 전부 지우기(이 계약) → 상환 취소(§5.5) → 상품 삭제(§5.3). `monthly_coupon_payments.els_id`가 `RESTRICT`다(DOC-002 DQ-14). 지급 기록은 확정 과세 이력이고, 지우면 흐름 끝 안의 그 달은 다시 추정(「미기록」)이 된다 — 그 해의 F가 바뀐다(§5.5의 「세액 영향」과 같은 부류다).
+- 기록을 지우면 그 달의 일정 동결도 풀린다 — 평가일 · 지급일을 고치거나 그 달을 입력에서 빼 지울 수 있게 된다(§5.2 — 기록된 달이 입력에서 빠지면 사전 검사가 `CONFLICT`다, b1 개정).
+
+**무효화**: 두 계약 모두 `COUPON_RECORD_WIDE`(§5.14 각주). **왕복**은 b2 실측(§5.0.1 각주 — `updateCouponPayment`는 기록 `id`로 부모를 찾는다).
 
 ---
 
@@ -2031,7 +2472,7 @@ function saveExchangeRate(input: {
 
 > **셰이프 파싱은 필드가 속한 규칙의 ID를 재사용한다 (v1.1).** `inputs.ts`의 형태·열거·boolean 검사는 §6에 대응 규칙이 없으므로 그 필드를 다루는 규칙 ID를 빌린다 — 예컨대 `accountType`의 열거값 검사는 `V-19`로, `redemptionType`의 열거값 검사는 `V-13`으로 기록된다. **§6에 형태 규칙을 신설하지 않는 것이 의도다.** 이 표는 도메인 검증 규칙의 정본이고, 코드 사정으로 행을 늘리면 `RULE_IDS`가 §6에서 파생된다는 방향이 뒤집힌다.
 >
-> 그 대가를 적어 둔다. **20개 안에서의 오태그는 어떤 단언도 잡지 못한다.** `tests/db/docs-contract.test.ts`가 "§6에 없는 ID는 존재할 수 없다"를 강제하고 `RuleId` 타입이 오타를 막지만, 둘 다 *어느* ID를 골랐는지는 보지 않는다. P3b.5 감사가 20개를 전수 확인한 결과 **오태그만으로 덮이는 규칙은 현재 없다**(모든 규칙에 자기 내용을 검사하는 케이스가 하나 이상 있다). 새 필드 검사를 쓸 때 ID는 이 표에서 고르고, 마땅한 것이 없으면 그 필드가 다루는 도메인 규칙을 먼저 찾는다.
+> 그 대가를 적어 둔다. **20개 안에서의 오태그는 어떤 단언도 잡지 못한다** *(v4.16 — 수가 낡았다: a2부터 24개, P8 뒤 29개다. 「20개를 전수 확인」은 P3b.5 당시의 수다. 규칙이 늘수록 오태그의 후보가 는다)*. `tests/db/docs-contract.test.ts`가 "§6에 없는 ID는 존재할 수 없다"를 강제하고 `RuleId` 타입이 오타를 막지만, 둘 다 *어느* ID를 골랐는지는 보지 않는다. P3b.5 감사가 20개를 전수 확인한 결과 **오태그만으로 덮이는 규칙은 현재 없다**(모든 규칙에 자기 내용을 검사하는 케이스가 하나 이상 있다). 새 필드 검사를 쓸 때 ID는 이 표에서 고르고, 마땅한 것이 없으면 그 필드가 다루는 도메인 규칙을 먼저 찾는다.
 
 > **V-08의 의도.** 사용자가 `90`을 입력했는데 정규화되지 않고 전달되면 배리어가 9000%가 된다. 상한 검사로 이런 유입을 차단한다.
 
@@ -2055,6 +2496,20 @@ function saveExchangeRate(input: {
 - **V-22** `currency` (상품 통화) — **`KRW`·`USD` 중 하나여야 하고 기본값이 없다** — 빈 값은 오류다. 형식만 보지 않는 이유는 V-21과 같다(아무 문자열이나 받으면 DB의 enum이 막기는 하지만 `22P02`는 필드를 특정하지 못한다). 원화로 채우지 않는 이유는 §5.1. 대상 계약은 §5.1·§5.2·§5.11이다. **V-19의 `currency`(기초자산 통화 — `assets.currency char(3)`, §5.10)와 다른 필드다**(DOC-005 §8.11) — 키 이름이 같지만 계약이 달라 한 입력에 함께 오지 않는다. 셰이프 파싱의 열거 검사도 이 ID를 빌린다(위 「셰이프 파싱은 필드가 속한 규칙의 ID를 재사용한다」).
 - **V-23** 상품 통화 금액(`principal`·`grossAmount`) — **소수 자릿수가 상품 통화의 보조단위 이내**(KRW 0 · USD 2)이고 **정수부가 15자리 이내**다. 통화는 `principal`이면 같은 입력의 `currency`, 상환(§5.4·§5.5)의 `grossAmount`면 **부모 상품의** `currency`, 기실현(§5.11)이면 같은 입력의 `currency`다. **`currency`가 V-22를 어기면 판정하지 않는다** — 어느 자릿수로 볼지 모르는 채로 판정하면 V-22의 오류 하나가 두 칸의 오류가 된다. **`taxableIncome`·`withholdingTax`는 이 규칙의 대상이 아니다** — 통화와 무관하게 원화 정수이며 종전 형식 검사(정수 · V-11의 0 이상)가 그대로다. 정수부 한도는 종전 `numeric(15,0)`의 천장을 옮긴 것이다 — typmod를 떼면(DOC-002 M-08) DB가 `22003`(열 이름 없음)으로 거부하던 자리가 이름 있는 `CHECK`·트리거(§3.2.1)가 되지만 **필드별 오류는 여전히 계약이 먼저 낸다**(V-20의 근거와 같다).
 - **V-24** 환율 — ⓐ **적용 환율**(`exchangeRate` — §5.4·§5.5·§5.11, 참고값): 선택이며, 있으면 **0보다 크고 정수부 12자리 이내 · 소수 6자리 이내**이고 **상품 통화가 외화일 때만** 둘 수 있다 — 원화 상품이면 거부한다(저장되지 않을 값을 조용히 버리지 않는다). 과세 금융소득·원천징수세액을 이 값으로 산출하지 않는다. ⓑ **환율 입력**(§5.13 `rate`, 컷 a3): 같은 수치 규칙이고 `currency`는 **지원 외화**(`USD`)여야 한다 — `KRW`는 거부한다(1원 = 1원은 관측이 아니다. `exchange_rates_currency_check`가 두 번째 겹이다). 그 계약의 `asOfDate`는 V-17이다. 6자리는 저장 정밀도(`numeric(18,6)`)와 같다 — 넘으면 DB가 조용히 반올림한다(AQ-16과 같은 부류). **정수부 12자리도 같은 열 선언에서 나온다**(18 − 6) — 넘으면 DB가 `22003`(열 이름 없음)으로 거부해 필드 없는 오류가 되므로 계약이 먼저 필드별로 낸다(V-23의 정수부 한도와 같은 이유).
+
+#### P8 월지급 — 규칙 일곱 (V-08′ · V-20′ · V-25~V-29) (v4.16 선행 명세 — P8 컷 b1. **표 행은 코드 커밋에 함께** — V-08′·V-20′·V-25~V-28은 b2, V-29는 b4)
+
+위 표에 지금 행을 더하지 않는다 — 달러 넷과 같은 이유다(`tests/db/docs-contract.test.ts`가 표를 **순서까지** `RULE_IDS`와 대조한다). 컷 b2가 아래 문언으로 V-08 · V-20 행을 고치고 V-25~V-28을 **V-24 뒤에 이 순서로** 붙이며, 같은 커밋에 `RULE_IDS` · `RULE_TARGETS` · `CASES`(`tests/db/validate.test.ts` — 양방향)가 움직인다. V-29는 그 계약 규칙이 서는 b4에서 붙인다 — DB 겹(`redemptions_monthly_principal_only`)은 b2에 먼저 선다(§3.2.1). **표로 쓰지 않는다** — 같은 머리글의 표가 둘이면 그 파서가 「같은 헤더가 둘 이상이다」로 빨간불이다.
+
+- **V-08′** 비율 필드 — `annualCouponRate`의 하한 `x > 0`은 **상환 시 지급**의 규칙이다. **월지급식(`MONTHLY`) FULL이면 `annualCouponRate = 0`이다**(DOC-002 DQ-11 · I-23 — 수익은 전부 월수익 연쿠폰율에서 나온다. 0이 아니면 헤드라인 율이 상환 시 일괄 쿠폰으로도 읽혀 예상 수령액이 월수익만큼 **이중 계상**된다 — DOC-005 「월수익 연쿠폰율」). 상환 시 지급은 종전 규칙 그대로다. 월수익 쪽 두 비율의 범위는 V-25(월수익 연쿠폰율 > 0 — 상한은 연쿠폰율과 같은 V-08의 `x ≤ 2`) · V-26(월수익 배리어 0 초과 1 이하)이 정한다 *(월수익 연쿠폰율의 상한은 b1 개정 — §9 ⑬ 해결. DB는 `> 0`만 본다 — 율 범위 `CHECK`가 없다, 받아들인 이탈)*. *v4.8 §9의 「V-08(월수익 비율 필드 추가 …)」를 이 문언으로 좁혔다.*
+- **V-20′** 정수 필드 — 대상에 **`couponNo`**를 더한다: `smallint` 범위 이내이고 **1 이상**이다(DOC-002 I-24 · I-26의 `coupon_no >= 1` `CHECK` — `redemption_schedules.round_no`에 없던 하한을 새 테이블에서 되풀이하지 않는다, DOC-010 AQ-92). 대상은 §5.1·§5.2의 `couponSchedules[].couponNo`와 §5.14의 `entries[i].couponNo`(`null`이 아니면)다. *v4.8 §9의 「V-20(`couponNo`)」 그대로다. b1 결정의 「V-20 정의에 지급방식 조건을 더한다」는 이 해석으로 받아들여졌다(b1 개정) — 지급방식 조건은 V-25가 진다.*
+- **V-25** 쿠폰 지급방식 ⇔ 월수익 조건 — `couponPayout`은 `AT_REDEMPTION`·`MONTHLY` 중 하나이고 **기본값이 없다** — 빈칸은 그 칸의 오류다(V-22와 같은 형태 · DOC-001 U7). **`MONTHLY` FULL** ⇒ 월수익 연쿠폰율 > 0이고 V-08의 상한(`x ≤ 2`) 이내(b1 개정) · 월수익 일정 ≥ 1행 · 리자드 차수 없음(월지급+리자드는 v2) · 연쿠폰율 0(V-08′). **`AT_REDEMPTION`** ⇒ 월수익 연쿠폰율 없음 · 월수익 일정 없음. 대상 §5.1·§5.2·§5.11(§5.11은 지급방식 하나 — 기실현은 율도 일정도 받지 않는다). DB 겹은 `els_products_monthly_terms_check`(I-23)와 쓰기 함수 꼬리 검사 셋(I-25 — §3.2.1). 셰이프 파싱의 열거 검사도 이 ID를 빌린다.
+- **V-26** 월수익 일정 — **1..60행** · 월수익 순번 **1..K 연속** · 월수익 평가일 **엄격 증가** · 발행일 이상 · **만기(마지막 차수 평가일) 이하** · 월수익 지급일 ≥ 월수익 평가일 · 월수익 배리어 **0 초과 1 이하**. 대상 §5.1·§5.2의 `couponSchedules`. **§5.2에서도 입력에 적용한다 — 쓰기 함수가 입력에 없는 순번을 지우므로 입력이 곧 저장 결과다**(b1 개정). 기록된 달이 입력에서 빠지는 것은 이 규칙이 아니라 §5.2의 사전 검사(`CONFLICT` — 상태 충돌)가 막는다. DB 겹은 I-24(`UNIQUE(els_id, coupon_no)` · `coupon_no >= 1` · 배리어 하한 · `payment_date >= evaluation_date`)뿐이다 — **연속 · 증가 · 발행일 · 만기 · 배리어 상한 1은 계약에만 있다**(V-04 · V-07과 같은 처지 — 직접 호출 우회는 AQ-29 부류). 행 오류는 `couponSchedules[i].<필드>`로 색인한다(계약 계층 — §3.2.1 「배열 인덱스」는 DB 사상의 규칙이다).
+- **V-27** 기록 대상 — 부모 상품이 `MONTHLY`여야 한다. **FULL** ⇒ 월수익 순번이 그 상품의 일정에 있고, 그 월수익 평가일 ≤ 기준일이며, 아직 기록되지 않았고(입력 안의 중복 포함 — §5.15는 그 기록 자신을 뺀다), **상환이 있으면 그 달의 월수익 평가일 ≤ 상환일**(b1 개정 — 비교 키는 흐름 끝과 같은 평가일이다. 지급일이 아니다 — DOC-007 RD-18 해결). FULL의 조건은 **지급 · 미지급 공통이다** — 결과를 가리지 않는다. **REALIZED_ONLY** ⇒ 순번 `null` · `PAID`만 · **상품당 60건 이하**(b1 개정 — 일괄 기록 · 「월수익 기록 전부 지우기」의 1..60과 맞춘다). 순번 없는 기록은 평가일이 없어 상환일 비교 밖이다. **양방향이다** *(b1 개정)* — 상환 쪽(§5.4 · §5.5 · §5.11)도 같은 사실을 반대에서 본다: 「상환일 ≥ 기록된 달(`PAID` · `UNPAID`)들의 월수익 평가일 최댓값」, 어기면 `fields.redemptionDate`. **두 방향이 같은 집합을 본다** *(b1 개정 — 반박 검토 반영. 종전 상환 쪽은 `PAID`만 보아 흐름 끝 뒤에 고칠 수 없는 미지급 기록이 남을 수 있었다)*. 새 규칙 ID를 두지 않는다. 대상 §5.14·§5.15 · (상환 쪽) §5.4·§5.5·§5.11 — **상환 쪽 몫도 b2다**(이 행이 b2에 서므로). DB 겹은 I-27 트리거 셋 · `redemptions_before_coupon_payment` · `UNIQUE` 둘 · 복합 FK(§3.2.1) — 60건 상한은 계약에만 있다. **SCR-206 기본 목록은 기록 없는 달 중 `t_k ≤ min(기준일, T_end)`이다**(DOC-008 SCR-206 — b1 개정) — 상환된 상품은 `T_end`가 상환일이므로 이 규칙의 두 상한(기준일 · 상환일)과 같고, 「상환 후 없음」 달을 기록 대상으로 내보이지 않는다. 평가는 끝났고 지급일 전인 달은 V-28 때문에 미지급만 적을 수 있다.
+- **V-28** `PAID`/`UNPAID` 형태 — **`PAID`**: 지급일 · 세전(상품 통화 자릿수 — V-23) · 과세(V-11) 필수, **지급일 ≤ 기준일**(아직 오지 않은 지급은 기록하지 않는다 — V-17과 같은 이유로 DB 제약이 아니다), FULL이면 **지급일 ≥ 그 달 월수익 평가일**, 그리고 **지급일은 그 상품의 다른 `PAID` 기록 · 같은 입력의 다른 행과 겹치지 않는다** → `entries[i].paymentDate`에 `VALIDATION_FAILED`(§5.15는 자기 자신을 빼고 키는 `paymentDate`) *(b1 개정 — 반박 검토 반영)*. **`UNPAID`**: 금액(세전 · 과세 · 원천징수) · 지급일 · 환율이 없다. 대상 §5.14·§5.15. DB 겹은 `monthly_coupon_payments_outcome_check`(I-26)와 값 범위 셋, 지급일 중복은 `UNIQUE(els_id, payment_date)`다 — 계약이 먼저 보지 않으면 입력 실수가 행 키 없는 `CONFLICT`(상태 충돌 — 「화면을 갱신한다」)로 돌아온다. 기실현 「빈 행 추가」는 순번이 없어 이 검사가 유일한 중복 방어다(V-09가 자산 중복을 계약에서 잡는 것과 같은 자리).
+- **V-29** 월지급식 상품의 상환 — **세전 ≤ 투자원금 ∧ 과세 금융소득 0**. 대상 §5.4·§5.5·§5.11. 같은 날의 그 달 월수익은 상환에 합치지 않고 §5.14로 적는다(DOC-001 U6 · 검산 B-2 · B-3). DB 겹은 `redemptions_monthly_principal_only`(§3.2.1 — DOC-010 AQ-87 ⓑ). 만기 손실(`MATURITY_LOSS`)의 V-12(과세 0)와 겹쳐도 충돌하지 않는다 — 둘 다 0을 요구한다.
+
+**대상 확장 셋 — 새 ID가 아니다.** V-23(상품 통화 금액)의 대상에 §5.14·§5.15의 `grossAmount`(통화는 **부모 상품의** `currency`), V-24ⓐ(적용 환율)의 대상에 기록의 `exchangeRate`, V-11(과세 0 이상)의 대상에 기록의 `taxableIncome`을 더한다. 문언은 각 행의 「대상」 칸에 b2가 더한다.
 
 ---
 
@@ -2338,11 +2793,19 @@ type CronResult = {
 >
 > **── 컷 8에서 그렇게 되었고 대조가 실제로 검산했다 (v2.6).** `/forecast`가 `PENDING_ROUTES`에서 `ROUTE_QUERIES: ['getForecast']`로 옮겨 갔고 **`PENDING_ROUTES`는 비었다**(`{}`). 대리 기준(`invalidatedWith: 'getTaxSummary'`)이 옳았음이 사후 증거로 남았다 — 컷 7이 `getForecast`를 `affects`에 등재했을 때 그 소속이 `getTaxSummary`와 **정확히 같은 일곱**으로 나왔으므로, 손으로 적은 `STALE_ROUTES` 표가 **한 줄도 바뀌지 않았다.** 그 동일성 자체를 케이스로 박았다(개수로 적으면 어느 일곱인지 갈려도 통과한다). 빈 항목은 여전히 `/settings` 하나다 — `ROUTE_QUERIES`에 새로 들어온 항목이 비어 있지 않기 때문이다. **원장 셋이 전부 비었다**: `PENDING_ROUTES` = `{}` · `PENDING_PARTS` = `{}` · `placeholderRoutes()` = `[]`. 뒤의 둘은 **같은 사실의 두 관측**이므로(선언과 소스 실측) 넷으로 세지 않고, 그 일치 자체를 단언한다 — 갈리는 경우가 「원장만 앞서갔다」와 「원장이 뒤처졌다」 둘이고 **앞의 것이 더 위험하다**(화면이 섰다고 말하면서 실제로는 자리표시다).
 >
-> 판정 기준의 특이한 두 자리를 기록한다. ① **시세는 세금·전망을 낡게 하지 않는다** — §4.6의 추정 기여는 `grossExpected(원금·연쿠폰율·평가주기·차수)`뿐이고 시세도 `conditionResult`도 쓰지 않는다(§4.3의 `EARLY` 가정). ② **상환은 시세 화면을 낡게 한다** — §4.5 `usedByActiveProducts`가 "참조 중인 **미상환** 상품 수"이므로 상환 등록·취소가 그 값을 바꾼다. 둘 다 직관과 반대이므로 `tests/app/invalidation.test.ts`에 케이스로 박았다.
+> 판정 기준의 특이한 두 자리를 기록한다. ① **시세는 세금·전망을 낡게 하지 않는다** — §4.6의 추정 기여는 `grossExpected(원금·연쿠폰율·평가주기·차수)`뿐이고 시세도 `conditionResult`도 쓰지 않는다(§4.3의 `EARLY` 가정). *(v4.16 — 추정 월수익도 그렇다: `q_k`(`P × r_m / 12`의 보조단위 절사 — §4.0 「형식」)와 월수익 일정 · 기록 · 흐름 끝(적용 차수 · 상환일)뿐이고 §3.5의 조건 판정을 쓰지 않는다 — 흐름 끝 안의 무기록 달은 조건과 무관하게 지급으로 추정한다(U5 · DOC-007 §7.6). 이 근거가 없으면 이 문장은 월지급식에서 거짓이 된다)* ② **상환은 시세 화면을 낡게 한다** — §4.5 `usedByActiveProducts`가 "참조 중인 **미상환** 상품 수"이므로 상환 등록·취소가 그 값을 바꾼다. 둘 다 직관과 반대이므로 `tests/app/invalidation.test.ts`에 케이스로 박았다.
 
 > **`createAsset`을 SCR-302에도 배정했다 (v1.2).** v1.1까지 이 계약은 SCR-204에만 있었는데, **그러면 SCR-302의 빈 상태가 순환한다** — DOC-008 §6이 정한 빈 상태는 "등록된 기초자산 없음"이고 ST-02는 빈 상태가 **다음 행동을 제시할 것**을 요구하는데, 자산을 만들 유일한 경로가 SCR-204(상품 등록)이므로 안내가 "자산을 등록하려면 상품을 등록하세요"가 된다. 그리고 상품 등록은 기초자산 선택을 요구한다. 계약은 화면에 묶여 있지 않으므로 배정만 넓히면 되고 구현은 0줄이다.
 
 > **P8 달러가 이 매트릭스에 더할 것 (v4.9 선행 명세 — 표 행은 컷 a3의 코드 커밋에 함께).** SCR-302 행의 조회 계약에 `listExchangeRates`(§4.11), 변경 계약에 `saveExchangeRate`(§5.13)가 더해진다. ~~지금 행에 적으면 `tests/app/invalidation.test.ts`의 매트릭스 대조(「문서가 배정한 변경 계약이 전부 맵에 있다」)가 실재하지 않는 이름으로 빨간불이다.~~ *(v4.13 — 더했다. 위 SCR-302 행 · `ROUTE_QUERIES['/prices']`)* **나머지 화면의 배정은 그대로다** — 달러 상품의 표시는 이미 배정된 계약의 **필드**로 한다(§4.1~§4.4·§4.6~§4.8의 v4.9 필드). `ROUTE_QUERIES['/prices']`에 `listExchangeRates`가 같은 커밋에 든다.
+
+> **P8 월지급이 이 매트릭스에 더할 것 (v4.16 선행 명세 — P8 컷 b1. 표 행은 b2·b3의 코드 커밋에 함께).** 지금 행에 적으면 위 대조가 실재하지 않는 이름으로 빨간불이다(`tests/app/invalidation.test.ts` — 변경 칸은 `MUTATION_NAMES`와 **양방향**, 행 수는 13).
+>
+> - **SCR-206 월수익 기록 행 신설** — 변경 계약 `recordCouponPayments`(§5.14) · `updateCouponPayment`(§5.15 — 행마다의 「수정」이 이 화면의 한 행 폼이다, `?edit=<id>`). 행 수가 13 → 14가 되고 DOC-008 화면 원장(15 → 16)과 SCR-206 라우트가 함께 선다(b3 — DOC-008).
+> - **SCR-202 상세 행** — 변경 계약에 `deleteCouponPayments`(§5.15 — 행마다의 「삭제」와 구획의 「월수익 기록 전부 지우기」).
+> - **SCR-301 일정 행** — 조회 계약에 `listMonthlyCouponSchedule`(§4.12, b3)과 `ROUTE_QUERIES[PATHS.schedule]`.
+> - **나머지 화면은 필드로 한다** — SCR-101(§4.1) · SCR-201(§4.2) · SCR-202 ⑦(§4.3) · SCR-203(§5.4 V-29) · SCR-204(§5.1·§5.2) · SCR-205(§5.11) · SCR-401(§4.6) · SCR-402(§4.7)는 이미 배정된 계약의 v4.16 필드·규칙이다.
+> - **넣는 시점** *(b1 개정 — §9 ⑭ 부분 해결)* — **세 변경 이름은 b2**(계약이 서는 커밋 — 변경 칸 대조가 양방향이므로 `MUTATION_NAMES`가 17이 되는 그 커밋에 매트릭스에 서야 한다), **SCR-206 화면 행은 b3**(화면 · 라우트와 함께). `createProduct` · `updateProduct`의 `affects`에 `listMonthlyCouponSchedule`이 든다(§4.12). ⚠ **남은 몫 둘** — b2~b3 동안 `recordCouponPayments` · `updateCouponPayment`가 어느 기존 행에 서는가(그 행을 b3이 SCR-206 행으로 옮긴다)는 b1 명세가 시점만 정하고 행을 정하지 않았다(§9 ⑭ — b2 전). SCR-206이 읽는 조회 계약(`getProduct`가 후보 — 원천징수는 서버가 채우므로 세율을 뷰에 싣지 않는다, DOC-008 SCR-206)은 화면 세부라 DOC-008 SQ-21 ⓘ가 들고 있다(b3 전 — b1 개정).
 
 ### 8.1 화면이 계약의 결함을 드러낸 사례 — 부류와 재발 방지 (v2.1 신설, P4 컷 10 · v3.3에서 일곱째)
 
@@ -2424,7 +2887,7 @@ P4의 아홉 컷에서 **계약의 결함이 여섯 번 드러났다.** 전부 �
 | CR-11 | **환율 단계는 시세 단계와 실패 영역이 갈린다 — HTTP 상태를 바꾸지 않는다** | 예정 (P8 컷 c2 — ADR-010 분기 A/A′일 때만, v4.8 등재) | 환율 수집은 별도 라우트·별도 cron이 아니라 **`GET /api/cron/prices`의 둘째 단계**다(ADR-010 — `ROUTE_HANDLERS` 1개·`crons` 길이 1을 유지하고, `refreshPrices`는 환율을 부르지 않는다). 그 단계의 실패는 **응답 상태를 바꾸지 않는다** — 시세 단계가 `ok`면 200이고, 환율 단계의 결과는 `CronResult`와 `cron_runs`(`job` 열 expand — `PRICES`·`EXCHANGE_RATE`)로만 보고한다. 근거 둘: ⓐ 비2xx는 CR-04 ⓒ 「전면 실패」의 신호인데 환율 한 건 때문에 그것을 내면 시세가 성공한 날이 실패로 읽힌다 ⓑ 환율은 수동 입력(`saveExchangeRate`)이 **모든 분기에서 동작하는** 공용 입력이므로(민서 결정 2026-09-29 · DOC-001 C-03) 그 실패는 CR-02의 「부분 실패」 크기다. **거꾸로 조용해질 위험을 함께 적는다** — 상태 코드가 늘 200이면 환율 수집이 매일 죽어도 응답만으로는 보이지 않는다. 감지는 SCR-302 환율 절의 기준일·경과 표식이 진다(CR-04 ⓐ의 환율판). **표 행은 컷 c2의 코드 커밋에 함께** — §7.1 표는 `tests/app/cron.decide.test.ts:348`(`toHaveLength(10)`)과 `NOT_A_VERDICT` 분류에 결속되어 있다. 분기 C면 「해당 없음」으로 닫는다 |
 | CR-12 | **같은 `(currency, as_of_date)`에 행이 있으면 쓰지 않는다 — 날짜는 원천의 날짜다** | 예정 (P8 컷 c2 — ADR-010 분기 A/A′일 때만, v4.8 등재) | CR-05의 환율판이며 `source`와 무관하다 — 근거도 AQ-06과 같다(충돌이 날짜 스코프라 영속하지 않는다). 두 겹도 CR-03과 같다 — 사전 확인은 콜 절약이고, 최종 보장은 `UNIQUE(currency, as_of_date)`와 좌표 동결 트리거다(`exchange_rates`는 DELETE가 GRANT·정책 둘 다 없다 — DOC-002, 컷 a3). **`as_of_date`는 원천이 그 값에 붙인 날짜다** — 수집 시각의 KST 날짜가 아니다. 분기 A′(14:59 이후 게시)에서 배치가 전날 값을 받아 오늘 날짜로 적으면 추정 환율의 기준일이 하루 거짓이 된다. 휴일·게시 전이라 원천이 그 날의 값을 주지 않으면 **`NO_DATA`**이고 `CALL_FAILED`가 아니다(§7.1 `failure`의 두 부류 — 휴일은 결함이 아니다). 표 행은 컷 c2의 코드 커밋에 함께 |
 | CR-13 | **환율 키가 없으면 환율 단계만 끈다 — CR-10의 전체 500이 아니다** | 예정 (P8 컷 c2 — ADR-010 분기 A/A′일 때만, v4.8 등재) | CR-10은 「공급자는 등록됐으나 자격증명이 없으면 **배치 전체**를 500」이다 — 시세 공급자의 키 부재는 배포 결함이고 수집할 것이 없기 때문이다. 환율은 다르다: 수동 입력이 **설계된 정상 경로**이므로(DOC-001 C-03 · ADR-010 분기 C) 키 부재가 시세 수집까지 멈추게 하면 부분의 결함이 전체를 죽인다 (아래 AQ-17 철회 기록의 원리 — 멈추는 범위가 원인의 범위를 넘으면 안 된다). 따라서 CR-13은 사전 판정(`decide`)의 갈래가 아니다 — c2에서 `NOT_A_VERDICT`에 사유와 함께 선다. **미결 하나를 함께 등재한다** — 끈 사실을 결과에서 어떻게 드러낼지. 조용히 꺼지면 CR-10이 막으려던 「설정 누락이 정상처럼 보인다」가 환율 쪽에서 재현된다. 형태는 c2 명세에서 정한다. 환경변수 연결은 `env.ts`·`.env.example`·DOC-013 §5.1·DOC-010 §7.2·`env.test.ts`다. 표 행은 컷 c2의 코드 커밋에 함께 |
-| X-07 | **불러온 상품 통화가 저장값과 다르면 투자원금을 비운다 · 월수익 기록이 있는 상품은 통화·쿠폰 지급방식이 다른 불러오기를 거부한다** | **앞절반 해결** (P8 컷 a4-2 — §4.10 표 행 v4.15) · 뒷절반 예정 (b1이 컷을 정한다) *(v4.8 등재 · v4.14 판정 규칙)* | 수정 화면 불러오기(v4.6 · DOC-008 v2.12 「원천에 있는 칸은 불러온 값, 없는 칸은 저장값」)에 더하는 규칙이다. **통화와 투자원금은 함께 움직인다** — 투자원금은 원천에 없는 칸이라 저장값이 남는데(`src/lib/forms/importMerge.ts` `IMPORT_KEEPS_STORED`), 통화만 원천 값으로 바뀌면 `10000000`(원)이 $10,000,000.00이 된다. 형식이 정상이고 값만 거짓인 부류다 — 자릿수가 맞으므로 V-23도 잡지 못한다. 환산하지 않고 **비워서** 사용자가 다시 적게 한다(환율은 계약 조건이 아니다). **기록 거부의 근거는 X-01과 같다** — 기록이 있으면 저장이 `els_products_coupon_recorded_immutable`(`CONFLICT`, DOC-002 · 컷 b2)로 거부되므로 결과를 쓸 수 없는 폼을 채우지 않는다. **★ 뒷절반은 a4에서 도달할 수 없다** — 월지급식은 컷 b4에서야 선택 가능하므로(DOC-000 P8 — 월지급식 선택은 컷 b4) 기록 있는 상품이 계약 경로로 생기지 않는다. a4에서 세우면 b4까지 발동 불가인 분기이고 그 동안의 초록은 아무것도 증명하지 않는다 — 그 절반을 세울 컷은 b1 명세에서 정한다. 표 행(§4.10)은 코드 커밋에 함께. **v4.14 — 앞절반의 판정 규칙(선행 명세 · 구현 a4-2).** 「불러온 상품 통화」는 DOC-010 ADR-009 §7 `productCurrencyOf`의 **확정** 판정이다. **증인 없음**이면 불러온 통화가 없으므로 통화도 투자원금도 저장값이 남는다. 확정 통화가 저장값과 **다르면** 통화는 불러온 값, 투자원금은 **빈칸**이며 구획이 「상품 통화가 저장값과 다르다 — 투자원금을 비웠다」를 말하고 상태는 **「일부 채움」**이다(DOC-008 SCR-204) — 빈 투자원금은 사람이 채울 곳이고, 「불러옴」으로 두면 그 문구 「투자원금 · 계좌유형 · 비고는 저장값 그대로다」가 거짓이 된다. **같으면 아무것도 비우지 않는다** — 같은 상품을 다시 불러와도 투자원금이 지워지지 않는다. 충돌 · 지원 밖은 거부이므로 폼은 저장값 그대로다 |
+| X-07 | **불러온 상품 통화가 저장값과 다르면 투자원금을 비운다 · 월수익 지급 기록이 있는 상품은 통화·쿠폰 지급방식이 다른 불러오기를 거부한다** | **앞절반 해결** (P8 컷 a4-2 — §4.10 표 행 v4.15) · 뒷절반 예정 — **컷 b4** *(v4.8 등재 · v4.14 판정 규칙 · v4.16 컷 배정)* | 수정 화면 불러오기(v4.6 · DOC-008 v2.12 「원천에 있는 칸은 불러온 값, 없는 칸은 저장값」)에 더하는 규칙이다. **통화와 투자원금은 함께 움직인다** — 투자원금은 원천에 없는 칸이라 저장값이 남는데(`src/lib/forms/importMerge.ts` `IMPORT_KEEPS_STORED`), 통화만 원천 값으로 바뀌면 `10000000`(원)이 $10,000,000.00이 된다. 형식이 정상이고 값만 거짓인 부류다 — 자릿수가 맞으므로 V-23도 잡지 못한다. 환산하지 않고 **비워서** 사용자가 다시 적게 한다(환율은 계약 조건이 아니다). **기록 거부의 근거는 X-01과 같다** — 기록이 있으면 저장이 `els_products_coupon_recorded_immutable`(`CONFLICT`, DOC-002 · 컷 b2)로 거부되므로 결과를 쓸 수 없는 폼을 채우지 않는다. **★ 뒷절반은 a4에서 도달할 수 없다** — 월지급식은 컷 b4에서야 선택 가능하므로(DOC-000 P8 — 월지급식 선택은 컷 b4) 기록 있는 상품이 계약 경로로 생기지 않는다. a4에서 세우면 b4까지 발동 불가인 분기이고 그 동안의 초록은 아무것도 증명하지 않는다 — 그 절반을 세울 컷은 b1 명세에서 정한다. 표 행(§4.10)은 코드 커밋에 함께. **v4.14 — 앞절반의 판정 규칙(선행 명세 · 구현 a4-2).** 「불러온 상품 통화」는 DOC-010 ADR-009 §7 `productCurrencyOf`의 **확정** 판정이다. **증인 없음**이면 불러온 통화가 없으므로 통화도 투자원금도 저장값이 남는다. 확정 통화가 저장값과 **다르면** 통화는 불러온 값, 투자원금은 **빈칸**이며 구획이 「상품 통화가 저장값과 다르다 — 투자원금을 비웠다」를 말하고 상태는 **「일부 채움」**이다(DOC-008 SCR-204) — 빈 투자원금은 사람이 채울 곳이고, 「불러옴」으로 두면 그 문구 「투자원금 · 계좌유형 · 비고는 저장값 그대로다」가 거짓이 된다. **같으면 아무것도 비우지 않는다** — 같은 상품을 다시 불러와도 투자원금이 지워지지 않는다. 충돌 · 지원 밖은 거부이므로 폼은 저장값 그대로다. **v4.16 — 뒷절반의 컷은 b4다**(P8 컷 b1). 월지급식이 **폼에서 선택 가능해지는 컷**이다(SB-13) — 그 전에는 화면 경로로 기록 있는 상품이 생기지 않으므로, 먼저 세운 분기는 발동 불가인 채 초록이다(위 ★와 같은 논거). 계약은 b2부터 `MONTHLY`와 기록을 받지만(통합 테스트 · dev 표본) 그 사이의 저장은 b2의 `els_products_coupon_recorded_immutable`이 막는다 — 결과를 쓸 수 없는 폼을 채우는 것이 b2~b4의 남는 결함이고, 화면 경로로는 도달하지 않는다. X-08은 그대로 b5/b5′다 |
 | X-08 | **월수익 평가일 — 투자설명서에서 읽으면 실제 날짜, 못 읽으면 산식 날짜로 채우고 산식임을 표시한다** | 예정 (P8 컷 b5/b5′, v4.8 등재) | 원천 사실(2026-09-30, EM2048): 월수익지급평가일 1~36회의 **실제 날짜 표는 투자설명서 PDF에만 있다**(`www.kiwoom.com/wm/upload/gds/BEM2048.pdf` — 팝업·목록에는 없다). 지급일은 원문 「평가일 후 3영업일」, 월수익은 「액면금액 × 2.02%(연 24.24%)」이며 미지급분 누적 조항이 없다(기본형). **b5′ 게이트가 통과하면** PDF에서 실제 날짜·월 쿠폰율·지급 규칙을 읽어 채운다(FILLED). **실패하면** 산식 날짜(평가일 = 발행일 + k개월 − 1일, 지급일 = 평가일 + 3영업일, 주말만 건너뜀)로 채우고 **그 행이 산식임을 표시한다**(ADR-009 ⑰, PARTIAL — 게이트 실패는 설계된 정상 경로다). 어느 쪽이든 **조기상환 평가일과 겹치는 달은 실제 날짜**다 — 조기상환 일정은 원천이 날짜로 준다. 산식 날짜는 공휴일을 모르므로 **사용자 확인 대상**이다(DOC-007 RD-03 ⓐ 보강). X-04는 그대로다 — 채운 값은 저장되지 않고 §5.1·§5.2(와 월수익 일정 규칙 V-26)를 지난다. 표 행(§4.10)은 b5/b5′의 코드 커밋에 함께 |
 
 **P8 계약면 증가 — 예정 (v4.8 등재, P8 컷 0b · v4.9 달러 절반 명세, 컷 a1)**
@@ -2433,18 +2896,42 @@ P8이 늘리는 계약면을 한 자리에 적는다. **명세는 컷 a1(달러)
 
 | 대상 | 지금 | P8 후 | 명세 | 표 행 · 결속 원장 |
 |---|---|---|---|---|
-| 변경 계약 (§5) | ~~13~~ **14** *(v4.13 — a3)* | **17** — `saveExchangeRate` · `recordCouponPayments` · `updateCouponPayment` · `deleteCouponPayments` | a1 · b1 | a3(`saveExchangeRate`) · b2(나머지 셋). `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts` 「계약 14개가 모두 항목을 갖는다」 — v4.13, 줄 번호 대신 케이스 이름) · `INVALIDATION` · §8 |
-| 조회 계약 (§4) | ~~9~~ **10** *(v4.13 — a3)* | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1 | a3 · b3. `ROUTE_QUERIES` · §8 |
-| 검증 규칙 (§6) | ~~V-01~V-21~~ **V-01~V-24** *(v4.11 — a2 · V-24ⓑ는 v4.13)* | **V-01~V-29** — 신설 V-22 상품 통화(∈ {KRW, USD} · 빈칸 오류) · V-23 상품 통화 금액 자릿수 · V-24 환율 · V-25 MONTHLY ⇔ 월수익 조건 · V-26 월수익 일정 · V-27 기록 대상 · V-28 PAID·UNPAID 형태 · V-29 월지급 상환(세전 ≤ 투자원금 ∧ 과세 0). 개정 V-01(「정수」 → 상품 통화 보조단위) · V-08(월수익 비율 필드 추가 · `annualCouponRate` 하한 `x > 0`을 `MONTHLY`에서 `= 0`으로 — DOC-002 DQ-11) · V-20(`couponNo`) | a1(V-01′·V-22~24) · b1(V-08′·V-20′·V-25~29 — 앞의 둘은 대상 필드가 월수익 쪽이다) | a2 · b2 · b4(V-29). `RULE_IDS`가 §6을 **순서까지** 파싱한다(`tests/db/docs-contract.test.ts`) · `CASES`·`RULE_TARGETS` 양방향(`tests/db/validate.test.ts` 「CASES가 RULE_IDS 전부를 덮는다」 · 「RULE_TARGETS가 RULE_IDS와 양방향으로 일치한다」 — v4.13, 줄 번호 대신 케이스 이름) |
+| 변경 계약 (§5) | ~~13~~ **14** *(v4.13 — a3)* | **17** — `saveExchangeRate` · `recordCouponPayments` · `updateCouponPayment` · `deleteCouponPayments` | a1 · b1(§5.14 · §5.15 — v4.16) | a3(`saveExchangeRate`) · b2(나머지 셋). `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts` 「계약 14개가 모두 항목을 갖는다」 — v4.13, 줄 번호 대신 케이스 이름) · `INVALIDATION` · §8 |
+| 조회 계약 (§4) | ~~9~~ **10** *(v4.13 — a3)* | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1(§4.12 — v4.16) | a3 · b3. `ROUTE_QUERIES` · §8 |
+| 검증 규칙 (§6) | ~~V-01~V-21~~ **V-01~V-24** *(v4.11 — a2 · V-24ⓑ는 v4.13)* | **V-01~V-29** — 신설 V-22 상품 통화(∈ {KRW, USD} · 빈칸 오류) · V-23 상품 통화 금액 자릿수 · V-24 환율 · V-25 MONTHLY ⇔ 월수익 조건 · V-26 월수익 일정 · V-27 기록 대상 · V-28 PAID·UNPAID 형태 · V-29 월지급 상환(세전 ≤ 투자원금 ∧ 과세 0). 개정 V-01(「정수」 → 상품 통화 보조단위) · V-08(~~월수익 비율 필드 추가 ·~~ `annualCouponRate` 하한 `x > 0`을 `MONTHLY`에서 `= 0`으로 — DOC-002 DQ-11. *v4.16 — 월수익 두 비율의 범위는 V-25·V-26이 정한다*) · V-20(`couponNo`) | a1(V-01′·V-22~24) · b1(V-08′·V-20′·V-25~29 — 앞의 둘은 대상 필드가 월수익 쪽이다. §6 말미 「P8 월지급 — 규칙 일곱」 — v4.16) | a2 · b2 · b4(V-29). `RULE_IDS`가 §6을 **순서까지** 파싱한다(`tests/db/docs-contract.test.ts`) · `CASES`·`RULE_TARGETS` 양방향(`tests/db/validate.test.ts` 「CASES가 RULE_IDS 전부를 덮는다」 · 「RULE_TARGETS가 RULE_IDS와 양방향으로 일치한다」 — v4.13, 줄 번호 대신 케이스 이름) |
 | 조회 규약 Q-07 (§4.0) | 금액은 정수 문자열 | 상품 통화 금액은 **보조단위 고정 자릿수**(KRW 0 · USD 2), 과세 축 금액은 **KRW 정수**, 환율은 시세와 같은 6자리 | a1 | a2(`moneyString` — KRW는 `amountString`과 같다) |
-| §3.2.1 제약 → `ErrorCode` | — | 새 제약·트리거 이름(예: `els_products_coupon_recorded_immutable` → `CONFLICT`) | a1 · b1 | 해당 마이그레이션의 코드 커밋(`BY_CONSTRAINT` · `RAISE_ONLY` · `NOT_NULL_FIELD`) |
-| §8 무효화 | — | `EXCHANGE_RATE_WIDE`(세금을 **포함**한다 — 환율은 추정 과세의 입력이다) · `COUPON_RECORD_WIDE` · `PRICE_WIDE`에는 `listMonthlyCouponSchedule`만 더하고 **세금은 계속 없다**(`refreshPrices.affects`에 세금이 없음을 단언) | a1 · b1 | a3 · b2 · b3 |
+| §3.2.1 제약 → `ErrorCode` | — | 새 제약·트리거 이름(예: `els_products_coupon_recorded_immutable` → `CONFLICT`) | a1 · b1(§3.2.1 「P8 월지급」 — v4.16) | 해당 마이그레이션의 코드 커밋(`BY_CONSTRAINT` · `RAISE_ONLY` · `NOT_NULL_FIELD`) |
+| §8 무효화 | — | `EXCHANGE_RATE_WIDE`(세금을 **포함**한다 — 환율은 추정 과세의 입력이다) · `COUPON_RECORD_WIDE` · `PRICE_WIDE`에는 `listMonthlyCouponSchedule`만 더하고 **세금은 계속 없다**(`refreshPrices.affects`에 세금이 없음을 단언) | a1 · b1(§5.14 무효화 각주 · §8 말미 각주 — v4.16) | a3 · b2 · b3 |
 
 > **v4.9 (컷 a1) — 달러 절반의 명세를 썼다. 표 행·결속 원장은 여전히 0줄이다.** 위 표에서 a1 몫의 명세 자리는 다음이다 — 변경 계약 `saveExchangeRate` → §5.13(구현 a3, 13 → **14**) · 조회 계약 `listExchangeRates` → §4.11(구현 a3, 9 → **10**) · V-01′·V-22·V-23·V-24 → §6 말미 「P8 달러 — 규칙 넷」(표 행 a2, V-24의 `saveExchangeRate` 몫 a3) · Q-07′ → §4.0 Q-07 행과 「Q-07′」 각주(구현 a2) · §3.2.1 → 그 절의 「P8 달러 — 새 제약·라벨의 사상」(행 a2·a3) · §8 → `EXCHANGE_RATE_WIDE`는 §5.13의 무효화 각주, 매트릭스 행은 §8 말미 각주(a3). 뷰의 새 필드는 §4.0 「공통 타입」과 §4.1~§4.4·§4.6~§4.8의 v4.9 표기다. **17·11은 P8 전체의 수이고 a3 뒤의 수는 14·10이다** — 나머지 셋·하나는 컷 b1의 명세(구현 b2·b3)다. 월수익 쪽(V-08′·V-20′·V-25~29 · `COUPON_RECORD_WIDE` · `*_recorded_immutable`)은 한 줄도 쓰지 않았다.
 
 > **v4.13 (컷 a3-2) — 달러 절반의 계약면이 전부 섰다.** `saveExchangeRate`(14) · `listExchangeRates`(10) · V-24ⓑ · `EXCHANGE_RATE_WIDE` · 왕복 +1 · §8 SCR-302 행이 같은 코드 커밋이다. 남은 것은 월수익 쪽(b1 명세 · b2·b3 구현)뿐이다.
 
-> **AQ-76~87은 DOC-010 §9에 있다 (v4.8).** P8의 구현 방어 범위 미결 열둘은 그 문서에만 둔다 — 사본을 두면 두 곳이 갈린다. 이 문서의 계약과 가장 가까운 것은 AQ-76(환율 = 세금을 움직이는 첫 공용 입력 → 위 `EXCHANGE_RATE_WIDE`)·AQ-77(임베드 페이로드)·AQ-79(직접 UPDATE 우회)·AQ-87(같은 날 상환·월수익 — V-29로 좁힘)이다.
+> **v4.16 (컷 b1) — 월수익 절반의 명세를 썼다. 표 행·결속 원장은 여전히 0줄이다.** 위 표에서 b1 몫의 명세 자리는 다음이다 — 변경 계약 셋 → §5.14 `recordCouponPayments` · §5.15 `updateCouponPayment` · `deleteCouponPayments`(구현 b2, 14 → **17**) · 조회 계약 → §4.12 `listMonthlyCouponSchedule`(구현 b3, 10 → **11**) · V-08′ · V-20′ · V-25~V-29 → §6 말미 「P8 월지급 — 규칙 일곱」(표 행 b2 · V-29는 b4) · §3.2.1 → 그 절의 「P8 월지급 — 새 제약·라벨의 사상」(행 b2 · `NOT_NULL_FIELD`의 `couponPayout`은 b4) · §8 → `COUPON_RECORD_WIDE`는 §5.14의 무효화 각주, 매트릭스 행은 §8 말미 각주(b2·b3). 뷰의 새 필드와 사건 규칙은 §4.0 「공통 타입 — 쿠폰 지급방식과 월수익」과 §4.1~§4.8의 v4.16 표기다. **17 · 11이 P8 전체의 수다** — 이 판으로 계약면 증가의 명세가 다 섰다. **「코드가 한 컷 앞섰다」(P8 컷 b0, `d675efb`)** — 소득 사건 모델(`incomeEventsOf` · 사건을 접는 `contributionOf` · `forecastItemsOf` · `excludedForeignCountOf` · `withholdingFor`의 날짜 칸)이 이 판보다 먼저 코드에 섰다. 동작 불변이며 이 판이 §4.6 · §4.7 · §5.4에 그 이름을 적었다. b1 명세가 답하지 않은 것은 아래 「P8 월지급 — b2 전에 정한다」에 있다 — b1 개정을 반영한 뒤 남은 것은 ⑭의 두 몫(b2 전 · b3 전)과 ⑰(b3 전)이다.
+
+> **AQ-76~87은 DOC-010 §9에 있다 (v4.8).** P8의 구현 방어 범위 미결 열둘은 그 문서에만 둔다 — 사본을 두면 두 곳이 갈린다. 이 문서의 계약과 가장 가까운 것은 AQ-76(환율 = 세금을 움직이는 첫 공용 입력 → 위 `EXCHANGE_RATE_WIDE`)·AQ-77(임베드 페이로드)·AQ-79(직접 UPDATE 우회)·AQ-87(같은 날 상환·월수익 — V-29로 좁힘)이다. *(v4.16 — 컷 b1에서 AQ-79는 **결정**(민서 결정(2026-10-02) ④ — 동결을 DB 트리거로도, §3.2.1 `*_recorded_immutable`) · AQ-87 ⓑ는 **결정**(DB 트리거 `redemptions_monthly_principal_only` · `redemptions_before_coupon_payment`) · AQ-80(데이터 전용 복원이 트리거를 재검증하지 않는다)의 범위가 월수익 트리거로 넓어졌고 · AQ-92가 신설됐다(`redemption_schedules.round_no >= 1` `CHECK` 부재 — b0 반박 검토 발견, 새 두 테이블은 `coupon_no >= 1`을 둔다 · V-20′). 정본은 DOC-010 §9다)*
+
+**P8 월지급 — b2 전에 정한다 (v4.16 등재, 컷 b1)**
+
+b1 결정(컷 b1)이 답하지 않아 **지어내지 않은 것**이다. 본문의 ⚠ 표시가 여기를 가리킨다. 각 항목은 b2 착수 전에 닫고 닫은 판을 여기에 적는다. *(v4.16 개정 반영 — b1 개정이 ①~⑬ · ⑮ · ⑯을 닫았고 ⑭는 부분 해결이다. 등재 행을 지우지 않고 「→ 해결」과 답을 단다. ⑰은 b1 개정의 「차수 루트에는 월수익을 임베드하지 않는다」를 본문에 반영하다 드러난 것이라 새로 등재했고 화면 컷 앞에 닫는다 — 「b3 전에 정한다」)*
+
+- **①** **월수익 제약의 `fields` 키**(§3.2.1 ⚠) — 기록의 제약(I-26 · I-27 · `UNIQUE` 둘 · 복합 FK · 값 범위)이 §5.14(다행 — `entries`)와 §5.15(한 행)에서 함께 도달하는데 `BY_CONSTRAINT`는 제약 → 키 하나다 — 배열 키로 둘지 열의 필드 키로 둘지. I-23 `els_products_monthly_terms_check`와 I-24 일정 넷의 키도 b1 명세에 없다. 그리고 `NOT_NULL_FIELD`의 **열 이름** 사상이 새 테이블에서 틀린 칸을 가리킨다(`evaluation_date` → `evaluationDate` · `is_confirmed` → `isConfirmed`) — 테이블로 갈라 사상할지 → **해결 (v4.16, b1 개정)** — DB 제약 → `fields`는 **색인 없는 이름**이다(§3.2.1 「배열 인덱스를 붙이지 않는다」 그대로): 월수익 지급 기록의 제약은 `paymentDate` · `grossAmount` · `taxableIncome` · `withholdingTax` · `outcome` · `couponNo`, 월수익 일정의 제약은 `couponSchedules`, 지급방식 짝(I-23)은 `couponPayout`. 행 단위 키(`entries[i].…` · `couponSchedules[i].…`)는 계약 계층의 사전 검증(V-25~V-28)이 낸다 — DB 오류는 그 뒤의 마지막 그물이다. 정확한 사상 행은 b2(결속 표). `NOT_NULL_FIELD`는 이 원칙으로 `is_confirmed` → `isConfirmed`가 맞고, 일정 테이블의 널 위반은 `couponSchedules`로 가도록 테이블로 갈라 사상하는 일이 그 행에 든다(§3.2.1). b1 개정은 키의 **모양**만 정했다 — `monthly_coupon_payments_after_redemption` 하나의 `ErrorCode`와 여섯 중 어느 칸인지(그리고 접미사 행)는 DOC-002 DQ-17 ②가 미결로 들고 있다(b2 전에 정한다 — 사본을 두지 않고 그 문서를 가리킨다)
+- **②** **§4.1 「n개월 미기록」의 n** — `attentionItems` 항목에 그 수를 싣는 필드가 없다(DOC-008 SCR-101 ④). 항목에 더할지, 화면이 다른 뷰에서 셀지(그 합성은 DOC-010 AQ-23 부류) → **해결 (v4.16, b1 개정)** — `COUPON_UNRECORDED` 항목에 `count: number`(그 상품의 미기록 달 수). 다른 사유에는 없다(선택 필드). 화면이 세지 않는다(§4.1)
+- **③** **§4.2 SCR-201 ⑮의 「배리어 50%」** — `terms.monthlyCoupon`은 연율 하나이고 월수익 배리어는 일정 **행마다** 있다. 대표값의 정의를 포함해 필드를 더할지, 화면 요소를 바꿀지 → **해결 (v4.16, b1 개정)** — `terms.monthlyCoupon = { annualRate: string; barrier: string | null }`. `barrier`는 모든 일정 행의 월수익 배리어가 같을 때 그 값, 다르면 `null`(화면 「월수익 배리어 달마다 다름」). 기실현은 `terms.monthlyCoupon = null`. 표시어는 「월수익 배리어 50%」(DOC-005 §8.2)
+- **④** **§4.3 `getProduct`의 월수익 연쿠폰율** — SCR-204 수정 화면의 초기값(`productValuesOf`)이 필요로 하는데 §4.3 목록에 없다(§4.2 `terms.monthlyCoupon`과 같은 모양이 후보) → **해결 (v4.16, b1 개정)** — §4.3 `product.monthlyCouponAnnualRate: string | null`. 수정 폼의 월수익 일정 초기값은 `coupons[]`의 `couponNo` · `evaluationDate` · `paymentDate` · `couponBarrier`에서 온다(`productValuesOf`가 옮긴다 — b3)
+- **⑤** **기실현 월지급(일정 0행)의 표시** — 순번 없는 `PAID` 기록이 §4.3 어디에 실리는가(SCR-202 ⑦의 수정 · 삭제 대상 — `coupons`는 일정 행마다다) · 그 상품의 `coupons` · §4.2 `couponProgress`의 값. DOC-008 SQ-17의 계약 쪽이다 → **해결 (v4.16, b1 개정)** — `coupons = []`(일정 행이 없다), 순번 없는 `PAID` 기록은 §4.3 형제 필드 `unnumberedCouponRecords: CouponRecordView[]`(지급일 순), §4.2 `couponProgress = null`. `CouponRecordView`에 기록의 `paymentDate`를 둔다(§4.3 — 그 기록의 유일한 날짜다)
+- **⑥** **`remainingCoupons`의 환율 기준** — 달러 추정 월수익을 환산한 추정 환율(DOC-008 SCR-202 ⑤ 「환율 기준 또는 「환율 없음」」)을 싣는 자리. `projection.exchangeRateBasis`는 `projection`이 `null`인 상품(NO_ROUND · 상환 완료)에서 함께 사라진다 → **해결 (v4.16, b1 개정)** — `remainingCoupons = { byYear: Array<{ year; count; grossAmount; taxableIncome: string | null }>; exchangeRateBasis: ExchangeRateBasisView | null } | null`. 환율 근거를 그 컨테이너가 싣는다(projection이 `null`인 상품에서도 남는다). 원화 상품은 `exchangeRateBasis = null`
+- **⑦** **§4.7 가정 표식** — 「월지급식은 적용 차수까지 매월 지급 가정」을 켜는 표 밖 표식의 필드 이름 · 모양 · 켜지는 조건(`tests/app/forecast.test.ts`의 `OutsideTable` · `_NoUnmappedField`). DOC-007 RD-19(화면 전체 고지와 상환된 상품의 추정 월수익)와 함께 정한다 → **해결 (v4.16, b1 개정)** — 표 밖 표식 여섯째 `monthlyCouponAssumption: boolean`(그 표에 추정 월수익 사건이 하나라도 있으면 참 — 문장의 조건). 구현 b4. DOC-007 RD-19(화면 전체 고지 조건)는 그대로 b4 전에 정한다
+- **⑧** **§4.12의 반환 행** — 타입 이름(잠정 `MonthlyCouponScheduleItem`)과 필드: 상품 식별(§4.4 `ownerId` v1.8의 근거 — 소유자 필터의 선택지 값)과 월수익 행(§4.3 `CouponObservationView`의 부분집합이 후보). 그에 따른 `EXCHANGE_RATE_WIDE` 소속 → **해결 (v4.16, b1 개정)** — `MonthlyCouponScheduleItem = { productId; productName; ownerName; currency; couponNo; evaluationDate; paymentDate; couponBarrier; state; expectedAmount; record: { outcome; grossAmount } | null; conditionResult }`. 인자는 `listSchedule`과 같다. `affects`에 드는 축은 `COUPON_RECORD_WIDE` · `PRODUCT_WIDE` · `PRICE_WIDE`이고 `EXCHANGE_RATE_WIDE`에는 들지 않는다(원화 과세를 싣지 않는다)
+- **⑨** **상환일 쪽 계약 계층 검사** — §5.4 · §5.5가 「상환일 < 기록된 `PAID` 지급일」을 사전 조회로 먼저 거부할지(그때의 규칙 ID 포함). 정하지 않으면 `redemptions_before_coupon_payment`가 유일한 겹이고 응답은 같다(`VALIDATION_FAILED` · `redemptionDate`) → **해결 (v4.16, b1 개정)** — §5.4 · §5.5 · §5.11이 사전 조회로 「상환일 ≥ ~~`PAID`로~~ 기록된 달(지급 · 미지급)들의 월수익 평가일 최댓값」을 본다(반박 검토 반영 — 기록 쪽과 같은 집합, 대칭). **V-27의 양방향 문언**이고 새 규칙 ID는 없으며 구현은 b2다(V-27 표 행과 같은 커밋). 비교 키는 지급일이 아니라 평가일이다(⑯과 같은 키). DB 트리거가 마지막 그물이다
+- **⑩** **§5.14의 반환 데이터** — 잠정 `void`. 만든 기록의 id를 돌려줄지(SCR-206 제출 뒤의 이동이 그것을 필요로 하는가) → **해결 (v4.16, b1 개정)** — `ActionResult<{ ids: string[] }>`(만든 기록의 id, 입력 순서)
+- **⑪** **`deleteCouponPayments`의 부분 삭제** — 사전 조회와 DELETE 사이의 경합으로 일부만 지워지면 한 문장의 DELETE는 이미 확정이다(W-05는 성공을 주장하지 않을 뿐 되돌리지 못한다). 쓰기 함수(트랜잭션 안의 행 수 검사)로 할지, 수용하고 근거를 적을지 → **해결 (v4.16, b1 개정)** — 사전 조회로 `ids`가 전부 그 상품의 기록인지 확인한 뒤 **한 문장** `DELETE … WHERE els_id = $1 AND id = ANY($2)`(한 문장은 원자적이다). 영향 행 수 ≠ `ids` 길이면 `CONFLICT`(경쟁 — `requireAffected` 선례). 쓰기 함수를 두지 않는다
+- **⑫** **기실현 월지급 기록의 상한** — 순번 없는 기록은 V-26의 60행에 묶이지 않는다(`UNIQUE(els_id, payment_date)`만 있다). 60건을 넘으면 「전부 지우기」(`ids` ≤ 60)와 일괄 기록(1..60)이 한 번에 되지 않는다 → **해결 (v4.16, b1 개정)** — 기실현 월지급 상품의 순번 없는 기록도 **상품당 60건 이하**(V-27에 더한다 — 일괄 기록 · 전부 지우기의 1..60과 맞춘다). 계약에만 있다
+- **⑬** **월수익 연쿠폰율의 상한** — V-08의 「상한은 전부 `x ≤ 2`」를 따를지(V-25는 `> 0`만 말한다). DB 상한은 DOC-002의 율 범위를 따른다 → **해결 (v4.16, b1 개정)** — 연쿠폰율과 같은 계약 범위(V-08의 상한 `x ≤ 2`)를 따른다(V-25). DB는 `> 0`만 — 율 범위 `CHECK`가 없다(받아들인 이탈. 위 「DB 상한은 DOC-002의 율 범위를 따른다」는 사실과 달랐다)
+- **⑭** **§8 매트릭스와 SCR-206 · `createProduct`의 무효화** — 세 변경 이름은 `MUTATION_NAMES`가 17이 되는 b2 커밋에 매트릭스에 서야 하는데(양방향 대조) SCR-206 행은 화면과 함께 b3다: b2에 SCR-206 행을 미구현 화면(`UNBUILT_SCREENS` · DOC-008 화면 원장)으로 세울지, b2 동안 다른 행에 둘지. SCR-206이 읽는 조회 계약(`getProduct`가 후보). 그리고 `createProduct.affects`에 `listMonthlyCouponSchedule` — b1 명세는 `PRODUCT_WIDE` · `PRICE_WIDE`만 적었는데 코드의 `createProduct`는 그 축을 쓰지 않고 따로 적는다(새 월지급 상품이 월수익 행을 만든다 — `listSchedule`이 드는 것과 같은 근거) → **부분 해결 (v4.16, b1 개정)** — 세 변경 이름은 **b2**(계약이 서는 커밋), SCR-206 화면 행은 **b3**. `createProduct` · `updateProduct`의 `affects`에 `listMonthlyCouponSchedule`이 든다. **남은 것**: ⓐ b2~b3 동안 `recordCouponPayments` · `updateCouponPayment`가 서는 기존 행(b1 명세는 시점만 정했다 — **b2 전에 정한다**) ⓑ SCR-206이 읽는 조회 계약 — 화면 세부라 DOC-008 SQ-21 ⓘ로 넘긴다(**b3 전에 정한다** — b1 개정)
+- **⑮** **뷰 필드의 b3/b4 경계** — §4.0 「컷별 도달」은 b1 원칙(화면 = b3, 세금 · 전망 = b4)으로 갈랐다. `remainingCoupons`는 SCR-202 ⑤(화면)에 쓰이지만 F와 같은 사건 집합이라 b4에 두었다 — 그 사이 SCR-202 ⑤의 월수익 줄이 비어도 되는지 확인한다 → **해결 (v4.16, b1 개정)** — 이 문서의 배정을 받아들였다: `coupons` · `couponProgress` · `terms.monthlyCoupon` · `attentionItems.count` · §4.12는 b3, `remainingCoupons` · §4.6 `basis`/`breakdown` · 확정/추정 분할 · §4.7 표식은 b4
+- **⑯** **V-27의 「지급일 ≤ 상환일」과 흐름 끝의 비교 키(평가일)의 틈** — DOC-007 RD-18의 계약 쪽. 상환일 이전에 평가되고 상환일 **뒤에** 지급되는 달은 흐름 안(추정 · 「미기록」)인데 `PAID` 기록은 V-27과 `monthly_coupon_payments_after_redemption`이 거부한다 — 그 달은 기록할 길 없이 주의로 남는다. RD-18과 함께 정한다 → **해결 (v4.16, b1 개정 · DOC-007 RD-18 해결)** — 비교 키를 **그 달의 월수익 평가일**로 바꿨다: V-27 「상환이 있으면 그 달의 월수익 평가일 ≤ 상환일」 · `monthly_coupon_payments_after_redemption`(그 달 일정의 `evaluation_date > redemption_date`면 거부) · `redemptions_before_coupon_payment`(`redemption_date <` ~~`PAID`로~~ 기록된 달(지급 · 미지급)들의 `evaluation_date` 최댓값이면 거부 — 반박 검토 반영, 대칭). 흐름 끝 `t_k ≤ T_end`와 같은 키라 틈이 없다. 순번 없는 기실현 기록은 평가일이 없어 이 검사 밖이다(등재만)
+- **⑰** **상품 루트 · 차수 루트 · 월수익 루트 셀렉트의 임베드 범위** *(v4.16 개정 반영에서 등재 — b1 개정의 뒤따름. **b3 전에 정한다**)* — b1 개정은 차수 루트(`loadScheduleRows`)에 월수익 두 테이블을 넣지 않게 했다. 그 결과 ⓐ §4.4 `integrityIssue`의 `COUPON_SCHEDULE_MISSING`은 그 상품의 월수익 일정 존재 여부를 알아야 하는데 차수 루트가 그것을 싣지 않는다 — 존재 탐침(행 하나 · 열 하나)을 둘지, §4.4에서 그 결함을 싣지 않을지(그 결함은 §4.4의 판정을 억제하지 않는다 — §4.2 D1). ⓑ §4.12 자기 루트 쿼리는 부모가 자기 월수익 일정 · 기록 전체를 다시 담으면 상품마다 K²행(최대 3,600)이 된다 — 다음 행 판정 · 흐름 끝에 필요한 열로 좁힐지. 페이로드 실측은 DOC-010 AQ-77(b3)과 함께
 
 **AQ-17의 조회 부분 — 결정과 철회 기록 (v0.6, U-03)**
 
