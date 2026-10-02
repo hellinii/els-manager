@@ -58,6 +58,8 @@ function validProduct(): Record<string, unknown> {
     evaluationPeriodMonths: 6,
     totalRounds: 2,
     annualCouponRate: '0.08',
+    // P8 컷 b2 — 필수 · 기본값 없음(V-25)
+    couponPayout: 'AT_REDEMPTION',
     kiBarrier: '0.5',
     kiObservation: 'CLOSING',
     accountType: 'GENERAL',
@@ -88,6 +90,42 @@ function validRedemption(): Record<string, unknown> {
     grossAmount: '104000000',
     taxableIncome: '4000000',
     withholdingTax: '616000',
+    isConfirmed: true,
+  }
+}
+
+/**
+ * 월지급식으로 바꾸는 조각 (P8 컷 b2) — 연쿠폰율 0 · 월수익 연쿠폰율 · 일정 두 달 · **리자드 없는** 차수.
+ * 기준 입력의 2차는 원금상환형 리자드이므로 그대로 두면 V-25의 리자드 금지가 함께 걸린다.
+ */
+function monthlyTerms() {
+  return {
+    couponPayout: 'MONTHLY',
+    annualCouponRate: '0',
+    monthlyCouponAnnualRate: '0.072',
+    schedules: [
+      { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' },
+      { roundNo: 2, evaluationDate: '2027-01-04', barrier: '0.85' },
+    ],
+    couponSchedules: [
+      { couponNo: 1, evaluationDate: '2026-02-01', paymentDate: '2026-02-04', couponBarrier: '0.6' },
+      { couponNo: 2, evaluationDate: '2026-03-01', paymentDate: '2026-03-04', couponBarrier: '0.6' },
+    ],
+  }
+}
+
+/** §5.11 기실현 등재의 정상 입력 (P8 컷 b2 — 지급방식 케이스가 쓴다) */
+function validRealized(): Record<string, unknown> {
+  return {
+    name: '키움 ELS 1740',
+    principal: '19390000',
+    currency: 'KRW',
+    couponPayout: 'AT_REDEMPTION',
+    accountType: 'GENERAL',
+    redemptionType: 'EARLY',
+    redemptionDate: '2025-06-02',
+    grossAmount: '20000000',
+    taxableIncome: '610000',
     isConfirmed: true,
   }
 }
@@ -581,6 +619,176 @@ const CASES: Case[] = [
       parseExchangeRateInput(p, { currency: 'USD', asOfDate: '2026-06-29', rate: '1392.4000001' })
       return p
     },
+  },
+  /*
+   * P8 컷 b2 — 월지급식(DOC-011 §6 말미). 기준 입력은 **원금상환형 리자드가 있는** 상환 시 지급 상품이므로,
+   * 월지급식으로 바꾸는 케이스는 리자드를 뺀 일정(`monthlySchedules`)을 함께 싣는다 — 그래야 한 케이스가 한
+   * 규칙만 건다(V-25의 리자드 금지가 끼지 않는다)
+   */
+  {
+    rule: 'V-25',
+    what: '쿠폰 지급방식이 빈칸 — 기본값이 없다(U7)',
+    run: () => parse(product({ couponPayout: '' })),
+  },
+  {
+    rule: 'V-25',
+    what: '모르는 지급방식 — 열거 밖',
+    run: () => parse(product({ couponPayout: 'QUARTERLY' })),
+  },
+  {
+    rule: 'V-25',
+    what: '월지급식인데 월수익 연쿠폰율이 없다',
+    run: () => parse(product({ ...monthlyTerms(), monthlyCouponAnnualRate: undefined })),
+  },
+  {
+    rule: 'V-25',
+    what: '월지급식인데 월수익 일정이 없다',
+    run: () => parse(product({ ...monthlyTerms(), couponSchedules: [] })),
+  },
+  {
+    rule: 'V-25',
+    what: '월지급식에 리자드 차수 — 월지급 + 리자드는 v2',
+    run: () => parse(product({ ...monthlyTerms(), schedules: validProduct().schedules })),
+  },
+  {
+    rule: 'V-25',
+    what: '상환 시 지급인데 월수익 연쿠폰율이 있다',
+    run: () => parse(product({ monthlyCouponAnnualRate: '0.072' })),
+  },
+  {
+    rule: 'V-25',
+    what: '상환 시 지급인데 월수익 일정이 있다',
+    run: () => parse(product({ couponSchedules: monthlyTerms().couponSchedules })),
+  },
+  {
+    rule: 'V-25',
+    what: '월수익 연쿠폰율 240 — 퍼센트를 그대로 넣었다(상한은 V-08과 같은 2)',
+    run: () => parse(product({ ...monthlyTerms(), monthlyCouponAnnualRate: '2.424' })),
+  },
+  {
+    rule: 'V-25',
+    what: '기실현 등재의 지급방식 빈칸',
+    run: () => {
+      const p = new Problems()
+      parseRealizedProductInput(p, { ...validRealized(), couponPayout: undefined })
+      return p
+    },
+  },
+  {
+    rule: 'V-08',
+    what: 'V-08′ — 월지급식의 연쿠폰율이 0이 아니다(헤드라인 율을 연쿠폰율에 — 이중 계상)',
+    run: () => parse(product({ ...monthlyTerms(), annualCouponRate: '0.2424' })),
+  },
+  {
+    rule: 'V-20',
+    what: 'V-20′ — 월수익 순번 0',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [{ ...monthlyTerms().couponSchedules[0], couponNo: 0 }],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 순번이 1부터 연속이 아니다 — 1, 3',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            monthlyTerms().couponSchedules[0],
+            { ...monthlyTerms().couponSchedules[1], couponNo: 3 },
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 평가일이 엄격히 증가하지 않는다',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            monthlyTerms().couponSchedules[0],
+            { ...monthlyTerms().couponSchedules[1], evaluationDate: '2026-02-01', paymentDate: '2026-02-04' },
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '첫 월수익 평가일이 발행일보다 앞선다',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            { ...monthlyTerms().couponSchedules[0], evaluationDate: '2025-12-31', paymentDate: '2026-01-05' },
+            monthlyTerms().couponSchedules[1],
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '마지막 월수익 평가일이 만기(마지막 차수 평가일) 뒤다',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            monthlyTerms().couponSchedules[0],
+            { ...monthlyTerms().couponSchedules[1], evaluationDate: '2027-01-05', paymentDate: '2027-01-08' },
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 지급일이 평가일보다 앞선다',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            { ...monthlyTerms().couponSchedules[0], paymentDate: '2026-01-31' },
+            monthlyTerms().couponSchedules[1],
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 배리어 120% — 상한은 1이다(V-08의 2가 아니다)',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            { ...monthlyTerms().couponSchedules[0], couponBarrier: '1.2' },
+            monthlyTerms().couponSchedules[1],
+          ],
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 일정 61행 — 상한 60',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          totalRounds: 1,
+          schedules: [{ roundNo: 1, evaluationDate: '2031-12-31', barrier: '0.9' }],
+          couponSchedules: Array.from({ length: 61 }, (_, index) => {
+            const month = new Date(Date.UTC(2026, 1 + index, 1)).toISOString().slice(0, 10)
+            return { couponNo: index + 1, evaluationDate: month, paymentDate: month, couponBarrier: '0.6' }
+          }),
+        }),
+      ),
   },
   {
     rule: 'V-21',
@@ -1273,6 +1481,7 @@ describe('V-23 통과 금액은 보조단위로 접어 싣는다 — 기실현�
     const p = new Problems()
     const input = parseRealizedProductInput(p, {
       name: '기실현 정규화',
+      couponPayout: 'AT_REDEMPTION',
       accountType: 'GENERAL',
       redemptionType: 'EARLY',
       redemptionDate: '2025-06-02',

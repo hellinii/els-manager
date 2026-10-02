@@ -3,6 +3,8 @@ import {
   ASSET_OPTION_COLUMNS,
   ELS_PRODUCT_COLUMNS,
   EXCHANGE_RATE_COLUMNS,
+  MONTHLY_COUPON_PAYMENT_COLUMNS,
+  MONTHLY_COUPON_SCHEDULE_COLUMNS,
   PRICE_COLUMNS,
   PROVIDER_SYMBOL_COLUMNS,
   REDEMPTION_COLUMNS,
@@ -60,6 +62,16 @@ export type ScheduleRow = SelectedRow<
 >
 export type RedemptionRow = SelectedRow<'redemptions', typeof REDEMPTION_COLUMNS>
 export type ExchangeRateRow = SelectedRow<'exchange_rates', typeof EXCHANGE_RATE_COLUMNS>
+/** 월수익 일정 한 행 (P8 컷 b2 · DOC-002 §4.13) */
+export type CouponScheduleRow = SelectedRow<
+  'monthly_coupon_schedules',
+  typeof MONTHLY_COUPON_SCHEDULE_COLUMNS
+>
+/** 월수익 지급 기록 한 행 (P8 컷 b2 · DOC-002 §4.14) */
+export type CouponPaymentRow = SelectedRow<
+  'monthly_coupon_payments',
+  typeof MONTHLY_COUPON_PAYMENT_COLUMNS
+>
 
 export type UnderlyingRow = SelectedRow<
   'els_underlyings',
@@ -77,14 +89,34 @@ export type UnderlyingRow = SelectedRow<
  * 배열로 가정하면 `redemptions[0]`이 항상 `undefined`가 되어 **모든 상품이
  * 보유중으로 보인다** — 상환 완료 상품의 판정이 되살아나고 실현손익이 사라진다.
  */
-export type ProductRow = SelectedRow<'els_products', typeof ELS_PRODUCT_COLUMNS> & {
+export type ProductCoreRow = SelectedRow<'els_products', typeof ELS_PRODUCT_COLUMNS> & {
   users: UserRow | null
   els_underlyings: UnderlyingRow[]
   redemption_schedules: ScheduleRow[]
   redemptions: RedemptionRow | null
 }
 
-const PRODUCT_SELECT = [
+/**
+ * **상품이 루트인 행** — 월수익 두 테이블을 더 담는다 (P8 컷 b2 · DOC-010 AQ-77 · DOC-011 §4.0 「왕복」).
+ *
+ * ## 두 타입으로 가른다 — 차수 루트의 상품 임베드는 `ProductCoreRow`다
+ *
+ * `loadScheduleRows`는 **차수가 루트**이고 행마다 부모 상품을 임베드한다. 거기에 월수익을 넣으면 그 상품의 월수익
+ * 전부가 차수 수만큼 응답에 복제된다(형식은 옳고 크기만 곱해지므로 어떤 단언도 걸리지 않는다 — AQ-77). 그래서 차수
+ * 루트는 `ProductCoreRow`이고 월수익을 담지 않는다. 한 타입에 두 경로를 태우면 «공유 타입에 한쪽 경로의 필드를 얹는»
+ * 부류가 된다(`AssetWithPricesAndSymbolsRow`의 각주) — 차수 루트 행이 `monthly_coupon_payments`를 가진 척하고, 그것을
+ * 읽는 코드가 런타임에 `undefined`를 만난다. 둘로 가르면 월수익을 읽는 함수가 `ProductRow`를 요구하므로 차수 루트 행을
+ * 넘기는 순간 **컴파일이 막는다.**
+ *
+ * b2의 소비자는 변경 계약의 사전 조회(`requireOwnedProduct` → `loadProduct`)뿐이다 — §5.2(기록된 달) · §5.3(삭제
+ * 3단계) · §5.4 · §5.5(V-27 양방향) · §5.14가 기록 · 일정을 읽는다. 조회 뷰로 접는 것은 b3이다.
+ */
+export type ProductRow = ProductCoreRow & {
+  monthly_coupon_schedules: CouponScheduleRow[]
+  monthly_coupon_payments: CouponPaymentRow[]
+}
+
+const PRODUCT_CORE_SELECT = [
   selectList(ELS_PRODUCT_COLUMNS),
   embed('users', selectList(USER_COLUMNS)),
   embed(
@@ -95,6 +127,23 @@ const PRODUCT_SELECT = [
   ),
   embed('redemption_schedules', selectList(SCHEDULE_COLUMNS)),
   embed('redemptions', selectList(REDEMPTION_COLUMNS)),
+].join(',')
+
+/**
+ * 상품 루트 셀렉트 — 코어 + 월수익 두 테이블.
+ *
+ * **FK 이름을 명시한다.** `monthly_coupon_payments`는 `els_products`(`els_id`)와 `monthly_coupon_schedules`(복합 FK)를
+ * 둘 다 참조하므로 PostgREST가 그것을 상품 ↔ 일정의 **다대다 연결 테이블**로도 읽을 수 있다 — 그러면 상품에서 일정을
+ * 임베드하는 관계가 둘(직접 FK · 연결)이 되어 모호해진다. 직접 FK로 고정한다.
+ */
+const PRODUCT_SELECT = [
+  PRODUCT_CORE_SELECT,
+  embed('monthly_coupon_schedules', selectList(MONTHLY_COUPON_SCHEDULE_COLUMNS), {
+    modifier: '!monthly_coupon_schedules_els_id_fkey',
+  }),
+  embed('monthly_coupon_payments', selectList(MONTHLY_COUPON_PAYMENT_COLUMNS), {
+    modifier: '!monthly_coupon_payments_els_id_fkey',
+  }),
 ].join(',')
 
 /** PostgREST 오류를 그대로 던진다 — 조회는 결과 객체를 쓰지 않는다(§3.1) */
@@ -174,7 +223,8 @@ export async function loadRedemptionRef(
 // 평가일정 — 루트가 차수다
 // ---------------------------------------------------------------------------
 
-export type ScheduleWithProductRow = ScheduleRow & { els_products: ProductRow }
+/** 차수 루트 — 임베드한 상품은 **코어**다(월수익을 담지 않는다 — 위 `ProductRow` 각주 · AQ-77) */
+export type ScheduleWithProductRow = ScheduleRow & { els_products: ProductCoreRow }
 
 /**
  * §4.4의 루트를 `redemption_schedules`로 둔다 — **행 단위가 차수**이기 때문이다.
@@ -208,7 +258,7 @@ export async function loadScheduleRows(
     .select(
       [
         selectList(SCHEDULE_COLUMNS),
-        embed('els_products', PRODUCT_SELECT, { modifier: '!inner' }),
+        embed('els_products', PRODUCT_CORE_SELECT, { modifier: '!inner' }),
       ].join(','),
     )
     .order('evaluation_date', { ascending: true })

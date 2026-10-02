@@ -30,7 +30,18 @@ import { path } from './fieldPath'
  * 없으면 저장값이다(`importOverStored` · DOC-010 ADR-009 §7). 컷 a2~a3 동안 이 목록에 있었다 — 그때는
  * 불러오기가 통화를 채우지 않았고, 빠뜨리면 바닥의 `currency: ''`가 이겨 저장이 V-22로 막혔다.
  */
-export const IMPORT_KEEPS_STORED = ['principal', 'accountType', 'note', 'kiObservation'] as const
+export const IMPORT_KEEPS_STORED = [
+  'principal',
+  'accountType',
+  'note',
+  'kiObservation',
+  /*
+   * 쿠폰 지급방식 (P8 컷 b2) — 불러오기가 채우지 않는다(채움은 컷 b5 — DOC-008 SCR-204 「불러오기는 바뀌지 않는다」).
+   * 원천에 없으므로 수정 화면에서는 저장값이 남는다 — 빠지면 바닥의 `couponPayout: ''`가 이겨 저장이 V-25로 막힌다
+   * (a2~a3의 상품 통화와 같은 함정이다 — 위 각주)
+   */
+  'couponPayout',
+] as const
 
 /**
  * 저장값 위에 불러온 값.

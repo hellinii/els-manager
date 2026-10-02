@@ -53,6 +53,8 @@ const ROW = {
   issuer: '키움증권',
   currency: 'KRW',
   principal: '19,390,000',
+  // P8 컷 b2 — 「쿠폰 지급」도 기본값이 없다(V-25)
+  couponPayout: 'AT_REDEMPTION',
   accountType: 'GENERAL',
   redemptionType: 'EARLY',
   redemptionDate: '2026-06-04',

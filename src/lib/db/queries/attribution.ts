@@ -1,6 +1,6 @@
 import { attributionYear, nextEvaluation } from '@/lib/domain'
 
-import type { ProductRow, RedemptionRow, ScheduleRow } from './load'
+import type { ProductCoreRow, RedemptionRow, ScheduleRow } from './load'
 
 /**
  * 적용 차수와 귀속연도의 **단일 원천** — DOC-007 §7.2, RD-02
@@ -65,7 +65,7 @@ export type Attribution =
  * `year`는 `number`이므로 **방어를 쓸 자리가 없다**(`attributionYear`의 오버로드가 그
  * 사실을 타입으로 말한다).
  */
-export function attributionOf(row: ProductRow, asOf: string): Attribution {
+export function attributionOf(row: ProductCoreRow, asOf: string): Attribution {
   // 상환 완료가 먼저다 — 위 ③(만기 상환 + 일정 0건)이 이 순서에 달려 있다.
   if (row.redemptions != null) {
     return {

@@ -256,6 +256,8 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     v.principal = '10000000'
     // P8 컷 a2 — 저장값은 늘 통화를 갖는다(`productValuesOf`). 불러오기가 그것을 지우면 저장이 V-22로 막힌다
     v.currency = 'KRW'
+    // P8 컷 b2 — 저장값은 늘 지급방식을 갖는다(`productValuesOf`). 불러오기가 그것을 지우면 저장이 V-25로 막힌다
+    v.couponPayout = 'AT_REDEMPTION'
     v.accountType = 'GENERAL'
     v.note = '통장 A'
     v.kiObservation = 'CLOSING'
@@ -286,6 +288,8 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
       '통장 A',
       'CLOSING',
     ])
+    // P8 컷 b2 — 불러오기가 지급방식을 채우지 않으므로(b5) 저장값이 남는다. 빠지면 저장이 V-25로 막힌다
+    expect(v.couponPayout).toBe('AT_REDEMPTION')
     expect(v.name).toBe('키움 ELS 4000회')
     expect(v['schedules[0].evaluationDate']).toBe('2026-11-30')
     expect(v['schedules[1].evaluationDate']).toBe('2027-05-31')

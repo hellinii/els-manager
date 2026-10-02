@@ -21,6 +21,7 @@ import {
   SELECTABLE_PRODUCT_CURRENCIES,
   UNDERLYING_SUBS,
   addRow,
+  couponPayoutOptionsOf,
   currencyOptionsOf,
   applyBarriers,
   intentState,
@@ -95,6 +96,25 @@ describe('상품 통화 선택지 — DOC-008 SCR-204 (P8 컷 a2)', () => {
 
   it('모르는 값은 선택지를 늘리지 않는다 — 열거 밖은 V-22가 말한다', () => {
     expect(currencyOptionsOf('EUR')).toEqual(['KRW', 'USD'])
+  })
+})
+
+describe('쿠폰 지급방식 선택지 — DOC-008 SCR-204 · SCR-205 (P8 컷 b2)', () => {
+  it('★ 등록 화면은 「상환 시 지급」 하나다 — 「월지급식」은 b4에서 연다(SB-13)', () => {
+    /*
+     * 세금 · 전망이 월수익을 사건으로 읽는 것이 b4이므로 그 전에 고르게 하면 월수익이 화면에는 있고 세금에는 없는
+     * 상품이 운영에 저장된다. 계약은 b2부터 월지급식을 받으므로(통합 테스트 · 개발 표본) **이 선택지가 유일한 문이다**
+     */
+    expect(couponPayoutOptionsOf(undefined)).toEqual(['AT_REDEMPTION'])
+    expect(couponPayoutOptionsOf('')).toEqual(['AT_REDEMPTION'])
+  })
+
+  it('저장값이 월지급식이면 그 값을 더한다 — 「선택」으로 떨어지면 지급방식이 뒤집힌다', () => {
+    expect(couponPayoutOptionsOf('MONTHLY')).toEqual(['AT_REDEMPTION', 'MONTHLY'])
+  })
+
+  it('모르는 값은 선택지를 늘리지 않는다 — 열거 밖은 V-25가 말한다', () => {
+    expect(couponPayoutOptionsOf('QUARTERLY')).toEqual(['AT_REDEMPTION'])
   })
 })
 
@@ -928,6 +948,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
       principal: '100,000,000',
       accountType: 'GENERAL',
       note: '증권사 통지 기준',
+      couponPayout: 'AT_REDEMPTION',
       evaluationPeriodMonths: '6',
       totalRounds: '3',
       annualCouponRate: '8',
@@ -961,6 +982,8 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
       evaluationPeriodMonths: 6,
       totalRounds: 3,
       annualCouponRate: '0.0800',
+      // P8 컷 b2 — 평가 조건 구획 맨 위의 「쿠폰 지급」. 빠지면 V-25가 그 칸에 붙는다
+      couponPayout: 'AT_REDEMPTION',
       kiBarrier: '0.5000',
       kiObservation: 'CLOSING',
       accountType: 'GENERAL',

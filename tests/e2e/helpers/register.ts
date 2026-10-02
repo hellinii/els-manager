@@ -169,6 +169,8 @@ export async function registerProduct(
     note: '화면 왕복',
     'underlyings[0].assetId': assetId,
     'underlyings[0].basePrice': BASE_PRICE,
+    // 쿠폰 지급 — 기본값이 없다(U7 · V-25 · P8 컷 b2). 화면이 「선택」에서 시작하므로 사용자처럼 고른다
+    couponPayout: 'AT_REDEMPTION',
     evaluationPeriodMonths: '6',
     totalRounds: '',
     annualCouponRate: '8',

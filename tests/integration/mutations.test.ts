@@ -73,6 +73,8 @@ function productInput(overrides: Partial<ProductInput> & { assetId: string }): P
     evaluationPeriodMonths: 6,
     totalRounds: 2,
     annualCouponRate: '0.0800',
+    // P8 컷 b2 — 필수 · 기본값 없음(V-25). 빠뜨리면 계약이 그 칸의 오류로 거부한다
+    couponPayout: 'AT_REDEMPTION',
     accountType: 'GENERAL',
     underlyings: [{ assetId, basePrice: BASE_PRICE, sequence: 1 }],
     schedules: [
@@ -1441,6 +1443,7 @@ describe('§5.11 createRealizedProduct', () => {
     issuer: '키움증권',
     principal: PRINCIPAL,
     currency: 'KRW',
+    couponPayout: 'AT_REDEMPTION',
     accountType: 'GENERAL',
     // 그림의 1740회 — 조기상환이고 차수가 없다
     redemptionType: 'EARLY',

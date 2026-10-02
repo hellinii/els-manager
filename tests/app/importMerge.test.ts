@@ -33,9 +33,21 @@ const stored = (): Record<string, string> => ({
 })
 
 describe('importOverStored', () => {
-  it('저장값이 남는 것은 넷뿐이다 — 이름을 테스트에 다시 적는 이유: 이 목록이 곧 병합 규칙이다', () => {
-    // 상품 통화는 P8 컷 a4에서 빠졌다 — 원천에 «있을 수도» 있는 칸이라 아래 규칙이 따로 정한다
-    expect([...IMPORT_KEEPS_STORED]).toEqual(['principal', 'accountType', 'note', 'kiObservation'])
+  it('저장값이 남는 것은 다섯뿐이다 — 이름을 테스트에 다시 적는 이유: 이 목록이 곧 병합 규칙이다', () => {
+    // 상품 통화는 P8 컷 a4에서 빠졌다 — 원천에 «있을 수도» 있는 칸이라 아래 규칙이 따로 정한다.
+    // 쿠폰 지급방식은 P8 컷 b2에서 들어왔다 — 불러오기가 채우지 않는 칸이다(채움은 b5)
+    expect([...IMPORT_KEEPS_STORED]).toEqual([
+      'principal',
+      'accountType',
+      'note',
+      'kiObservation',
+      'couponPayout',
+    ])
+  })
+
+  it('★ 쿠폰 지급방식은 저장값이 남는다 — 바닥의 빈 값이 이기면 V-25로 막힌다 (P8 컷 b2)', () => {
+    const merged = importOverStored({ ...stored(), couponPayout: 'AT_REDEMPTION' }, { kiBarrier: '35' })
+    expect(merged.couponPayout).toBe('AT_REDEMPTION')
   })
 
   it('★ 증인 없음(불러온 통화 빈칸)이면 저장값의 통화와 투자원금이 남는다 — 바닥의 빈 값이 이기면 V-22로 막힌다', () => {

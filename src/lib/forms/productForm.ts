@@ -1,4 +1,5 @@
 import type { ActionResult } from '@/lib/db/mutations/result'
+import { COUPON_PAYOUT_ORDER, type CouponPayout } from '@/lib/domain/coupon'
 import { CURRENCY_ORDER, type ProductCurrency } from '@/lib/domain/currency'
 
 import { barrierNotice, parseBarrierList } from './barriers'
@@ -157,6 +158,35 @@ export function currencyOptionsOf(current: string | undefined): ProductCurrency[
 }
 
 // ---------------------------------------------------------------------------
+// 쿠폰 지급방식 선택지 — DOC-008 SCR-204 · SCR-205 (P8 컷 b2)
+// ---------------------------------------------------------------------------
+
+/**
+ * 폼이 고르게 하는 쿠폰 지급방식 — **「상환 시 지급」 하나다** (컷 b2 · b3).
+ *
+ * DOC-008 SCR-204: 「「월지급식」은 b4에서 연다」 — 세금 · 전망이 월수익을 사건으로 읽는 것이 b4이므로, 그 전에
+ * 고르게 하면 월수익이 화면에는 있고 세금에는 없는 상품이 저장된다(상품 통화의 「달러는 모든 금액 표시가 통화를
+ * 아는 커밋에서」와 같은 판단). 계약은 b2부터 월지급식을 받는다(통합 테스트 · 개발 표본).
+ *
+ * 기본값은 없다(U7) — 「선택」에서 시작하고 고르지 않으면 V-25가 그 칸에 붙는다. 칸을 숨기고 상환 시 지급을
+ * 몰래 실으면 그것이 곧 기본값이다(DOC-011 §5.1).
+ */
+export const SELECTABLE_COUPON_PAYOUTS: readonly CouponPayout[] = ['AT_REDEMPTION']
+
+/**
+ * 선택지 — 저장값이 위 목록 밖이면(계약 경유로 저장된 월지급 상품) **그 값을 더한다**(`currencyOptionsOf`와 같다).
+ * 빼면 수정 화면의 `<select>`가 「선택」으로 떨어져, 그대로 저장하면 V-25이고 「상환 시 지급」을 고르면 지급방식이
+ * 바뀐다. ★ 다만 b2 · b3의 폼에는 월지급 블록(월수익 연쿠폰율 · 월수익 일정)이 없으므로 **그 상품의 수정 저장은
+ * b3까지 V-25로 거부된다** — 지급방식이 뒤집히지 않는 것이 이 함수가 지키는 것이다(DOC-008 v2.24 등재).
+ */
+export function couponPayoutOptionsOf(current: string | undefined): CouponPayout[] {
+  const options = [...SELECTABLE_COUPON_PAYOUTS]
+  const stored = COUPON_PAYOUT_ORDER.find((payout) => payout === current)
+  if (stored != null && !options.includes(stored)) options.push(stored)
+  return COUPON_PAYOUT_ORDER.filter((payout) => options.includes(payout))
+}
+
+// ---------------------------------------------------------------------------
 // 폼의 이름 — 계약 오류 키를 칸과 짝지을 때 쓴다
 // ---------------------------------------------------------------------------
 
@@ -179,6 +209,9 @@ const BASIC_NAMES = [
  * 값 좁힘을 지나 다음 렌더와 다음 제출로 이어진다.
  */
 const CONDITION_NAMES = [
+  // 쿠폰 지급방식 — 평가 조건 구획의 **맨 위**(쿠폰의 조건이다 — DOC-008 SCR-204). 기본값 없음(U7 · V-25).
+  // 수정 폼 왕복에서 빠지면 저장이 V-25로 막히거나 지급방식이 다시 고른 값으로 뒤집힌다
+  'couponPayout',
   'evaluationPeriodMonths',
   'totalRounds',
   'annualCouponRate',

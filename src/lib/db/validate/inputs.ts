@@ -1,9 +1,12 @@
 import type { HealthInsuranceType } from '@/lib/tax'
 
+import { dec } from '@/lib/decimal'
+import { COUPON_PAYOUT_ORDER } from '@/lib/domain/coupon'
 import { FOREIGN_CURRENCIES } from '@/lib/domain/currency'
 
 import type {
   AssetInput,
+  CouponScheduleInput,
   ExchangeRateInput,
   ManualPriceInput,
   ProductInput,
@@ -176,6 +179,52 @@ function parseSchedule(p: Problems, raw: unknown, index: number): ScheduleInput 
   return schedule
 }
 
+/**
+ * 월수익 일정 한 행 — V-20′(순번) · V-26(날짜 · 배리어). 행 사이의 관계(연속 · 증가 · 발행일 · 만기)는
+ * `V26_couponSchedules`가 본다. 배리어의 상한은 **1**이다 — V-08의 상한 2가 아니다(V-26 「0 초과 1 이하」).
+ */
+function parseCouponSchedule(
+  p: Problems,
+  raw: unknown,
+  index: number,
+): CouponScheduleInput | null {
+  const at = `couponSchedules[${index}]`
+  if (!isPlainObject(raw)) {
+    p.add('V-26', at, '월수익 일정 입력 형식이 올바르지 않다.')
+    return null
+  }
+
+  // V-20′ — smallint 범위이고 1 이상이다(DOC-002 I-24 · I-26의 `coupon_no >= 1`)
+  const couponNo = requireInt(p, 'V-20', `${at}.couponNo`, raw.couponNo, {
+    label: '월수익 순번',
+    min: 1,
+  })
+  const evaluationDate = requireIsoDate(
+    p,
+    'V-26',
+    `${at}.evaluationDate`,
+    raw.evaluationDate,
+    '월수익 평가일',
+  )
+  const paymentDate = requireIsoDate(p, 'V-26', `${at}.paymentDate`, raw.paymentDate, '월수익 지급일')
+  const couponBarrier = requireRatio(p, 'V-26', `${at}.couponBarrier`, raw.couponBarrier, {
+    label: '월수익 배리어',
+    min: 'positive',
+  })
+  if (couponBarrier != null && dec(couponBarrier).gt(1)) {
+    p.add('V-26', `${at}.couponBarrier`, '월수익 배리어는 100% 이하여야 한다.')
+    return null
+  }
+
+  if (!allPresent([couponNo, evaluationDate, paymentDate, couponBarrier])) return null
+  return {
+    couponNo: couponNo!,
+    evaluationDate: evaluationDate!,
+    paymentDate: paymentDate!,
+    couponBarrier: couponBarrier!,
+  }
+}
+
 export function parseProductInput(p: Problems, raw: unknown): ProductInput | null {
   if (!isPlainObject(raw)) {
     p.add('V-19', 'name', '입력 형식이 올바르지 않다.')
@@ -213,12 +262,39 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     label: '총 차수',
     min: 1,
   })
+  // V-25 — 쿠폰 지급방식. 기본값이 없다 — 상환 시 지급으로 채우면 월지급 상품의 월수익이 통째로 사라지는데
+  // 형식은 정상이다(§5.1 · DOC-001 U7). 열거 검사도 이 ID를 빌린다
+  const couponPayout = requireEnum(
+    p,
+    'V-25',
+    'couponPayout',
+    raw.couponPayout,
+    COUPON_PAYOUT_ORDER,
+    '쿠폰 지급방식',
+  )
+  // V-08′ — 연쿠폰율의 하한은 지급방식이 정한다. 월지급식이면 0이어야 한다(DOC-002 DQ-11 — 0이 아니면 헤드라인
+  // 율이 상환 시 일괄 쿠폰으로도 읽혀 예상 수령액이 월수익만큼 이중 계상된다). 지급방식이 없으면 종전 규칙이다
   const annualCouponRate = requireRatio(
     p,
     'V-08',
     'annualCouponRate',
     raw.annualCouponRate,
-    { label: '연쿠폰율', min: 'positive' },
+    { label: '연쿠폰율', min: couponPayout === 'MONTHLY' ? 'zero' : 'positive' },
+  )
+  if (couponPayout === 'MONTHLY' && annualCouponRate != null && !dec(annualCouponRate).isZero()) {
+    p.add(
+      'V-08',
+      'annualCouponRate',
+      '월지급식의 연쿠폰율은 0이다 — 수익은 월수익 연쿠폰율에서 나온다.',
+    )
+  }
+  // V-25 — 월수익 연쿠폰율의 범위는 연쿠폰율과 같다(0 초과 · V-08의 상한 2). 있어야 하는가는 교차 규칙이 본다
+  const monthlyCouponAnnualRate = optionalRatio(
+    p,
+    'V-25',
+    'monthlyCouponAnnualRate',
+    raw.monthlyCouponAnnualRate,
+    { label: '월수익 연쿠폰율', min: 'positive' },
   )
   const kiBarrier = optionalRatio(p, 'V-08', 'kiBarrier', raw.kiBarrier, {
     label: 'KI 배리어',
@@ -245,10 +321,17 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
 
   const rawUnderlyings = requireArray(p, 'V-02', 'underlyings', raw.underlyings, '기초자산')
   const rawSchedules = requireArray(p, 'V-03', 'schedules', raw.schedules, '평가일정')
+  // 월수익 일정은 선택이다 — 상환 시 지급 상품에는 없다(V-25). 있으면 배열이어야 한다
+  const rawCouponSchedules =
+    raw.couponSchedules == null
+      ? []
+      : requireArray(p, 'V-26', 'couponSchedules', raw.couponSchedules, '월수익 일정')
 
   const underlyings =
     rawUnderlyings?.map((item, index) => parseUnderlying(p, item, index)) ?? null
   const schedules = rawSchedules?.map((item, index) => parseSchedule(p, item, index)) ?? null
+  const couponSchedules =
+    rawCouponSchedules?.map((item, index) => parseCouponSchedule(p, item, index)) ?? null
 
   const scalarsOk = allPresent([
     name,
@@ -259,6 +342,8 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     evaluationPeriodMonths,
     totalRounds,
     annualCouponRate,
+    couponPayout,
+    monthlyCouponAnnualRate,
     kiBarrier,
     kiObservation,
     accountType,
@@ -270,8 +355,10 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
   const childrenOk =
     underlyings != null &&
     schedules != null &&
+    couponSchedules != null &&
     underlyings.every((item) => item !== null) &&
-    schedules.every((item) => item !== null)
+    schedules.every((item) => item !== null) &&
+    couponSchedules.every((item) => item !== null)
 
   if (!childrenOk) {
     // 개수 규칙은 형태와 무관하게 성립한다 — 0건은 원소 형태를 볼 필요가 없다
@@ -293,10 +380,13 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
     evaluationPeriodMonths: evaluationPeriodMonths!,
     totalRounds: totalRounds!,
     annualCouponRate: annualCouponRate!,
+    couponPayout: couponPayout!,
     accountType: accountType!,
     underlyings: underlyings as UnderlyingInput[],
     schedules: schedules as ScheduleInput[],
   }
+  if (monthlyCouponAnnualRate != null) input.monthlyCouponAnnualRate = monthlyCouponAnnualRate
+  if (couponSchedules.length > 0) input.couponSchedules = couponSchedules as CouponScheduleInput[]
   if (issuer != null) input.issuer = issuer
   if (kiBarrier != null) input.kiBarrier = kiBarrier
   if (kiObservation != null) input.kiObservation = kiObservation
@@ -425,6 +515,15 @@ export function parseRealizedProductInput(
     principalRaw == null || currency == null
       ? null
       : checkProductAmount(p, 'principal', principalRaw, currency, '투자원금')
+  // V-25 — 기실현은 지급방식 하나만 받는다(율도 일정도 없다 — D-07). 기본값이 없다(§5.11)
+  const couponPayout = requireEnum(
+    p,
+    'V-25',
+    'couponPayout',
+    raw.couponPayout,
+    COUPON_PAYOUT_ORDER,
+    '쿠폰 지급방식',
+  )
   const accountType = requireEnum(
     p,
     'V-19',
@@ -481,6 +580,7 @@ export function parseRealizedProductInput(
       issuer,
       currency,
       principal,
+      couponPayout,
       accountType,
       redemptionType,
       redemptionDate,
@@ -499,6 +599,7 @@ export function parseRealizedProductInput(
     name: name!,
     principal: principal!,
     currency: currency!,
+    couponPayout: couponPayout!,
     accountType: accountType!,
     redemptionType: redemptionType!,
     redemptionDate: redemptionDate!,

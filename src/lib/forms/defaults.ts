@@ -49,6 +49,9 @@ export function productDefaults(): Record<string, string> {
     currency: '',
     accountType: '',
     note: '',
+    // 쿠폰 지급방식 — 기본값 없음(U7 · V-25 · P8 컷 b2). 상품 통화 · 계좌유형과 같은 이유다 — 상환 시 지급으로
+    // 채우면 월지급 상품을 그렇게 저장해도 아무 경고가 없다
+    couponPayout: '',
     evaluationPeriodMonths: '6',
     totalRounds: '',
     annualCouponRate: '',

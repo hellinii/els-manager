@@ -66,6 +66,9 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
     accountType: product.accountType,
     note: product.note ?? '',
 
+    // ★ 빠지면 수정 저장이 V-25로 막히거나 다시 고른 값으로 지급방식이 뒤집힌다(P8 컷 b2 — DOC-011 §4.3
+    // `product.couponPayout`이 같은 커밋에 섰다). 평가 조건 구획의 맨 위 칸이다
+    couponPayout: product.couponPayout,
     evaluationPeriodMonths: String(product.evaluationPeriodMonths),
     // 정본은 **행 수**다(뷰의 `totalRounds`가 그렇게 만들어진다) — `max(round_no)`가
     // 아니다. DB는 차수 `1, 2, 99`를 허용하므로 두 값이 갈릴 수 있고, 그때 차수표가

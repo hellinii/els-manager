@@ -52,6 +52,17 @@ export const PRODUCT_CURRENCY_LABELS: Record<ProductListItem['currency'], string
   USD: '달러',
 }
 
+/**
+ * 쿠폰 지급방식 — DOC-005 §6.1 `couponPayout` (P8 컷 b2 — 「쿠폰 지급」 선택 상자를 처음 렌더하는 커밋).
+ *
+ * 「월지급식」 표시어는 지금도 있어야 한다 — b2 · b3의 폼은 그 선택지를 열지 않지만 저장값이 월지급식인
+ * 상품(개발 표본 · 통합 픽스처)을 열면 그 값을 선택지에 더한다(DOC-008 SCR-204 — `currencyOptionsOf` 선례).
+ */
+export const COUPON_PAYOUT_LABELS: Record<ProductInput['couponPayout'], string> = {
+  AT_REDEMPTION: '상환 시 지급',
+  MONTHLY: '월지급식',
+}
+
 export const REDEMPTION_TYPE_LABELS: Record<RedemptionView['redemptionType'], string> = {
   EARLY: '조기상환',
   LIZARD: '리자드상환',
@@ -188,6 +199,7 @@ export const LABEL_AXES = {
   status: STATUS_LABELS,
   accountType: ACCOUNT_TYPE_LABELS,
   productCurrency: PRODUCT_CURRENCY_LABELS,
+  couponPayout: COUPON_PAYOUT_LABELS,
   redemptionType: REDEMPTION_TYPE_LABELS,
   conditionResult: CONDITION_RESULT_LABELS,
   kiStatus: KI_STATUS_LABELS,

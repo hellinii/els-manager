@@ -5,12 +5,13 @@ import {
 } from '../validate/inputs'
 import { Problems } from '../validate/primitives'
 import { V18_kiTouchedRequiresBarrier } from '../validate/rules'
+import type { ProductRow } from '../queries/load'
 import { requireAffected, requireOwnedProduct, staleState } from './access'
 import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toUpdate, type MoneyFieldsOf } from './payload'
 import { withholdingFor, withholdingInputOf } from './redemptions'
-import { failWith, ok, okVoid, type ActionResult } from './result'
+import { failWith, ok, okVoid, type ActionError, type ActionResult } from './result'
 import type { ProductInput, RealizedProductInput } from './types'
 
 /** §5.1~§5.3·§5.9·§5.11 — 상품 생성·수정·삭제·KI 터치 확정·기실현 등재 */
@@ -34,6 +35,8 @@ type ProductPayload = MoneyFieldsOf<'els_products'> & {
   name: string
   /** 상품 통화 — enum 문자열. 쓰기 함수가 `->>`로 읽는다(DOC-011 §5.1 v4.9) */
   currency: string
+  /** 쿠폰 지급방식 — enum 문자열(P8 컷 b2). 계약이 언제나 싣는다(V-25) — 함수의 W4 `coalesce`는 구 코드용이다 */
+  couponPayout: string
   issuer: string | null
   issueDate: string
   evaluationPeriodMonths: number
@@ -48,6 +51,17 @@ type ProductPayload = MoneyFieldsOf<'els_products'> & {
       roundNo: number
       evaluationDate: string
       lizardRequiresNoKi: boolean | null
+    }
+  >
+  /**
+   * 월수익 일정(P8 컷 b2) — 상환 시 지급이면 빈 배열이다. **수정은 전체 교체가 아니다** — 함수가 입력에 없는 순번을
+   * 지우고 입력의 행을 `coupon_no`로 upsert한다(DOC-011 §5.2). 빈 배열이 「없음」이다(키를 빼면 구 코드와 같아진다)
+   */
+  couponSchedules: Array<
+    MoneyFieldsOf<'monthly_coupon_schedules'> & {
+      couponNo: number
+      evaluationDate: string
+      paymentDate: string
     }
   >
 }
@@ -75,10 +89,9 @@ function productPayload(input: ProductInput): ProductPayload {
     currency: input.currency,
     evaluationPeriodMonths: input.evaluationPeriodMonths,
     annualCouponRate: input.annualCouponRate,
-    // P8 컷 b2-1 — M-b2가 열을 더했고 `MoneyFieldsOf`가 그 키를 요구한다(새 금액 · 비율 열은 컴파일 오류로 나타난다).
-    // 계약은 아직 지급방식을 받지 않으므로 상환 시 지급의 값(없음)을 명시한다 — 쓰기 함수가 `couponPayout`을
-    // 기본값(생성) · 저장값(수정)으로 받친다(W4 expand). 다음 커밋(b2-2)이 입력의 값으로 바꾼다
-    monthlyCouponAnnualRate: null,
+    couponPayout: input.couponPayout,
+    // 상환 시 지급이면 없다(V-25) — `null`을 명시한다(전체 교체 — 누락이 곧 비움)
+    monthlyCouponAnnualRate: input.monthlyCouponAnnualRate ?? null,
     kiBarrier: input.kiBarrier ?? null,
     kiObservation: input.kiObservation ?? null,
     accountType: input.accountType,
@@ -95,6 +108,12 @@ function productPayload(input: ProductInput): ProductPayload {
       lizardBarrier: item.lizardBarrier ?? null,
       lizardCouponRate: item.lizardCouponRate ?? null,
       lizardRequiresNoKi: item.lizardRequiresNoKi ?? null,
+    })),
+    couponSchedules: (input.couponSchedules ?? []).map((item) => ({
+      couponNo: item.couponNo,
+      evaluationDate: item.evaluationDate,
+      paymentDate: item.paymentDate,
+      couponBarrier: item.couponBarrier,
     })),
   }
 }
@@ -122,6 +141,8 @@ type RealizedPayload = Pick<MoneyFieldsOf<'els_products'>, 'principal'> &
     name: string
     issuer: string | null
     currency: string
+    /** 쿠폰 지급방식(P8 컷 b2 — V-25). 기실현은 율도 일정도 싣지 않는다(D-07 · I-23) */
+    couponPayout: string
     accountType: string
     redemptionType: string
     redemptionDate: string
@@ -138,6 +159,7 @@ function realizedPayload(
     issuer: input.issuer ?? null,
     principal: input.principal,
     currency: input.currency,
+    couponPayout: input.couponPayout,
     accountType: input.accountType,
     redemptionType: input.redemptionType,
     redemptionDate: input.redemptionDate,
@@ -147,6 +169,48 @@ function realizedPayload(
     exchangeRate: input.exchangeRate ?? null,
     isConfirmed: input.isConfirmed,
     note: input.note ?? null,
+  }
+}
+
+/**
+ * §5.2의 사전 검사 둘 — 월수익 지급 기록이 그 상품을 고정한다 (DOC-002 DQ-14 · DOC-011 §5.2, P8 컷 b2).
+ *
+ * | 조건 | 거부 | DB 겹 |
+ * |---|---|---|
+ * | 기록이 있는데 상품 통화 · 쿠폰 지급방식이 바뀐다 | `CONFLICT` | `els_products_coupon_recorded_immutable` |
+ * | 기록된 순번이 입력의 월수익 일정에 없다 | `CONFLICT` — 그 달을 「5번째 · 2027-02-16」로 가리킨다 | 복합 FK `RESTRICT`(`23503`) |
+ *
+ * 둘 다 고칠 칸이 없다 — 기록을 먼저 지운다(§5.15). 기록된 달의 평가일 · 지급일을 바꾸는 입력은 여기서 보지 않는다 —
+ * 동결 트리거(`monthly_coupon_schedules_recorded_immutable` → `CONFLICT`)가 막고, 수정 화면이 그 칸을 `readOnly`로
+ * 그린다(DOC-008 SCR-204 — 월지급 블록은 b3). 순번 없는 기실현 기록은 일정 밖이라 둘째 검사에 들지 않는다.
+ */
+function recordedTermsConflict(row: ProductRow, input: ProductInput): ActionError | null {
+  const recorded = row.monthly_coupon_payments
+  if (recorded.length === 0) return null
+
+  if (input.currency !== row.currency || input.couponPayout !== row.coupon_payout) {
+    return {
+      code: 'CONFLICT',
+      message:
+        '월수익 지급 기록이 있는 상품은 상품 통화 · 쿠폰 지급방식을 바꿀 수 없다. 월수익 기록을 먼저 지운다.',
+    }
+  }
+
+  const kept = new Set((input.couponSchedules ?? []).map((item) => item.couponNo))
+  const evaluationOf = new Map(
+    row.monthly_coupon_schedules.map((schedule) => [schedule.coupon_no, schedule.evaluation_date]),
+  )
+  const dropped = recorded
+    .map((payment) => payment.coupon_no)
+    .filter((couponNo): couponNo is number => couponNo != null && !kept.has(couponNo))
+    .sort((a, b) => a - b)
+  if (dropped.length === 0) return null
+
+  // 월수익 표기 — 「5번째 · 2027-02-16」(순번 + 월수익 평가일, DOC-005 GQ-04 · 민서 결정(2026-10-02) ①)
+  const months = dropped.map((couponNo) => `${couponNo}번째 · ${evaluationOf.get(couponNo) ?? '?'}`)
+  return {
+    code: 'CONFLICT',
+    message: `기록된 달은 지울 수 없다 — ${months.join(', ')}. 그 달의 기록을 먼저 지운다.`,
   }
 }
 
@@ -207,6 +271,11 @@ export function makeProductMutations(ctx: MutationContext) {
       })
     }
 
+    // P8 컷 b2 — 월수익 지급 기록이 그 상품을 고정한다(DOC-002 DQ-14). DB 트리거와 복합 FK가 최종 보장이고 사전
+    // 조회는 **왜** 거부되는지를 그 달까지 말한다(W-05)
+    const recordedConflict = recordedTermsConflict(access.value, parsed)
+    if (recordedConflict != null) return failWith(recordedConflict)
+
     const { data, error } = await ctx.db.rpc('update_els_product', {
       p_id: id,
       payload: productPayload(parsed),
@@ -231,6 +300,15 @@ export function makeProductMutations(ctx: MutationContext) {
   async function deleteProduct(id: string): Promise<ActionResult<void>> {
     const access = await requireOwnedProduct(ctx, id, '상품 삭제')
     if (!access.ok) return failWith(access.error)
+
+    // P8 컷 b2 — 삭제 동선은 최대 3단계다(월수익 기록 전부 지우기 → 상환 취소 → 상품 삭제 — DOC-011 §5.15).
+    // 첫 단계를 먼저 말한다 — 기록이 있으면 상환을 취소해도 `monthly_coupon_payments_els_id_fkey`가 막는다
+    if (access.value.monthly_coupon_payments.length > 0) {
+      return failWith({
+        code: 'CONFLICT',
+        message: '월수익 지급 기록이 있는 상품은 삭제할 수 없다. 월수익 기록을 먼저 지운다.',
+      })
+    }
 
     if (access.value.redemptions != null) {
       return failWith({

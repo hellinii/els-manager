@@ -7,6 +7,7 @@ import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
 import {
   ACCOUNT_TYPE_LABELS,
+  COUPON_PAYOUT_LABELS,
   PRODUCT_CURRENCY_LABELS,
   REDEMPTION_TYPE_LABELS,
   signedMoney,
@@ -15,7 +16,7 @@ import {
   attributionYearOf,
   realizedPnlOf,
 } from '@/lib/forms/realized'
-import { currencyOptionsOf } from '@/lib/forms/productForm'
+import { couponPayoutOptionsOf, currencyOptionsOf } from '@/lib/forms/productForm'
 import { taxableIncomeLocked } from '@/lib/forms/redemption'
 import { initialFormState, type FormState } from '@/lib/forms/state'
 
@@ -173,6 +174,28 @@ export function RealizedProductForm({
               onChange={(event) => setPrincipal(event.target.value)}
               className={INPUT_CLASS}
             />
+          )}
+        </Field>
+
+        {/*
+          쿠폰 지급 — SCR-204와 같은 선택 상자이고 기본값이 없다(V-25 · DOC-008 SCR-205 · P8 컷 b2). 기실현은
+          지급방식 하나만 받는다 — 월수익 연쿠폰율도 일정도 없다(D-07). 「월지급식」은 SCR-204처럼 b4에서 연다
+        */}
+        <Field name="couponPayout" label="쿠폰 지급" error={fieldErrors.couponPayout}>
+          {(props) => (
+            <select
+              {...props}
+              key={values.couponPayout ?? ''}
+              defaultValue={values.couponPayout ?? ''}
+              className={INPUT_CLASS}
+            >
+              <option value="">선택</option>
+              {couponPayoutOptionsOf(values.couponPayout).map((option) => (
+                <option key={option} value={option}>
+                  {COUPON_PAYOUT_LABELS[option]}
+                </option>
+              ))}
+            </select>
           )}
         </Field>
       </section>

@@ -22,6 +22,7 @@ import {
   underlyingRatio,
   worstOf,
   type ConditionResult,
+  type CouponPayout,
   type EstimateRates,
   type ExchangeRate,
   type KiObservation,
@@ -43,7 +44,7 @@ import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 import { attributionOf, type Attribution } from './attribution'
 import type {
   LatestPrice,
-  ProductRow,
+  ProductCoreRow,
   ScheduleRow,
   UnderlyingRow,
 } from './load'
@@ -236,7 +237,7 @@ export function destroyedInputOf(
  *
  * **판정이 `entry_mode` 단독이 아니라 상환 존재와 짝이다** — 아래 본문의 각주.
  */
-export function integrityIssueOf(row: ProductRow): IntegrityIssue | null {
+export function integrityIssueOf(row: ProductCoreRow): IntegrityIssue | null {
   // 기실현 등재는 계약 조건을 갖지 않기로 등재된 상품이므로 하위 행 0건이
   // 결함이 아니다(DOC-002 D-07). **판정이 `entry_mode` 단독이 아니라 상환 존재와
   // 짝인 것이 요점이다** — `deleteRedemption`이 그 상품을 보유중으로 되돌리면
@@ -251,7 +252,7 @@ export function integrityIssueOf(row: ProductRow): IntegrityIssue | null {
 }
 
 /** 기실현 등재인가 — **상환이 있어야 참이다.** 위 각주가 그 짝의 이유다 */
-export function isRealizedEntry(row: ProductRow): boolean {
+export function isRealizedEntry(row: ProductCoreRow): boolean {
   return row.entry_mode === 'REALIZED_ONLY' && row.redemptions != null
 }
 
@@ -262,7 +263,7 @@ export function isRealizedEntry(row: ProductRow): boolean {
  * 조회 계층은 그것을 상태로 바꾸되 조용히 넘기지는 않는다.
  */
 function reportIntegrityIssue(
-  row: ProductRow,
+  row: ProductCoreRow,
   issue: IntegrityIssue | null,
 ): void {
   if (issue == null) return
@@ -280,7 +281,7 @@ function reportIntegrityIssue(
 // 판정 입력 조립
 // ---------------------------------------------------------------------------
 
-export function redemptionMarkOf(row: ProductRow): RedemptionMark {
+export function redemptionMarkOf(row: ProductCoreRow): RedemptionMark {
   return row.redemptions == null
     ? null
     : { redemptionDate: row.redemptions.redemption_date }
@@ -294,7 +295,7 @@ export function redemptionMarkOf(row: ProductRow): RedemptionMark {
  * **`users` 행이 실제로 없을 때에만** 드러난다 — 즉 평소에는 아무 테스트도 보지
  * 못한다. 지금 소비자가 여섯이다(§4.1의 두 목록 · §4.2 · §4.3 · §4.4).
  */
-export function ownerNameOf(row: ProductRow): string {
+export function ownerNameOf(row: ProductCoreRow): string {
   return row.users?.display_name ?? '(알 수 없음)'
 }
 
@@ -306,7 +307,7 @@ export function ownerNameOf(row: ProductRow): string {
  * 된다 — 화면은 `assetId`로 합치므로 표시가 깨지지는 않으나(`underlyingLines`),
  * 「같은 순서다」라고 적은 계약(§4.2)이 거짓이 된다.
  */
-function sortedUnderlyings(row: ProductRow): UnderlyingRow[] {
+function sortedUnderlyings(row: ProductCoreRow): UnderlyingRow[] {
   return row.els_underlyings.slice().sort((a, b) => a.sequence - b.sequence)
 }
 
@@ -323,7 +324,7 @@ function sortedUnderlyings(row: ProductRow): UnderlyingRow[] {
  * 표식이 두 줄에 붙거나 한 줄에도 안 붙는다.
  */
 function underlyingQuotesOf(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   worst: DecimalValue | null,
 ): UnderlyingQuote[] {
@@ -349,7 +350,7 @@ function underlyingQuotesOf(
  * 인자가 `row` 하나인 것이 그 사실의 형태다(`termsOf`의 머리글과 같은 규약).
  * `assetId`는 표시값이 아니라 관측과 짝짓는 키다 — §4.2 v3.4.
  */
-function contractUnderlyingsOf(row: ProductRow): UnderlyingTerm[] {
+function contractUnderlyingsOf(row: ProductCoreRow): UnderlyingTerm[] {
   return sortedUnderlyings(row).map((u) => ({
     assetId: u.asset_id,
     // 자산 임베드가 비는 것은 FK가 막으므로 도달하지 않는다. 그래도 상세와
@@ -366,7 +367,7 @@ function contractUnderlyingsOf(row: ProductRow): UnderlyingTerm[] {
  * 그 상태는 `integrityIssue`가 담당하고, `worstOf`의 거부는 그대로 살려 둔다.
  */
 export function worstOfRow(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
 ): DecimalValue | null {
   if (row.els_underlyings.length === 0) return null
@@ -437,7 +438,7 @@ export type Judgment = {
  * 둘 다 걸린다 — `SCHEDULE_MISSING` + 상환 완료의 `ki`는 표의 "산다"가 아니라 `null`이다.
  */
 export function judge(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
 ): Judgment {
@@ -604,7 +605,7 @@ export type ProductListTerms = {
 }
 
 export function toProductListItem(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
   viewerId: string,
@@ -650,7 +651,7 @@ export function toProductListItem(
  * 정렬 규약은 상세 매퍼와 같다(`sequence`·`round_no` 오름차순). 갈리면 목록의 스텝다운
  * 순서와 상세의 차수표 순서가 달라지고, 스텝다운은 **순서가 곧 뜻**이다(내려가는 수열).
  */
-function termsOf(row: ProductRow): ProductListTerms {
+function termsOf(row: ProductCoreRow): ProductListTerms {
   const schedules = row.redemption_schedules
     .slice()
     .sort((a, b) => a.round_no - b.round_no)
@@ -723,6 +724,11 @@ export type ProductDetailView = {
      * `withholdingTax`)은 이 값과 무관하게 원화다.
      */
     currency: ProductCurrency
+    /**
+     * 쿠폰 지급방식 (P8 컷 b2 — DOC-011 §4.3). 수정 폼의 초기값이다(`productValuesOf`) — 없으면 수정 저장이
+     * 저장값을 되돌려 보낼 수 없다(V-25 필수 · 기본값 없음). 월수익 필드(`monthlyCouponAnnualRate` · `coupons`)는 b3다
+     */
+    couponPayout: CouponPayout
     evaluationPeriodMonths: number
     totalRounds: number
     /**
@@ -806,7 +812,7 @@ export type ProductDetailView = {
  * 의미가 있다 — 실제 수령액(`redemption.grossAmount`)과는 다른 값이다.
  */
 function expectedGrossOf(
-  row: ProductRow,
+  row: ProductCoreRow,
   roundNo: number,
 ): DecimalValue | null {
   // **쿠폰율이 없으면 산출하지 않는다** — 기실현 등재는 계약 조건이 없다(D-07).
@@ -825,7 +831,7 @@ function expectedGrossOf(
 }
 
 export function toProductDetailView(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
   viewerId: string,
@@ -860,6 +866,7 @@ export function toProductDetailView(
       issueDate: row.issue_date,
       principal: moneyString(dec(row.principal), row.currency),
       currency: row.currency,
+      couponPayout: row.coupon_payout,
       evaluationPeriodMonths: row.evaluation_period_months,
       // 정본은 **행 수**다. max(round_no)가 아니다 — 연속성(V-04)은 계약 계층에만
       // 있어 DB는 1,2,99를 허용하므로 두 값이 갈린다(DOC-002 §4.6).
@@ -978,7 +985,7 @@ export function toProductDetailView(
  * 것이며, 그래서 이 각주의 「두 경우」와 코드의 분기 수가 처음으로 일치한다.
  */
 function projectionOf(
-  row: ProductRow,
+  row: ProductCoreRow,
   j: Judgment,
   rates: EstimateRates,
   asOf: string,
@@ -1168,7 +1175,7 @@ export type ScheduleTaxBasis = {
  * 반사실**이 나오며, 그것을 표시할지는 화면의 결정이다(억제는 여기서 하지 않는다).
  */
 function proceedsOf(
-  row: ProductRow,
+  row: ProductCoreRow,
   roundNo: number,
   tax: ScheduleTaxBasis,
 ): ScheduleProceeds | null {
@@ -1206,7 +1213,7 @@ function proceedsOf(
 }
 
 export function toScheduleItems(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
   /**
@@ -1371,7 +1378,7 @@ export function attentionReasonsFor(j: Judgment): AttentionReason[] {
  * 그러지 않으면 같은 상품을 두 번 판정하게 되고 결함 로그가 두 번 찍힌다.
  */
 export function attentionReasonsOf(
-  row: ProductRow,
+  row: ProductCoreRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
 ): AttentionReason[] {

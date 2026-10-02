@@ -60,6 +60,10 @@ export const RULE_IDS = [
   'V-22',
   'V-23',
   'V-24',
+  // P8 컷 b2 — 월지급식. V-25(지급방식 ⇔ 월수익 조건) · V-26(월수익 일정). V-27 · V-28(기록)은 기록 계약과 함께,
+  // V-29(월지급식 상환은 원금만)는 b4에 붙는다 — §6은 이 순서를 V-24 뒤에 그대로 둔다(DOC-011 §6 말미)
+  'V-25',
+  'V-26',
 ] as const
 
 export type RuleId = (typeof RULE_IDS)[number]

@@ -306,6 +306,8 @@ describe('SCR-204 단일 페이지 폼', () => {
         ...BASIC,
         'underlyings[0].assetId': assetId,
         'underlyings[0].basePrice': '1000',
+        // P8 컷 b2 — 「쿠폰 지급」도 기본값이 없다(V-25). 사용자처럼 고른다
+        couponPayout: 'AT_REDEMPTION',
         evaluationPeriodMonths: '6',
         // 차수표가 렌더된 적이 없다 — `schedules[*].barrier`가 DOM에 없다
         totalRounds: '3',
@@ -342,6 +344,7 @@ describe('SCR-204 단일 페이지 폼', () => {
         issueDate: '2026-05-29',
         'underlyings[0].assetId': assetId,
         'underlyings[0].basePrice': '317000',
+        couponPayout: 'AT_REDEMPTION',
         evaluationPeriodMonths: '6',
         totalRounds: '2',
         annualCouponRate: '32.1',
@@ -415,6 +418,15 @@ describe('SCR-204 단일 페이지 폼', () => {
     // P8 컷 a2 — 상품 통화도 비운 채다(화면이 「선택」에서 시작한다). 원화로 채우지 않고 그 칸에 V-22가
     // 붙는다 — 채웠다면 달러 상품을 원화로 저장해도 아무 경고가 없다(U7)
     expect(rendered).toContain('id="currency-error"')
+    // P8 컷 b2 — 「쿠폰 지급」도 같다(V-25). 상환 시 지급으로 채우지 않는다
+    expect(rendered).toContain('id="couponPayout-error"')
+    // ★ 「월지급식」은 b4까지 고를 수 없다(SB-13 — DOC-008 SCR-204). 선택 상자에 그 값이 없어야 한다
+    const payoutSelect = /<select[^>]*name="couponPayout"[^>]*>[\s\S]*?<\/select>/.exec(
+      formHtmlFor(rendered, actionId),
+    )?.[0]
+    expect(payoutSelect, '「쿠폰 지급」 선택 상자가 없다').toBeDefined()
+    expect(payoutSelect).toContain('value="AT_REDEMPTION"')
+    expect(payoutSelect).not.toContain('value="MONTHLY"')
     // 입력값 보존 — 다른 구획의 값도 그대로다(W-03의 존재 이유)
     expect(formHtmlFor(rendered, actionId)).toContain('value="90"')
   })

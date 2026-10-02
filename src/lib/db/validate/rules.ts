@@ -1,7 +1,10 @@
 import { dec } from '@/lib/decimal'
 import { isKnownProvider } from '@/lib/providers/types'
 
+import { MAX_COUPON_SCHEDULES } from '@/lib/domain/coupon'
+
 import type {
+  CouponScheduleInput,
   ProductInput,
   RedemptionInput,
   ScheduleInput,
@@ -37,7 +40,7 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-05': 'lizardBarrier — barrier 이하 (I-04)',
   'V-06': 'lizardCouponRate — lizardBarrier 존재 시 필수 (I-10)',
   'V-07': 'evaluationDate — 차수 순 증가, 최초 차수 ≥ issueDate',
-  'V-08': '비율 — 상한 2, 하한은 필드별',
+  'V-08': '비율 — 상한 2, 하한은 필드별 · 월지급식의 annualCouponRate = 0 (V-08′)',
   'V-09': 'assetId — 상품 내 중복 불가 (I-02)',
   'V-10': 'redemptionDate — issueDate 이후',
   'V-11': 'taxableIncome — 0 이상 (I-12)',
@@ -49,11 +52,15 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-17': 'asOfDate — 미래 일자 거부 (시세 §5.7 · 환율 §5.13)',
   'V-18': 'kiTouchedAt — kiBarrier 부재 시 입력 불가 (I-15)',
   'V-19': '문자열 — 열 선언 길이 이내, currency는 정확히 3자',
-  'V-20': '정수 — smallint 범위, evaluationPeriodMonths ≥ 1, year 4자리',
+  'V-20': '정수 — smallint 범위, evaluationPeriodMonths ≥ 1, year 4자리 · couponNo ≥ 1 (V-20′)',
   'V-21': 'provider — 코드가 아는 공급자 id (형식만 보지 않는다)',
   'V-22': 'currency (상품 통화) — KRW·USD 중 하나, 기본값 없음',
   'V-23': '상품 통화 금액 — 보조단위 이내(KRW 0·USD 2), 정수부 15자리',
   'V-24': 'exchangeRate — 0 초과, 정수부 12·소수 6자리, 외화 상품에만 · rate·currency — 환율 입력은 지원 외화만 (ⓑ §5.13)',
+  'V-25':
+    'couponPayout — AT_REDEMPTION·MONTHLY, 기본값 없음 · MONTHLY ⇒ 월수익 연쿠폰율 0 < x ≤ 2 · 일정 ≥ 1 · 리자드 없음 · AT_REDEMPTION ⇒ 둘 다 없음 (I-23 · I-25)',
+  'V-26':
+    'couponSchedules — 1..60행 · 순번 1..K 연속 · 평가일 엄격 증가 · 발행일 이상 · 만기 이하 · 지급일 ≥ 평가일 · 배리어 0 초과 1 이하 (I-24)',
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +257,127 @@ export function V16_kiPair(
   }
 }
 
+// ---------------------------------------------------------------------------
+// 월지급식 — V-25 · V-26 (P8 컷 b2 · DOC-011 §6 말미)
+// ---------------------------------------------------------------------------
+
+/**
+ * V-25 — 쿠폰 지급방식 ⇔ 월수익 조건 (I-23 · I-25의 계약 쪽).
+ *
+ * 지급방식 자체의 열거 · 기본값 없음은 셰이프 파싱이 같은 ID로 본다. 여기서는 **짝**이다 — 월지급식이면 월수익
+ * 연쿠폰율과 일정이 있어야 하고 리자드 차수가 없어야 하며, 상환 시 지급이면 둘 다 없어야 한다. 연쿠폰율 0은 V-08′이
+ * 셰이프 파싱에서 본다(지급방식이 정하는 하한이라 필드 파싱과 같은 자리다).
+ *
+ * **빈 일정 배열은 「없음」과 같다** — 폼이 상환 시 지급 상품에 빈 배열을 실어도 거부하지 않는다. 쓰기 함수의
+ * 꼬리 검사(`els_products_monthly_schedules_forbidden`)도 행이 있을 때만 거부한다.
+ */
+export function V25_couponPayoutTerms(p: Problems, input: ProductInput): void {
+  const schedules = input.couponSchedules ?? []
+
+  if (input.couponPayout === 'MONTHLY') {
+    if (input.monthlyCouponAnnualRate == null) {
+      p.add('V-25', 'monthlyCouponAnnualRate', '월지급식은 월수익 연쿠폰율을 입력한다.')
+    }
+    if (schedules.length === 0) {
+      p.add('V-25', 'couponSchedules', '월지급식은 월수익 일정을 1행 이상 입력한다.')
+    }
+    input.schedules.forEach((schedule, index) => {
+      if (schedule.lizardBarrier != null) {
+        p.add(
+          'V-25',
+          `schedules[${index}].lizardBarrier`,
+          '월지급식 상품에는 리자드 조건을 둘 수 없다 — 월지급 + 리자드는 v2다.',
+        )
+      }
+    })
+    return
+  }
+
+  if (input.monthlyCouponAnnualRate != null) {
+    p.add('V-25', 'monthlyCouponAnnualRate', '상환 시 지급 상품에는 월수익 연쿠폰율을 두지 않는다.')
+  }
+  if (schedules.length > 0) {
+    p.add('V-25', 'couponSchedules', '상환 시 지급 상품에는 월수익 일정을 두지 않는다.')
+  }
+}
+
+/**
+ * V-26 — 월수익 일정 (I-24의 계약 쪽). **입력에 적용한다** — §5.2의 쓰기 함수가 입력에 없는 순번을 지우므로
+ * 입력이 곧 저장 결과다(DOC-011 §6 V-26).
+ *
+ * 행의 형태(순번 정수 ≥ 1 · 날짜 형식 · 배리어 범위)는 셰이프 파싱이 본다. 여기서는 행 사이의 관계 —
+ * 1..60행 · 순번 1..K 연속 · 평가일 엄격 증가 · 발행일 이상 · 만기(마지막 차수 평가일) 이하 · 지급일 ≥ 평가일.
+ * 오류 경로는 **입력의 색인**이다(`couponSchedules[i].…`) — 정렬한 뒤의 순서로 색인을 붙이면 사용자가
+ * 엉뚱한 행을 고친다.
+ */
+export function V26_couponSchedules(
+  p: Problems,
+  couponSchedules: readonly CouponScheduleInput[],
+  context: { issueDate: string | undefined; schedules: readonly ScheduleInput[] },
+): void {
+  if (couponSchedules.length === 0) return
+
+  if (couponSchedules.length > MAX_COUPON_SCHEDULES) {
+    p.add(
+      'V-26',
+      'couponSchedules',
+      `월수익 일정은 ${MAX_COUPON_SCHEDULES}행까지 입력한다.`,
+    )
+  }
+
+  const indexed = couponSchedules.map((row, index) => ({ row, index }))
+  const ordered = [...indexed].sort((a, b) => a.row.couponNo - b.row.couponNo)
+
+  ordered.forEach(({ row, index }, position) => {
+    if (row.couponNo !== position + 1) {
+      p.add(
+        'V-26',
+        `couponSchedules[${index}].couponNo`,
+        '월수익 순번은 1부터 빠짐없이 이어져야 한다.',
+      )
+    }
+    const previous = ordered[position - 1]
+    if (previous != null && row.evaluationDate <= previous.row.evaluationDate) {
+      p.add(
+        'V-26',
+        `couponSchedules[${index}].evaluationDate`,
+        `${row.couponNo}번째 월수익 평가일이 이전 달보다 늦어야 한다.`,
+      )
+    }
+    if (row.paymentDate < row.evaluationDate) {
+      p.add(
+        'V-26',
+        `couponSchedules[${index}].paymentDate`,
+        '월수익 지급일은 월수익 평가일과 같거나 그 뒤여야 한다.',
+      )
+    }
+  })
+
+  const first = ordered[0]
+  if (context.issueDate != null && first != null && first.row.evaluationDate < context.issueDate) {
+    p.add(
+      'V-26',
+      `couponSchedules[${first.index}].evaluationDate`,
+      '첫 월수익 평가일은 발행일 이후여야 한다.',
+    )
+  }
+
+  // 만기 = 마지막 차수 평가일(DOC-002 §4.6 — 만기일의 정본은 일정이다). 날짜는 형식이 검증된 YYYY-MM-DD라 사전순이 시간순이다
+  const maturity = context.schedules.reduce<string | null>(
+    (latest, schedule) =>
+      latest == null || schedule.evaluationDate > latest ? schedule.evaluationDate : latest,
+    null,
+  )
+  const last = ordered[ordered.length - 1]
+  if (maturity != null && last != null && last.row.evaluationDate > maturity) {
+    p.add(
+      'V-26',
+      `couponSchedules[${last.index}].evaluationDate`,
+      '마지막 월수익 평가일은 만기(마지막 차수 평가일) 이전이어야 한다.',
+    )
+  }
+}
+
 /** 상품 입력의 교차 필드 규칙 전체 */
 export function validateProductCrossFields(p: Problems, input: ProductInput): void {
   V02_underlyingsPresent(p, input.underlyings)
@@ -260,6 +388,11 @@ export function validateProductCrossFields(p: Problems, input: ProductInput): vo
   V07_evaluationDatesIncrease(p, input.schedules, input.issueDate)
   V09_underlyingAssetsUnique(p, input.underlyings)
   V16_kiPair(p, input)
+  V25_couponPayoutTerms(p, input)
+  V26_couponSchedules(p, input.couponSchedules ?? [], {
+    issueDate: input.issueDate,
+    schedules: input.schedules,
+  })
 }
 
 // ---------------------------------------------------------------------------

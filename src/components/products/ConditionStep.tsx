@@ -1,7 +1,7 @@
 'use client'
 
 import { Field, INPUT_CLASS, hintWith } from '@/components/form/Field'
-import { KI_OBSERVATION_LABELS } from '@/lib/format'
+import { COUPON_PAYOUT_LABELS, KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import {
   EVALUATION_DATE_BASIS_FIELD,
@@ -10,7 +10,12 @@ import {
   type EvaluationDateHint,
 } from '@/lib/forms/schedules'
 import type { FormState } from '@/lib/forms/state'
-import { BARRIERS_FIELD, MAX_ROUNDS, roundCountOf } from '@/lib/forms/productForm'
+import {
+  BARRIERS_FIELD,
+  MAX_ROUNDS,
+  couponPayoutOptionsOf,
+  roundCountOf,
+} from '@/lib/forms/productForm'
 
 /**
  * 평가 조건 구획 — 일괄 배리어와 차수표 (SCR-204, DOC-008 §5·§9 SQ-04)
@@ -66,6 +71,34 @@ export function ConditionStep({
         name={EVALUATION_DATE_BASIS_FIELD}
         value={values[EVALUATION_DATE_BASIS_FIELD] ?? ''}
       />
+
+      {/*
+        쿠폰 지급 — 평가 조건 구획의 맨 위(DOC-008 SCR-204 · P8 컷 b2). **기본값이 없다(U7)** — 「선택」에서
+        시작하고 고르지 않으면 V-25가 이 칸에 붙는다. 「월지급식」은 b4에서 연다 — 그 전에는 저장값이 월지급식인
+        상품에서만 선택지에 나타난다(`couponPayoutOptionsOf`). `key`는 아래 관찰방식과 같은 규약이다(AQ-64)
+      */}
+      <Field
+        name="couponPayout"
+        label="쿠폰 지급"
+        error={fieldErrors.couponPayout}
+        hint={hintWith(undefined, fieldNotes, 'couponPayout')}
+      >
+        {(props) => (
+          <select
+            {...props}
+            key={values.couponPayout ?? ''}
+            defaultValue={values.couponPayout ?? ''}
+            className={INPUT_CLASS}
+          >
+            <option value="">선택</option>
+            {couponPayoutOptionsOf(values.couponPayout).map((payout) => (
+              <option key={payout} value={payout}>
+                {COUPON_PAYOUT_LABELS[payout]}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Field

@@ -46,6 +46,9 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
       schedule({ round_no: 2, evaluation_date: '2027-01-04' }),
     ],
     redemptions: null,
+    // 상품 루트 로더만 싣는다(P8 컷 b2 · AQ-77). 상환 시 지급 상품은 둘 다 빈 배열이다
+    monthly_coupon_schedules: [],
+    monthly_coupon_payments: [],
     ...overrides,
   }
 }

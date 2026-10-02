@@ -1,3 +1,4 @@
+import type { CouponPayout } from '@/lib/domain/coupon'
 import type { ForeignCurrency, ProductCurrency } from '@/lib/domain/currency'
 import type { HealthInsuranceType } from '@/lib/tax'
 import type { FailureClass } from '@/lib/providers/types'
@@ -24,13 +25,28 @@ export type ProductInput = {
   currency: ProductCurrency
   evaluationPeriodMonths: number
   totalRounds: number
+  /** 월지급식이면 `'0'` — 수익은 전부 월수익 연쿠폰율에서 나온다 (V-08′ · DOC-002 DQ-11) */
   annualCouponRate: string
+  /** 쿠폰 지급방식 — 필수, 기본값 없음 (V-25 · DOC-011 §5.1 v4.16) */
+  couponPayout: CouponPayout
+  /** 월수익 연쿠폰율(비율 문자열) — `MONTHLY`면 필수, `AT_REDEMPTION`이면 없다 (V-25) */
+  monthlyCouponAnnualRate?: string
+  /** 월수익 일정 — `MONTHLY`면 1..60행 (V-25 · V-26), `AT_REDEMPTION`이면 없다 */
+  couponSchedules?: CouponScheduleInput[]
   kiBarrier?: string
   kiObservation?: 'CONTINUOUS' | 'CLOSING'
   accountType: 'GENERAL' | 'TAX_FREE'
   note?: string
   underlyings: UnderlyingInput[]
   schedules: ScheduleInput[]
+}
+
+/** 월수익 일정 한 행 (DOC-011 §5.1 · DOC-002 §4.13). 날짜는 칸의 값이고 산식은 입력 계층의 도구다 */
+export type CouponScheduleInput = {
+  couponNo: number
+  evaluationDate: string
+  paymentDate: string
+  couponBarrier: string
 }
 
 export type UnderlyingInput = {
@@ -84,6 +100,8 @@ export type RealizedProductInput = {
   principal: string
   /** 상품 통화 — 필수, 기본값 없음(V-22). `principal`·`grossAmount`의 자릿수가 이것을 따른다 */
   currency: ProductCurrency
+  /** 쿠폰 지급방식 — 필수, 기본값 없음(V-25). 기실현은 지급방식 하나만 받는다 — 율도 일정도 없다(D-07) */
+  couponPayout: CouponPayout
   accountType: 'GENERAL' | 'TAX_FREE'
   redemptionType: 'EARLY' | 'LIZARD' | 'MATURITY_GAIN' | 'MATURITY_LOSS'
   redemptionDate: string

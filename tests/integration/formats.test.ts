@@ -66,6 +66,8 @@ const ENTRY_MODES = ['FULL', 'REALIZED_ONLY'] as const
 const KI_OBSERVATIONS = ['CONTINUOUS', 'CLOSING'] as const
 /** DOC-011 §4.0 `ProductCurrency` (P8 컷 a2) — 기초자산 통화(`assets.currency`, `TEXT`)와 다른 축이다 */
 const CURRENCIES = ['KRW', 'USD'] as const
+/** 쿠폰 지급방식 (P8 컷 b2 — DOC-011 §4.0 `CouponPayout`). 열거형이므로 형식이 아니라 값의 집합으로 본다 */
+const COUPON_PAYOUTS = ['AT_REDEMPTION', 'MONTHLY'] as const
 /** 지원 외화 (§4.0 `ExchangeRateBasisView.currency` · §4.11) — 원화는 환율의 대상이 아니다 */
 const FOREIGN = ['USD'] as const
 
@@ -198,6 +200,8 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'product.issueDate': 'DATE',
   'product.principal': 'MONEY',
   'product.currency': CURRENCIES,
+  // P8 컷 b2 — 수정 폼의 초기값(§4.3). 월수익 필드는 b3다
+  'product.couponPayout': COUPON_PAYOUTS,
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
   // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면

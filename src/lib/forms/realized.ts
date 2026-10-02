@@ -32,6 +32,8 @@ export const REALIZED_FIELDS = [
   // 상품 통화 — 기본값 없음(U7 · V-22). 초기값이 비는 것은 아래 `realizedDefaults`가 전 칸에 준다
   'currency',
   'principal',
+  // 쿠폰 지급방식 — 기본값 없음(U7 · V-25 · P8 컷 b2). 상품 정보 구획의 끝(투자원금 뒤)이다 — DOC-008 SCR-205
+  'couponPayout',
   'accountType',
   'redemptionType',
   'redemptionDate',

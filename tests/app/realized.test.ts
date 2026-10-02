@@ -27,6 +27,8 @@ const ROW = {
   // P8 컷 a2 — 기본값이 없으므로 그림의 한 줄에도 적는다(스프레드시트의 행은 원화 상품이다)
   currency: 'KRW',
   principal: '19390000',
+  // P8 컷 b2 — 지급방식도 기본값이 없다(V-25). 스프레드시트의 행은 상환 시 지급 상품이다
+  couponPayout: 'AT_REDEMPTION',
   accountType: 'GENERAL',
   redemptionType: 'EARLY',
   redemptionDate: '2026-06-04',
@@ -152,6 +154,7 @@ describe('폼 → 계약 입력', () => {
       issuer: ROW.issuer,
       currency: 'KRW',
       principal: '19390000',
+      couponPayout: 'AT_REDEMPTION',
       accountType: 'GENERAL',
       redemptionType: 'EARLY',
       redemptionDate: '2026-06-04',

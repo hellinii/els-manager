@@ -278,6 +278,9 @@ export function parseProductForm(form: FormData): ProductInput {
     evaluationPeriodMonths,
     totalRounds,
     annualCouponRate: percentToRatio(text(form, 'annualCouponRate')),
+    // 빈 칸이면 빈 문자열이 계약에 가서 V-25가 「쿠폰 지급방식을 선택한다」를 붙인다 — 기본값 없음(U7).
+    // 월수익 연쿠폰율 · 월수익 일정은 이 폼에 아직 칸이 없다(월지급 블록은 컷 b3 — DOC-008 SCR-204)
+    couponPayout: text(form, 'couponPayout') as ProductInput['couponPayout'],
     accountType: text(form, 'accountType') as ProductInput['accountType'],
     underlyings,
     schedules,
@@ -369,6 +372,8 @@ export function parseRealizedProductForm(form: FormData): RealizedProductInput {
     name: text(form, 'name'),
     principal: amountText(form, 'principal'),
     currency: text(form, 'currency') as RealizedProductInput['currency'],
+    // 기본값 없음(V-25 · U7) — 빈 칸은 그 칸의 오류다. 기실현은 지급방식 하나만 받는다(D-07)
+    couponPayout: text(form, 'couponPayout') as RealizedProductInput['couponPayout'],
     accountType: text(form, 'accountType') as RealizedProductInput['accountType'],
     redemptionType: text(
       form,

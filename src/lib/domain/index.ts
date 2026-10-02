@@ -64,3 +64,11 @@ export {
   taxableIncome,
   type RedeemingCondition,
 } from './proceeds'
+
+export {
+  COUPON_OUTCOMES,
+  COUPON_PAYOUT_ORDER,
+  MAX_COUPON_SCHEDULES,
+  type CouponOutcome,
+  type CouponPayout,
+} from './coupon'
