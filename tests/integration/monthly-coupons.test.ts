@@ -213,6 +213,47 @@ describe('§5.14 recordCouponPayments', () => {
     await cleanup(id)
   })
 
+  it('★ 행 단위 오류는 전부 — 세율 시드가 없는 해의 원천징수 두 행이 두 칸으로 온다 (§5.14 v4.21)', async () => {
+    // 기실현 월지급 — 2025년 지급은 시드(2026~) 이전이라 원천징수를 비우면 그 칸의 VALIDATION_FAILED다(RD-16).
+    // 종전 구현은 첫 행에서 멈춰 entries[0]만 말했다
+    const id = dataOf(
+      await a.write.createRealizedProduct({
+        name: `${NAME.monthly}-기실현`,
+        principal: '100000000',
+        currency: 'KRW',
+        couponPayout: 'MONTHLY',
+        accountType: 'GENERAL',
+        redemptionType: 'MATURITY_GAIN',
+        redemptionDate: '2025-12-31',
+        grossAmount: '100000000',
+        taxableIncome: '0',
+        withholdingTax: '0',
+        isConfirmed: true,
+      }),
+    ).id
+    const entries = ['2025-03-04', '2025-04-04'].map(
+      (paymentDate): CouponPaymentInput => ({
+        couponNo: null,
+        outcome: 'PAID',
+        paymentDate,
+        grossAmount: '600000',
+        taxableIncome: '600000',
+        isConfirmed: true,
+      }),
+    )
+    const error = errorOf(await a.write.recordCouponPayments(id, { entries }))
+    expect(error.code).toBe('VALIDATION_FAILED')
+    expect(Object.keys(error.fields ?? {}).sort()).toEqual(['entries[0].withholdingTax', 'entries[1].withholdingTax'])
+
+    // 실제 징수액을 넣으면 저장된다 — 같은 입력의 짝 통제. ids는 지급일로 짝지어 입력 순서다
+    const withTax = entries.map((entry) => ({ ...entry, withholdingTax: '92400' })).reverse()
+    const { ids } = dataOf(await a.write.recordCouponPayments(id, { entries: withTax }))
+    const rows = await a.db.from('monthly_coupon_payments').select('id,payment_date').in('id', ids)
+    const dateOf = new Map((rows.data ?? []).map((row) => [row.id, row.payment_date]))
+    expect(ids.map((value) => dateOf.get(value))).toEqual(['2025-04-04', '2025-03-04'])
+    await cleanup(id)
+  })
+
   it('상환 시 지급 상품에는 기록할 수 없다 — V-27', async () => {
     const plain = dataOf(
       await a.write.createProduct({

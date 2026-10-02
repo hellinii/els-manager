@@ -106,13 +106,13 @@ const _witnessCatchesSingleSite: QueryAxisExhaustive<Without<'searchAssets'>> = 
 // ---------------------------------------------------------------------------
 
 describe('전수', () => {
-  it('계약 14개가 모두 항목을 갖는다', () => {
+  it('계약 17개가 모두 항목을 갖는다', () => {
     // 타입 수준에서도 `Record<MutationName, …>`가 강제하지만, 그쪽은 `keyof`가
     // 문서와 갈렸을 때를 보지 못한다 — 실제로 조립된 묶음의 키로 대조한다.
     // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12,
     //  P5a 컷 2b에서 §5.12 `saveProviderSymbol`이 더해져 12 → 13,
     //  P8 컷 a3에서 §5.13 `saveExchangeRate`가 더해져 13 → 14)
-    // P8 컷 b2 — §5.14 · §5.15가 더해져 14 → 17
+    // P8 컷 b2 — §5.14 · §5.15가 더해져 14 → 17 (케이스 이름은 b2-5에 따라 고쳤다 — DOC-011이 이름으로 인용한다)
     expect(MUTATION_NAMES).toHaveLength(17)
     expect(Object.keys(INVALIDATION).sort()).toEqual([...MUTATION_NAMES].sort())
   })
@@ -129,7 +129,7 @@ describe('전수', () => {
     /*
      * 위 케이스의 **역방향**이며, 그 부재가 AQ-39의 fail-open이었다. 타입 수준
      * 파생(`_queryAxisIsExhaustive`)이 이미 이것을 강제하지만 그쪽은 `keyof`가
-     * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 14개가 모두 항목을 갖는다」가
+     * 문서·조립과 갈렸을 때를 보지 못한다 — 「계약 17개가 모두 항목을 갖는다」가
      * `Record`와 나란히 있는 것과 같은 이유로 실제 조립된 묶음의 키로 대조한다.
      */
     /*

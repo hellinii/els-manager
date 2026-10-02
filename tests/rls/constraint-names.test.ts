@@ -184,12 +184,14 @@ describe('모든 CHECK 제약에 사상이 있다 — 역방향', () => {
     expect(both).toEqual([])
   })
 
-  it('I-17의 네 제약이 실재한다 — 마이그레이션 적용 확인', async () => {
+  it('I-17의 다섯 제약이 실재한다 — 마이그레이션 적용 확인', async () => {
     const catalog = await catalogConstraints()
     for (const name of [
       'els_products_principal_check',
       'els_products_evaluation_period_check',
       'redemption_schedules_barrier_check',
+      // AQ-92 (P8 컷 b2-5 — M-b2)
+      'redemption_schedules_round_no_check',
       'redemptions_gross_amount_check',
     ]) {
       expect(catalog.has(name), name).toBe(true)

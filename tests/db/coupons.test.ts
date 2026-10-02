@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { checkAgainstProduct, type Checked } from '@/lib/db/mutations/coupons'
+import { checkAgainstProduct, idsInInputOrder, type Checked } from '@/lib/db/mutations/coupons'
 import { couponMonthLabel, latestRecordedMonth } from '@/lib/db/mutations/couponMonths'
 import { Problems } from '@/lib/db/validate/primitives'
 
@@ -126,6 +126,54 @@ describe('V-27 — 기실현 상품의 기록 대상', () => {
     const two = [paid({ couponNo: null, paymentDate: '2026-02-01' }), paid({ couponNo: null, paymentDate: '2026-03-01' })]
     expect(check(two, product).fields.entries).toContain('60건까지')
     expect(check([two[0]!], product).fields).toEqual({})
+  })
+
+  it('★ 새 행이 하나여도 상한 위반의 키는 entries다 — 행의 칸이 아니라 건수다 (§5.14 v4.21)', () => {
+    // 종전에는 `rows.length > 1 ? 'entries' : 'outcome'`이라 60건이 찬 상품에 한 건을 더하면 결과 칸에 붙었다
+    const stored = Array.from({ length: 60 }, (_, index) =>
+      couponPayment({ id: `p${index}`, coupon_no: null, payment_date: `2025-${String((index % 12) + 1).padStart(2, '0')}-${String(Math.floor(index / 12) + 1).padStart(2, '0')}` }),
+    )
+    const product = { ...realized(), monthly_coupon_payments: stored }
+    const one = check([paid({ couponNo: null, paymentDate: '2026-02-01' })], product)
+    expect(one.fields).toEqual({ entries: '기실현 상품의 월수익 기록은 60건까지다.' })
+  })
+
+  it('수정(§5.15)은 건수를 늘리지 않는다 — 계약 밖에서 넘친 상품의 한 기록도 고칠 수 있다', () => {
+    const stored = Array.from({ length: 61 }, (_, index) =>
+      couponPayment({ id: `p${index}`, coupon_no: null, payment_date: `2024-${String((index % 12) + 1).padStart(2, '0')}-${String(Math.floor(index / 12) + 1).padStart(2, '0')}` }),
+    )
+    const product = { ...realized(), monthly_coupon_payments: stored }
+    expect(check([paid({ couponNo: null, paymentDate: '2026-02-01' })], product, 'p0').fields).toEqual({})
+  })
+})
+
+describe('§5.14 반환 — ids는 입력 순서이고 결과 행의 순서가 아니라 키로 짝짓는다 (v4.21)', () => {
+  const rows = [
+    { id: 'id-1', coupon_no: 1, payment_date: '2026-11-19' },
+    { id: 'id-3', coupon_no: 3, payment_date: null },
+    { id: 'id-2', coupon_no: 2, payment_date: '2027-01-19' },
+  ]
+
+  it('FULL — 순번으로 짝짓는다. 결과 행을 뒤집어도 같다', () => {
+    const entries = [{ couponNo: 3 }, { couponNo: 1, paymentDate: '2026-11-19' }, { couponNo: 2, paymentDate: '2027-01-19' }]
+    expect(idsInInputOrder('FULL', entries, rows)).toEqual(['id-3', 'id-1', 'id-2'])
+    expect(idsInInputOrder('FULL', entries, [...rows].reverse())).toEqual(['id-3', 'id-1', 'id-2'])
+  })
+
+  it('기실현 — 지급일로 짝짓는다(순번이 없다)', () => {
+    const realizedRows = [
+      { id: 'r-a', coupon_no: null, payment_date: '2025-03-04' },
+      { id: 'r-b', coupon_no: null, payment_date: '2025-04-04' },
+    ]
+    const entries = [{ couponNo: null, paymentDate: '2025-04-04' }, { couponNo: null, paymentDate: '2025-03-04' }]
+    expect(idsInInputOrder('REALIZED_ONLY', entries, realizedRows)).toEqual(['r-b', 'r-a'])
+  })
+
+  it('행 수 · 키가 짝지어지지 않으면 null — 성공을 주장하지 않는다(W-05)', () => {
+    expect(idsInInputOrder('FULL', [{ couponNo: 1 }], rows)).toBeNull()
+    expect(idsInInputOrder('FULL', [{ couponNo: 1 }, { couponNo: 2 }, { couponNo: 9 }], rows)).toBeNull()
+    const duplicated = [rows[0]!, { ...rows[0]!, id: 'dup' }, rows[2]!]
+    expect(idsInInputOrder('FULL', [{ couponNo: 1 }, { couponNo: 3 }, { couponNo: 2 }], duplicated)).toBeNull()
   })
 })
 

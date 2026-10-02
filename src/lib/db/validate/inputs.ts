@@ -208,14 +208,12 @@ function parseCouponSchedule(
     '월수익 평가일',
   )
   const paymentDate = requireIsoDate(p, 'V-26', `${at}.paymentDate`, raw.paymentDate, '월수익 지급일')
+  // 상한 1(100%)은 requireRatio가 일반 상한 2보다 먼저 본다 — 2.5에 「2 이하」가 나가지 않는다
   const couponBarrier = requireRatio(p, 'V-26', `${at}.couponBarrier`, raw.couponBarrier, {
     label: '월수익 배리어',
     min: 'positive',
+    max: 1,
   })
-  if (couponBarrier != null && dec(couponBarrier).gt(1)) {
-    p.add('V-26', `${at}.couponBarrier`, '월수익 배리어는 100% 이하여야 한다.')
-    return null
-  }
 
   if (!allPresent([couponNo, evaluationDate, paymentDate, couponBarrier])) return null
   return {

@@ -254,6 +254,22 @@ describe('상품 통화 — 증인이 있을 때만 채운다 (P8 컷 a4 · DOC-
     expect(next.saveHeld).toBe(false)
     const input = parseProductForm(formOfValues(next.values))
     expect([input.currency, input.principal]).toEqual(['USD', '10000.50'])
+    // P8 컷 b2-5 — 불러오기가 채운 지급방식이 계약 입력까지 간다(빈칸이면 V-25가 막는다)
+    expect(input.couponPayout).toBe('AT_REDEMPTION')
+  })
+})
+
+describe('쿠폰 지급방식 — 「상환 시 지급」으로 채운다 (P8 컷 b2-5 · DOC-008 v2.25)', () => {
+  it('★ 채워지는 상품은 전부 상환 시 지급이다 — 월지급식 후보는 거부된다', () => {
+    for (const terms of [termsWithListing('E04000', SEARCH_FIXTURES.q4000), termsOf('E04000'), termsOf('EM2047')]) {
+      expect(filled(importFillOf(terms, {})).values.couponPayout).toBe('AT_REDEMPTION')
+    }
+  })
+
+  it('거부는 값을 싣지 않는다 — 지급방식도 없다', () => {
+    const fill = importFillOf(termsOf('E00795'), {})
+    expect(fill.kind).toBe('REFUSED')
+    expect('values' in fill).toBe(false)
   })
 })
 

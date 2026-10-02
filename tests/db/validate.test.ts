@@ -997,6 +997,23 @@ describe('fields — 화면이 필드별로 표시할 수 있는 형태', () => 
     expect(error.fields?.principal).toContain('0보다 커야')
   })
 
+  it('월수익 배리어의 문구는 실제 상한 1을 말한다 — 2를 넘는 값에도 「2 이하」가 나가지 않는다 (V-26 · b2-5)', () => {
+    // 종전에는 상한 1을 requireRatio 뒤에 따로 봐서, 2.5 · 60(백분율을 그대로 넣은 값)에 일반 상한 「2 이하」가 나갔다
+    for (const couponBarrier of ['1.2', '2.5', '60']) {
+      const problems = parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            { ...monthlyTerms().couponSchedules[0], couponBarrier },
+            monthlyTerms().couponSchedules[1],
+          ],
+        }),
+      )
+      const message = problems.fields()['couponSchedules[0].couponBarrier']
+      expect(message, couponBarrier).toBe('월수익 배리어은(는) 1 이하여야 한다(100%). 90%는 0.9로 입력한다.')
+    }
+  })
+
   it('형태가 깨진 입력에서도 여러 위반을 모은다 — 왕복을 줄인다', () => {
     const problems = parse({ name: 123, principal: null, underlyings: 'x', schedules: null })
     expect(problems.rules().length).toBeGreaterThan(2)

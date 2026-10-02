@@ -761,6 +761,41 @@ describe('I-17 — 값 범위 (P3b, DQ-06 부분 해결)', () => {
     expect(after.rows[0].barrier).toBe('0.9000')
   })
 
+  it('차수 0을 거부한다 — 계약 밖 차수 0이 적용 차수가 되면 세금 조회가 던진다 (AQ-92)', async () => {
+    const product = await seedProduct({ ownerId: USER_A })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query(
+          `insert into public.redemption_schedules
+             (els_id, round_no, evaluation_date, barrier, lizard_barrier, lizard_coupon_rate)
+           values ($1, 0, '2026-07-02', 0.9, null, null)`,
+          [product.id],
+        ),
+      '23514',
+      'redemption_schedules_round_no_check',
+    )
+  })
+
+  it('차수 UPDATE로도 0 이하가 될 수 없다 · 1은 통과한다', async () => {
+    const product = await seedProduct({ ownerId: USER_A })
+    const schedule = await seedSchedule({ elsId: product.id })
+
+    await expectConstraintViolation(
+      () =>
+        actingAs(USER_A).query('update public.redemption_schedules set round_no = -1 where id = $1', [
+          schedule.id,
+        ]),
+      '23514',
+      'redemption_schedules_round_no_check',
+    )
+    const after = await asOwner<{ round_no: number }>(
+      'select round_no from public.redemption_schedules where id = $1',
+      [schedule.id],
+    )
+    expect(after.rows[0].round_no).toBe(1)
+  })
+
   it('실수령액 음수를 거부한다', async () => {
     // MATURITY_GAIN + 과세소득 0 + round_no NULL — I-08·I-12·I-14를 함께
     // 건드리지 않는 조합이다

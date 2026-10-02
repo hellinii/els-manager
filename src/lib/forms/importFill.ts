@@ -1,5 +1,6 @@
 import { dec, truncateToUnit } from '@/lib/decimal'
 import { dDay, generateEvaluationDates } from '@/lib/domain'
+import type { CouponPayout } from '@/lib/domain/coupon'
 import { PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
 import {
   productCurrencyOf,
@@ -47,6 +48,12 @@ import { EVALUATION_DATE_BASIS_FIELD } from './schedules'
  * 판정은 `productCurrencyOf` 하나다 — 이 층은 다시 판정하지 않고 그 값을 옮긴다. 확정이면 그 통화(원화도),
  * **증인 없음이면 빈칸**이다 — 원화로 두지 않는다(민서 결정 2026-09-29). 빈칸은 「일부 채움」이고 그 칸이
  * 「투자설명서로 고른다」를 말한다. 충돌 · 지원 밖은 어댑터의 `BLOCKING`이라 여기 오기 전에 거부된다.
+ *
+ * ## 쿠폰 지급방식은 「상환 시 지급」이다 (P8 컷 b2-5 · DOC-008 v2.25)
+ *
+ * 추정이 아니라 거부 규칙의 귀결이다 — 월지급식 후보는 `REFUSED`이므로(컷 b5까지) 여기까지 온 상품은 전부 상환 시
+ * 지급이다. 채우지 않으면 등록 화면에 필수 칸(V-25 — 기본값 없음) 하나가 비고, 「불러옴」의 안내(「투자원금 · 계좌유형을
+ * 적는다」)가 그 칸을 빼고 말한다(b2 반박 검토). 수정 화면은 `IMPORT_KEEPS_STORED`가 저장값을 남긴다.
  *
  * ## 던지지 않는다
  *
@@ -174,6 +181,8 @@ function fill(
     issueDate: terms.header.issueDate,
     // 증인 없음이면 빈칸 — 원화로 두지 않는다(ADR-009 §7). V-22가 선택을 요구한다
     currency: currency.kind === 'DECIDED' ? currency.currency : '',
+    // 월지급식은 위에서 거부됐다 — 여기 온 상품은 전부 상환 시 지급이다(머리 각주)
+    couponPayout: 'AT_REDEMPTION' satisfies CouponPayout,
     evaluationPeriodMonths: String(period),
     totalRounds: String(totalRounds),
     annualCouponRate: pct(headline),

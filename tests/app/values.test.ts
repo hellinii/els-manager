@@ -18,7 +18,7 @@ import {
 import { EVALUATION_DATE_BASIS_FIELD } from '@/lib/forms/schedules'
 import { productValuesOf } from '@/lib/forms/values'
 
-import { ASSET_1, ASSET_2, OWNER, priceMap, productRow, schedule } from '../db/helpers/rows'
+import { ASSET_1, ASSET_2, OWNER, monthlyProductRow, priceMap, productRow, schedule } from '../db/helpers/rows'
 
 /**
  * 수정 모드의 왕복 — **뷰 → 폼 값 → 계약 입력** (SCR-204, P4 컷 5)
@@ -199,6 +199,21 @@ describe('★ 왕복 — 달러 상품의 수정이 통화를 지킨다 (P8 컷 
   it('통화와 센트가 그대로 돌아온다', () => {
     expect(input.currency).toBe('USD')
     expect(input.principal).toBe('10000.50')
+  })
+})
+
+describe('★ 왕복 — 월지급식 상품의 수정이 지급방식을 지킨다 (P8 컷 b2-5)', () => {
+  /*
+   * 폼의 선택지는 b2~b3 동안 「상환 시 지급」뿐이고 저장값이 월지급식이면 그 값을 더한다(`couponPayoutOptionsOf`).
+   * 초깃값이 저장값이 아니면(빈칸 · 상수) 사용자가 무엇을 고르든 월지급식이 조용히 사라진다 — 상품 통화(위)와 같은 형태다.
+   * 저장값이 상환 시 지급인 대조군만으로는 「저장값을 싣는다」와 「상환 시 지급을 싣는다」가 갈리지 않는다
+   */
+  const view = toProductDetailView(monthlyProductRow(), priceMap([]), '2026-06-30', OWNER, NO_ESTIMATE_RATES)
+  const input = parseProductForm(formOf(productValuesOf(view)))
+
+  it('지급방식이 그대로 돌아온다', () => {
+    expect(view.product.couponPayout).toBe('MONTHLY')
+    expect(input.couponPayout).toBe('MONTHLY')
   })
 })
 

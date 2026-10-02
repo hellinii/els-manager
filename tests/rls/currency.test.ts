@@ -122,6 +122,16 @@ describe('I-21 — 실수령액의 자릿수 (digits CHECK + 통화 트리거)',
     )
   })
 
+  it('부모가 없으면 FK가 거부한다(23503) — 부모 부재를 자릿수 라벨로 말하지 않는다 (DOC-002 v1.18)', async () => {
+    // 센트를 싣는다 — 종전(a2 ~ b2-4)에는 통화가 NULL이 되어 fail-closed가 redemptions_gross_amount_scale로 거부했다.
+    // 소유자 롤(BYPASSRLS)로 넣는다 — 계약 밖 쓰기의 경로다(authenticated는 INSERT 정책이 먼저 거부한다)
+    await expectConstraintViolation(
+      () => asOwner(insertRedemption, ['00000000-0000-4000-8000-0000000000aa', '1000.50', null]),
+      '23503',
+      'redemptions_els_id_fkey',
+    )
+  })
+
   it('수정으로 원화 상환에 센트를 넣어도 트리거가 거부한다 — UPDATE도 본다', async () => {
     const krw = await productIn('KRW')
     await actingAs(USER_A).query(insertRedemption, [krw, '104000000', null])

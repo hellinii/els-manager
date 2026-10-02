@@ -216,6 +216,12 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     fields: ['schedules'],
     message: '배리어는 0보다 커야 한다.',
   },
+  // AQ-92 (P8 컷 b2-5) — 계약은 V-04가 먼저 본다(1..N 연속). 이 이름은 직접 쓰기의 그물이다
+  redemption_schedules_round_no_check: {
+    rule: 'I-17 / V-04',
+    fields: ['schedules'],
+    message: '차수는 1부터 시작한다.',
+  },
   redemptions_gross_amount_check: {
     rule: 'I-17',
     fields: ['grossAmount'],

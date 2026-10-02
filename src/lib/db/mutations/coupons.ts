@@ -127,11 +127,41 @@ export function checkAgainstProduct(
     checked.push(grossAmount == null ? entry : { ...entry, grossAmount })
   }
 
-  // V-27 — 기실현의 순번 없는 기록은 상품당 60건 이하(일괄 기록 · 「전부 지우기」의 1..60과 맞춘다). 계약에만 있다
-  if (product.entry_mode === 'REALIZED_ONLY' && others.length + rows.length > MAX_COUPON_SCHEDULES) {
-    p.add('V-27', rows.length > 1 ? 'entries' : 'outcome', `기실현 상품의 월수익 기록은 ${MAX_COUPON_SCHEDULES}건까지다.`)
+  // V-27 — 기실현의 순번 없는 기록은 상품당 60건 이하(일괄 기록 · 「전부 지우기」의 1..60과 맞춘다). 계약에만 있다.
+  // 기록(§5.14)만 본다 — 수정(§5.15)은 건수를 늘리지 않는다. 키는 새 행이 하나여도 `entries`다: 위반은 행의 칸이
+  // 아니라 건수다(v4.21 — 종전에는 한 행이면 `outcome`이었다)
+  if (
+    selfId == null &&
+    product.entry_mode === 'REALIZED_ONLY' &&
+    others.length + rows.length > MAX_COUPON_SCHEDULES
+  ) {
+    p.add('V-27', 'entries', `기실현 상품의 월수익 기록은 ${MAX_COUPON_SCHEDULES}건까지다.`)
   }
   return checked
+}
+
+/**
+ * 다행 INSERT의 결과 행을 **입력 순서**의 id로 — 결과 행의 순서가 아니라 키로 짝짓는다(§5.14 v4.21). 키는 상품 안에서
+ * UNIQUE인 것이다 — `FULL`은 `coupon_no`, 기실현은 `payment_date`(I-26). 행 수 · 키가 짝지어지지 않으면 `null`이다 —
+ * 호출부가 성공을 주장하지 않는다(W-05).
+ */
+export function idsInInputOrder(
+  entryMode: ProductRow['entry_mode'],
+  entries: ReadonlyArray<Pick<Checked, 'couponNo' | 'paymentDate'>>,
+  rows: ReadonlyArray<{ id: string; coupon_no: number | null; payment_date: string | null }>,
+): string[] | null {
+  const keyOf = (couponNo: number | null, paymentDate: string | null | undefined) =>
+    entryMode === 'FULL' ? `no:${couponNo}` : `date:${paymentDate ?? null}`
+  if (rows.length !== entries.length) return null
+  const idByKey = new Map(rows.map((row) => [keyOf(row.coupon_no, row.payment_date), row.id]))
+  if (idByKey.size !== entries.length) return null
+  const ids: string[] = []
+  for (const entry of entries) {
+    const id = idByKey.get(keyOf(entry.couponNo, entry.paymentDate))
+    if (id == null) return null
+    ids.push(id)
+  }
+  return ids
 }
 
 /** 원천징수 기본값의 오류를 그 행의 키로 옮긴다 — `withholdingFor`는 색인 없는 칸(`paymentDate` · `withholdingTax`)을 낸다 */
@@ -202,8 +232,10 @@ export function makeCouponMutations(ctx: MutationContext) {
   /**
    * §5.14 — 1..60건을 **다행 INSERT 한 번**으로. 전부 아니면 전무다.
    *
-   * 반환은 만든 기록의 id이고 **입력 순서**다 — 다행 INSERT의 `RETURNING`이 값 목록의 순서로 돌려준다(통합 스위트가
-   * 순서로 단언한다). 왕복은 사전 조회 1 + INSERT 1 + 원천징수 기본값이 필요한 지급일 연도마다 1이다(§5.0.1).
+   * 반환은 만든 기록의 id이고 **입력 순서**다(통합 스위트가 순서로 단언한다). 결과 행의 순서에 기대지 않고 **키로**
+   * 짝짓는다 — `FULL`은 `coupon_no`, 기실현은 `payment_date`(둘 다 상품 안에서 UNIQUE — I-26). PostgreSQL은 다행
+   * INSERT의 `RETURNING` 순서를 문서로 보장하지 않는다(DOC-011 v4.21). 왕복은 사전 조회 1 + INSERT 1 + 원천징수
+   * 기본값이 필요한 지급일 연도마다 1이다(§5.0.1).
    */
   async function recordCouponPayments(
     productId: string,
@@ -227,13 +259,23 @@ export function makeCouponMutations(ctx: MutationContext) {
     const checked = checkAgainstProduct(p, rows, product, ctx.asOf, null)
     if (!p.isEmpty) return failWith(p.toError())
 
+    // 행 단위 오류는 전부 모은다 — 세율 시드가 없는 해가 여러 행이면 그 행 전부를 말한다(§5.14 v4.21 — 첫 행에서
+    // 멈추지 않는다). 검증 오류가 아닌 것(시드 전체 부재 · 조회 실패 — INTERNAL)은 그 자리에서 돌려준다
     const cache: TaxYearCache = new Map()
     const completed: Checked[] = []
+    let invalid: ActionError | null = null
+    const invalidFields: Record<string, string> = {}
     for (const [index, entry] of checked.entries()) {
       const filled = await withWithholding(ctx, entry, `entries[${index}].`, cache)
-      if (!filled.ok) return failWith(filled.error)
-      completed.push(filled.value)
+      if (filled.ok) {
+        completed.push(filled.value)
+        continue
+      }
+      if (filled.error.code !== 'VALIDATION_FAILED') return failWith(filled.error)
+      invalid ??= filled.error
+      Object.assign(invalidFields, filled.error.fields)
     }
+    if (invalid != null) return failWith({ ...invalid, fields: invalidFields })
 
     const { data, error } = await ctx.db
       .from('monthly_coupon_payments')
@@ -242,12 +284,13 @@ export function makeCouponMutations(ctx: MutationContext) {
           toInsert('monthly_coupon_payments', { els_id: productId, ...rowValues(entry) }),
         ),
       )
-      .select('id')
+      .select('id, coupon_no, payment_date')
     if (error != null) return failDb(error, '월수익 기록')
 
-    // 한 문장이므로 일부만 남을 수 없다 — 그래도 행 수가 다르면 성공을 주장하지 않는다(W-05)
-    if (data == null || data.length !== completed.length) return failWith(staleState())
-    return ok({ ids: data.map((row) => row.id) })
+    // 한 문장이므로 일부만 남을 수 없다 — 그래도 행 수가 다르거나 키가 짝지어지지 않으면 성공을 주장하지 않는다(W-05)
+    const ids = data == null ? null : idsInInputOrder(product.entry_mode, completed, data)
+    if (ids == null) return failWith(staleState())
+    return ok({ ids })
   }
 
   /**

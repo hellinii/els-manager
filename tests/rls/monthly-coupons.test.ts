@@ -351,6 +351,26 @@ describe('I-21 — 월수익(세전)의 자릿수 두 층', () => {
     )
   })
 
+  it('부모가 없으면 FK가 거부한다(23503) — 부모 부재를 자릿수 라벨로 말하지 않는다 (DOC-002 v1.18)', async () => {
+    // 센트를 싣는다 — 종전에는 통화가 NULL이 되어 fail-closed가 monthly_coupon_payments_gross_amount_scale로 거부했다.
+    // 소유자 롤(BYPASSRLS)로 넣는다 — 계약 밖 쓰기의 경로다(authenticated는 INSERT 정책이 먼저 거부한다)
+    await expectConstraintViolation(
+      () =>
+        asOwner(insertPayment, [
+          '00000000-0000-4000-8000-0000000000aa',
+          1,
+          'PAID',
+          '2026-11-19',
+          '1000.50',
+          '1000',
+          '0',
+          null,
+        ]),
+      '23503',
+      'monthly_coupon_payments_els_id_fkey',
+    )
+  })
+
   it('미지급의 NULL 금액은 두 층을 모두 지난다', async () => {
     const elsId = await monthlyWithFirstMonth('KRW')
     expect((await payment(elsId, UNPAID)).rowCount).toBe(1)
@@ -1192,5 +1212,104 @@ describe('AQ-93 — 교차 테이블 트리거는 부모 상품 행 잠금으로
       await first.client.end()
       await second.client.end()
     }
+  })
+
+  /*
+   * ⑤ · ⑥ — b2-1의 네 경합이 거치지 않던 잠금 둘 (DOC-010 v3.27 — b2 반박 검토). 잠금 줄 다섯을 한꺼번에 지운
+   * 음성 대조는 줄 각각을 판별하지 못했다: 기록 · 상환 경로는 이름순으로 먼저 도는 자릿수 트리거가 잠그고, 자릿수
+   * 트리거 자신의 잠금(⑤)과 일정 동결의 잠금(⑥)을 하중으로 받는 경합이 없었다.
+   */
+
+  it('⑤ 통화 수정(미커밋, 달러 → 원화) ↔ 센트가 든 상환 — 상환이 기다린 뒤 redemptions_gross_amount_scale로 거부된다', async () => {
+    // 상환 시 지급 달러 상품 — 원금은 0자리라 원화로 바꿔도 els_products_principal_scale_check에 걸리지 않는다
+    await cleanupAq93(owner)
+    const asset = await owner.query<{ id: string }>(
+      `insert into public.assets (name, asset_type, market, currency)
+       values ('${AQ93}-자산', 'STOCK', 'NASDAQ', 'USD') returning id`,
+    )
+    assetId = asset.rows[0].id
+    const product = await owner.query<{ id: string }>(
+      `insert into public.els_products
+         (owner_id, name, issue_date, principal, currency, evaluation_period_months,
+          annual_coupon_rate, account_type)
+       values ($1, '${AQ93}', '2026-10-16', 10000, 'USD', 6, 0.08, 'GENERAL')
+       returning id`,
+      [USER_A],
+    )
+    elsId = product.rows[0].id
+    await owner.query(
+      `insert into public.els_underlyings (els_id, asset_id, base_price, sequence) values ($1, $2, 100, 1)`,
+      [elsId, assetId],
+    )
+    await owner.query(
+      `insert into public.redemption_schedules (els_id, round_no, evaluation_date, barrier)
+       values ($1, 1, '2027-04-16', 0.90)`,
+      [elsId],
+    )
+
+    const first = await sessionAs(USER_A)
+    const second = await sessionAs(USER_A)
+    try {
+      await first.client.query('select public.update_els_product($1, $2::jsonb)', [
+        elsId,
+        JSON.stringify(productPayload(assetId, { name: AQ93, principal: '10000', currency: 'KRW' })),
+      ])
+      const attempt = track(
+        second.client.query(
+          `insert into public.redemptions
+             (els_id, redemption_type, round_no, redemption_date, gross_amount, taxable_income, is_confirmed)
+           values ($1, 'MATURITY_GAIN', null, '2027-04-20', 10400.50, 0, true)`,
+          [elsId],
+        ),
+      )
+      expect(await waitsOnLock(owner, second.pid, attempt.state), '둘째가 잠금을 기다리지 않았다').toBe(true)
+      await first.client.query('commit')
+      const outcome = await attempt.settled
+      // 잠금이 없으면 자릿수 트리거가 커밋 전의 달러로 통과시키고, 뒤의 상환 쪽 트리거만 기다린 뒤 커밋된다
+      expect(!outcome.ok && outcome.error.constraint).toBe('redemptions_gross_amount_scale')
+    } finally {
+      await second.client.query('rollback').catch(() => undefined)
+      await first.client.end()
+      await second.client.end()
+    }
+    const after = await owner.query<{ currency: string; redemptions: number }>(
+      `select p.currency::text as currency,
+              (select count(*) from public.redemptions r where r.els_id = p.id)::int as redemptions
+         from public.els_products p where p.id = $1`,
+      [elsId],
+    )
+    expect(after.rows[0]).toEqual({ currency: 'KRW', redemptions: 0 })
+  })
+
+  it('⑥ 기록(미커밋) ↔ 그 달 일정의 평가일 직접 수정 — 수정이 기다린 뒤 monthly_coupon_schedules_recorded_immutable로 거부된다', async () => {
+    await committedMonthly()
+    const first = await sessionAs(USER_A)
+    const second = await sessionAs(USER_A)
+    try {
+      await first.client.query(recordSixth, [elsId])
+      // 평가일만 하루 당긴다 — 지급일(2027-04-21) 이하라 monthly_coupon_schedules_payment_date_check는 걸리지 않는다.
+      // 기록 INSERT의 복합 FK가 거는 FOR KEY SHARE는 이 UPDATE(키 열 불변 → FOR NO KEY UPDATE)와 충돌하지 않는다 —
+      // 잠금이 없으면 기다릴 것이 없다
+      const attempt = track(
+        second.client.query(
+          `update public.monthly_coupon_schedules set evaluation_date = '2027-04-15'
+            where els_id = $1 and coupon_no = 6`,
+          [elsId],
+        ),
+      )
+      expect(await waitsOnLock(owner, second.pid, attempt.state), '둘째가 잠금을 기다리지 않았다').toBe(true)
+      await first.client.query('commit')
+      const outcome = await attempt.settled
+      expect(!outcome.ok && outcome.error.constraint).toBe('monthly_coupon_schedules_recorded_immutable')
+    } finally {
+      await second.client.query('rollback').catch(() => undefined)
+      await first.client.end()
+      await second.client.end()
+    }
+    const after = await owner.query<{ evaluation_date: string }>(
+      `select evaluation_date::text from public.monthly_coupon_schedules where els_id = $1 and coupon_no = 6`,
+      [elsId],
+    )
+    expect(after.rows[0].evaluation_date).toBe('2027-04-16')
   })
 })

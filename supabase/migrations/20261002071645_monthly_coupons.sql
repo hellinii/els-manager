@@ -9,7 +9,7 @@
 --   ③ `monthly_coupon_schedules`(계약 조건 — CASCADE) · `monthly_coupon_payments`(과세 이력 — RESTRICT)
 --      — RLS · 회수 후 명시 부여 · 정책 넷씩
 --   ④ 트리거 — 자릿수(기존 함수 확장) · 기록의 부모 셋 · 상환 쪽 둘 · 기록 뒤 동결 둘
---   ⑤ `redemptions_withholding_tax_check`(I-12 확장 — DQ-17 ④)
+--   ⑤ `redemptions_withholding_tax_check`(I-12 확장 — DQ-17 ④) · `redemption_schedules_round_no_check`(I-17 확장 — AQ-92)
 --   ⑥ 쓰기 함수 셋 — couponPayout(coalesce) · 월수익 일정(create insert · update delete + upsert) · 꼬리 검사 셋
 --
 -- ★ 부모 행 잠금 (AQ-93 결정 ⓐ). 교차 테이블 트리거는 각자 상대 테이블의 «커밋된» 상태만 본다(READ COMMITTED).
@@ -84,6 +84,20 @@ alter table public.redemptions
 
 comment on constraint redemptions_withholding_tax_check on public.redemptions is
   'I-12(v1.15 확장): 원천징수세액은 0 이상이다 — 월수익 지급 기록 쪽(I-26)과 대칭. NULL은 계약이 채운다.';
+
+-- ---------------------------------------------------------------------------
+-- ⑤-2 redemption_schedules — 차수 ≥ 1 (I-17 확장 · DOC-010 AQ-92 결정)
+--
+-- 계약은 차수를 1부터 연속으로 받지만(V-04) DB가 0 이하를 허용해, 계약 밖 쓰기로 들어온 차수 0이 적용 차수가
+-- 되면 grossExpected가 던졌다 — 지금까지의 방어는 평가 순서였다(b0 — 귀속연도를 산식보다 먼저 본다). 새 두
+-- 테이블의 coupon_no >= 1과 같은 부류를 기존 테이블에서도 닫는다. 연속성은 여전히 계약만 본다(1, 2, 99 허용).
+-- 운영 읽기 전용 감사(2026-10-02): 차수 156행 · round_no <= 0 0건 · 최솟값 1 — 검증이 기존 행에 걸리지 않는다.
+-- ---------------------------------------------------------------------------
+alter table public.redemption_schedules
+  add constraint redemption_schedules_round_no_check check (round_no >= 1);
+
+comment on constraint redemption_schedules_round_no_check on public.redemption_schedules is
+  'I-17(v1.18 확장): 차수는 1 이상이다 — 연속성(1..N)은 계약 계층(V-04)만 본다. monthly_coupon_*.coupon_no >= 1과 같은 방어.';
 
 -- ---------------------------------------------------------------------------
 -- ③-1 monthly_coupon_schedules — 월수익 일정 (DOC-002 §4.13 · I-24)
@@ -180,8 +194,10 @@ comment on table public.monthly_coupon_payments is
 -- ---------------------------------------------------------------------------
 -- ④-1 I-21 — 자릿수 트리거를 둘째 테이블에 건다 (기존 함수 확장, 서명 불변 → ACL 유지)
 --
--- 바뀐 것 셋: ⓐ 부모 행 잠금(AQ-93 — 이 트리거가 두 테이블에서 부모를 가장 먼저 읽는다) ⓑ gross_amount가
--- NULL이면 통과(UNPAID — redemptions의 그 열은 NOT NULL이라 동작 불변) ⓒ 라벨을 테이블마다 리터럴로 낸다.
+-- 바뀐 것 넷: ⓐ 부모 행 잠금(AQ-93 — 이 트리거가 두 테이블에서 부모를 가장 먼저 읽는다) ⓑ gross_amount가
+-- NULL이면 통과(UNPAID — redemptions의 그 열은 NOT NULL이라 동작 불변) ⓒ 라벨을 테이블마다 리터럴로 낸다
+-- ⓓ 부모가 없으면 통과 — els_id FK가 23503으로 거부한다(종전에는 통화가 NULL이 되어 아래 fail-closed가 scale
+-- 라벨로 거부했다. 원인을 틀리게 말하는 라벨이었다 — DOC-002 v1.18).
 -- ---------------------------------------------------------------------------
 create or replace function public.check_amount_scale_by_currency()
 returns trigger
@@ -204,7 +220,13 @@ begin
 
   select p.currency into v_currency from public.els_products p where p.id = new.els_id;
 
-  -- 부모가 없으면 FK 가 거부한다. 알 수 없는 통화는 거부한다(fail-closed).
+  -- 부모가 없다 — els_id FK(AFTER)가 23503으로 거부하게 둔다. 판정은 위 잠금이 아니라 이 SELECT의 FOUND로 한다:
+  -- RLS 아래 for update는 비소유자에게 행을 걸러 내므로 「못 잠갔다」는 「없다」가 아니다(SELECT는 using (true))
+  if not found then
+    return new;
+  end if;
+
+  -- 알 수 없는 통화는 거부한다(fail-closed).
   v_max_scale := case v_currency when 'KRW' then 0 when 'USD' then 2 end;
 
   -- 책임을 CHECK와 가른다: 전역 한도(소수 2자리 초과 · 정수부 15자리)는 *_gross_amount_digits_check가 보고하게

@@ -420,7 +420,11 @@ export function requireRatio(
   rule: RuleId,
   field: string,
   value: unknown,
-  options: { label: string; min: 'positive' | 'zero' },
+  /**
+   * `max: 1` — 상한이 1(100%)인 비율(월수익 배리어 — V-26). 일반 상한 2보다 **먼저** 본다 — 뒤에 따로 보면 2를 넘는
+   * 값에 「2 이하」가 나가 실제 상한을 틀리게 말한다(P8 컷 b2-5 — 반박 검토)
+   */
+  options: { label: string; min: 'positive' | 'zero'; max?: 1 },
 ): string | null {
   if (typeof value !== 'string' || value.trim() === '') {
     p.add(rule, field, `${options.label}을(를) 입력한다.`)
@@ -434,6 +438,10 @@ export function requireRatio(
   const ratio = dec(value)
   if (options.min === 'positive' && !ratio.gt(0)) {
     p.add(rule, field, `${options.label}은(는) 0보다 커야 한다.`)
+    return null
+  }
+  if (options.max === 1 && ratio.gt(1)) {
+    p.add(rule, field, `${options.label}은(는) 1 이하여야 한다(100%). 90%는 0.9로 입력한다.`)
     return null
   }
   if (ratio.gt(2)) {
