@@ -131,3 +131,51 @@ export function priceMap(
     ]),
   )
 }
+
+/**
+ * 월지급식 상품 행 (P8 컷 b2) — EM2048 꼴의 날짜. 발행 2026-10-16, k번째 달 평가일 = 발행일 + k개월(16일), 지급일 =
+ * 평가일 + 3일. 6번째 달(2027-04-16)이 1차 조기상환 평가일과 같은 날이다. 기록 · 상환은 인자로 준다.
+ */
+export function monthlyProductRow(overrides: Partial<ProductRow> = {}): ProductRow {
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(Date.UTC(2026, 10 + index, 16))
+    const pay = new Date(Date.UTC(2026, 10 + index, 19))
+    return {
+      coupon_no: index + 1,
+      evaluation_date: date.toISOString().slice(0, 10),
+      payment_date: pay.toISOString().slice(0, 10),
+      coupon_barrier: '0.6000',
+    }
+  })
+  return productRow({
+    issue_date: '2026-10-16',
+    annual_coupon_rate: '0.0000',
+    coupon_payout: 'MONTHLY',
+    monthly_coupon_annual_rate: '0.0720',
+    redemption_schedules: [
+      schedule({ round_no: 1, evaluation_date: '2027-04-16' }),
+      schedule({ round_no: 2, evaluation_date: '2027-10-18' }),
+    ],
+    monthly_coupon_schedules: months,
+    ...overrides,
+  })
+}
+
+/** 월수익 지급 기록 행 — 기본은 1번째 달의 지급 600,000원 */
+export function couponPayment(
+  overrides: Partial<ProductRow['monthly_coupon_payments'][number]> = {},
+): ProductRow['monthly_coupon_payments'][number] {
+  return {
+    id: 'payment-1',
+    coupon_no: 1,
+    outcome: 'PAID',
+    payment_date: '2026-11-19',
+    gross_amount: '600000',
+    taxable_income: '600000',
+    withholding_tax: '92400',
+    exchange_rate: null,
+    is_confirmed: true,
+    note: null,
+    ...overrides,
+  }
+}

@@ -116,6 +116,27 @@ const EXCHANGE_RATE_WIDE = [
   'getForecast',
 ] as const satisfies readonly QueryName[]
 
+/**
+ * 월수익 지급 기록을 바꾸는 것들이 공유하는 축 — §5.14 · §5.15 (P8 컷 b2 · DOC-011 §5.14 각주). **세금이 «있다».**
+ *
+ * 판정 기준은 그대로 「어느 입력을 읽는가」다 — 기록은 그 달의 사건을 바꾼다(`PAID`면 확정 사건, `UNPAID`면 사건 없음).
+ * 그 사건 집합을 읽는 것이 상세(월수익 행 · 손익) · 목록(진행) · 홈(받은 월수익 · 미기록 주의 · 올해 세금) · 세금 ·
+ * 사용자별 현황 · 전망이다. **들지 않는 것**: `listSchedule`(조기상환 차수만) · `listAssetPrices` · `searchAssets` ·
+ * `listExchangeRates`(기록은 상환 여부를 바꾸지 않으므로 「미상환」 수가 그대로다). `listMonthlyCouponSchedule`은 그
+ * 계약이 서는 컷 b3에서 더한다.
+ *
+ * ★ 표시 필드의 일부는 b3 · b4에 선다 — 그래도 축은 지금 «읽는 입력»으로 정한다. 지금 좁히면 b3가 표시를 더하는 날
+ * 이 축을 넓히는 것을 잊고, 그때 화면이 낡는다(무효화는 부족할 때만 틀린다 — 위 머리글).
+ */
+const COUPON_RECORD_WIDE = [
+  'getProduct',
+  'listProducts',
+  'getDashboard',
+  'getTaxSummary',
+  'listUserSummaries',
+  'getForecast',
+] as const satisfies readonly QueryName[]
+
 /** 시세를 바꾸는 것들이 공유하는 축. 세금이 없는 것이 요점이다. */
 const PRICE_WIDE = [
   'listAssetPrices',
@@ -218,6 +239,11 @@ export const INVALIDATION = {
   // §5.13 — 수동 환율. **세금이 있다**(위 `EXCHANGE_RATE_WIDE`). `refreshPrices`와 반대 방향이며
   // `tests/app/invalidation.test.ts`가 두 방향을 함께 박는다
   saveExchangeRate: { affects: [...EXCHANGE_RATE_WIDE] },
+
+  // §5.14 · §5.15 — 월수익 기록 셋. 위 `COUPON_RECORD_WIDE` — 세금이 있다
+  recordCouponPayments: { affects: [...COUPON_RECORD_WIDE] },
+  updateCouponPayment: { affects: [...COUPON_RECORD_WIDE] },
+  deleteCouponPayments: { affects: [...COUPON_RECORD_WIDE] },
 } as const satisfies Record<MutationName, InvalidationRule>
 
 /**

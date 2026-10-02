@@ -52,6 +52,8 @@ export function constraintNameOf(error: DbErrorLike): string | null {
 
 /** `23502`만 `message`에 열 이름을 담는다(실측). 나머지 값 오류는 열을 말하지 않는다. */
 const NOT_NULL_COLUMN = /null value in column "([^"]+)"/
+/** 같은 문구의 테이블 — `… of relation "<테이블>" violates …` (PostgreSQL 12+) */
+const NOT_NULL_RELATION = /of relation "([^"]+)"/
 
 // ---------------------------------------------------------------------------
 // SQLSTATE 기본값
@@ -538,6 +540,26 @@ const NOT_NULL_FIELD: Record<string, string> = {
   health_insurance_type: 'healthInsuranceType',
 }
 
+/**
+ * **테이블로 먼저 가르는** 널 위반 — 같은 열 이름이 테이블마다 다른 칸이다 (P8 컷 b2 · DOC-011 §3.2.1 「`fields` 키」).
+ *
+ * 월수익 일정의 열(`evaluation_date` · `payment_date` · …)은 `couponSchedules`여야 한다 — 열 이름만 보면 조기상환
+ * 일정의 `evaluationDate`로 사상되어 오류가 엉뚱한 표에 붙는다. 기록의 `outcome` · `is_confirmed`는 그 칸 그대로다.
+ * 정상 경로에서는 계약 계층이 먼저 막아 도달하지 않는다(직접 호출 · 회귀의 그물).
+ */
+const NOT_NULL_FIELD_BY_TABLE: Record<string, Readonly<Record<string, string>> | string> = {
+  monthly_coupon_schedules: 'couponSchedules',
+  monthly_coupon_payments: { outcome: 'outcome', is_confirmed: 'isConfirmed' },
+}
+
+function notNullFieldOf(column: string | undefined, relation: string | undefined): string | undefined {
+  if (column == null) return undefined
+  const byTable = relation == null ? undefined : NOT_NULL_FIELD_BY_TABLE[relation]
+  if (typeof byTable === 'string') return byTable
+  if (byTable != null) return byTable[column]
+  return NOT_NULL_FIELD[column]
+}
+
 // ---------------------------------------------------------------------------
 // 매핑
 // ---------------------------------------------------------------------------
@@ -595,7 +617,8 @@ export function mapDbError(error: DbErrorLike, what: string): ActionError {
 
   if (sqlstate === '23502') {
     const column = NOT_NULL_COLUMN.exec(error.message ?? '')?.[1]
-    const field = column == null ? undefined : NOT_NULL_FIELD[column]
+    const relation = NOT_NULL_RELATION.exec(error.message ?? '')?.[1]
+    const field = notNullFieldOf(column, relation)
     const message = '필수 입력값이 비어 있다.'
     if (field != null) return { code: fallback, message, fields: { [field]: message } }
     report(`${what} — 널 위반의 열을 필드로 사상할 수 없다(${column ?? '?'})`, error)

@@ -299,6 +299,17 @@ export function overdueEvaluations<
  * `number`이고, 방어를 쓸 자리가 아예 없어진다. 함수 본문은 바뀌지 않았다
  * (동작 불변이며, `redemptionDate`가 이긴다는 우선순위도 그대로다).
  */
+/**
+ * 월수익의 귀속연도 — **월수익 지급일의 연도**다 (DOC-005 「월수익 지급일」 · DOC-002 D-09 · P8 컷 b2).
+ *
+ * 상환의 귀속(`attributionYear` — 상환일)과 같은 형태이고 기준 날짜만 다르다. 12월에 평가되고 1월에 지급되는 달은
+ * **다음 해**다 — 평가일로 귀속하면 그 달의 과세가 한 해 앞당겨진다(DOC-011 §4.0 규칙 1 · SB-5). 형식이 아니면
+ * `RangeError`다(§3.2.2 1행 — 호출부가 그 날짜 칸의 검증 오류로 옮긴다).
+ */
+export function couponAttributionYear(paymentDate: string): number {
+  return parseIsoDate(paymentDate).year
+}
+
 export function attributionYear(params: {
   redemptionDate: string
   evaluationDate?: string | null

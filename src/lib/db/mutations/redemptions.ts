@@ -1,4 +1,4 @@
-import { attributionYear } from '@/lib/domain'
+import { attributionYear, couponAttributionYear } from '@/lib/domain'
 import { separateTaxationWithholding } from '@/lib/tax'
 
 import {
@@ -19,6 +19,7 @@ import {
   type Access,
 } from './access'
 import type { MutationContext } from './context'
+import { couponMonthLabel, latestRecordedMonth } from './couponMonths'
 import { failDb } from './errors'
 import { guardInput, guardSystem, guardSystemAsync } from './guard'
 import { toInsert, toUpdate } from './payload'
@@ -96,17 +97,31 @@ async function taxYearForWithholding(
  * `string`으로 두지 않는 이유는 오류 문구 · 귀속 규칙을 칸마다 정해야 하기 때문이다 — 아래 두 표가 그 정의이고,
  * 칸을 더하면 두 표가 함께 컴파일을 요구한다.
  */
-export type WithholdingDateField = 'redemptionDate'
+export type WithholdingDateField = 'redemptionDate' | 'paymentDate'
 
-/** 날짜 칸 → 귀속연도. 상환일은 그 날짜의 연도다(DOC-007 §7.2) */
+/**
+ * 날짜 칸 → 귀속연도. 상환일은 그 날짜의 연도다(DOC-007 §7.2). **월수익 지급일도 그 날짜의 연도다**(P8 컷 b2 —
+ * DOC-011 §5.14 · DOC-005 「월수익 지급일」) — 평가일이 아니다(12월 평가 · 1월 지급이면 다음 해)
+ */
 const ATTRIBUTION_BY_FIELD: Readonly<Record<WithholdingDateField, (date: string) => number>> = {
   redemptionDate: (date) => attributionYear({ redemptionDate: date }),
+  paymentDate: (date) => couponAttributionYear(date),
 }
 
 /** 날짜 칸 → 형식 오류 문구(§3.2.2 1행) */
 const DATE_MESSAGE_BY_FIELD: Readonly<Record<WithholdingDateField, string>> = {
   redemptionDate: '상환일을 YYYY-MM-DD 형식으로 입력한다.',
+  paymentDate: '월수익 지급일을 YYYY-MM-DD 형식으로 입력한다.',
 }
+
+/**
+ * 연도별 세율 조회의 캐시 — **한 요청 안에서만** 산다 (§5.14 「연도별로 세율을 한 번씩 읽는다」 · P8 컷 b2).
+ *
+ * 월수익 일괄 기록은 원천징수를 비운 행마다 이 기본값을 지나는데, 행마다 세율을 읽으면 12월 · 1월에 걸친 60건이 60
+ * 왕복이 된다. 값은 옳다 — 그래서 이 캐시가 지키는 것은 §5.0.1의 왕복 예산뿐이다. 실패(시드 없는 해)도 캐시한다 —
+ * 같은 해의 둘째 행이 같은 오류를 다시 묻지 않는다.
+ */
+export type TaxYearCache = Map<number, Promise<Access<TaxYearContext>>>
 
 /**
  * **§5.11이 이 함수를 공유한다.** 산출을 복제하면 두 계약이 다른 상수·다른 연도·
@@ -121,6 +136,7 @@ export async function withholdingFor(
   ctx: MutationContext,
   input: { date: string; taxableIncome: string; withholdingTax?: string },
   dateField: WithholdingDateField,
+  cache?: TaxYearCache,
 ): Promise<Access<string>> {
   if (input.withholdingTax != null) return { ok: true, value: input.withholdingTax }
 
@@ -139,7 +155,12 @@ export async function withholdingFor(
   const attributionTo = year.value
 
   // 예외 두 종이 다른 코드로 간다 — 위 함수의 각주(§5.4 v1.7).
-  const context = await taxYearForWithholding(ctx, attributionTo)
+  let pending = cache?.get(attributionTo)
+  if (pending == null) {
+    pending = taxYearForWithholding(ctx, attributionTo)
+    cache?.set(attributionTo, pending)
+  }
+  const context = await pending
   if (!context.ok) return { ok: false, error: context.error }
 
   const constants = guardSystem(
@@ -195,6 +216,17 @@ function validateAgainstProduct(
   // V-24 ⓐ — 「외화 상품에만」. 원화 상품에 적용 환율을 받으면 저장되지 않을 값을 조용히 버린다
   if (input.exchangeRate != null && product.currency === 'KRW') {
     p.add('V-24', 'exchangeRate', '원화 상품에는 적용 환율을 적지 않는다.')
+  }
+
+  // V-27 양방향 (P8 컷 b2 — DOC-011 §5.4 · §5.5) — 상환일 ≥ 기록된 달(지급 · 미지급)들의 월수익 평가일 최댓값.
+  // 상환 뒤에 평가되는 월수익은 없다 — 기록 쪽(§5.14)과 같은 사실을 반대에서 본다. DB 겹 `redemptions_before_coupon_payment`
+  const latest = latestRecordedMonth(product)
+  if (latest != null && input.redemptionDate < latest.evaluationDate) {
+    p.add(
+      'V-27',
+      'redemptionDate',
+      `상환일이 기록된 달의 월수익 평가일보다 앞설 수 없다 — ${couponMonthLabel(latest.couponNo, latest.evaluationDate)}의 기록이 있다.`,
+    )
   }
 
   // V-10은 **비교 대상이 있을 때만** 검사한다. 기실현 등재는 발행일을 입력받지

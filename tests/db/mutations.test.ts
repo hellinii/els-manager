@@ -43,10 +43,14 @@ const CONTRACTS = [
   ['§5.11', 'createRealizedProduct'],
   ['§5.12', 'saveProviderSymbol'],
   ['§5.13', 'saveExchangeRate'],
+  // P8 컷 b2 — 월수익 기록 셋
+  ['§5.14', 'recordCouponPayments'],
+  ['§5.15', 'updateCouponPayment'],
+  ['§5.15', 'deleteCouponPayments'],
 ] as const
 
 describe('계약 집합이 §5와 일치한다', () => {
-  it('14개이며 이름이 문서와 같다', () => {
+  it('17개이며 이름이 문서와 같다', () => {
     const mutations = createMutations(CONTEXT)
     expect(Object.keys(mutations).sort()).toEqual(CONTRACTS.map(([, name]) => name).sort())
   })

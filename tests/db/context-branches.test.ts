@@ -82,7 +82,7 @@ describe('mutationsFor — 변경은 값을 준다 (W-03)', () => {
     const keys = Object.keys(createUnauthenticatedMutations()) as Array<
       keyof typeof mutations
     >
-    expect(keys).toHaveLength(14) // P5a 컷 2b — §5.12가 더해져 12 → 13 · P8 컷 a3 — §5.13이 더해져 13 → 14
+    expect(keys).toHaveLength(17) // P5a 컷 2b — §5.12가 더해져 12 → 13 · P8 컷 a3 — §5.13이 더해져 13 → 14 · P8 컷 b2 — §5.14 · §5.15가 더해져 14 → 17
 
     for (const key of keys) {
       const result = await (mutations[key] as () => Promise<unknown>)()

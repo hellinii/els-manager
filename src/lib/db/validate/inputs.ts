@@ -1,11 +1,12 @@
 import type { HealthInsuranceType } from '@/lib/tax'
 
 import { dec } from '@/lib/decimal'
-import { COUPON_PAYOUT_ORDER } from '@/lib/domain/coupon'
+import { COUPON_OUTCOMES, COUPON_PAYOUT_ORDER, MAX_COUPON_SCHEDULES } from '@/lib/domain/coupon'
 import { FOREIGN_CURRENCIES } from '@/lib/domain/currency'
 
 import type {
   AssetInput,
+  CouponPaymentInput,
   CouponScheduleInput,
   ExchangeRateInput,
   ManualPriceInput,
@@ -394,6 +395,124 @@ export function parseProductInput(p: Problems, raw: unknown): ProductInput | nul
 
   validateProductCrossFields(p, input)
   return p.isEmpty ? input : null
+}
+
+// ---------------------------------------------------------------------------
+// 월수익 지급 기록 — §5.14 · §5.15 (P8 컷 b2)
+// ---------------------------------------------------------------------------
+
+/** 순번을 뺀 기록 한 건 — §5.15 수정의 입력이다(순번 · 상품은 바꾸지 않는다) */
+export type CouponPaymentFields = Omit<CouponPaymentInput, 'couponNo'>
+
+/**
+ * 기록 한 건의 **형태** — 부모 상품 없이 말할 수 있는 것만 본다(V-20′ · V-28 · V-11 · V-19 · V-24 ⓐ의 수치).
+ *
+ * 오류 경로는 `at` 접두가 붙는다 — §5.14는 `entries[i].`, §5.15는 빈 접두다(한 행이다). 행 단위 키를 내는 것은 이
+ * 계약 계층뿐이다 — DB 오류는 몇 번째 행인지 말하지 않는다(DOC-011 §5.14 「오류 경로는 행 단위」).
+ *
+ * 부모를 봐야 하는 것(V-27 전부 · V-28의 기준일 · 그 달 평가일 · 지급일 중복 · V-23 자릿수 · V-24 ⓐ의 「외화
+ * 상품에만」)은 변경 계층(`mutations/coupons.ts`)이 사전 조회 뒤에 본다 — 상환의 `validateAgainstProduct`와 같은 자리다.
+ */
+export function parseCouponPaymentFields(
+  p: Problems,
+  raw: Record<string, unknown>,
+  at: string,
+): CouponPaymentFields | null {
+  const outcome = requireEnum(p, 'V-28', `${at}outcome`, raw.outcome, COUPON_OUTCOMES, '지급 여부')
+  const isConfirmed = requireBoolean(p, 'V-19', `${at}isConfirmed`, raw.isConfirmed, '확정값 여부')
+  const note = optionalString(p, 'V-19', `${at}note`, raw.note, { label: '비고' })
+  if (outcome == null || isConfirmed == null || note === null) return null
+
+  if (outcome === 'UNPAID') {
+    // I-26 — 미지급은 금액 · 지급일 · 과세 · 원천징수 · 환율이 전부 없다. 「지급되지 않았다」가 그 달의 사실이다
+    const absent: Array<[string, string]> = [
+      ['paymentDate', '월수익 지급일'],
+      ['grossAmount', '월수익(세전)'],
+      ['taxableIncome', '과세 금융소득'],
+      ['withholdingTax', '원천징수세액'],
+      ['exchangeRate', '적용 환율'],
+    ]
+    for (const [name, label] of absent) {
+      const value = raw[name]
+      if (value != null && value !== '') {
+        p.add('V-28', `${at}${name}`, `미지급에는 ${label}을(를) 적지 않는다.`)
+      }
+    }
+    const fields: CouponPaymentFields = { outcome, isConfirmed }
+    if (note != null) fields.note = note
+    return p.isEmpty ? fields : null
+  }
+
+  // PAID — 지급일 · 세전 · 과세가 필수다(V-28). 세전의 자릿수는 부모 통화로 변경 계층이 본다(V-23)
+  const paymentDate = requireIsoDate(p, 'V-28', `${at}paymentDate`, raw.paymentDate, '월수익 지급일')
+  const grossAmount = requireAmount(p, 'V-28', `${at}grossAmount`, raw.grossAmount, {
+    label: '월수익(세전)',
+    min: 'positive',
+  })
+  // V-11 — 과세 축은 언제나 원화 정수다(A-04 · M-08 ⓑ — 달러 상품은 거래내역의 원화 값)
+  const taxableIncome = requireAmount(p, 'V-11', `${at}taxableIncome`, raw.taxableIncome, {
+    label: '과세 금융소득',
+    min: 'zero',
+    integer: true,
+  })
+  const withholdingTax = optionalAmount(p, 'V-19', `${at}withholdingTax`, raw.withholdingTax, {
+    label: '원천징수세액',
+    min: 'zero',
+    integer: true,
+  })
+  const exchangeRate = optionalExchangeRate(p, `${at}exchangeRate`, raw.exchangeRate, '적용 환율')
+
+  if (!allPresent([paymentDate, grossAmount, taxableIncome, withholdingTax, exchangeRate])) {
+    return null
+  }
+
+  const fields: CouponPaymentFields = {
+    outcome,
+    paymentDate: paymentDate!,
+    grossAmount: grossAmount!,
+    taxableIncome: taxableIncome!,
+    isConfirmed,
+  }
+  if (withholdingTax != null) fields.withholdingTax = withholdingTax
+  if (exchangeRate != null) fields.exchangeRate = exchangeRate
+  if (note != null) fields.note = note
+  return fields
+}
+
+/**
+ * §5.14의 입력 — `{ entries }` 1..60건. 원소마다 순번(V-20′ — `null`이면 순번 없음)과 형태를 본다.
+ * **원소 하나라도 형태가 깨지면 `null`이다** — 없는 값으로 부모와 대조하면 위반이 아니라 잡음이 된다(상품 입력과 같은 규약).
+ */
+export function parseCouponPaymentEntries(
+  p: Problems,
+  raw: unknown,
+): CouponPaymentInput[] | null {
+  if (!isPlainObject(raw) || !Array.isArray(raw.entries)) {
+    p.add('V-27', 'entries', '기록할 달을 1건 이상 고른다.')
+    return null
+  }
+  const entries = raw.entries
+  if (entries.length === 0 || entries.length > MAX_COUPON_SCHEDULES) {
+    p.add('V-27', 'entries', `월수익 기록은 한 번에 1~${MAX_COUPON_SCHEDULES}건이다.`)
+    return null
+  }
+
+  const parsed = entries.map((item, index): CouponPaymentInput | null => {
+    const at = `entries[${index}].`
+    if (!isPlainObject(item)) {
+      p.add('V-28', `entries[${index}]`, '월수익 기록 입력 형식이 올바르지 않다.')
+      return null
+    }
+    const couponNo =
+      item.couponNo == null
+        ? null
+        : requireInt(p, 'V-20', `${at}couponNo`, item.couponNo, { label: '월수익 순번', min: 1 })
+    const fields = parseCouponPaymentFields(p, item, at)
+    if (fields == null || (item.couponNo != null && couponNo == null)) return null
+    return { couponNo, ...fields }
+  })
+
+  return parsed.every((item) => item !== null) ? (parsed as CouponPaymentInput[]) : null
 }
 
 // ---------------------------------------------------------------------------

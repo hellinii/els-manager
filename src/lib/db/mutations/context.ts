@@ -1,5 +1,6 @@
 import type { UserSessionClient } from '../client'
 import { makeAssetMutations } from './assets'
+import { makeCouponMutations } from './coupons'
 import { makePriceMutations } from './prices'
 import { makeProductMutations } from './products'
 import { makeProfileMutations } from './profile'
@@ -31,18 +32,20 @@ export type MutationContext = {
 }
 
 /**
- * §5.1~§5.13의 계약 **14개** (§5.5가 두 개다).
+ * §5.1~§5.15의 계약 **17개** (§5.5가 두 개 · §5.15가 두 개다).
  *
  * ★ 종전 주석은 「§5.1~§5.10의 계약 11개」였고 **이미 낡아 있었다** — §5.11
  * (`createRealizedProduct`)이 P6 컷 5에서 생겨 12였다. 그 수를 아무 단언도 보지
  * 않으므로 조용히 낡았다. P5a 컷 2b가 §5.12를 더해 13이 됐고, P8 컷 a3의 §5.13
- * (`saveExchangeRate`)이 14로 만들었다 — 이 주석을 함께 고친다.
+ * (`saveExchangeRate`)이 14로 만들었다 — 이 주석을 함께 고친다. P8 컷 b2의 §5.14 · §5.15(셋 — 월수익 기록 ·
+ * 수정 · 삭제)가 17로 만들었다.
  */
 export type Mutations = ReturnType<typeof makeProductMutations> &
   ReturnType<typeof makeRedemptionMutations> &
   ReturnType<typeof makeProfileMutations> &
   ReturnType<typeof makePriceMutations> &
-  ReturnType<typeof makeAssetMutations>
+  ReturnType<typeof makeAssetMutations> &
+  ReturnType<typeof makeCouponMutations>
 
 export function createMutations(ctx: MutationContext): Mutations {
   assertContext(ctx)
@@ -53,6 +56,7 @@ export function createMutations(ctx: MutationContext): Mutations {
     ...makeProfileMutations(ctx),
     ...makePriceMutations(ctx),
     ...makeAssetMutations(ctx),
+    ...makeCouponMutations(ctx),
   }
 }
 
@@ -85,6 +89,9 @@ export function createUnauthenticatedMutations(): Mutations {
     saveProviderSymbol: async () => unauthenticated(),
     createAsset: async () => unauthenticated(),
     saveExchangeRate: async () => unauthenticated(),
+    recordCouponPayments: async () => unauthenticated(),
+    updateCouponPayment: async () => unauthenticated(),
+    deleteCouponPayments: async () => unauthenticated(),
   }
 }
 

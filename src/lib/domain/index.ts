@@ -28,6 +28,7 @@ export { evaluateCondition, type ConditionParams } from './condition'
 
 export {
   attributionYear,
+  couponAttributionYear,
   dDay,
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,

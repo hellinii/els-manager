@@ -1,4 +1,4 @@
-import type { CouponPayout } from '@/lib/domain/coupon'
+import type { CouponOutcome, CouponPayout } from '@/lib/domain/coupon'
 import type { ForeignCurrency, ProductCurrency } from '@/lib/domain/currency'
 import type { HealthInsuranceType } from '@/lib/tax'
 import type { FailureClass } from '@/lib/providers/types'
@@ -109,6 +109,28 @@ export type RealizedProductInput = {
   taxableIncome: string
   withholdingTax?: string
   /** 적용 환율 — 참고값, 외화 상품에만(V-24) */
+  exchangeRate?: string
+  isConfirmed: boolean
+  note?: string
+}
+
+/**
+ * §5.14 월수익 한 달의 지급 기록 (DOC-005 「월수익 지급 기록」 · DOC-002 §4.14 · P8 컷 b2). `RedemptionInput`의 짝이다.
+ *
+ * 금액은 상환과 같은 두 부류다(M-08) — `grossAmount`는 **부모 상품의** 통화(V-23), 과세 둘은 원화 정수(V-11 · V-19).
+ * 지급(`PAID`)은 지급일 · 세전 · 과세가 필수이고 미지급(`UNPAID`)은 그 다섯이 없다(V-28 · I-26).
+ */
+export type CouponPaymentInput = {
+  /** 월수익 순번. `FULL`이면 일정에 있는 순번, 기실현이면 `null` (V-27) */
+  couponNo: number | null
+  outcome: CouponOutcome
+  /** `PAID`면 필수 · `UNPAID`면 없다 (V-28). 귀속연도의 기준이다 */
+  paymentDate?: string
+  grossAmount?: string
+  taxableIncome?: string
+  /** `PAID`이고 없으면 계약이 지급일 연도의 분리과세율로 채운다(§5.14) */
+  withholdingTax?: string
+  /** 적용 환율(참고) — 외화 상품의 `PAID`만 (V-24 ⓐ). 어떤 계산에도 쓰지 않는다 */
   exchangeRate?: string
   isConfirmed: boolean
   note?: string

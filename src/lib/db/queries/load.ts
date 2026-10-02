@@ -219,6 +219,26 @@ export async function loadRedemptionRef(
   return data == null ? null : { id: data.id, elsId: data.els_id }
 }
 
+/**
+ * 월수익 지급 기록 id → 부모 상품 id (P8 컷 b2 — §5.15 `updateCouponPayment`).
+ *
+ * `loadRedemptionRef`와 같은 판단이다 — 상품까지 임베드해 한 왕복으로 줄이면 `PRODUCT_SELECT`를 이 방향으로 한 번 더
+ * 적어야 하고 열 사양의 출처가 둘이 된다. 왕복 하나를 더 쓰고 `loadProduct`(사전 조회)를 그대로 재사용한다.
+ */
+export async function loadCouponPaymentRef(
+  ctx: QueryContext,
+  id: string,
+): Promise<{ id: string; elsId: string; couponNo: number | null } | null> {
+  const { data, error } = await ctx.db
+    .from('monthly_coupon_payments')
+    .select('id,els_id,coupon_no')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (error != null) fail('월수익 지급 기록', error)
+  return data == null ? null : { id: data.id, elsId: data.els_id, couponNo: data.coupon_no }
+}
+
 // ---------------------------------------------------------------------------
 // 평가일정 — 루트가 차수다
 // ---------------------------------------------------------------------------

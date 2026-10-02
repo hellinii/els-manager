@@ -64,6 +64,9 @@ export const RULE_IDS = [
   // V-29(월지급식 상환은 원금만)는 b4에 붙는다 — §6은 이 순서를 V-24 뒤에 그대로 둔다(DOC-011 §6 말미)
   'V-25',
   'V-26',
+  // 기록 계약(§5.14 · §5.15)과 함께 섰다 — V-27(기록 대상 · 상환 쪽 양방향) · V-28(지급 · 미지급의 형태)
+  'V-27',
+  'V-28',
 ] as const
 
 export type RuleId = (typeof RULE_IDS)[number]

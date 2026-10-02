@@ -3,6 +3,7 @@
 import type { ActionResult } from '@/lib/db/mutations/result'
 import type {
   AssetInput,
+  CouponPaymentInput,
   ExchangeRateInput,
   ManualPriceInput,
   ProductInput,
@@ -15,11 +16,12 @@ import type {
 import { getMutations } from '@/lib/db/server'
 
 /**
- * 서버 액션 — DOC-011 §5의 계약 **14개**를 프레임워크에 노출한다
+ * 서버 액션 — DOC-011 §5의 계약 **17개**를 프레임워크에 노출한다
  *
  * ★ 종전 머리글은 「11개」였고 **낡아 있었다** — §5.11이 P6 컷 5에서, §5.12가
  * P5a 컷 2b에서 생겼다. 그 수를 어느 단언도 보지 않으므로 조용히 낡는다
  * (`mutations/context.ts`의 같은 주석이 같은 이유로 낡아 있었다). §5.13이 P8 컷 a3에서 14로 만들었다.
+ * §5.14 · §5.15(셋)가 P8 컷 b2에서 17로 만들었다 — 화면(SCR-206)은 컷 b3이다.
  *
  * ## 얇게 유지한다
  *
@@ -138,4 +140,32 @@ export async function saveExchangeRate(
   input: ExchangeRateInput,
 ): Promise<ActionResult<void>> {
   return (await getMutations()).saveExchangeRate(input)
+}
+
+// ---------------------------------------------------------------------------
+// §5.14 · §5.15 월수익 기록 (P8 컷 b2 — 화면 SCR-206은 컷 b3)
+// ---------------------------------------------------------------------------
+
+/** §5.14 — 1..60건을 한 번에. 만든 기록의 id를 입력 순서로 돌려준다 */
+export async function recordCouponPayments(
+  productId: string,
+  input: { entries: CouponPaymentInput[] },
+): Promise<ActionResult<{ ids: string[] }>> {
+  return (await getMutations()).recordCouponPayments(productId, input)
+}
+
+/** §5.15 — 한 기록의 전체 교체. 순번 · 상품은 바꾸지 않는다 */
+export async function updateCouponPayment(
+  id: string,
+  input: Omit<CouponPaymentInput, 'couponNo'>,
+): Promise<ActionResult<void>> {
+  return (await getMutations()).updateCouponPayment(id, input)
+}
+
+/** §5.15 — 한 상품의 기록 1..60건을 한 문장으로 지운다. 「월수익 기록 전부 지우기」도 이것이다 */
+export async function deleteCouponPayments(
+  productId: string,
+  input: { ids: string[] },
+): Promise<ActionResult<void>> {
+  return (await getMutations()).deleteCouponPayments(productId, input)
 }

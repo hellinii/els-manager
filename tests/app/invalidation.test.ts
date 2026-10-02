@@ -112,7 +112,8 @@ describe('전수', () => {
     // (P6 컷 5에서 §5.11 `createRealizedProduct`가 더해져 11 → 12,
     //  P5a 컷 2b에서 §5.12 `saveProviderSymbol`이 더해져 12 → 13,
     //  P8 컷 a3에서 §5.13 `saveExchangeRate`가 더해져 13 → 14)
-    expect(MUTATION_NAMES).toHaveLength(14)
+    // P8 컷 b2 — §5.14 · §5.15가 더해져 14 → 17
+    expect(MUTATION_NAMES).toHaveLength(17)
     expect(Object.keys(INVALIDATION).sort()).toEqual([...MUTATION_NAMES].sort())
   })
 
@@ -168,12 +169,16 @@ describe('전수', () => {
       // 즉시 바뀐다. 여덟째가 되면서도 **두 집합의 동일성은 유지된다**(위 단언).
       'createRealizedProduct',
       'createRedemption',
+      // P8 컷 b2 — 월수익 기록 셋(COUPON_RECORD_WIDE). 기록이 그 달의 사건을 바꾼다 — 열둘이 되면서도 동일성은 유지된다
+      'deleteCouponPayments',
       'deleteProduct',
       'deleteRedemption',
+      'recordCouponPayments',
       // P8 컷 a3 — 추정 환율이 달러 상품의 추정 과세를 곱한다(EXCHANGE_RATE_WIDE). 아홉째가 되면서도
       // 두 집합의 동일성은 유지된다 — 셋 다 그 축에 있다
       'saveExchangeRate',
       'saveTaxProfile',
+      'updateCouponPayment',
       'updateProduct',
       'updateRedemption',
     ])
@@ -724,6 +729,37 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]/redeem',
     '/tax',
   ],
+  /*
+   * P8 컷 b2 — 월수익 기록 셋(`COUPON_RECORD_WIDE`). **세금이 있고 `/prices` · `/schedule`이 없다** — 기록은 그 달의
+   * 사건을 바꾸지만 상환 여부(「미상환」 수)도 조기상환 차수 행도 바꾸지 않는다. SCR-206 라우트는 b3이다
+   */
+  recordCouponPayments: [
+    '/',
+    '/forecast',
+    '/products',
+    '/products/[id]',
+    '/products/[id]/edit',
+    '/products/[id]/redeem',
+    '/tax',
+  ],
+  updateCouponPayment: [
+    '/',
+    '/forecast',
+    '/products',
+    '/products/[id]',
+    '/products/[id]/edit',
+    '/products/[id]/redeem',
+    '/tax',
+  ],
+  deleteCouponPayments: [
+    '/',
+    '/forecast',
+    '/products',
+    '/products/[id]',
+    '/products/[id]/edit',
+    '/products/[id]/redeem',
+    '/tax',
+  ],
 }
 
 describe('합성 — affects × ROUTE_QUERIES', () => {
@@ -944,8 +980,9 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
   const rows = tableAfterHeader(DOC_011, '| 화면 | 조회 계약 | 변경 계약 |')
 
   it('매트릭스를 찾았다', () => {
-    // SCR-001·101·201·202·203·204·**205**·301·302·401·402·501·502
-    expect(rows.length).toBe(13)
+    // SCR-001·101·201·202·203·204·**205**·**206**·301·302·401·402·501·502 — SCR-206은 P8 컷 b2(화면은 b3,
+    // 변경 칸만 — DOC-011 §9 ⑭ⓐ). DOC-008 §4 화면 표에는 b3까지 행이 없어 화면-계약 대조가 그 행을 건너뛴다
+    expect(rows.length).toBe(14)
   })
 
   it('문서가 배정한 변경 계약이 전부 맵에 있다', () => {

@@ -8,6 +8,7 @@ import { V18_kiTouchedRequiresBarrier } from '../validate/rules'
 import type { ProductRow } from '../queries/load'
 import { requireAffected, requireOwnedProduct, staleState } from './access'
 import type { MutationContext } from './context'
+import { couponMonthLabel } from './couponMonths'
 import { failDb } from './errors'
 import { toUpdate, type MoneyFieldsOf } from './payload'
 import { withholdingFor, withholdingInputOf } from './redemptions'
@@ -206,8 +207,7 @@ function recordedTermsConflict(row: ProductRow, input: ProductInput): ActionErro
     .sort((a, b) => a - b)
   if (dropped.length === 0) return null
 
-  // 월수익 표기 — 「5번째 · 2027-02-16」(순번 + 월수익 평가일, DOC-005 GQ-04 · 민서 결정(2026-10-02) ①)
-  const months = dropped.map((couponNo) => `${couponNo}번째 · ${evaluationOf.get(couponNo) ?? '?'}`)
+  const months = dropped.map((couponNo) => couponMonthLabel(couponNo, evaluationOf.get(couponNo)))
   return {
     code: 'CONFLICT',
     message: `기록된 달은 지울 수 없다 — ${months.join(', ')}. 그 달의 기록을 먼저 지운다.`,

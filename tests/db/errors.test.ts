@@ -241,6 +241,49 @@ describe('널 위반만 열 이름을 필드로 바꿀 수 있다', () => {
     expect(logged.join('\n')).toContain('널 위반의 열을 필드로 사상할 수 없다')
   })
 
+  it('★ 월수익 일정의 널 위반은 테이블로 갈라 `couponSchedules`다 — 조기상환 일정의 `evaluationDate`가 아니다 (P8 컷 b2)', () => {
+    /*
+     * 열 이름만 보면 `evaluation_date` → `evaluationDate`(조기상환 차수의 칸)로 사상되어 오류가 다른 표에 붙는다.
+     * DOC-011 §3.2.1 「`fields` 키」 — 월수익 일정의 제약은 `couponSchedules`다. 음성 대조: 같은 열의 조기상환 일정
+     * 위반은 여전히 `evaluationDate`다
+     */
+    const coupon = mapDbError(
+      {
+        code: '23502',
+        message:
+          'null value in column "evaluation_date" of relation "monthly_coupon_schedules" violates not-null constraint',
+      },
+      '상품 수정',
+    )
+    expect(coupon.fields).toEqual({ couponSchedules: '필수 입력값이 비어 있다.' })
+
+    const round = mapDbError(
+      {
+        code: '23502',
+        message:
+          'null value in column "evaluation_date" of relation "redemption_schedules" violates not-null constraint',
+      },
+      '상품 수정',
+    )
+    expect(round.fields).toEqual({ evaluationDate: '필수 입력값이 비어 있다.' })
+  })
+
+  it('월수익 지급 기록의 `outcome` · `is_confirmed`는 그 칸이다 (P8 컷 b2)', () => {
+    for (const [column, field] of [
+      ['outcome', 'outcome'],
+      ['is_confirmed', 'isConfirmed'],
+    ] as const) {
+      const mapped = mapDbError(
+        {
+          code: '23502',
+          message: `null value in column "${column}" of relation "monthly_coupon_payments" violates not-null constraint`,
+        },
+        '월수익 기록',
+      )
+      expect(mapped.fields, column).toEqual({ [field]: '필수 입력값이 비어 있다.' })
+    }
+  })
+
   it('길이·자릿수 초과는 필드를 만들지 않는다 — 열 이름이 없으므로', () => {
     expect(mapDbError(LENGTH_OVERFLOW, '자산 등록').fields).toBeUndefined()
     expect(mapDbError(NUMERIC_OVERFLOW, '시세 입력').fields).toBeUndefined()

@@ -19,8 +19,10 @@ import {
   V18_kiTouchedRequiresBarrier,
   type RuleId,
 } from '@/lib/db/validate/rules'
+import { checkAgainstProduct } from '@/lib/db/mutations/coupons'
 import {
   parseAssetInput,
+  parseCouponPaymentEntries,
   parseExchangeRateInput,
   parseManualPriceInput,
   parseProductInput,
@@ -31,6 +33,8 @@ import {
   parseTouchedAt,
 } from '@/lib/db/validate/inputs'
 import type { ProductInput, RedemptionInput } from '@/lib/db/mutations/types'
+
+import { monthlyProductRow, redemption as redemptionRow } from './helpers/rows'
 
 /**
  * 검증 규칙 — DOC-011 §6, AQ-10
@@ -789,6 +793,83 @@ const CASES: Case[] = [
           }),
         }),
       ),
+  },
+  /*
+   * P8 컷 b2 — 월수익 기록(§5.14 · §5.15). 형태는 `parseCouponPaymentEntries`가, 부모를 봐야 하는 것은
+   * `checkAgainstProduct`가 본다(DB 없이 — 행 픽스처). 그 나머지 갈래는 `tests/db/coupons.test.ts`
+   */
+  {
+    rule: 'V-27',
+    what: '기록할 달이 0건 — 일괄 기록은 1..60건이다',
+    run: () => {
+      const p = new Problems()
+      parseCouponPaymentEntries(p, { entries: [] })
+      return p
+    },
+  },
+  {
+    rule: 'V-27',
+    what: '상환일 뒤에 평가된 달 — 비교 키는 그 달의 월수익 평가일',
+    run: () => {
+      const p = new Problems()
+      checkAgainstProduct(
+        p,
+        [{ at: 'entries[0].', entry: { couponNo: 7, outcome: 'UNPAID', isConfirmed: true } }],
+        monthlyProductRow({ redemptions: redemptionRow({ redemption_date: '2027-04-16' }) }),
+        '2027-06-30',
+        null,
+      )
+      return p
+    },
+  },
+  {
+    rule: 'V-28',
+    what: '미지급에 금액이 있다 — 「지급되지 않았다」가 그 달의 사실이다',
+    run: () => {
+      const p = new Problems()
+      parseCouponPaymentEntries(p, {
+        entries: [{ couponNo: 1, outcome: 'UNPAID', grossAmount: '600000', isConfirmed: true }],
+      })
+      return p
+    },
+  },
+  {
+    rule: 'V-28',
+    what: '지급인데 지급일이 없다',
+    run: () => {
+      const p = new Problems()
+      parseCouponPaymentEntries(p, {
+        entries: [{ couponNo: 1, outcome: 'PAID', grossAmount: '600000', taxableIncome: '600000', isConfirmed: true }],
+      })
+      return p
+    },
+  },
+  {
+    rule: 'V-28',
+    what: '아직 오지 않은 지급 — 지급일 > 기준일',
+    run: () => {
+      const p = new Problems()
+      checkAgainstProduct(
+        p,
+        [
+          {
+            at: 'entries[0].',
+            entry: {
+              couponNo: 1,
+              outcome: 'PAID',
+              paymentDate: '2026-11-19',
+              grossAmount: '600000',
+              taxableIncome: '600000',
+              isConfirmed: true,
+            },
+          },
+        ],
+        monthlyProductRow(),
+        '2026-11-18',
+        null,
+      )
+      return p
+    },
   },
   {
     rule: 'V-21',
