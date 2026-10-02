@@ -10,6 +10,8 @@ import {
 import {
   ELS_PRODUCT_COLUMNS,
   EXCHANGE_RATE_COLUMNS,
+  MONTHLY_COUPON_PAYMENT_COLUMNS,
+  MONTHLY_COUPON_SCHEDULE_COLUMNS,
   PRICE_COLUMNS,
   REDEMPTION_COLUMNS,
   SCHEDULE_COLUMNS,
@@ -71,6 +73,19 @@ type _PricesAgree = Expect<Equals<TextColumns<typeof PRICE_COLUMNS>, MoneyColumn
 type _ProfilesAgree = Expect<
   Equals<TextColumns<typeof TAX_PROFILE_COLUMNS>, MoneyColumnOf<'tax_profiles'>>
 >
+// P8 컷 b2 — 월수익 두 테이블. 일정은 배리어 하나, 기록은 상환과 같은 넷(세전 · 과세 · 원천징수 · 적용 환율)
+type _CouponSchedulesAgree = Expect<
+  Equals<
+    TextColumns<typeof MONTHLY_COUPON_SCHEDULE_COLUMNS>,
+    MoneyColumnOf<'monthly_coupon_schedules'>
+  >
+>
+type _CouponPaymentsAgree = Expect<
+  Equals<
+    TextColumns<typeof MONTHLY_COUPON_PAYMENT_COLUMNS>,
+    MoneyColumnOf<'monthly_coupon_payments'>
+  >
+>
 
 // ---------------------------------------------------------------------------
 // ② 금액은 문자열, 개수는 수치. 널 허용은 보존된다
@@ -88,6 +103,13 @@ type _RoundNoStaysNumber = Expect<
   Equals<InsertPayload<'redemptions'>['round_no'], number | null | undefined>
 >
 type _TaxYearStaysNumber = Expect<Equals<InsertPayload<'tax_profiles'>['tax_year'], number>>
+/** 월수익 순번은 차수와 같은 부류다(P8 컷 b2 — `CountingColumn`). 여기가 `string`이 되면 순번 비교가 문자열이 된다 */
+type _CouponNoStaysNumber = Expect<
+  Equals<InsertPayload<'monthly_coupon_payments'>['coupon_no'], number | null | undefined>
+>
+type _ScheduleCouponNoStaysNumber = Expect<
+  Equals<InsertPayload<'monthly_coupon_schedules'>['coupon_no'], number>
+>
 /** 수치가 아닌 열은 손대지 않는다 */
 type _BooleanUntouched = Expect<Equals<InsertPayload<'redemptions'>['is_confirmed'], boolean>>
 /** `Update`도 같은 사상을 받는다 (전 열이 선택적인 것만 다르다) */
@@ -190,7 +212,12 @@ describe('금액 열 목록이 문서와 일치한다', () => {
       .sort()
 
   const EXPECTED: Array<[string, Record<string, string>, string[]]> = [
-    ['els_products', ELS_PRODUCT_COLUMNS, ['annual_coupon_rate', 'ki_barrier', 'principal']],
+    // P8 컷 b2 — 월수익 연쿠폰율(비율 · DOC-002 §4.6)
+    [
+      'els_products',
+      ELS_PRODUCT_COLUMNS,
+      ['annual_coupon_rate', 'ki_barrier', 'monthly_coupon_annual_rate', 'principal'],
+    ],
     ['els_underlyings', UNDERLYING_COLUMNS, ['base_price']],
     [
       'redemption_schedules',
@@ -206,6 +233,13 @@ describe('금액 열 목록이 문서와 일치한다', () => {
     // P8 컷 a3 — 환율은 시세와 같은 6자리 부류다(DOC-002 §4.12 · Q-07′)
     ['exchange_rates', EXCHANGE_RATE_COLUMNS, ['rate']],
     ['tax_profiles', TAX_PROFILE_COLUMNS, ['other_financial_income', 'other_income_base']],
+    // P8 컷 b2 — 월수익 두 테이블(DOC-002 §4.13 · §4.14). 기록은 상환과 같은 넷이다
+    ['monthly_coupon_schedules', MONTHLY_COUPON_SCHEDULE_COLUMNS, ['coupon_barrier']],
+    [
+      'monthly_coupon_payments',
+      MONTHLY_COUPON_PAYMENT_COLUMNS,
+      ['exchange_rate', 'gross_amount', 'taxable_income', 'withholding_tax'],
+    ],
   ]
 
   for (const [table, spec, expected] of EXPECTED) {

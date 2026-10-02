@@ -75,6 +75,10 @@ function productPayload(input: ProductInput): ProductPayload {
     currency: input.currency,
     evaluationPeriodMonths: input.evaluationPeriodMonths,
     annualCouponRate: input.annualCouponRate,
+    // P8 컷 b2-1 — M-b2가 열을 더했고 `MoneyFieldsOf`가 그 키를 요구한다(새 금액 · 비율 열은 컴파일 오류로 나타난다).
+    // 계약은 아직 지급방식을 받지 않으므로 상환 시 지급의 값(없음)을 명시한다 — 쓰기 함수가 `couponPayout`을
+    // 기본값(생성) · 저장값(수정)으로 받친다(W4 expand). 다음 커밋(b2-2)이 입력의 값으로 바꾼다
+    monthlyCouponAnnualRate: null,
     kiBarrier: input.kiBarrier ?? null,
     kiObservation: input.kiObservation ?? null,
     accountType: input.accountType,

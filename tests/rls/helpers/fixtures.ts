@@ -34,4 +34,7 @@ export const RLS_TABLES = [
   'cron_runs',
   // P8 컷 a3 — 추정용 환율의 공용 관측 이력. 13 → 14 (DOC-002 §4.12 · I-22)
   'exchange_rates',
+  // P8 컷 b2 — 월지급식의 월수익 일정(계약 조건 · CASCADE)과 지급 기록(과세 이력 · RESTRICT). 14 → 16 (DOC-002 §4.13 · §4.14)
+  'monthly_coupon_schedules',
+  'monthly_coupon_payments',
 ] as const

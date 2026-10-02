@@ -265,6 +265,141 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     message: '환율의 통화·기준일은 바꿀 수 없다. 기준일이 다른 환율은 정정이 아니라 새 관측이다.',
   },
 
+  // ── I-12 확장 — 상환의 원천징수세액 ≥ 0 (P8 컷 b2 · DOC-002 v1.15 DQ-17 ④) ────
+  // 계약은 이미 V-19(`optionalAmount` — `min: 'zero'`)로 막는다. 직접 쓰기의 그물이다
+  redemptions_withholding_tax_check: {
+    rule: 'I-12 / V-19',
+    fields: ['withholdingTax'],
+    message: '원천징수세액은 0 이상이어야 한다.',
+  },
+
+  // ── I-23 · I-25 월지급 조건 (P8 컷 b2 · M-b2) ─────────────────────────────
+  // 짝은 단일 행 CHECK, 일정의 존재 · 부재 · 리자드는 쓰기 함수 꼬리 검사(I-07과 같은 부류 — 계약 경로만)
+  els_products_monthly_terms_check: {
+    rule: 'I-23 / V-25 · V-08′',
+    fields: ['couponPayout'],
+    message:
+      '쿠폰 지급방식과 쿠폰율이 맞지 않는다 — 월지급식은 연쿠폰율 0과 월수익 연쿠폰율이, 상환 시 지급은 월수익 연쿠폰율 없음이 필요하다.',
+  },
+  els_products_monthly_schedules_required: {
+    rule: 'I-25 / V-25',
+    fields: ['couponSchedules'],
+    message: '월지급식 상품은 월수익 일정이 1행 이상 필요하다.',
+  },
+  els_products_monthly_schedules_forbidden: {
+    rule: 'I-25 / V-25',
+    fields: ['couponSchedules'],
+    message: '상환 시 지급 상품에는 월수익 일정을 둘 수 없다.',
+  },
+  els_products_monthly_lizard_forbidden: {
+    rule: 'I-25 / V-25',
+    fields: ['schedules'],
+    message: '월지급식 상품에는 리자드 차수를 둘 수 없다.',
+  },
+
+  // ── I-24 월수익 일정 행 (P8 컷 b2) — 배열 단위로 표시한다(색인은 계약의 V-26이 낸다) ──
+  monthly_coupon_schedules_els_id_coupon_no_key: {
+    rule: 'I-24 / V-26',
+    fields: ['couponSchedules'],
+    message: '월수익 순번이 중복된다.',
+  },
+  monthly_coupon_schedules_coupon_no_check: {
+    rule: 'I-24 / V-20′',
+    fields: ['couponSchedules'],
+    message: '월수익 순번은 1 이상이어야 한다.',
+  },
+  monthly_coupon_schedules_payment_date_check: {
+    rule: 'I-24 / V-26',
+    fields: ['couponSchedules'],
+    message: '월수익 지급일은 월수익 평가일과 같거나 그 뒤여야 한다.',
+  },
+  monthly_coupon_schedules_coupon_barrier_check: {
+    rule: 'I-24 / V-26',
+    fields: ['couponSchedules'],
+    message: '월수익 배리어는 0보다 커야 한다.',
+  },
+
+  // ── I-21 · I-26 월수익 지급 기록의 형태 (P8 컷 b2) ──────────────────────
+  // 키는 색인 없는 이름이다 — 행 단위 키(`entries[i].…`)는 계약의 V-27 · V-28이 낸다(DOC-002 §8)
+  monthly_coupon_payments_els_id_coupon_no_key: {
+    rule: 'I-26 / V-27',
+    fields: ['couponNo'],
+    message: '이미 기록된 달이다. 정정은 그 기록을 수정한다.',
+  },
+  monthly_coupon_payments_els_id_payment_date_key: {
+    rule: 'I-26 / V-28',
+    fields: ['paymentDate'],
+    message: '같은 지급일의 월수익 기록이 이미 있다.',
+  },
+  monthly_coupon_payments_outcome_check: {
+    rule: 'I-26 / V-28',
+    fields: ['outcome'],
+    message:
+      '지급은 지급일 · 세전(0 초과) · 과세 금융소득이 필요하고, 미지급은 금액 · 지급일 · 환율 없이 월수익 순번만 갖는다.',
+  },
+  monthly_coupon_payments_coupon_no_check: {
+    rule: 'I-26 / V-20′',
+    fields: ['couponNo'],
+    message: '월수익 순번은 1 이상이어야 한다.',
+  },
+  monthly_coupon_payments_taxable_income_check: {
+    rule: 'I-26 / V-11',
+    fields: ['taxableIncome'],
+    message: '과세 금융소득은 0 이상이어야 한다.',
+  },
+  monthly_coupon_payments_withholding_tax_check: {
+    rule: 'I-26 / V-19',
+    fields: ['withholdingTax'],
+    message: '원천징수세액은 0 이상이어야 한다.',
+  },
+  monthly_coupon_payments_exchange_rate_check: {
+    rule: 'I-26 / V-24',
+    fields: ['exchangeRate'],
+    message: '적용 환율은 0보다 커야 한다.',
+  },
+  monthly_coupon_payments_gross_amount_digits_check: {
+    rule: 'I-21 / V-23',
+    fields: ['grossAmount'],
+    message: '월수익(세전)은 정수부 15자리, 소수 2자리 이내여야 한다.',
+  },
+  monthly_coupon_payments_gross_amount_scale: {
+    rule: 'I-21 / V-23',
+    fields: ['grossAmount'],
+    message: '월수익(세전)의 소수 자릿수가 상품 통화의 보조단위를 넘는다 — 원화 상품은 정수다.',
+  },
+
+  // ── I-27 기록의 부모 · 상환과의 양방향 (P8 컷 b2 — 트리거 라벨, `*_required` · `*_after_redemption`
+  //    · `*_before_coupon_payment` · `*_principal_only` 전부 칸 오류. DOC-002 §8 접미사 표 v1.15) ──
+  monthly_coupon_payments_monthly_required: {
+    rule: 'I-27 / V-27',
+    fields: ['couponNo'],
+    message: '월지급식 상품에만 월수익을 기록할 수 있다.',
+  },
+  monthly_coupon_payments_coupon_no_required: {
+    rule: 'I-27 / V-27',
+    fields: ['couponNo'],
+    message:
+      '계약 조건을 갖는 상품의 기록은 월수익 순번이 필요하고, 기실현 상품의 기록은 순번 없는 지급이어야 한다.',
+  },
+  // DQ-17 ② — 민서 결정(2026-10-02) ②: 고칠 칸이 있다(다른 달을 고른다). 계약의 V-27과 같은 칸이다
+  monthly_coupon_payments_after_redemption: {
+    rule: 'I-27 / V-27',
+    fields: ['couponNo'],
+    message: '상환일 뒤에 평가되는 달의 월수익은 기록할 수 없다.',
+  },
+  redemptions_before_coupon_payment: {
+    rule: 'I-27 / V-27',
+    fields: ['redemptionDate'],
+    message: '상환일이 기록된 달의 월수익 평가일보다 앞설 수 없다 — 상환 뒤에 평가되는 월수익은 없다.',
+  },
+  // V-29의 계약 규칙은 컷 b4다 — b2~b4 사이에는 이 사상이 그 경로의 응답이다(DOC-011 §3.2.1)
+  redemptions_monthly_principal_only: {
+    rule: 'I-27 / V-29',
+    fields: ['grossAmount', 'taxableIncome'],
+    message:
+      '월지급식 상품의 상환은 원금만이다 — 실수령액은 투자원금 이하, 과세 금융소득은 0이다. 같은 날의 월수익은 월수익 기록에 따로 적는다.',
+  },
+
   // ── I-07 하위 행 최소 개수 (쓰기 함수, P3b 6단계) ────────────────────────
   els_products_underlyings_required: {
     rule: 'I-07 / V-02',
@@ -285,6 +420,20 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
     code: 'CONFLICT',
     message: '상환 처리된 상품은 수정할 수 없다. 상환을 먼저 취소한다.',
   },
+  // P8 컷 b2 — 기록 뒤 동결(DQ-14 · AQ-79). `*_recorded_immutable`은 상태 충돌 부류다 — `*_immutable` 전체가
+  // 아니다(`*_coordinates_immutable`은 검증 오류다). 고칠 필드가 없다 — 기록을 먼저 지운다
+  els_products_coupon_recorded_immutable: {
+    rule: '상태 충돌',
+    code: 'CONFLICT',
+    message:
+      '월수익 지급 기록이 있는 상품은 상품 통화 · 쿠폰 지급방식을 바꿀 수 없다. 월수익 기록을 먼저 지운다.',
+  },
+  monthly_coupon_schedules_recorded_immutable: {
+    rule: '상태 충돌',
+    code: 'CONFLICT',
+    message:
+      '월수익 지급 기록이 있는 달의 순번 · 평가일 · 지급일은 바꿀 수 없다. 그 달의 기록을 먼저 지운다.',
+  },
 
   // ── 상품 삭제를 막는 FK — 방향에 따라 뜻이 다르다 ────────────────────────
   redemptions_els_id_fkey: {
@@ -293,6 +442,24 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
       (error.details ?? '').includes('still referenced')
         ? '상환 실적이 있는 상품은 삭제할 수 없다. 상환을 먼저 취소한다.'
         : '대상 상품을 찾을 수 없다.',
+  },
+
+  // P8 컷 b2 — 월수익 지급 기록도 실현된 과세 이력이라 RESTRICT다(DQ-01 · DQ-14). 삭제 동선은 최대 3단계다
+  monthly_coupon_payments_els_id_fkey: {
+    rule: 'I-27 / §5.3',
+    message: (error) =>
+      (error.details ?? '').includes('still referenced')
+        ? '월수익 지급 기록이 있는 상품은 삭제할 수 없다. 월수익 기록을 먼저 지운다.'
+        : '대상 상품을 찾을 수 없다.',
+  },
+  // 두 방향이 다른 사실이다 — 기록이 없는 순번을 가리키거나(INSERT · UPDATE), 기록된 달의 일정 행을 지우려 했다
+  // (§5.2의 delete — 계약이 사전 조회로 먼저 CONFLICT를 낸다). 칸이 방향마다 달라 `fields`를 두지 않는다
+  monthly_coupon_payments_els_id_coupon_no_fkey: {
+    rule: 'I-27 / V-27',
+    message: (error) =>
+      (error.details ?? '').includes('still referenced')
+        ? '기록된 달은 월수익 일정에서 지울 수 없다. 그 달의 기록을 먼저 지운다.'
+        : '해당 월수익 순번이 이 상품의 월수익 일정에 없다.',
   },
 
   // ── 사용 중인 자산은 사라질 수 없다 ──────────────────────────────────────

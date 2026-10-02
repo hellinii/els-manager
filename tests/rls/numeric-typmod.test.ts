@@ -71,13 +71,20 @@ const NUMERIC_LEDGER: Record<string, NumericShape> = {
   //   「보지 못하는 것」). 신설될 `monthly_coupon_payments.gross_amount`도 같은 부류로 들어온다
   'els_products.principal': { precision: null, scale: null },
   'redemptions.gross_amount': { precision: null, scale: null },
+  // P8 컷 b2 — 위 각주가 예고한 그 열이다. 자릿수는 `monthly_coupon_payments_gross_amount_digits_check`(CHECK) +
+  // `monthly_coupon_payments_gross_amount_scale`(트리거) 두 층이 본다(I-21)
+  'monthly_coupon_payments.gross_amount': { precision: null, scale: null },
 
   // ── 적용 환율 — 참고값 (DOC-005 §4, P8 a2) ────────────────────────────
   'redemptions.exchange_rate': { precision: 18, scale: 6 },
+  'monthly_coupon_payments.exchange_rate': { precision: 18, scale: 6 },
 
   // ── 과세 축 금액 — 항상 KRW `numeric(15,0)` (M-08) ─────────────────────
   'redemptions.taxable_income': { precision: 15, scale: 0 },
   'redemptions.withholding_tax': { precision: 15, scale: 0 },
+  // P8 컷 b2 — 월수익 지급 기록의 과세 축도 원화 정수다(M-08 ⓑ — 달러 상품은 거래내역의 원화 값)
+  'monthly_coupon_payments.taxable_income': { precision: 15, scale: 0 },
+  'monthly_coupon_payments.withholding_tax': { precision: 15, scale: 0 },
   'tax_profiles.other_financial_income': { precision: 15, scale: 0 },
   'tax_profiles.other_income_base': { precision: 15, scale: 0 },
   'tax_brackets.lower_bound': { precision: 15, scale: 0 },
@@ -85,6 +92,9 @@ const NUMERIC_LEDGER: Record<string, NumericShape> = {
 
   // ── 비율 — 소수 정규화 (`0.9` = 90%) ──────────────────────────────────
   'els_products.annual_coupon_rate': { precision: 6, scale: 4 },
+  // P8 컷 b2 — 월수익 연쿠폰율(연 환산)과 월수익 배리어. 연쿠폰율 · 배리어와 같은 부류다(M-04)
+  'els_products.monthly_coupon_annual_rate': { precision: 6, scale: 4 },
+  'monthly_coupon_schedules.coupon_barrier': { precision: 6, scale: 4 },
   'els_products.ki_barrier': { precision: 6, scale: 4 },
   'redemption_schedules.barrier': { precision: 6, scale: 4 },
   'redemption_schedules.lizard_barrier': { precision: 6, scale: 4 },

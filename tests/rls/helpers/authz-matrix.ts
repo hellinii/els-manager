@@ -144,6 +144,10 @@ export const TABLE_PRIVILEGES = {
   els_underlyings: { anon: NONE, authenticated: ALL_DML, service_role: NONE },
   redemption_schedules: { anon: NONE, authenticated: ALL_DML, service_role: NONE },
   redemptions: { anon: NONE, authenticated: ALL_DML, service_role: NONE },
+  // P8 컷 b2 — `redemption_schedules` · `redemptions`와 같은 셀이다. 쓰기 함수가 invoker로 일정을 delete · upsert하고,
+  // 기록의 DELETE는 소유자의 정정 경로다(§5.15 — `exchange_rates`처럼 닫지 않는다. 공용 데이터가 아니다)
+  monthly_coupon_schedules: { anon: NONE, authenticated: ALL_DML, service_role: NONE },
+  monthly_coupon_payments: { anon: NONE, authenticated: ALL_DML, service_role: NONE },
   // 참조 데이터. 조회 전체 / 변경 없음 (ADR-005)
   tax_years: { anon: NONE, authenticated: ['SELECT'], service_role: NONE },
   tax_brackets: { anon: NONE, authenticated: ['SELECT'], service_role: NONE },

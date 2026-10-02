@@ -78,6 +78,11 @@ export type SelectedRow<T extends TableName, S extends ColumnSpec<T>> = {
  */
 export type CountingColumn =
   | 'round_no'
+  /*
+   * 월수익 순번 (P8 컷 b2 — DOC-002 §4.13 · §4.14). 차수와 같은 부류다 — 1..60을 세는 `smallint`이고
+   * 금액이 아니다. 여기 적지 않으면 `couponNo: '5'`를 요구하게 되어 순번 비교 · 정렬이 문자열이 된다
+   */
+  | 'coupon_no'
   | 'evaluation_period_months'
   | 'tax_year'
   | 'sequence'
@@ -283,6 +288,9 @@ export const ELS_PRODUCT_COLUMNS = defineColumns('els_products', {
   currency: 'raw',
   evaluation_period_months: 'raw',
   annual_coupon_rate: 'text',
+  // 쿠폰 지급방식 — enum이므로 `raw`다(P8 컷 b2 · DOC-002 §4.6). 월수익 연쿠폰율은 비율이라 `text`다
+  coupon_payout: 'raw',
+  monthly_coupon_annual_rate: 'text',
   ki_barrier: 'text',
   ki_observation: 'raw',
   ki_touched_at: 'raw',
@@ -316,6 +324,35 @@ export const REDEMPTION_COLUMNS = defineColumns('redemptions', {
   taxable_income: 'text',
   withholding_tax: 'text',
   // 적용 환율 — 참고값(DOC-005 §4). numeric(18,6)이므로 금액과 같은 경계를 지난다(P8 a2)
+  exchange_rate: 'text',
+  is_confirmed: 'raw',
+  note: 'raw',
+})
+
+/**
+ * 월수익 일정 — DOC-002 §4.13 (P8 컷 b2). 상품이 루트인 로더만 임베드한다 — 차수 루트(`loadScheduleRows`)에 넣으면
+ * 상품의 월수익 전부가 차수 수만큼 복제된다(DOC-010 AQ-77). `id`를 싣지 않는다 — 좌표는 `(els_id, coupon_no)`이고
+ * 수정 저장이 그 좌표로 upsert한다(§5.2).
+ */
+export const MONTHLY_COUPON_SCHEDULE_COLUMNS = defineColumns('monthly_coupon_schedules', {
+  coupon_no: 'raw',
+  evaluation_date: 'raw',
+  payment_date: 'raw',
+  coupon_barrier: 'text',
+})
+
+/**
+ * 월수익 지급 기록 — DOC-002 §4.14 (P8 컷 b2). 금액 셋은 상환과 같은 두 부류다(M-08) — `gross_amount`는 상품 통화,
+ * 과세 둘은 원화. `id`를 싣는다 — §5.15 수정 · 삭제가 기록 `id`를 받는다.
+ */
+export const MONTHLY_COUPON_PAYMENT_COLUMNS = defineColumns('monthly_coupon_payments', {
+  id: 'raw',
+  coupon_no: 'raw',
+  outcome: 'raw',
+  payment_date: 'raw',
+  gross_amount: 'text',
+  taxable_income: 'text',
+  withholding_tax: 'text',
   exchange_rate: 'text',
   is_confirmed: 'raw',
   note: 'raw',

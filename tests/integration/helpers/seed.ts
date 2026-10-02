@@ -81,6 +81,8 @@ export async function resetFixtures(): Promise<void> {
    * | `els_underlyings.els_id` | `els_products` | CASCADE |
    * | `redemption_schedules.els_id` | `els_products` | CASCADE |
    * | **`redemptions.els_id`** | `els_products` | **RESTRICT** |
+   * | `monthly_coupon_schedules.els_id` | `els_products` | CASCADE *(P8 컷 b2)* |
+   * | **`monthly_coupon_payments.els_id`** | `els_products` | **RESTRICT** *(P8 컷 b2 — 상환과 같은 근거, DQ-01)* |
    * | **`els_underlyings.asset_id`** | `assets` | **RESTRICT** |
    * | `asset_prices.asset_id` | `assets` | CASCADE |
    *
@@ -101,6 +103,12 @@ export async function resetFixtures(): Promise<void> {
    * 상품으로 넓힌 것이며, RLS 스위트의 행은 접두사가 다르므로 걸리지 않는다.
    */
   const scope = 'id = any($1::uuid[]) or name like $2'
+  // P8 컷 b2 — 월수익 지급 기록도 RESTRICT다. 상환 · 상품보다 먼저 지운다(그 뒤의 일정은 상품 CASCADE로 사라진다)
+  await sql(
+    `delete from public.monthly_coupon_payments
+      where els_id in (select id from public.els_products where ${scope})`,
+    [ALL_FIXTURE_IDS, `${FX_NAME_PREFIX}%`],
+  )
   await sql(
     `delete from public.redemptions
       where els_id in (select id from public.els_products where ${scope})`,

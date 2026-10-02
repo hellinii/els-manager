@@ -145,9 +145,17 @@ describe('금액·비율 열이 캐스팅 대상으로 남아 있다', () => {
       'asset_prices.price',
       'els_products.annual_coupon_rate',
       'els_products.ki_barrier',
+      // P8 컷 b2 — 월수익 연쿠폰율(비율). ELS_PRODUCT_COLUMNS가 text로 읽는다
+      'els_products.monthly_coupon_annual_rate',
       'els_products.principal',
       'els_underlyings.base_price',
       'exchange_rates.rate',
+      // P8 컷 b2 — 월수익 지급 기록의 금액 넷(상품 통화 세전 · 원화 과세 둘 · 적용 환율)과 월수익 배리어
+      'monthly_coupon_payments.exchange_rate',
+      'monthly_coupon_payments.gross_amount',
+      'monthly_coupon_payments.taxable_income',
+      'monthly_coupon_payments.withholding_tax',
+      'monthly_coupon_schedules.coupon_barrier',
       'redemption_schedules.barrier',
       'redemption_schedules.lizard_barrier',
       'redemption_schedules.lizard_coupon_rate',
@@ -225,6 +233,9 @@ const SPEC_TABLES = {
   PRICE_COLUMNS: 'asset_prices',
   // P8 컷 a3 — 환율. 시세와 같은 부류(rate = numeric(18,6) → text)
   EXCHANGE_RATE_COLUMNS: 'exchange_rates',
+  // P8 컷 b2 — 상품 루트 로더가 임베드한다(DOC-010 AQ-77 — 차수 루트에는 넣지 않는다)
+  MONTHLY_COUPON_SCHEDULE_COLUMNS: 'monthly_coupon_schedules',
+  MONTHLY_COUPON_PAYMENT_COLUMNS: 'monthly_coupon_payments',
   TAX_PROFILE_COLUMNS: 'tax_profiles',
   TAX_BRACKET_COLUMNS: 'tax_brackets',
   TAX_CONSTANT_COLUMNS: 'tax_constants',

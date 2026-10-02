@@ -160,6 +160,7 @@ export type Database = {
         Row: {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate: number | null
+          coupon_payout: Database["public"]["Enums"]["coupon_payout"]
           created_at: string
           currency: Database["public"]["Enums"]["product_currency"]
           entry_mode: Database["public"]["Enums"]["product_entry_mode"]
@@ -170,6 +171,7 @@ export type Database = {
           ki_barrier: number | null
           ki_observation: Database["public"]["Enums"]["ki_observation"] | null
           ki_touched_at: string | null
+          monthly_coupon_annual_rate: number | null
           name: string
           note: string | null
           owner_id: string
@@ -179,6 +181,7 @@ export type Database = {
         Insert: {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
+          coupon_payout?: Database["public"]["Enums"]["coupon_payout"]
           created_at?: string
           currency: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
@@ -189,6 +192,7 @@ export type Database = {
           ki_barrier?: number | null
           ki_observation?: Database["public"]["Enums"]["ki_observation"] | null
           ki_touched_at?: string | null
+          monthly_coupon_annual_rate?: number | null
           name: string
           note?: string | null
           owner_id: string
@@ -198,6 +202,7 @@ export type Database = {
         Update: {
           account_type?: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
+          coupon_payout?: Database["public"]["Enums"]["coupon_payout"]
           created_at?: string
           currency?: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]
@@ -208,6 +213,7 @@ export type Database = {
           ki_barrier?: number | null
           ki_observation?: Database["public"]["Enums"]["ki_observation"] | null
           ki_touched_at?: string | null
+          monthly_coupon_annual_rate?: number | null
           name?: string
           note?: string | null
           owner_id?: string
@@ -292,6 +298,98 @@ export type Database = {
           source?: Database["public"]["Enums"]["price_source"]
         }
         Relationships: []
+      }
+      monthly_coupon_payments: {
+        Row: {
+          coupon_no: number | null
+          els_id: string
+          exchange_rate: number | null
+          gross_amount: number | null
+          id: string
+          is_confirmed: boolean
+          note: string | null
+          outcome: Database["public"]["Enums"]["coupon_outcome"]
+          payment_date: string | null
+          taxable_income: number | null
+          withholding_tax: number | null
+        }
+        Insert: {
+          coupon_no?: number | null
+          els_id: string
+          exchange_rate?: number | null
+          gross_amount?: number | null
+          id?: string
+          is_confirmed: boolean
+          note?: string | null
+          outcome: Database["public"]["Enums"]["coupon_outcome"]
+          payment_date?: string | null
+          taxable_income?: number | null
+          withholding_tax?: number | null
+        }
+        Update: {
+          coupon_no?: number | null
+          els_id?: string
+          exchange_rate?: number | null
+          gross_amount?: number | null
+          id?: string
+          is_confirmed?: boolean
+          note?: string | null
+          outcome?: Database["public"]["Enums"]["coupon_outcome"]
+          payment_date?: string | null
+          taxable_income?: number | null
+          withholding_tax?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_coupon_payments_els_id_coupon_no_fkey"
+            columns: ["els_id", "coupon_no"]
+            isOneToOne: true
+            referencedRelation: "monthly_coupon_schedules"
+            referencedColumns: ["els_id", "coupon_no"]
+          },
+          {
+            foreignKeyName: "monthly_coupon_payments_els_id_fkey"
+            columns: ["els_id"]
+            isOneToOne: false
+            referencedRelation: "els_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monthly_coupon_schedules: {
+        Row: {
+          coupon_barrier: number
+          coupon_no: number
+          els_id: string
+          evaluation_date: string
+          id: string
+          payment_date: string
+        }
+        Insert: {
+          coupon_barrier: number
+          coupon_no: number
+          els_id: string
+          evaluation_date: string
+          id?: string
+          payment_date: string
+        }
+        Update: {
+          coupon_barrier?: number
+          coupon_no?: number
+          els_id?: string
+          evaluation_date?: string
+          id?: string
+          payment_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_coupon_schedules_els_id_fkey"
+            columns: ["els_id"]
+            isOneToOne: false
+            referencedRelation: "els_products"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       redemption_schedules: {
         Row: {
@@ -535,6 +633,8 @@ export type Database = {
     Enums: {
       account_type: "GENERAL" | "TAX_FREE"
       asset_type: "STOCK" | "INDEX" | "ETF"
+      coupon_outcome: "PAID" | "UNPAID"
+      coupon_payout: "AT_REDEMPTION" | "MONTHLY"
       cron_caller: "BATCH" | "MANUAL_REFRESH"
       cron_outcome: "OK" | "PROVIDER_UNAVAILABLE" | "INTERNAL"
       health_insurance_type: "EMPLOYEE" | "REGIONAL" | "DEPENDENT" | "NONE"
@@ -672,6 +772,8 @@ export const Constants = {
     Enums: {
       account_type: ["GENERAL", "TAX_FREE"],
       asset_type: ["STOCK", "INDEX", "ETF"],
+      coupon_outcome: ["PAID", "UNPAID"],
+      coupon_payout: ["AT_REDEMPTION", "MONTHLY"],
       cron_caller: ["BATCH", "MANUAL_REFRESH"],
       cron_outcome: ["OK", "PROVIDER_UNAVAILABLE", "INTERNAL"],
       health_insurance_type: ["EMPLOYEE", "REGIONAL", "DEPENDENT", "NONE"],

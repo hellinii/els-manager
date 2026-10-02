@@ -26,6 +26,9 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
     currency: 'KRW',
     evaluation_period_months: 6,
     annual_coupon_rate: '0.0800',
+    // DB 기본값과 같다(W4 expand — DOC-002 §4.6 ★). 상환 시 지급이면 월수익 연쿠폰율은 없다(I-23)
+    coupon_payout: 'AT_REDEMPTION',
+    monthly_coupon_annual_rate: null,
     ki_barrier: '0.5000',
     ki_observation: 'CLOSING',
     ki_touched_at: null,

@@ -163,3 +163,104 @@ export async function seedTaxProfile(params: {
   )
   return { id: result.rows[0].id }
 }
+
+/**
+ * 월지급식 상품 — `coupon_payout = 'MONTHLY'` (P8 컷 b2 · DOC-002 §4.6 · I-23).
+ *
+ * `FULL`이면 연쿠폰율 0 + 월수익 연쿠폰율 > 0이 I-23의 유일한 형태다(DQ-11 — 헤드라인 율을 연쿠폰율에 두면
+ * 이중 계상). 기실현(`REALIZED_ONLY`)이면 두 율이 없다. 월수익 일정은 만들지 않는다 — 테스트가 필요한 달을
+ * `seedCouponSchedule`로 넣는다(직접 INSERT는 꼬리 검사 I-25를 지나지 않는다 — 계약 경로만의 규칙이다).
+ */
+export async function seedMonthlyProduct(params: {
+  ownerId?: string
+  name?: string
+  currency?: 'KRW' | 'USD'
+  principal?: string
+}): Promise<SeededProduct> {
+  const result = await asOwner<{ id: string }>(
+    `insert into public.els_products
+       (owner_id, name, issue_date, principal, currency, evaluation_period_months,
+        annual_coupon_rate, coupon_payout, monthly_coupon_annual_rate,
+        ki_barrier, ki_observation, account_type)
+     values ($1, $2, '2026-10-16', $3, $4, 6, 0, 'MONTHLY', 0.0720, 0.50, 'CLOSING', 'GENERAL')
+     returning id`,
+    [
+      params.ownerId ?? USER_A,
+      params.name ?? '월지급 상품',
+      params.principal ?? (params.currency === 'USD' ? '10000.00' : '100000000'),
+      params.currency ?? 'KRW',
+    ],
+  )
+  return { id: result.rows[0].id }
+}
+
+/** 기실현 월지급식 상품 — 율도 일정도 없다(D-07 · I-23의 기실현 분기) */
+export async function seedRealizedMonthlyProduct(params: {
+  ownerId?: string
+}): Promise<SeededProduct> {
+  const result = await asOwner<{ id: string }>(
+    `insert into public.els_products
+       (owner_id, name, principal, currency, coupon_payout, account_type, entry_mode)
+     values ($1, '기실현 월지급', 100000000, 'KRW', 'MONTHLY', 'GENERAL', 'REALIZED_ONLY')
+     returning id`,
+    [params.ownerId ?? USER_A],
+  )
+  return { id: result.rows[0].id }
+}
+
+/**
+ * 월수익 일정 한 행. 기본 평가일은 `2026-10-16 + (k−1)개월` 꼴의 고정값이 아니라 **인자로 받는다** —
+ * 상환일과의 비교(I-27)가 날짜에 달려 있으므로 각 케이스가 자기 날짜를 적는다. 지급일 기본값은 평가일 + 3일.
+ */
+export async function seedCouponSchedule(params: {
+  elsId: string
+  couponNo: number
+  evaluationDate: string
+  paymentDate?: string
+  couponBarrier?: string
+}): Promise<{ id: string }> {
+  const result = await asOwner<{ id: string }>(
+    `insert into public.monthly_coupon_schedules
+       (els_id, coupon_no, evaluation_date, payment_date, coupon_barrier)
+     values ($1, $2, $3::date, coalesce($4::date, $3::date + 3), $5)
+     returning id`,
+    [
+      params.elsId,
+      params.couponNo,
+      params.evaluationDate,
+      params.paymentDate ?? null,
+      params.couponBarrier ?? '0.6000',
+    ],
+  )
+  return { id: result.rows[0].id }
+}
+
+/**
+ * 월수익 지급 기록 한 건 — 기본은 지급(PAID) 600,000원 · 과세 600,000 · 원천징수 92,400.
+ * 미지급(UNPAID)은 금액 · 지급일 · 과세 · 원천징수 · 환율이 전부 NULL이다(I-26).
+ */
+export async function seedCouponPayment(params: {
+  elsId: string
+  couponNo: number | null
+  outcome?: 'PAID' | 'UNPAID'
+  paymentDate?: string
+  grossAmount?: string
+}): Promise<{ id: string }> {
+  const paid = (params.outcome ?? 'PAID') === 'PAID'
+  const result = await asOwner<{ id: string }>(
+    `insert into public.monthly_coupon_payments
+       (els_id, coupon_no, outcome, payment_date, gross_amount, taxable_income, withholding_tax, is_confirmed)
+     values ($1, $2, $3, $4, $5, $6, $7, true)
+     returning id`,
+    [
+      params.elsId,
+      params.couponNo,
+      params.outcome ?? 'PAID',
+      paid ? (params.paymentDate ?? '2026-11-19') : null,
+      paid ? (params.grossAmount ?? '600000') : null,
+      paid ? '600000' : null,
+      paid ? '92400' : null,
+    ],
+  )
+  return { id: result.rows[0].id }
+}

@@ -49,6 +49,19 @@ const RAISE_ONLY = [
   'redemptions_gross_amount_scale',
   // P8 컷 a3 — I-16의 형태(좌표 동결 트리거). DOC-002 §4.12 · I-22
   'exchange_rates_coordinates_immutable',
+  // P8 컷 b2 (M-b2) — 쓰기 함수 꼬리 검사 셋(I-25) · 기록 뒤 동결 둘(DQ-14) · 기록의 자릿수(I-21) · 기록의 부모
+  // 셋 · 상환 쪽 둘(I-27). 전부 부모 · 형제를 보거나 교차 행을 세므로 CHECK로 쓸 수 없다(DOC-002 §8)
+  'els_products_monthly_schedules_required',
+  'els_products_monthly_schedules_forbidden',
+  'els_products_monthly_lizard_forbidden',
+  'els_products_coupon_recorded_immutable',
+  'monthly_coupon_schedules_recorded_immutable',
+  'monthly_coupon_payments_gross_amount_scale',
+  'monthly_coupon_payments_monthly_required',
+  'monthly_coupon_payments_coupon_no_required',
+  'monthly_coupon_payments_after_redemption',
+  'redemptions_before_coupon_payment',
+  'redemptions_monthly_principal_only',
 ] as const
 
 /**
