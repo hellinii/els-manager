@@ -9,7 +9,7 @@ import { requireAffected, requireOwnedProduct, staleState } from './access'
 import type { MutationContext } from './context'
 import { failDb } from './errors'
 import { toUpdate, type MoneyFieldsOf } from './payload'
-import { withholdingFor } from './redemptions'
+import { withholdingFor, withholdingInputOf } from './redemptions'
 import { failWith, ok, okVoid, type ActionResult } from './result'
 import type { ProductInput, RealizedProductInput } from './types'
 
@@ -304,7 +304,7 @@ export function makeProductMutations(ctx: MutationContext) {
     const parsed = parseRealizedProductInput(p, input)
     if (parsed == null) return failWith(p.toError())
 
-    const withholding = await withholdingFor(ctx, parsed)
+    const withholding = await withholdingFor(ctx, withholdingInputOf(parsed), 'redemptionDate')
     if (!withholding.ok) return failWith(withholding.error)
 
     const { data, error } = await ctx.db.rpc('create_realized_els_product', {

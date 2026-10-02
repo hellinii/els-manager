@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { krwEstimateOf } from '@/lib/db/queries/dashboard'
-import { forecastItemOf } from '@/lib/db/queries/forecast'
+import { forecastItemsOf } from '@/lib/db/queries/forecast'
 import { estimateRateOf, type TaxYearContext } from '@/lib/db/queries/load'
 import { exchangeRateBasisOf, toProductDetailView } from '@/lib/db/queries/map'
 import { computeOwnTax, contributionOf } from '@/lib/db/queries/tax'
@@ -10,6 +10,16 @@ import { dec } from '@/lib/decimal'
 import { NO_ESTIMATE_RATES, type EstimateRates, type ExchangeRate } from '@/lib/domain'
 import { BRACKETS_2026, CONSTANTS_2026 } from '../fixtures/tax-2026'
 import { OWNER, priceMap, productRow, redemption } from './helpers/rows'
+
+/**
+ * 컷 b0 — 항목 사상이 `forecastItemsOf`(사건마다 항목 하나)가 됐다. 이 컷에서는 사건이 상품당 최대 하나라
+ * 항목이 **늘 하나**다 — 그 사실을 여기서 단언하고, 아래 기대값은 종전 `forecastItemOf` 그대로다(동작 불변의 증명).
+ */
+function forecastItemOf(...args: Parameters<typeof forecastItemsOf>): ReturnType<typeof forecastItemsOf>[number] {
+  const items = forecastItemsOf(...args)
+  expect(items).toHaveLength(1)
+  return items[0]!
+}
 
 /**
  * 추정 환율의 조회 사상 — DOC-011 v4.9 §4.0 · §4.1 · §4.3 · §4.6 · §4.7 (P8 컷 a3)

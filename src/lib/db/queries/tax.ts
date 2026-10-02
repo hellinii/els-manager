@@ -1,11 +1,7 @@
 import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
 import {
-  grossExpected,
-  estimateConversionOf,
   moneyString,
   sumByCurrency,
-  taxableIncome,
-  taxableIncomeKrw,
   type EstimateRates,
   type ExchangeRate,
   type ProductCurrency,
@@ -23,8 +19,8 @@ import {
 
 import { toTaxConstants } from '../taxConstants'
 import { currentYear } from '../today'
-import { attributionOf } from './attribution'
 import type { QueryContext } from './context'
+import { incomeEventsOf, type IncomeEvent } from './income'
 import {
   loadEstimateRates,
   loadProducts,
@@ -173,6 +169,10 @@ export function toConstants(ctx: TaxYearContext): TaxConstants {
  * **적용 차수를 여기서 고르지 않는다** — `./attribution`의 `attributionOf`가 낸다. 종전
  * 구현은 상환·일정 0건·전 차수 경과를 이 함수 안에서 각각 끊었고, 같은 규칙이
  * `queries/map.ts`에도 따로 있었다.
+ *
+ * **사건을 접는다 (P8 컷 b0)** — 분기와 산식은 `./income`의 `incomeEventsOf`로 옮겼고 이 함수는 그 해에
+ * 귀속되는 사건의 값을 기여로 옮긴다. 이 컷에서는 사건이 상품당 최대 하나이므로 값이 종전과 같다.
+ * 소비자는 둘이다 — `computeOwnTax`(§4.6 · §4.1)와 `listUserSummaries`(§4.8)(설계 원자료 SB-4).
  */
 export function contributionOf(
   row: ProductRow,
@@ -219,63 +219,26 @@ export function contributionOf(
    */
   integrityIssue: IntegrityIssue | null
 } | null {
-  const integrityIssue = integrityIssueOf(row)
-  const attribution = attributionOf(row, asOf)
+  // 사건이 **최대 하나**다(컷 b0 — `income.ts`의 머리 주석). 이 대입이 그 사실의 단언이다 — 사건이 여럿으로
+  // 넓어지면(컷 b4 월수익) 여기서 컴파일이 멈추고, 사건을 접는 규칙(E-09 사건 단위 · 건수 · 확정/추정 분할 —
+  // 컷 b1의 명세)을 정해야 넘어간다. 첫 사건만 읽는 구현이 조용히 서지 않게 한다.
+  //
+  // **공용 별칭(`IncomeEvents`)을 쓰지 않고 튜플을 여기 적는다** — 별칭으로 적으면 b4가 별칭 자체를 넓히는
+  // 가장 자연스러운 편집에서 이 줄이 같이 넓어져 아무것도 멈추지 않는다(반박 검토가 tsc로 쟀다)
+  const events: readonly [] | readonly [IncomeEvent] = incomeEventsOf(row, asOf, rates, { year })
+  const event = events.length === 0 ? null : events[0]
 
-  // 적용 차수를 정할 수 없으면 어느 연도에도 기여하지 않는다 — E-07(전 차수 경과)과
-  // 일정 0건이 그 하나로 묶인다(`attribution.ts`의 각주).
-  if (attribution.kind === 'NO_ROUND') return null
-  if (attribution.year !== year) return null
-
-  // 상환 완료 — 증권사 확정값을 쓴다(A-04). 시스템 추정으로 대체하지 않는다.
-  // 달러 상품도 같다 — 거래내역의 **원화** 과세이며 환율을 곱하지 않는다(U1).
-  if (attribution.kind === 'REDEEMED') {
-    return {
-      amount: taxableIncome({
-        accountType: row.account_type,
-        principal: row.principal,
-        redemption: { taxableIncome: attribution.redemption.taxable_income },
-      }),
-      gross: dec(attribution.redemption.gross_amount),
-      isEstimated: false,
-      exchangeRateMissing: false,
-      estimateRate: null,
-      integrityIssue,
-    }
-  }
-
-  // 계약 조건이 없으면 추정할 수 없다 — 기실현 등재는 연쿠폰율이 없다(D-07).
-  // **`NO_ROUND`와 같은 답을 준다**(기여하지 않는다): 「추정할 수 없다」와
-  // 「기여가 0이다」를 같은 값으로 내면 그 상품의 원금이 §7.5에서 증발한다.
-  // 그 상품은 항상 상환 완료이므로 위 분기가 먼저 반환한다 — 여기 오는 유일한
-  // 길은 계약 밖에서 차수를 넣은 경우다(AQ-14·AQ-65).
-  if (row.annual_coupon_rate == null) return null
-
-  const gross = grossExpected({
-    principal: row.principal,
-    couponRate: row.annual_coupon_rate,
-    evaluationPeriodMonths: row.evaluation_period_months,
-    roundNo: attribution.round.round_no,
-  })
-
-  // §4.3 `projection`과 같은 함수다 — 두 화면이 같은 상품에 같은 E-09를 말한다
-  const input = {
-    currency: row.currency,
-    accountType: row.account_type,
-    principal: row.principal,
-    redemption: null,
-    expectedGross: gross,
-  }
-  const amount = taxableIncomeKrw({ ...input, rates })
-  const conversion = estimateConversionOf(input)
+  // 사건이 없으면(적용 차수 없음 · 계약 조건 없음 · 다른 해에 귀속) 기여하지 않는다 —
+  // 집계 키는 `(owner_id, year)`다(절대 규칙 #7). 다른 해의 사건은 값을 계산하기 전에 걸렀다(`income.ts`)
+  if (event == null || event.year !== year) return null
 
   return {
-    amount,
-    gross,
-    isEstimated: true,
-    exchangeRateMissing: amount == null,
-    estimateRate: conversion == null ? null : rates[conversion],
-    integrityIssue,
+    amount: event.taxableIncomeKrw,
+    gross: event.gross,
+    isEstimated: event.isEstimated,
+    exchangeRateMissing: event.taxableIncomeKrw == null,
+    estimateRate: event.estimateRate,
+    integrityIssue: integrityIssueOf(row),
   }
 }
 

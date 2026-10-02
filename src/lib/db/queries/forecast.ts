@@ -9,6 +9,7 @@ import {
 import { currentYear } from '../today'
 import { attributionOf } from './attribution'
 import type { QueryContext } from './context'
+import { incomeEventsOf, type IncomeEvent } from './income'
 import {
   loadAllTaxYears,
   loadEstimateRates,
@@ -19,7 +20,7 @@ import {
   type ProductRow,
 } from './load'
 import { amountString, exchangeRateBasisOf, ratioString, type ExchangeRateBasisView } from './map'
-import { contributionOf, toBrackets, toConstants } from './tax'
+import { toBrackets, toConstants } from './tax'
 
 /** §4.7 — 다년도 전망 (SCR-402) */
 
@@ -99,10 +100,11 @@ export type ForecastRow = {
  * | 상환 완료·추정 | 그 연도 | 실제 값 | 그 해 `cumulativeNet` **또는** 구간 밖 |
  * | 적용 차수 없음 | `null` | `0` | 전 연도의 `remainingPrincipal` |
  *
- * **`contributionOf`를 상품당 한 번만 부른다.** 그 함수는 연도를 받아 귀속연도가 다르면
- * `null`을 내므로, 연도마다 부르면 상품 × 연도 번 부르고 그중 대부분이 버려진다. 적용
- * 차수를 `attributionOf`로 먼저 읽고 **그 상품 자신의 연도로** 부르면 상품 수만큼으로 끝난다.
- * 두 함수가 같은 `attributionOf`를 쓰므로(컷 3의 단일 원천) 판정이 갈릴 수 없다.
+ * **사건을 상품당 한 번만 읽는다** *(P8 컷 b0 — 종전 「`contributionOf`를 상품당 한 번」)*. 연도를 받는
+ * `contributionOf`를 연도마다 부르면 상품 × 연도 번 부르고 그중 대부분이 버려진다. `incomeEventsOf`는
+ * 사건마다 **그 사건 자신의 연도**를 싣고 오므로 상품 수만큼으로 끝나고, `contributionOf`도 같은 함수를
+ * 접으므로(§4.6과 같은 사건 집합) 판정이 갈릴 수 없다. 항목은 **사건마다 하나**다 — 이 컷에서는 사건이
+ * 상품당 최대 하나라 종전과 같다(`./income`).
  *
  * `0`을 넣는 것이 항목을 **버리는 것과 다르다** — 버리면 그 원금이 잔여 원금에서도 사라져
  * 화면에서 조용히 증발한다(§7.5 「배제하면」). 항목은 남고 유량만 0이다.
@@ -117,44 +119,74 @@ export type ForecastProductItem = ForecastItem & {
   estimateRate: ExchangeRate | null
 }
 
-export function forecastItemOf(
+export function forecastItemsOf(
   row: ProductRow,
   asOf: string,
   /** 추정 환율 — 기본값이 없다(§4.0 규칙 2·3) */
   rates: EstimateRates,
-): ForecastProductItem {
-  const attribution = attributionOf(row, asOf)
-  const contribution =
-    attribution.year == null
-      ? null
-      : contributionOf(row, attribution.year, asOf, rates)
+): ForecastProductItem[] {
+  const events = incomeEventsOf(row, asOf, rates)
+  const items = events.map((event) => itemOf(row, asOf, rates, event.year, event))
+  /*
+   * **원금을 돌려주는 사건(상환)이 없으면 원금 항목을 하나 둔다** — 원금이 잔여 원금에 남아야 한다(§7.5
+   * 「배제하면」). 그 항목의 귀속연도는 `attributionOf`가 정한다: 적용 차수가 없으면 `null`(전 연도의 잔여 원금 —
+   * E-07의 시각적 형태), 차수는 있는데 계약 조건이 없으면(AQ-14 · AQ-65 — 계약 밖에서 차수를 넣은 경우) 그 차수의
+   * 연도에 유량 0이다. 둘째 경우가 종전 `forecastItemOf`의 동작이며 이 컷은 그것을 바꾸지 않는다.
+   *
+   * 조건이 「사건이 없음」이 아니라 「원금을 돌려주는 사건이 없음」인 이유는 컷 b4다 — 월수익 사건만 있는 상품
+   * (적용 차수 없음 · 흐름 끝 무한)은 사건이 있어도 원금을 돌려주지 않는다. 「사건이 없음」으로 두면 그 원금이
+   * 화면에서 증발한다(반박 검토). 이 컷에서는 사건이 전부 상환이라 두 조건이 같다
+   */
+  if (!events.some((event) => event.kind === 'REDEMPTION')) {
+    items.push(itemOf(row, asOf, rates, attributionOf(row, asOf).year, null))
+  }
+  return items
+}
 
+/**
+ * 사건 하나(또는 사건 없음) → 항목 하나. 값은 종전 `forecastItemOf`와 같다 — 사건이 상품당 최대 하나이므로
+ * 그 사건의 원금 반환분이 곧 투자원금이다(P8 컷 b0). 월수익 사건(컷 b4)은 원금 반환분이 0이라 이 사상이 그대로
+ * 「원금은 상환 항목에만」을 지킨다.
+ */
+function itemOf(
+  row: ProductRow,
+  asOf: string,
+  rates: EstimateRates,
+  attributionYear: number | null,
+  event: IncomeEvent | null,
+): ForecastProductItem {
   const base = {
     /*
      * `null`은 적용 차수를 정할 수 없다는 뜻이며 **배제하지 않는다** — 전 연도의 잔여
      * 원금에 남아 「회수 시점을 모르는 자산」으로 보이는 것이 E-07의 시각적 형태다(§7.5).
      */
-    attributionYear: attribution.year,
+    attributionYear,
     // 원화다(과세 축). `null`(E-09)을 0으로 두는 것은 흡수가 아니다 — 그 상품은 아래 셋째
     // 분기로 가고 `excludedForeignCount`가 센다. 확정 원화 과세는 환율과 무관하게 여기 있다
-    taxableIncome: contribution?.amount ?? ZERO,
+    taxableIncome: event?.taxableIncomeKrw ?? ZERO,
   }
-  const gross = contribution?.gross ?? ZERO
+  const gross = event?.gross ?? ZERO
+  // 사건이 없으면 원금은 그대로 남는다(잔여 원금) — 사건이 있으면 그 사건이 돌려주는 원금이다.
+  // 둘 다 저장값 문자열이다 — 종전 항목의 표현 그대로다(`income.ts` `principalReturned`)
+  const principal = event?.principalReturned ?? row.principal
 
   // 원화 상품 — 종전 그대로다. 환율 경로를 지나지 않는다(`x = 1`을 곱하는 것이 아니다)
   if (row.currency === 'KRW') {
     return {
       ...base,
-      principal: row.principal,
+      principal,
       gross,
-      isEstimated: contribution?.isEstimated ?? false,
+      isEstimated: event?.isEstimated ?? false,
       excludedForeign: false,
       estimateRate: null,
     }
   }
 
-  // 기준 연도 이전 상환 — 어느 열에도 없다(DOC-007 §7.5 분할 표 둘째 줄). 환율이 있든 없든 세지 않는다
-  const outOfRange = attribution.kind === 'REDEEMED' && attribution.year < currentYear(asOf)
+  // 기준 연도 이전의 사건 — 어느 열에도 없다(DOC-007 §7.5 분할 표 둘째 줄). 환율이 있든 없든 세지 않는다.
+  // 이 컷에서는 그런 사건이 상환뿐이다(추정 상환은 다음 도래 평가일이라 기준 연도 이전일 수 없다). 확정 여부를
+  // 조건에 넣지 않는 이유는 컷 b4다 — 상환된 상품의 흐름 끝 안 무기록 월수익은 추정 사건이며 기준 연도 이전일 수
+  // 있고(U5), 그것도 어느 열에도 없다(반박 검토)
+  const outOfRange = event != null && event.year < currentYear(asOf)
 
   // 외화 · 추정 환율 있음 — 원금과 수령액을 **같은 `x`로** 바꾼다. 그래야 §7.5의 배타 분할
   // (한 상품의 원금은 잔여 원금 아니면 수령액 한쪽에만)이 원화 표에서도 선다. 확정 달러
@@ -164,7 +196,7 @@ export function forecastItemOf(
     const x = dec(rate.rate)
     return {
       ...base,
-      principal: dec(row.principal).times(x),
+      principal: dec(principal).times(x),
       gross: gross.times(x),
       isEstimated: true,
       excludedForeign: false,
@@ -179,10 +211,20 @@ export function forecastItemOf(
     ...base,
     principal: ZERO,
     gross: ZERO,
-    isEstimated: contribution?.isEstimated ?? false,
+    isEstimated: event?.isEstimated ?? false,
     excludedForeign: !outOfRange,
     estimateRate: null,
   }
+}
+
+/**
+ * 원화 합계 열에서 빠진 **외화 상품 수** (DOC-007 §7.5 · DOC-011 §4.7 「외화 상품 수」) — 상품별 항목 묶음을 받는다.
+ *
+ * 평탄화한 항목을 세면 사건이 여럿인 상품(컷 b4 — 월수익)이 여러 번 세진다. 이 컷에서는 상품당 항목이 하나라
+ * 항목 수와 같다(반박 검토가 찾은 잠복 — 순수 함수로 떼어 「한 상품의 항목 여럿은 한 번」을 상시 스위트가 본다)
+ */
+export function excludedForeignCountOf(perProduct: readonly (readonly ForecastProductItem[])[]): number {
+  return perProduct.filter((own) => own.some((item) => item.excludedForeign)).length
 }
 
 /**
@@ -200,12 +242,11 @@ export function forecastItemOf(
  * P4 컷 8이 AQ-22를 부분 처리하며 만든 것이고 그 독블록이 이 재사용을 예고했다.
  * 프로필도 `.lte()` 한 번이며, 상품은 소유자 필터 하나다.
  *
- * ## `contributionOf`를 상품당 **한 번** 부른다
+ * ## 사건을 상품당 **한 번** 읽는다 *(P8 컷 b0)*
  *
- * 그 함수는 연도를 인자로 받아 귀속연도가 다르면 `null`을 낸다. 연도마다 부르면
- * 상품 × 연도가 되고 여섯 중 다섯은 버려지는 호출이다. 적용 차수를 `attributionOf`로
- * 먼저 읽고 **그 상품 자신의 연도로** 한 번 부르면 같은 결과를 상품 수만큼의 호출로 얻는다.
- * 두 함수가 같은 `attributionOf`를 쓰므로(컷 3이 단일 원천으로 모았다) 판정이 갈릴 수 없다.
+ * 연도를 받는 `contributionOf`를 연도마다 부르면 상품 × 연도가 되고 여섯 중 다섯은 버려지는 호출이다.
+ * `forecastItemsOf`가 `incomeEventsOf`를 상품당 한 번 읽어 **사건 자신의 연도로** 항목을 만든다. 같은 사건을
+ * `contributionOf`(§4.6)도 접으므로 판정이 갈릴 수 없다 — 그 둘의 F 항등은 DOC-011 §4.7이 정한다.
  */
 export function makeForecastQueries(ctx: QueryContext) {
   /**
@@ -253,8 +294,9 @@ export function makeForecastQueries(ctx: QueryContext) {
     ])
 
     // 모든 연도에 같은 추정 환율을 쓴다 — 연도별 전망 환율을 두지 않는다(DOC-007 RD-09)
-    const items = products.map((row) => forecastItemOf(row, ctx.asOf, rates))
-    const excludedForeignCount = items.filter((item) => item.excludedForeign).length
+    const perProduct = products.map((row) => forecastItemsOf(row, ctx.asOf, rates))
+    const items = perProduct.flat()
+    const excludedForeignCount = excludedForeignCountOf(perProduct)
     const exchangeRateBasis = exchangeRateBasisOf(
       items.find((item) => item.estimateRate != null)?.estimateRate ?? null,
       ctx.asOf,

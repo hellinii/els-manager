@@ -6,11 +6,21 @@ import { NO_ESTIMATE_RATES } from '@/lib/domain'
 import {
   FORECAST_DEFAULT_YEARS,
   FORECAST_MAX_YEARS,
-  forecastItemOf,
+  forecastItemsOf,
 } from '@/lib/db/queries/forecast'
 import { profileFor, resolveTaxYear, type TaxProfileRow } from '@/lib/db/queries/load'
 
 import { productRow, redemption, schedule } from './helpers/rows'
+
+/**
+ * 컷 b0 — 항목 사상이 `forecastItemsOf`(사건마다 항목 하나)가 됐다. 이 컷에서는 사건이 상품당 최대 하나라
+ * 항목이 **늘 하나**다 — 그 사실을 여기서 단언하고, 아래 기대값은 종전 `forecastItemOf` 그대로다(동작 불변의 증명).
+ */
+function forecastItemOf(...args: Parameters<typeof forecastItemsOf>): ReturnType<typeof forecastItemsOf>[number] {
+  const items = forecastItemsOf(...args)
+  expect(items).toHaveLength(1)
+  return items[0]!
+}
 
 /**
  * §4.7 계약의 **순수 절반** — DB 없이 본다 (P4b 컷 7)

@@ -89,24 +89,46 @@ async function taxYearForWithholding(
 }
 
 /**
+ * 원천징수 기본값이 귀속연도를 읽는 **날짜 칸** — 오류가 붙는 칸의 이름이기도 하다 (P8 컷 b0).
+ *
+ * 지금은 상환일 하나다. 월수익 지급 기록(컷 b2~b4)이 지급일을 더한다 — 그 사건도 지급일의 연도에 귀속되고
+ * (DOC-007 §7.2 예정) 같은 기본값 규칙(분리과세 원천징수, 세율 조회)을 지난다(설계 원자료 G13). 칸 이름을 열린
+ * `string`으로 두지 않는 이유는 오류 문구 · 귀속 규칙을 칸마다 정해야 하기 때문이다 — 아래 두 표가 그 정의이고,
+ * 칸을 더하면 두 표가 함께 컴파일을 요구한다.
+ */
+export type WithholdingDateField = 'redemptionDate'
+
+/** 날짜 칸 → 귀속연도. 상환일은 그 날짜의 연도다(DOC-007 §7.2) */
+const ATTRIBUTION_BY_FIELD: Readonly<Record<WithholdingDateField, (date: string) => number>> = {
+  redemptionDate: (date) => attributionYear({ redemptionDate: date }),
+}
+
+/** 날짜 칸 → 형식 오류 문구(§3.2.2 1행) */
+const DATE_MESSAGE_BY_FIELD: Readonly<Record<WithholdingDateField, string>> = {
+  redemptionDate: '상환일을 YYYY-MM-DD 형식으로 입력한다.',
+}
+
+/**
  * **§5.11이 이 함수를 공유한다.** 산출을 복제하면 두 계약이 다른 상수·다른 연도·
  * 다른 접기를 쓸 수 있고, 그 갈림은 원천징수세액을 비운 채 저장할 때에만 드러난다
- * — 즉 평소에는 보이지 않는다. 인자를 `RedemptionInput`이 아니라 **실제로 읽는 두
- * 필드**로 좁힌 것이 그 공유의 형태다(V-12와 같은 판단).
+ * — 즉 평소에는 보이지 않는다. 인자를 `RedemptionInput`이 아니라 **실제로 읽는 값**으로
+ * 좁힌 것이 그 공유의 형태다(V-12와 같은 판단).
+ *
+ * **날짜를 칸 이름과 함께 받는다 (P8 컷 b0)** — 종전에는 `RedemptionInput`의 `redemptionDate`를 직접 읽어
+ * 상환에 묶여 있었다. 월수익 지급 기록이 같은 기본값을 지급일로 쓴다(설계 원자료 G13). 동작은 같다.
  */
 export async function withholdingFor(
   ctx: MutationContext,
-  input: Pick<RedemptionInput, 'redemptionDate' | 'taxableIncome'> & {
-    withholdingTax?: string
-  },
+  input: { date: string; taxableIncome: string; withholdingTax?: string },
+  dateField: WithholdingDateField,
 ): Promise<Access<string>> {
   if (input.withholdingTax != null) return { ok: true, value: input.withholdingTax }
 
   // §3.2.2 1행 — 날짜를 받는 순수 함수의 RangeError는 해당 날짜 필드의 검증 오류다.
   // (형식은 이미 V-10 파싱이 봤으므로 정상 경로에서는 여기가 던지지 않는다.)
-  const year = guardInput(() => attributionYear({ redemptionDate: input.redemptionDate }), {
-    field: 'redemptionDate',
-    message: '상환일을 YYYY-MM-DD 형식으로 입력한다.',
+  const year = guardInput(() => ATTRIBUTION_BY_FIELD[dateField](input.date), {
+    field: dateField,
+    message: DATE_MESSAGE_BY_FIELD[dateField],
   })
   if (!year.ok) return { ok: false, error: year.error }
   // **`null` 방어가 없다 — 타입이 그것을 표현할 수 없다** (AQ-25).
@@ -134,6 +156,17 @@ export async function withholdingFor(
     constants: constants.value,
   })
   return { ok: true, value: amount.toString() }
+}
+
+/** 상환 입력 → `withholdingFor`가 읽는 셋. §5.4 · §5.5 · §5.11이 같은 사상을 지난다 */
+export function withholdingInputOf(
+  input: Pick<RedemptionInput, 'redemptionDate' | 'taxableIncome' | 'withholdingTax'>,
+): { date: string; taxableIncome: string; withholdingTax?: string } {
+  return {
+    date: input.redemptionDate,
+    taxableIncome: input.taxableIncome,
+    ...(input.withholdingTax == null ? {} : { withholdingTax: input.withholdingTax }),
+  }
 }
 
 /**
@@ -244,7 +277,7 @@ export function makeRedemptionMutations(ctx: MutationContext) {
     const checked = validateAgainstProduct(p, parsed, access.value)
     if (!p.isEmpty) return failWith(p.toError())
 
-    const withholding = await withholdingFor(ctx, checked)
+    const withholding = await withholdingFor(ctx, withholdingInputOf(checked), 'redemptionDate')
     if (!withholding.ok) return failWith(withholding.error)
 
     const { data, error } = await ctx.db
@@ -294,7 +327,7 @@ export function makeRedemptionMutations(ctx: MutationContext) {
 
     // 생성과 **같은 산출**을 쓴다. 다르게 두면 원천징수액을 비운 채 수정할 때
     // 값이 사라지거나 옛 값이 남고, 어느 쪽이든 화면에 드러나지 않는다.
-    const withholding = await withholdingFor(ctx, checked)
+    const withholding = await withholdingFor(ctx, withholdingInputOf(checked), 'redemptionDate')
     if (!withholding.ok) return failWith(withholding.error)
 
     const { data, error } = await ctx.db
