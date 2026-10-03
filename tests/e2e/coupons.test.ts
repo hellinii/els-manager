@@ -1,0 +1,189 @@
+import { beforeAll, describe, expect, it } from 'vitest'
+
+import { today } from '@/lib/db/today'
+import { shiftDays } from '@/lib/domain'
+import { COUPON_PAYMENT_IDS_FIELD, rowName } from '@/lib/forms/coupons'
+import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
+
+import { ITG_USER_B } from '../integration/helpers/fixtures'
+import { queryRows } from '../integration/helpers/seed'
+
+import { actionIdOf, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
+import { authenticatedJar } from './helpers/auth'
+import { makeMonthly, monthsAround } from './helpers/monthly'
+import { registerProduct, type RegisteredProduct } from './helpers/register'
+import { cookieJar, get, locationPath } from './helpers/server'
+
+/**
+ * SCR-202 ⑦ 월수익 · SCR-206 월수익 기록 (P8 컷 b3-3) — 프록시 · 서버 액션 · 리다이렉트는 Next를 지나야 존재한다
+ *
+ * 픽스처: 원화 1억 · 월 600,000원(연 7.2%) · 월수익 다섯 달 — 기준일(오늘) −70 · −40 · −10일 평가(1~3번째, 평가 끝),
+ * +20 · +50일(4 · 5번째, 아직). 기본 목록은 1~3번째다(`recordable` — V-27과 한 술어).
+ */
+
+let jar: ReturnType<typeof cookieJar>
+let monthly: RegisteredProduct
+let plain: RegisteredProduct
+const asOf = today()
+
+async function detailHtml(productId: string): Promise<string> {
+  return (await get(PATHS.product(productId), jar)).text()
+}
+
+/** 기록 화면의 폼을 그 화면에서 읽어 덮어쓴 값으로 제출한다 — 값은 렌더된 폼에서 나온다 */
+async function submitRecordForm(productId: string, overrides: Record<string, string>): Promise<Response> {
+  const path = PATHS.productCoupons(productId)
+  const html = await (await get(path, jar)).text()
+  const id = actionIdOf('recordCouponPaymentsAction')
+  const rendered = formValuesFor(html, id).filter(([name]) => !(name in overrides))
+  return submitAction(path, jar, [...rendered, ...Object.entries(overrides)])
+}
+
+async function recordIdsOf(productId: string): Promise<Record<number, string>> {
+  const { rows } = await queryRows<{ id: string; coupon_no: number }>(
+    'select id::text, coupon_no from public.monthly_coupon_payments where els_id = $1::uuid',
+    [productId],
+  )
+  return Object.fromEntries(rows.map((row) => [row.coupon_no, row.id]))
+}
+
+beforeAll(async () => {
+  jar = await authenticatedJar()
+  monthly = await registerProduct(jar, { label: '월지급', principal: '100,000,000' })
+  await makeMonthly(monthly.productId, monthsAround(asOf))
+  plain = await registerProduct(jar, { label: '월지급대조', principal: '100,000,000' })
+})
+
+describe('SCR-202 ⑦ — 월지급식 상품에만', () => {
+  it('① 「쿠폰 지급 월지급식」 · ⑦ 구획 · 미기록 셋 · 「기록」 링크', async () => {
+    const html = await detailHtml(monthly.productId)
+    expect(html).toContain('쿠폰 지급')
+    expect(html).toContain('월지급식')
+    expect(html).toContain(`id="${COUPON_SECTION.id}"`)
+    expect(html).toContain(`1번째 · ${monthsAround(asOf)[0]?.evaluationDate}`)
+    expect(html.match(/>미기록</g)).toHaveLength(3)
+    expect(html).toContain(`href="${PATHS.productCoupons(monthly.productId)}"`)
+  })
+
+  it('★ 상환 시 지급 상품의 상세에는 ⑦도 「쿠폰 지급」도 없다 — 기존 상품의 상세는 그대로', async () => {
+    const html = await detailHtml(plain.productId)
+    expect(html).not.toContain(`id="${COUPON_SECTION.id}"`)
+    expect(html).not.toContain('쿠폰 지급')
+  })
+})
+
+describe('SCR-206 — 경로 · 권한', () => {
+  it('상환 시 지급 상품의 기록 주소는 404다 — 기록할 것이 없다', async () => {
+    expect((await get(PATHS.productCoupons(plain.productId), jar)).status).toBe(404)
+  })
+
+  it('★ 타인의 기록 주소는 SCR-902(200)다 — AQ-81: forbidden()을 켜지 않는다', async () => {
+    const other = await authenticatedJar(ITG_USER_B)
+    const res = await get(PATHS.productCoupons(monthly.productId), other)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain('권한이 없다')
+    expect(html).not.toContain(rowName(0, 'outcome'))
+  })
+
+  it('기본 목록은 평가가 끝난 무기록 달 셋 · 결과 빈칸 · 세전 600,000 · 원천징수 빈칸', async () => {
+    const res = await get(PATHS.productCoupons(monthly.productId), jar)
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    const form = formHtmlFor(html, actionIdOf('recordCouponPaymentsAction'))
+    expect(form).toContain(rowName(2, 'outcome'))
+    expect(form).not.toContain(rowName(3, 'outcome'))
+    const values = Object.fromEntries(formValuesFor(html, actionIdOf('recordCouponPaymentsAction')))
+    expect(values[rowName(0, 'outcome')]).toBe('')
+    expect(values[rowName(0, 'grossAmount')]).toBe('600000')
+    expect(values[rowName(0, 'taxableIncome')]).toBe('600000')
+    expect(values[rowName(0, 'withholdingTax')]).toBe('')
+  })
+})
+
+describe('SCR-206 — 제출', () => {
+  it('★ 오류는 화면 행에 붙는다 — 건너뛴 행 때문에 entries[0]이 rows[1]이다', async () => {
+    // 1번째 행은 비우고 2번째 행만 지급 — 지급일을 미래로 두면 V-28이 entries[0].paymentDate로 거부한다
+    const res = await submitRecordForm(monthly.productId, {
+      [rowName(1, 'outcome')]: 'PAID',
+      [rowName(1, 'paymentDate')]: shiftDays(asOf, 5),
+    })
+    expect(res.status).toBe(200)
+    const html = await res.text()
+    expect(html).toContain(`id="${rowName(1, 'paymentDate')}-error"`)
+    expect(html).not.toContain(`id="${rowName(0, 'paymentDate')}-error"`)
+    // 입력값이 남는다 — 한 행이라도 거부되면 아무것도 저장되지 않는다(전부 아니면 전무)
+    expect(html).toContain(`value="${shiftDays(asOf, 5)}"`)
+    expect(Object.keys(await recordIdsOf(monthly.productId))).toHaveLength(0)
+  })
+
+  it('지급 · 미지급을 한 번에 — 미지급 행의 미리 채운 금액은 버리고, 저장 뒤 상세의 ⑦로 간다', async () => {
+    const res = await submitRecordForm(monthly.productId, {
+      [rowName(0, 'outcome')]: 'PAID',
+      [rowName(1, 'outcome')]: 'UNPAID',
+    })
+    expect(res.status).toBe(303)
+    expect(locationPath(res)).toBe(PATHS.product(monthly.productId))
+
+    const { rows } = await queryRows<{ coupon_no: number; outcome: string; gross: string | null; withholding: string | null }>(
+      `select coupon_no, outcome::text, gross_amount::text as gross, withholding_tax::text as withholding
+         from public.monthly_coupon_payments where els_id = $1::uuid order by coupon_no`,
+      [monthly.productId],
+    )
+    expect(rows).toEqual([
+      // 원천징수세액은 서버가 지급일 연도의 분리과세율로 채웠다(600,000 × 15.4%)
+      { coupon_no: 1, outcome: 'PAID', gross: '600000', withholding: '92400' },
+      { coupon_no: 2, outcome: 'UNPAID', gross: null, withholding: null },
+    ])
+
+    const html = await detailHtml(monthly.productId)
+    expect(html.match(/>미기록</g)).toHaveLength(1)
+    expect(html).toContain('>지급<')
+    expect(html).toContain('>미지급<')
+  })
+
+  it('한 기록 수정 — 저장값이 초기값이고(원천징수 92,400 그대로) 비고만 바꿔 저장한다', async () => {
+    const id = (await recordIdsOf(monthly.productId))[1]!
+    const editPath = COUPON_SECTION.editHref(monthly.productId, id)
+    const html = await (await get(editPath, jar)).text()
+    const actionId = actionIdOf('updateCouponPaymentAction')
+    const values = Object.fromEntries(formValuesFor(html, actionId))
+    expect(values[rowName(0, 'withholdingTax')]).toBe('92400')
+    expect(values[rowName(0, 'outcome')]).toBe('PAID')
+
+    const res = await submitAction(editPath, jar, [
+      ...formValuesFor(html, actionId).filter(([name]) => name !== rowName(0, 'note')),
+      [rowName(0, 'note'), '거래내역 확인'],
+    ])
+    expect(res.status).toBe(303)
+    const { rows } = await queryRows<{ note: string | null; withholding: string }>(
+      'select note, withholding_tax::text as withholding from public.monthly_coupon_payments where id = $1::uuid',
+      [id],
+    )
+    expect(rows[0]).toEqual({ note: '거래내역 확인', withholding: '92400' })
+  })
+
+  it('행 삭제 — 그 달이 다시 미기록이 된다(같은 화면 · 리다이렉트 없음)', async () => {
+    const id = (await recordIdsOf(monthly.productId))[2]!
+    const path = PATHS.product(monthly.productId)
+    const html = await detailHtml(monthly.productId)
+    const actionId = actionIdOf('deleteCouponPaymentsAction')
+    const fields = formFieldsFor(html, actionId).filter(([name]) => name !== COUPON_PAYMENT_IDS_FIELD)
+    const res = await submitAction(path, jar, [...fields, [COUPON_PAYMENT_IDS_FIELD, id]])
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('월수익 기록을 지웠다.')
+    expect(Object.keys(await recordIdsOf(monthly.productId))).toEqual(['1'])
+  })
+
+  it('밀린 달을 전부 적으면 빈 상태 — 다음 월수익과 상세로 가는 길', async () => {
+    await submitRecordForm(monthly.productId, {
+      [rowName(0, 'outcome')]: 'UNPAID',
+      [rowName(1, 'outcome')]: 'PAID',
+    })
+    const html = await (await get(PATHS.productCoupons(monthly.productId), jar)).text()
+    expect(html).toContain('기록할 밀린 달이 없다')
+    expect(html).toContain(`4번째 · ${monthsAround(asOf)[3]?.evaluationDate}`)
+    // 상세의 「기록」 링크도 사라진다 — 기록할 달이 있을 때만이다
+    expect(await detailHtml(monthly.productId)).not.toContain(`href="${PATHS.productCoupons(monthly.productId)}"`)
+  })
+})

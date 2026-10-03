@@ -314,6 +314,8 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   [PATHS.products]: ['listProducts'],
   '/products/[id]': ['getProduct'],
   '/products/[id]/redeem': ['getProduct'],
+  // SCR-206 (P8 컷 b3) — 기본 목록 · 기본값 · 수정 초기값이 전부 §4.3에 있다(DOC-011 §9 ⑭ⓑ — 새 조회 계약 없음)
+  '/products/[id]/coupons': ['getProduct'],
   '/products/[id]/edit': ['getProduct', 'searchAssets'],
   [PATHS.productNew]: ['searchAssets'],
   // **비어 있는 것이 옳다** — 계약 조건을 입력받지 않으므로 자산 목록도 읽지 않고,

@@ -3,11 +3,13 @@
 import { redirect } from 'next/navigation'
 
 import {
+  deleteCouponPayments,
   deleteProduct,
   deleteRedemption,
   setKiTouched,
   updateRedemption,
 } from '@/app/actions'
+import { COUPON_PAYMENT_IDS_FIELD } from '@/lib/forms/coupons'
 import { parseRedemptionForm, parseTouchedAtForm, text } from '@/lib/forms/parse'
 import { REDEMPTION_FIELDS, REDEMPTION_ID_FIELD } from '@/lib/forms/redemption'
 import { toFormState, valuesOf, type FormState } from '@/lib/forms/state'
@@ -125,5 +127,30 @@ export async function setKiTouchedAction(
     valuesOf(form),
     KI_FIELDS,
     touchedAt == null ? 'KI 터치를 해제했다.' : 'KI 터치를 확정했다.',
+  )
+}
+
+/**
+ * §5.15 월수익 기록 삭제 — 행의 「삭제」와 「월수익 기록 전부 지우기」가 같은 계약이다 (P8 컷 b3)
+ *
+ * 둘 다 **과세 이력을 지운다** — 지급 기록을 지우면 그 달이 다시 추정(지급 가정)으로 돌아가 그 해의 금융소득이 바뀐다.
+ * 그래서 화면이 상환 취소와 같은 수준의 확인(`<details>` 2단)을 둔다(DOC-008 SQ-21 ⓔ b3 개정). id는 같은 이름의
+ * 숨은 칸 여럿으로 온다 — 1..60건 한 트랜잭션(§5.15 · 한 문장 DELETE).
+ *
+ * 리다이렉트하지 않는다 — 같은 화면이 남고 ⑦의 내용이 바뀐다. 상품 삭제의 첫 단계이기도 하다(기록 → 상환 → 상품 —
+ * `monthly_coupon_payments.els_id` RESTRICT, DOC-002 DQ-14).
+ */
+export async function deleteCouponPaymentsAction(
+  _prev: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const ids = form.getAll(COUPON_PAYMENT_IDS_FIELD).filter((value): value is string => typeof value === 'string')
+  const result = await deleteCouponPayments(text(form, PRODUCT_ID_FIELD), { ids })
+
+  return toFormState(
+    result,
+    valuesOf(form),
+    [],
+    ids.length === 1 ? '월수익 기록을 지웠다.' : `월수익 기록 ${ids.length}건을 지웠다.`,
   )
 }

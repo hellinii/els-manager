@@ -1,4 +1,4 @@
-import type { ConditionResult, KiStatus } from '@/lib/domain'
+import type { ConditionResult, CouponConditionResult, CouponOutcome, CouponState, KiStatus } from '@/lib/domain'
 import type { AttentionReason, IntegrityIssue, ProductListItem, RedemptionView } from '@/lib/db/queries/map'
 import type { AssetPriceView } from '@/lib/db/queries/prices'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
@@ -61,6 +61,38 @@ export const PRODUCT_CURRENCY_LABELS: Record<ProductListItem['currency'], string
 export const COUPON_PAYOUT_LABELS: Record<ProductInput['couponPayout'], string> = {
   AT_REDEMPTION: '상환 시 지급',
   MONTHLY: '월지급식',
+}
+
+/**
+ * 월수익 일정 한 행의 상태 — DOC-005 §6.1 `couponState` (P8 컷 b3 — SCR-202 ⑦ · SCR-206이 처음 렌더하는 커밋).
+ *
+ * **「상환 후 없음」은 상환된 상품에만 온다**(민서 결정(2026-10-02) ③) — 미상환 상품의 흐름 끝 뒤는 「예정 · 조기상환
+ * 가정 밖」이다. 둘을 한 문구로 두면 아직 상환되지 않은 상품에 「상환 후」라는 거짓 문구가 생긴다.
+ */
+export const COUPON_STATE_LABELS: Record<CouponState, string> = {
+  PAID: '지급',
+  UNPAID: '미지급',
+  UNRECORDED: '미기록',
+  SCHEDULED: '예정',
+  BEYOND_ASSUMPTION: '예정 · 조기상환 가정 밖',
+  ENDED: '상환 후 없음',
+}
+
+/** 월수익 지급 기록의 결과 — DOC-005 §6.1 `couponOutcome`. 기록 화면의 「결과」 선택지다 */
+export const COUPON_OUTCOME_LABELS: Record<CouponOutcome, string> = {
+  PAID: '지급',
+  UNPAID: '미지급',
+}
+
+/**
+ * 다음 월수익 한 행의 조건 판정 — DOC-005 §6.1 `couponConditionResult` (표시 전용 — DOC-007 §3.5).
+ * `UNKNOWN`은 시세가 없어 판정하지 않은 것이다(E-01) — 차수의 「시세 없음」과 같은 문구여야 한 사실을 두 이름으로
+ * 부르지 않는다(`PRICE_MISSING_LABEL`)
+ */
+export const COUPON_CONDITION_RESULT_LABELS: Record<CouponConditionResult, string> = {
+  EXPECTED_PAID: '예상 지급',
+  EXPECTED_UNPAID: '예상 미지급',
+  UNKNOWN: '시세 없음',
 }
 
 export const REDEMPTION_TYPE_LABELS: Record<RedemptionView['redemptionType'], string> = {
@@ -203,6 +235,9 @@ export const LABEL_AXES = {
   accountType: ACCOUNT_TYPE_LABELS,
   productCurrency: PRODUCT_CURRENCY_LABELS,
   couponPayout: COUPON_PAYOUT_LABELS,
+  couponState: COUPON_STATE_LABELS,
+  couponOutcome: COUPON_OUTCOME_LABELS,
+  couponConditionResult: COUPON_CONDITION_RESULT_LABELS,
   redemptionType: REDEMPTION_TYPE_LABELS,
   conditionResult: CONDITION_RESULT_LABELS,
   kiStatus: KI_STATUS_LABELS,

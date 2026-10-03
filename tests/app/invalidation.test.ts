@@ -626,6 +626,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
     '/tax',
   ],
@@ -637,6 +638,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
     '/tax',
   ],
@@ -647,6 +649,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
   ],
   createRedemption: [
@@ -657,6 +660,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
     '/tax',
   ],
@@ -668,6 +672,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
     '/tax',
   ],
@@ -679,6 +684,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
     '/tax',
   ],
@@ -691,6 +697,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
   ],
   refreshPrices: [
@@ -700,6 +707,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/schedule',
   ],
   // 자산 목록을 읽는 곳만. 상세·상환은 자산 목록을 읽지 않는다.
@@ -727,6 +735,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/tax',
   ],
   /*
@@ -740,6 +749,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/tax',
   ],
   updateCouponPayment: [
@@ -749,6 +759,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/tax',
   ],
   deleteCouponPayments: [
@@ -758,6 +769,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]',
     '/products/[id]/edit',
     '/products/[id]/redeem',
+    '/products/[id]/coupons',
     '/tax',
   ],
 }
@@ -1143,7 +1155,7 @@ function screenRoutes(): Record<string, string[]> {
     '| ID | 화면명 | 경로 | 권한 | 관련 요구사항 | 주요 엔티티 |',
   )
   // P6 컷 5에서 SCR-205(기실현 등재)가 더해져 14 → 15
-  expect(rows.length, 'DOC-008 §4 화면 목록이 비어 있다').toBe(15)
+  expect(rows.length, 'DOC-008 §4 화면 목록이 비어 있다').toBe(16)
 
   const map: Record<string, string[]> = {}
   for (const [id, , pathCell] of rows) {

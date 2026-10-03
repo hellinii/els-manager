@@ -57,7 +57,10 @@ export {
   LABEL_AXES,
   PRICE_SOURCE_LABELS,
   PRODUCT_CURRENCY_LABELS,
+  COUPON_CONDITION_RESULT_LABELS,
+  COUPON_OUTCOME_LABELS,
   COUPON_PAYOUT_LABELS,
+  COUPON_STATE_LABELS,
   REDEMPTION_TYPE_LABELS,
   STALE_LABEL,
   STATUS_LABELS,
@@ -65,6 +68,8 @@ export {
 export {
   ATTENTION_REASON_GRADES,
   CONDITION_RESULT_GRADES,
+  COUPON_CONDITION_RESULT_GRADES,
+  COUPON_STATE_GRADES,
   INTEGRITY_ISSUE_GRADES,
   KI_STATUS_GRADES,
   STALE_GRADE,
@@ -72,6 +77,13 @@ export {
   type BadgeGrade,
 } from './badges'
 export { deriveDisplay, PRICE_MISSING_LABEL, type DisplayState } from './derived'
+export {
+  couponAmountShown,
+  couponMonthLabel,
+  couponTaxableHint,
+  recordAmountShown,
+  UNNUMBERED_COUPON_LABEL,
+} from './coupons'
 export {
   kiTermLabel,
   lizardLabel,

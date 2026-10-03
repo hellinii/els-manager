@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 
 import { Badge } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
+import { CouponSection } from '@/components/products/CouponSection'
 import { DeleteProductForm } from '@/components/products/DeleteProductForm'
 import { KiTouchForm } from '@/components/products/KiTouchForm'
 import { RedemptionActions } from '@/components/products/RedemptionActions'
@@ -15,6 +16,7 @@ import { redemptionValuesOf, roundOptionsOf } from '@/lib/forms/redemption'
 import { getQueries } from '@/lib/db/server'
 import {
   ACCOUNT_TYPE_LABELS,
+  COUPON_PAYOUT_LABELS,
   KI_OBSERVATION_LABELS,
   KI_STATUS_GRADES,
   KI_STATUS_LABELS,
@@ -35,7 +37,7 @@ import {
   ymd,
 } from '@/lib/format'
 import { isUuid } from '@/lib/forms/query'
-import { PATHS } from '@/lib/routes/paths'
+import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
 
 /**
  * SCR-202 ELS 상세 — 읽기 + **소유자 액션 다섯** (P4 컷 3·5·6, DOC-008 §5·DOC-011 §4.3)
@@ -198,6 +200,13 @@ export default async function ProductDetailPage({
           {product.currency !== 'KRW' && (
             <Fact label="상품 통화">{PRODUCT_CURRENCY_LABELS[product.currency]}</Fact>
           )}
+          {/*
+            월지급식에만 지급방식을 적는다 — 상환 시 지급 상품의 상세는 오늘과 같다(DOC-008 SQ-21 ⓔ b3 개정 — 바로 위
+            상품 통화가 원화에서 적히지 않는 것과 같은 판단)
+          */}
+          {product.couponPayout === 'MONTHLY' && (
+            <Fact label="쿠폰 지급">{COUPON_PAYOUT_LABELS[product.couponPayout]}</Fact>
+          )}
           <Fact label="투자원금">{money(product.principal, product.currency)}</Fact>
           <Fact label="계좌유형">{ACCOUNT_TYPE_LABELS[product.accountType]}</Fact>
           {product.entryMode === 'FULL' && (
@@ -268,6 +277,13 @@ export default async function ProductDetailPage({
               currency={product.currency}
             />
           </OwnerOnly>
+        </Section>
+      )}
+
+      {/* ── ⑦ 월수익 — 월지급식에만(부재로 구현한다) ─────────────────────── */}
+      {product.couponPayout === 'MONTHLY' && (
+        <Section title="월수익" id={COUPON_SECTION.id}>
+          <CouponSection view={view} />
         </Section>
       )}
     </article>
@@ -482,7 +498,19 @@ function Redemption({
         <Fact label="상환일">{ymd(redemption.redemptionDate)}</Fact>
         <Fact label="실수령액">{money(redemption.grossAmount, currency)}</Fact>
         {/* 음수가 정상값이다 — 만기손실 상환의 손익(DOC-005 §6 포트폴리오 손익) */}
-        <Fact label="실현손익">{signedMoney(redemption.realizedPnl, currency)}</Fact>
+        <Fact label="실현손익">
+          {signedMoney(redemption.realizedPnl, currency)}
+          {/*
+            구성 — 월지급 상품에만(민서 결정(2026-10-03) ② · DOC-011 §4.3 `pnlBreakdown`). 실수령액이 투자원금 이하라
+            구성 없이는 수익을 낸 상품이 손실로 읽힐 수 있다. 두 값은 계약이 낸다 — 화면은 금액을 셈하지 않는다
+          */}
+          {redemption.pnlBreakdown != null && (
+            <span className="mt-0.5 block text-xs font-normal text-neutral-500">
+              상환 {signedMoney(redemption.pnlBreakdown.redemption, currency)} · 받은 월수익{' '}
+              {signedMoney(redemption.pnlBreakdown.coupons, currency)}
+            </span>
+          )}
+        </Fact>
         {/* 거래내역의 **원화** 값 그대로다(A-04 · U1). 환율을 곱해 만든 값이 아니다 */}
         <Fact label="과세 금융소득">{won(redemption.taxableIncome)}</Fact>
         <Fact label="원천징수세액">
@@ -508,9 +536,9 @@ function Redemption({
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, id, children }: { title: string; id?: string; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section id={id} className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold text-neutral-900">{title}</h2>
       {children}
     </section>

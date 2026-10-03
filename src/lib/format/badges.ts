@@ -1,4 +1,4 @@
-import type { ConditionResult, KiStatus } from '@/lib/domain'
+import type { ConditionResult, CouponConditionResult, CouponState, KiStatus } from '@/lib/domain'
 import type { AttentionReason, IntegrityIssue, ProductListItem } from '@/lib/db/queries/map'
 
 /**
@@ -43,6 +43,26 @@ export const CONDITION_RESULT_GRADES: Record<ConditionResult, BadgeGrade> = {
   EARLY: 'positive',
   LIZARD: 'positive',
   CARRY_OVER: 'caution',
+}
+
+/**
+ * 월수익 상태 (P8 컷 b3 · DOC-005 §6.3). 「미기록」만 사용자 조치다 — 거래내역에서 옮겨 적어야 풀린다(「평가일 경과」와
+ * 같은 부류, 홈의 `COUPON_UNRECORDED`와 같은 등급). 「미지급」은 조건을 못 맞춘 달이라 관찰이다(차수의 이월과 같다)
+ */
+export const COUPON_STATE_GRADES: Record<CouponState, BadgeGrade> = {
+  PAID: 'positive',
+  UNPAID: 'caution',
+  UNRECORDED: 'attention',
+  SCHEDULED: 'neutral',
+  BEYOND_ASSUMPTION: 'neutral',
+  ENDED: 'neutral',
+}
+
+/** 다음 한 행의 판정 — 차수의 `conditionResult`와 같은 짝(충족 positive · 못 맞춤 caution · 시세 없음 caution) */
+export const COUPON_CONDITION_RESULT_GRADES: Record<CouponConditionResult, BadgeGrade> = {
+  EXPECTED_PAID: 'positive',
+  EXPECTED_UNPAID: 'caution',
+  UNKNOWN: 'caution',
 }
 
 export const INTEGRITY_ISSUE_GRADES: Record<IntegrityIssue, BadgeGrade> = {

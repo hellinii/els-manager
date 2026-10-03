@@ -1,3 +1,5 @@
+import { couponMonthLabel as formatCouponMonth } from '@/lib/format/coupons'
+
 import type { ProductRow } from '../queries/load'
 
 /**
@@ -7,9 +9,12 @@ import type { ProductRow } from '../queries/load'
  * 상환 쪽 V-27을 위해 아래 둘을 쓴다. 둘이 서로를 import하지 않게 공용 조각을 여기 둔다.
  */
 
-/** 월수익 표기 — 「5번째 · 2027-02-16」(순번 + 월수익 평가일, DOC-005 GQ-04 · 민서 결정(2026-10-02) ①) */
+/**
+ * 월수익 표기 — 「5번째 · 2027-02-16」(순번 + 월수익 평가일, DOC-005 GQ-04 · 민서 결정(2026-10-02) ①).
+ * 화면의 표기와 **같은 함수**다(`lib/format/coupons.ts` — P8 컷 b3). 일정에 없는 순번(계약 밖 입력)은 날짜 자리가 「?」다
+ */
 export function couponMonthLabel(couponNo: number, evaluationDate: string | undefined): string {
-  return `${couponNo}번째 · ${evaluationDate ?? '?'}`
+  return evaluationDate == null ? `${couponNo}번째 · ?` : formatCouponMonth(couponNo, evaluationDate)
 }
 
 /**

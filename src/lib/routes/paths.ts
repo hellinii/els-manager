@@ -32,6 +32,8 @@ export const PATHS = {
   productEdit: (id: string): string => `/products/${id}/edit`,
   /** SCR-203 상환 처리 */
   productRedeem: (id: string): string => `/products/${id}/redeem`,
+  /** SCR-206 월수익 기록 (P8 컷 b3) — 수정은 같은 화면의 `?edit=<id>`(`couponEditHref`) */
+  productCoupons: (id: string): string => `/products/${id}/coupons`,
   /** SCR-301 평가일정 */
   schedule: '/schedule',
   /** SCR-302 시세 관리 */
@@ -60,6 +62,21 @@ export const EXCHANGE_RATE_SECTION = {
   openParam: 'rate',
   openValue: 'open',
   href: `${PATHS.prices}?rate=open#exchange-rate`,
+} as const
+
+/**
+ * SCR-202 ⑦ 월수익 구획 · SCR-206의 수정 주소 (P8 컷 b3 — DOC-008 SCR-206 · SQ-21 ⓘ b3 개정).
+ *
+ * `EXCHANGE_RATE_SECTION`과 같은 이유로 `PATHS` 밖이다 — 조각 · 쿼리가 붙은 주소는 라우트가 아니다. 기록 화면의
+ * 저장 뒤 도착이 상세의 ⑦(`#coupons`)이고, ⑦의 「수정」이 `?edit=<id>`로 기록 화면의 한 행 폼을 연다.
+ */
+export const COUPON_SECTION = {
+  /** ⑦ `<section id>` */
+  id: 'coupons',
+  editParam: 'edit',
+  detailHref: (productId: string): string => `${PATHS.product(productId)}#coupons`,
+  editHref: (productId: string, recordId: string): string =>
+    `${PATHS.productCoupons(productId)}?edit=${encodeURIComponent(recordId)}`,
 } as const
 
 export type NavItem = {
