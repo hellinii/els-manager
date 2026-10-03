@@ -82,6 +82,8 @@ export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
   SCHEDULE_MISSING: 'defect',
   // 셋째 결함도 데이터 수정이다(SCR-204) — 조치(attention)와 다른 등급이어야 ST-06의 구분이 색에 남는다
   COUPON_SCHEDULE_MISSING: 'defect',
+  // 사용자가 거래내역에서 옮겨 적을 지난 사실 — 「평가일 경과」와 같은 부류(DOC-008 SQ-21 ⓓ b3 개정)
+  COUPON_UNRECORDED: 'attention',
 }
 
 /** 시세 경과 — 정상값이 매주 경고가 되지 않게 5일 기준이다(§4.5). 관찰이다. */

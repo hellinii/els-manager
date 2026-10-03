@@ -83,7 +83,21 @@ const TERM_SOURCES = {
   '⑪': 'kiBarrier',
   '⑫': 'barriers',
   '⑬': 'lizards',
+  // P8 컷 b3-5 — 월수익 요약(월지급식만). 계약 조건 행이다 — ⑩이 숨겨지는 자리를 이 요약이 대신 말한다(DOC-008 SQ-21 ⓑ
+  // b3 개정). **필드 둘을 읽는다** — 율 · 배리어(`terms.monthlyCoupon`)와 진행(최상위 `couponProgress`, 아래 `TERM_TOP_SOURCES`)
+  '⑮': 'monthlyCoupon',
 } as const satisfies Record<string, keyof ProductListItem['terms']>
+
+/**
+ * 계약 조건 행의 마커가 **최상위 필드도** 읽는 경우 — ⑮ 월수익 요약의 진행 조각(지급 · 다음)이다 (P8 컷 b3-5).
+ *
+ * 원장을 「마커 하나에 필드 여럿」으로 넓혔다(DOC-008 SQ-21 ⓑ b3 개정). `terms` 안에 넣지 않은 이유는 계약이다 — 진행은
+ * 기록에서 나오는 관측이라 결함에 억제되고, `terms`는 「D1이 미치지 않는다」가 정의다(DOC-011 §4.2 「월수익 세 필드」).
+ * 키는 `TERM_SOURCES`에 있어야 한다(아래 단언) — 마커 없는 최상위 필드가 여기로 숨어들지 않게.
+ */
+const TERM_TOP_SOURCES = {
+  '⑮': 'couponProgress',
+} as const satisfies Partial<Record<keyof typeof TERM_SOURCES, keyof ProductListItem>>
 
 type Expect<T extends true> = T
 type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
@@ -117,6 +131,8 @@ const NOT_DISPLAYED = [
   'entryMode',
   'isOwner',
   'terms',
+  // P8 컷 b3-5 — `entryMode`와 같은 부류: 값이 아니라 **표시를 가르는 입력**이다(⑩을 숨기고 ⑮를 그린다)
+  'couponPayout',
 ] as const satisfies ReadonlyArray<keyof ProductListItem>
 
 /**
@@ -128,6 +144,7 @@ const NOT_DISPLAYED = [
  */
 type MappedTop =
   | (typeof JUDGMENT_SOURCES)[keyof typeof JUDGMENT_SOURCES]
+  | (typeof TERM_TOP_SOURCES)[keyof typeof TERM_TOP_SOURCES]
   | (typeof NOT_DISPLAYED)[number]
 type UnmappedTop = Exclude<keyof ProductListItem, MappedTop>
 type _NoUnmappedTop = Expect<Equals<UnmappedTop, never>>
@@ -175,7 +192,8 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
   it('파서가 항목을 찾았다', () => {
     // 0건을 찾고 조용히 통과하는 것이 이 부류 파서의 유일한 위험이다.
     expect(displayMarkers('판정').length).toBe(9)
-    expect(displayMarkers('계약 조건').length).toBe(5)
+    // P8 컷 b3-5 — ⑮ 월수익 요약
+    expect(displayMarkers('계약 조건').length).toBe(6)
   })
 
   it('★ 표시하는 필드와 표시하지 않는 필드가 겹치지 않는다', () => {
@@ -184,17 +202,19 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
      * 같은 필드가 두 표에 모두 있어도 그것은 통과한다. 그러면 「이 필드는 표시
      * 항목인가」에 두 답이 생기고, 다음 사람이 어느 쪽을 고쳐야 하는지 알 수 없다.
      */
-    const displayed = new Set<string>(Object.values(JUDGMENT_SOURCES))
+    const displayed = new Set<string>([...Object.values(JUDGMENT_SOURCES), ...Object.values(TERM_TOP_SOURCES)])
     const overlap = NOT_DISPLAYED.filter((name) => displayed.has(name))
     expect(overlap, '같은 필드가 두 표에 있다').toEqual([])
 
     // 파서와 같은 이유로 건수를 고정한다 — 0건을 세고 통과하는 것을 막는다
     // (P6 컷 5에서 `entryMode`가 늘어 14 → 15, 컷 7에서 `underlyingPrices`가 늘어 16,
-    // P8 컷 a2에서 `currency`가 늘어 17)
-    expect(displayed.size + NOT_DISPLAYED.length).toBe(17)
+    // P8 컷 a2에서 `currency`가 늘어 17, 컷 b3-5에서 `couponProgress`(⑮) · `couponPayout`(가르는 입력)이 늘어 19)
+    expect(displayed.size + NOT_DISPLAYED.length).toBe(19)
+    // 최상위를 읽는 계약 조건 마커는 계약 조건 행에 있다
+    for (const marker of Object.keys(TERM_TOP_SOURCES)) expect(Object.keys(TERM_SOURCES)).toContain(marker)
   })
 
-  it('두 행의 마커가 겹치지 않고 ①~⑭를 채운다', () => {
+  it('두 행의 마커가 겹치지 않고 ①~⑮를 채운다', () => {
     /*
      * 겹치면 같은 번호가 두 뜻을 갖고, 빠지면 번호가 뜻하는 순서가 끊긴다. 둘 다
      * 위의 두 단언을 통과하면서 일어날 수 있다 — 각각 자기 행만 보기 때문이다.
@@ -218,6 +238,7 @@ describe('DOC-008 §5 SCR-201 표시 항목 ↔ `ProductListItem`', () => {
       '⑫',
       '⑬',
       '⑭',
+      '⑮',
     ])
   })
 })

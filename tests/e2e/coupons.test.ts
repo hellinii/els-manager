@@ -245,3 +245,42 @@ function alertTextOf(html: string): string {
   const fields = [...html.matchAll(/<p id="([^"]+)-error"[^>]*>([\s\S]*?)<\/p>/g)].map((m) => `${m[1]}: ${strip(m[2] ?? '')}`)
   return [strip(alert), ...fields].join(' | ')
 }
+
+/** 목록에서 그 상품의 카드가 있는 페이지 — 「n / m」을 읽고 넘긴다(products.test.ts의 같은 헬퍼) */
+async function listPageWith(productId: string): Promise<string> {
+  const needle = `href="${PATHS.product(productId)}"`
+  const first = await (await get(PATHS.products, jar)).text()
+  if (first.includes(needle)) return first
+  const shown = /(\d+) \/ (\d+)</.exec(first.replace(/<!-- -->/g, ''))
+  const pageCount = shown == null ? 1 : Number.parseInt(shown[2]!, 10)
+  for (let page = 2; page <= pageCount; page += 1) {
+    const html = await (await get(`${PATHS.products}?page=${page}`, jar)).text()
+    if (html.includes(needle)) return html
+  }
+  throw new Error(`목록 ${pageCount}페이지에 ${productId}가 없다`)
+}
+
+/** 그 상품의 카드(`<li>` 하나) — 상품 링크부터 다음 카드 앞까지 */
+function cardOf(html: string, productId: string): string {
+  const start = html.indexOf(`href="${PATHS.product(productId)}"`)
+  const next = html.indexOf('<li', start)
+  return html.slice(start, next === -1 ? undefined : next)
+}
+
+describe('SCR-201 ⑮ · SCR-101 ②④ (b3-5)', () => {
+  it('★ 목록 — 월지급 카드는 연쿠폰 대신 월수익 요약(지급 2/5), 상환 시 지급 카드는 그대로', async () => {
+    const card = cardOf(await listPageWith(monthly.productId), monthly.productId)
+    expect(card).toContain('월 0.6% · 월수익 배리어 60% · 지급 2/5 · 다음 D-')
+    expect(card).not.toContain('연쿠폰')
+    const plainCard = cardOf(await listPageWith(plain.productId), plain.productId)
+    expect(plainCard).toContain('연쿠폰')
+    expect(plainCard).not.toContain('월수익')
+  })
+
+  it('홈 — 「받은 월수익」 줄(보유중 PAID 합) · 「월수익 미기록 · 3개월」 칩', async () => {
+    const html = (await (await get(PATHS.home, jar)).text()).replace(/<!-- -->/g, '')
+    expect(html).toContain('받은 월수익 +1,200,000원')
+    // SCR-204 절의 새 월지급 상품 — 기록이 없고 평가가 끝난 달이 셋이다
+    expect(html).toContain('월수익 미기록 · 3개월')
+  })
+})

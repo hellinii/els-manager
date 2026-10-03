@@ -586,6 +586,13 @@ export type ProductListItem = {
    */
   entryMode: 'FULL' | 'REALIZED_ONLY'
   isOwner: boolean
+  /** 쿠폰 지급방식 (§4.2 v4.16 — 구현 b3). ⑩을 숨기고 ⑮를 그리는 입력이다(DOC-008 SCR-201) */
+  couponPayout: CouponPayout
+  /**
+   * 월수익 진행 (§4.2 v4.16 · v4.27 — 구현 b3). ⑮ 「지급 5/36 · 다음 D-12」의 자료원.
+   * `null` = 상환 시 지급 · 셋째 결함의 억제(D1) · 기실현 월지급(일정 0행 — 분모가 없다)
+   */
+  couponProgress: CouponProgress | null
   /**
    * 기초자산별 **관측** — `terms.underlyings`의 형제다 (§4.2 v3.4, DOC-008 §5 ⑧)
    *
@@ -622,9 +629,28 @@ export type ProductListItem = {
  * 형태를 쓰면 목록이 쓰지 않는 값을 계산하게 되고, 무엇보다 「목록은 계약 조건 ·
  * 상세는 판정」이라는 구분이 타입에서 사라진다.
  */
+export type CouponProgress = {
+  /** PAID 기록 수 — 「지급 5/36」의 분자. UNPAID는 세지 않는다 */
+  paid: number
+  /** 기록 수(PAID + UNPAID) */
+  recorded: number
+  /** 월수익 일정 행 수 — 분모 */
+  total: number
+  /** 다음 월수익 평가일(기준일 당일 포함). 상환 완료 · 남은 평가일 없음이면 null */
+  nextEvaluationDate: string | null
+  /** 그 날까지의 D-Day — `nextEvaluationDate`와 함께 빈다(§4.2 v4.27 — 화면은 날짜를 셈하지 않는다) */
+  nextDDay: number | null
+}
+
 export type ProductListTerms = {
   /** `null` = 기실현 등재. `entryMode`의 짝이며 I-18이 `FULL`에서 보장한다 */
   annualCouponRate: string | null
+  /**
+   * 월지급식 FULL의 월수익 조건 (§4.2 v4.16 — 구현 b3). 상환 시 지급 · 기실현은 null (I-23).
+   * `barrier` = 모든 일정 행의 월수익 배리어가 같을 때 그 값, 다르면 null — **일정이 0행(셋째 결함)이어도 null**이고
+   * 그 둘을 화면이 `integrityIssue`로 가른다(「달마다 다름」은 일정이 있을 때만 참이다)
+   */
+  monthlyCoupon: { annualRate: string; barrier: string | null } | null
   /** `null` = 노낙인. `kiObservation`과 함께 있거나 함께 없다(I-11) */
   kiBarrier: string | null
   kiObservation: KiObservation | null
@@ -637,7 +663,7 @@ export type ProductListTerms = {
 }
 
 export function toProductListItem(
-  row: ProductCoreRow,
+  row: ProductRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
   viewerId: string,
@@ -668,8 +694,47 @@ export function toProductListItem(
     integrityIssue: j.integrityIssue,
     entryMode: row.entry_mode,
     isOwner: row.owner_id === viewerId,
+    couponPayout: row.coupon_payout,
+    couponProgress: couponProgressOf(row, j, asOf),
     underlyingPrices: underlyingQuotesOf(row, prices, j.worstOf),
     terms: termsOf(row),
+  }
+}
+
+/**
+ * 월수익 진행 (§4.2 — DOC-008 SCR-201 ⑮). `null`이 셋이다 — 상환 시 지급(그 축이 없다) · 셋째 결함의 억제(파괴 입력
+ * `COUPONS` — D1) · 기실현 월지급(일정 0행이 정의 — 분모가 없다). 다음 평가일은 `nextEvaluation`과 같은 규칙(당일 포함,
+ * 상환 완료면 없음)을 월수익 일정에 적용한 것이고 조기상환 차수와 섞지 않는다.
+ */
+function couponProgressOf(row: ProductRow, j: Judgment, asOf: string): CouponProgress | null {
+  if (row.coupon_payout !== 'MONTHLY') return null
+  if (j.destroyed === 'COUPONS') return null
+  if (row.monthly_coupon_schedules.length === 0) return null
+
+  const numbered = row.monthly_coupon_payments.filter((payment) => payment.coupon_no != null)
+  const next =
+    j.status === 'ACTIVE'
+      ? nextCoupon({
+          coupons: row.monthly_coupon_schedules.map((s) => ({ couponNo: s.coupon_no, evaluationDate: s.evaluation_date })),
+          asOf,
+        })
+      : null
+  return {
+    paid: numbered.filter((payment) => payment.outcome === 'PAID').length,
+    recorded: numbered.length,
+    total: row.monthly_coupon_schedules.length,
+    nextEvaluationDate: next?.evaluationDate ?? null,
+    nextDDay: next == null ? null : dDay({ from: asOf, evaluationDate: next.evaluationDate }),
+  }
+}
+
+/** 월수익 조건 — 월지급식 FULL만(§4.2 `terms.monthlyCoupon`). 배리어는 모든 행이 같을 때만 값이다 */
+function monthlyCouponTermOf(row: ProductCoreRow & Partial<Pick<ProductRow, 'monthly_coupon_schedules'>>): ProductListTerms['monthlyCoupon'] {
+  if (row.coupon_payout !== 'MONTHLY' || row.monthly_coupon_annual_rate == null) return null
+  const barriers = new Set((row.monthly_coupon_schedules ?? []).map((s) => ratioString(dec(s.coupon_barrier))))
+  return {
+    annualRate: ratioString(dec(row.monthly_coupon_annual_rate)),
+    barrier: barriers.size === 1 ? [...barriers][0]! : null,
   }
 }
 
@@ -683,7 +748,7 @@ export function toProductListItem(
  * 정렬 규약은 상세 매퍼와 같다(`sequence`·`round_no` 오름차순). 갈리면 목록의 스텝다운
  * 순서와 상세의 차수표 순서가 달라지고, 스텝다운은 **순서가 곧 뜻**이다(내려가는 수열).
  */
-function termsOf(row: ProductCoreRow): ProductListTerms {
+function termsOf(row: ProductRow): ProductListTerms {
   const schedules = row.redemption_schedules
     .slice()
     .sort((a, b) => a.round_no - b.round_no)
@@ -691,6 +756,7 @@ function termsOf(row: ProductCoreRow): ProductListTerms {
   return {
     // 기실현 등재는 `null`이다 — 그 상품에 연쿠폰율이 없다(D-07).
     annualCouponRate: nullableRatio(row.annual_coupon_rate),
+    monthlyCoupon: monthlyCouponTermOf(row),
     kiBarrier: row.ki_barrier == null ? null : ratioString(dec(row.ki_barrier)),
     kiObservation: row.ki_observation,
 
@@ -1047,10 +1113,25 @@ export function toProductDetailView(
 // ---------------------------------------------------------------------------
 
 /** 지급(`PAID`) 월수익의 세전 합 — 상품 통화. 순번 없는 기실현 기록을 포함한다(포트폴리오 손익 — DOC-007 §7.7) */
-function paidCouponGrossOf(row: ProductRow): DecimalValue {
+export function paidCouponGrossOf(row: Pick<ProductRow, 'monthly_coupon_payments'>): DecimalValue {
   return row.monthly_coupon_payments
     .filter((payment) => payment.outcome === 'PAID' && payment.gross_amount != null)
     .reduce<DecimalValue>((acc, payment) => acc.plus(dec(payment.gross_amount as string)), dec('0'))
+}
+
+/**
+ * 한 상환된 상품의 실현손익(포트폴리오 손익) — 상품 통화. **§4.1 홈과 §4.3 상세가 같은 함수다**(DOC-011 §4.1 「항등식」 —
+ * `byCurrency[c].realizedPnl = Σ recentRedemptions[c].realizedPnl`이 같은 산식 위에 선다). 상환 시 지급 상품은 월수익 합이
+ * 0이라 `realizedPnl(gross, P)`와 같은 값이다.
+ */
+export function realizedPnlOfRow(row: ProductRow & { redemptions: NonNullable<ProductRow['redemptions']> }): DecimalValue {
+  return row.coupon_payout === 'MONTHLY'
+    ? portfolioPnl({
+        principal: row.principal,
+        redemptionGross: row.redemptions.gross_amount,
+        couponGrossTotal: paidCouponGrossOf(row),
+      })
+    : realizedPnl({ grossAmount: row.redemptions.gross_amount, principal: row.principal })
 }
 
 /**
@@ -1549,6 +1630,8 @@ export type AttentionReason =
   | 'UNDERLYING_MISSING'
   | 'SCHEDULE_MISSING'
   | 'COUPON_SCHEDULE_MISSING'
+  // 월수익 미기록 (P8 컷 b3 · DOC-007 E-10) — 상품 단위 · 상환된 상품에서도 뜬다
+  | 'COUPON_UNRECORDED'
 
 /**
  * 한 상품이 만드는 조치 사유. 여러 개일 수 있다.
@@ -1573,11 +1656,22 @@ export type AttentionReason =
  * 결함은 사용자가 직접 고쳐야 해소되고 나머지는 시장 상황이므로 조치의 성격이
  * 다르다. 정하지 않으면 구현이 임의로 정하고, 화면은 첫 사유를 대표값으로 읽는다.
  */
-export function attentionReasonsFor(j: Judgment): AttentionReason[] {
+export function attentionReasonsFor(
+  j: Judgment,
+  /**
+   * 그 상품의 「미기록」 월수익 달 수(P8 컷 b3 — `couponObservationsOf`의 `UNRECORDED`). 기본 0 — 상환 시 지급 상품과
+   * 월수익을 모르는 호출부(테스트)가 종전 그대로다
+   */
+  couponUnrecorded = 0,
+): AttentionReason[] {
   const reasons: AttentionReason[] = []
 
   // 결함이 먼저 온다. 상환으로도 시세로도 해소되지 않는다.
   if (j.integrityIssue != null) reasons.push(j.integrityIssue)
+
+  // 월수익 미기록 — **E-05의 조기 반환 앞이다**(DOC-007 §9.4 ★). 상환 기록은 월수익 지급 기록을 대신하지 않는다 —
+  // 상환된 상품의 흐름 끝 안 무기록 달은 추정에 지급으로 들어가 있고 기록해야 확정된다(DOC-011 §4.1 v4.16)
+  if (couponUnrecorded > 0) reasons.push('COUPON_UNRECORDED')
 
   // 상환이 끝난 상품은 그 밖의 조치 대상이 아니다(E-05)
   if (j.status === 'REDEEMED') return reasons

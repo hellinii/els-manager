@@ -60,6 +60,7 @@ const ATTENTION_REASONS = [
   'UNDERLYING_MISSING',
   'SCHEDULE_MISSING',
   'COUPON_SCHEDULE_MISSING',
+  'COUPON_UNRECORDED',
 ] as const
 const STATUSES = ['ACTIVE', 'REDEEMED'] as const
 /** DOC-002 §4.6 — 기실현 등재의 판별 열 (P6 컷 5) */
@@ -105,6 +106,9 @@ const DASHBOARD: Record<string, Spec> = {
   'totals.byCurrency[].activeCount': 'NUMBER',
   'totals.byCurrency[].activePrincipal': 'MONEY',
   'totals.byCurrency[].realizedPnl': 'MONEY',
+  // P8 컷 b3-5 — 받은 월수익. 이 파일의 픽스처에서는 늘 0이지만 비-null이라 두 통화가 관측된다(③′). 0이 아닌 값은
+  // `coupon-views.test.ts`가 본다
+  'totals.byCurrency[].receivedCoupons': 'MONEY',
   // v4.9 (P8 컷 a3) — 원화 환산 추정. 금액은 과세 축과 같은 원화 정수다(Q-07 ⓑ)
   'totals.krwEstimate': 'NULL_OBJECT',
   'totals.krwEstimate.activePrincipal': 'AMOUNT_KRW',
@@ -156,6 +160,10 @@ const PRODUCT_LIST: Record<string, Spec> = {
   kiStatus: KI_STATUSES,
   integrityIssue: INTEGRITY_ISSUES,
   isOwner: 'BOOL',
+  // P8 컷 b3-5 — 이 파일의 픽스처는 전부 상환 시 지급이라 진행 · 월수익 조건은 null로만 온다. 하위 경로는
+  // `coupon-views.test.ts`가 월지급 픽스처로 본다
+  couponPayout: COUPON_PAYOUTS,
+  couponProgress: 'NULL_OBJECT',
 
   /*
    * 기초자산별 관측 (v3.4) — **§4.3 `underlyings[]`의 같은 이름 필드와 같은 분류여야
@@ -176,6 +184,7 @@ const PRODUCT_LIST: Record<string, Spec> = {
    * 잎으로 내지 않는다(`NULL_OBJECT`와 다른 점이 정확히 그것이다).
    */
   'terms.annualCouponRate': 'RATIO',
+  'terms.monthlyCoupon': 'NULL_OBJECT',
   'terms.kiBarrier': 'RATIO',
   'terms.kiObservation': KI_OBSERVATIONS,
   /** 관측과 짝짓는 키다 — 표시값이 아니지만 직렬화 경계는 똑같이 지난다 */
@@ -773,8 +782,8 @@ describe('Q-07 형식 적합성 — 10계약 전 필드', () => {
         .map(([path, currencies]) => `${c.contract} ${path}: [${currencies.join(',')}]`),
     )
     expect(missing).toEqual([])
-    // 0개를 세고 통과하지 않는다 — MONEY 경로가 실제로 표에 있다
-    expect(coverages.flatMap((c) => Object.keys(c.coverage.moneyCurrencies)).length).toBe(16)
+    // 0개를 세고 통과하지 않는다 — MONEY 경로가 실제로 표에 있다(P8 컷 b3-5에서 `receivedCoupons`가 늘어 17)
+    expect(coverages.flatMap((c) => Object.keys(c.coverage.moneyCurrencies)).length).toBe(17)
   })
 
   it('③ 모든 경로가 비-null로 한 번 이상 관측된다 — null로만 오면 형식이 검증된 적 없다', () => {
@@ -818,6 +827,8 @@ describe('달러 픽스처의 값 — E-09가 뷰까지 온다 (P8 컷 a2 · 검
       activeCount: 1,
       activePrincipal: '20000.25',
       realizedPnl: '600.25',
+      // P8 컷 b3-5 — 보유중 월지급 상품이 없으므로 0(센트 고정 자릿수)
+      receivedCoupons: '0.00',
     })
     expect(view.recentRedemptions.find((row) => row.currency === 'USD')).toMatchObject({
       grossAmount: '10600.75',

@@ -98,21 +98,21 @@ describe('§4.1 totals.byCurrency — 통화를 넘어 더하지 않는다', () 
 
   it('통화마다 한 행 — 보유 건수 · 원금 · 손익이 그 통화의 상품에서만 나온다', () => {
     expect(split([krwActive, krwRedeemed, usdActive2, usdRedeemed])).toEqual([
-      { currency: 'KRW', activeCount: 1, activePrincipal: '100000000', realizedPnl: '4000000' },
-      { currency: 'USD', activeCount: 1, activePrincipal: '70000.00', realizedPnl: '600.25' },
+      { currency: 'KRW', activeCount: 1, activePrincipal: '100000000', realizedPnl: '4000000', receivedCoupons: '0' },
+      { currency: 'USD', activeCount: 1, activePrincipal: '70000.00', realizedPnl: '600.25', receivedCoupons: '0.00' },
     ])
   })
 
   it('상환만 있는 통화도 행이 선다 — 보유 상품이 없어도 손익이 갈 자리가 있어야 한다', () => {
     expect(split([krwActive, usdRedeemed])).toEqual([
-      { currency: 'KRW', activeCount: 1, activePrincipal: '100000000', realizedPnl: '0' },
-      { currency: 'USD', activeCount: 0, activePrincipal: '0.00', realizedPnl: '600.25' },
+      { currency: 'KRW', activeCount: 1, activePrincipal: '100000000', realizedPnl: '0', receivedCoupons: '0' },
+      { currency: 'USD', activeCount: 0, activePrincipal: '0.00', realizedPnl: '600.25', receivedCoupons: '0.00' },
     ])
   })
 
   it('상품 0건이면 원화 0 한 행이다 — 빈 배열을 주지 않는다', () => {
     expect(split([])).toEqual([
-      { currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0' },
+      { currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0', receivedCoupons: '0' },
     ])
   })
 })

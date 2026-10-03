@@ -169,6 +169,8 @@ export const ATTENTION_REASON_LABELS: Record<AttentionReason, string> = {
   UNDERLYING_MISSING: '기초자산 없음 — 수정 필요',
   SCHEDULE_MISSING: '평가일정 없음 — 수정 필요',
   COUPON_SCHEDULE_MISSING: '월수익 일정 없음 — 수정 필요',
+  // 칩은 「월수익 미기록 · n개월」이다 — n은 계약의 `count`(DOC-008 SCR-101 ④ v2.31). 이 표는 앞절만 싣는다
+  COUPON_UNRECORDED: '월수익 미기록',
 }
 
 /**

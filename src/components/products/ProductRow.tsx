@@ -20,6 +20,7 @@ import {
   kiTermLabel,
   lizardLabel,
   money,
+  couponSummaryOf,
   percent,
   stepdownLabel,
   underlyingLines,
@@ -216,6 +217,7 @@ function TermsLine({ item }: { item: ProductListItem }) {
   const stepdown = stepdownLabel(terms.barriers)
   const lizard = lizardLabel(terms.lizards)
   const nextRound = item.nextEvaluation?.roundNo ?? null
+  const couponSummary = couponSummaryOf(item)
 
   /*
    * 기실현 등재는 계약 조건 줄을 **한 문장으로 갈아치운다** (DOC-002 D-07).
@@ -256,17 +258,30 @@ function TermsLine({ item }: { item: ProductListItem }) {
         </dd>
       </div>
 
-      {/* ⑩ 연쿠폰율 — `null`은 기실현 등재다(D-07). 결함이 아니라 없는 값이다 */}
-      <div className="flex items-baseline gap-1.5">
-        <dt className="shrink-0 text-neutral-500">연쿠폰</dt>
-        <dd className="tabular-nums">
-          {terms.annualCouponRate == null ? (
-            <span className="text-neutral-400">—</span>
-          ) : (
-            percent(terms.annualCouponRate)
-          )}
-        </dd>
-      </div>
+      {/*
+        ⑩ 연쿠폰율 — `null`은 기실현 등재다(D-07). 결함이 아니라 없는 값이다.
+        **월지급식이면 숨긴다** — 늘 0이고(V-08′) 0%를 적으면 수익이 없는 상품으로 읽힌다. 그 자리를 ⑮가 말한다
+      */}
+      {item.couponPayout !== 'MONTHLY' && (
+        <div className="flex items-baseline gap-1.5">
+          <dt className="shrink-0 text-neutral-500">연쿠폰</dt>
+          <dd className="tabular-nums">
+            {terms.annualCouponRate == null ? (
+              <span className="text-neutral-400">—</span>
+            ) : (
+              percent(terms.annualCouponRate)
+            )}
+          </dd>
+        </div>
+      )}
+
+      {/* ⑮ 월수익 요약 — 월지급식만. 셋째 결함이면 그리지 않고 결함 문구를 따른다(ST-06 — `couponSummaryOf`) */}
+      {couponSummary != null && (
+        <div className="flex items-baseline gap-1.5">
+          <dt className="shrink-0 text-neutral-500">월수익</dt>
+          <dd className="tabular-nums">{couponSummary}</dd>
+        </div>
+      )}
 
       {/* ⑪ KI 배리어 · 관찰방식 — `null`이 노낙인이다(I-11의 짝) */}
       <div className="flex items-baseline gap-1.5">

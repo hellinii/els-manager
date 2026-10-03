@@ -80,7 +80,9 @@ export { deriveDisplay, PRICE_MISSING_LABEL, type DisplayState } from './derived
 export {
   couponAmountShown,
   couponMonthLabel,
+  couponSummaryOf,
   couponTaxableHint,
+  monthlyRateLabel,
   recordAmountShown,
   UNNUMBERED_COUPON_LABEL,
 } from './coupons'
@@ -109,6 +111,7 @@ export { paginate, PRODUCTS_PER_PAGE, type Paged } from './page'
 export { selectableYears } from './tax'
 export { isForecastEmpty } from './forecast'
 export {
+  attentionChipLabel,
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,

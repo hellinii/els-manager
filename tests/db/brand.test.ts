@@ -77,6 +77,9 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       kiStatus: 'SAFE',
       integrityIssue: null,
       isOwner: true,
+      // P8 컷 b3 — 상환 시 지급 상품은 진행이 없다
+      couponPayout: 'AT_REDEMPTION',
+      couponProgress: null,
       // v3.4 신설. `ratio`는 나눗셈의 결과라 **브랜드가 섞이기 가장 쉬운 자리다** —
       // 매퍼가 `ratioString`을 빠뜨리면 `DecimalValue`가 그대로 실리고, 그 값은
       // JSON 왕복에서 형태가 달라진다(아래 왕복 케이스가 그것을 잡는다).
@@ -93,6 +96,8 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       // 섞여 들어오면 여기서 컴파일이 깨진다.
       terms: {
         annualCouponRate: '0.0850',
+        // P8 컷 b3 — 월지급식이 아니면 null이다
+        monthlyCoupon: null,
         kiBarrier: '0.5000',
         kiObservation: 'CLOSING',
         underlyings: [

@@ -149,6 +149,11 @@ export type AttentionGroup<T extends { reason: unknown }> = {
   ownerName: string
   /** 계약이 준 순서 그대로. 대표값은 첫 원소다 */
   reasons: Array<T['reason']>
+  /**
+   * 사유별 개수 — 계약이 `count`를 준 사유만(지금은 `COUPON_UNRECORDED` — 「n개월」, P8 컷 b3). 화면이 세지 않는다 —
+   * 미기록 달을 화면이 세면 E-10의 판정을 계약 밖에서 다시 하게 된다(DOC-008 SCR-101 ④)
+   */
+  counts: Partial<Record<string, number>>
 }
 
 export function groupAttention<
@@ -170,11 +175,14 @@ export function groupAttention<
         productName: item.productName,
         ownerName: item.ownerName,
         reasons: [],
+        counts: {},
       }
       byId.set(item.productId, group)
       groups.push(group)
     }
     group.reasons.push(item.reason)
+    const count = (item as { count?: unknown }).count
+    if (typeof count === 'number') group.counts[String(item.reason)] = count
   }
 
   return groups
@@ -206,4 +214,12 @@ export function heaviestGrade(reasons: readonly AttentionReason[]): BadgeGrade {
     if (BADGE_WEIGHT[grade] > BADGE_WEIGHT[heaviest]) heaviest = grade
   }
   return heaviest
+}
+
+/**
+ * 조치 사유 칩의 글자 — 표시 문자열(DOC-005 §6.1)에 계약이 준 개수를 붙인다 (P8 컷 b3 · DOC-008 SCR-101 ④ v2.31).
+ * 「월수익 미기록 · 3개월」. 개수가 없는 사유는 표시 문자열 그대로다(종전 칩이 한 글자도 바뀌지 않는다).
+ */
+export function attentionChipLabel(label: string, count: number | undefined): string {
+  return count == null ? label : `${label} · ${count}개월`
 }

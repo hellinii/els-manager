@@ -1,10 +1,8 @@
 import { dec, ZERO } from '@/lib/decimal'
 import {
-  aggregateRealizedPnl,
   CURRENCY_ORDER,
   dDay,
   moneyString,
-  realizedPnl,
   sumByCurrency,
   toKrw,
   type EstimateRates,
@@ -25,9 +23,12 @@ import {
 import {
   amountString,
   attentionReasonsFor,
+  couponObservationsOf,
   exchangeRateBasisOf,
   judge,
   ownerNameOf,
+  paidCouponGrossOf,
+  realizedPnlOfRow,
   ratioString,
   redemptionMarkOf,
   type AttentionReason,
@@ -67,8 +68,16 @@ export type DashboardView = {
       currency: ProductCurrency
       activeCount: number
       activePrincipal: string
-      /** 음수 가능. 항등식은 통화별이다 — `= Σ recentRedemptions[currency = c].realizedPnl` */
+      /**
+       * 음수 가능. 항등식은 통화별이다 — `= Σ recentRedemptions[currency = c].realizedPnl`. **상환된 상품만**이고 상환된
+       * 월지급 상품은 Σ PAID 월수익을 포함한다(포트폴리오 손익 — §4.1 v4.16 · 민서 결정(2026-10-02) ②)
+       */
       realizedPnl: string
+      /**
+       * 받은 월수익 — 그 통화의 **보유중** 월지급 상품의 PAID 월수익 세전 합 (§4.1 v4.16 — 구현 b3). 0 이상.
+       * 실현손익에 넣지 않는다 — 상환되는 순간 이 합에서 빠져 `realizedPnl`로 옮겨 간다
+       */
+      receivedCoupons: string
     }>
     /**
      * 원화 환산 추정 (§4.1 v4.9 — P8 컷 a3). **보유중 외화 원금이 있을 때만** 객체다 — 원화 전용이거나
@@ -115,6 +124,8 @@ export type DashboardView = {
      */
     ownerName: string
     reason: AttentionReason
+    /** `COUPON_UNRECORDED`에만 — 그 상품의 미기록 달 수(「n개월 미기록」의 n, §4.1 v4.16 — 구현 b3). 다른 사유에는 없다 */
+    count?: number
   }>
   /**
    * ⑤ 최근 상환 실적 — DOC-008 §5 SCR-101의 다섯째 요소 (v2.0, P4 컷 9)
@@ -156,7 +167,7 @@ export function totalsByCurrency(
 ): DashboardView['totals']['byCurrency'] {
   const present = CURRENCY_ORDER.filter((c) => rows.some((row) => row.currency === c))
   if (present.length === 0) {
-    return [{ currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0' }]
+    return [{ currency: 'KRW', activeCount: 0, activePrincipal: '0', realizedPnl: '0', receivedCoupons: '0' }]
   }
 
   const principals = new Map(
@@ -172,14 +183,17 @@ export function totalsByCurrency(
       currency,
       activeCount: active.length,
       activePrincipal: moneyString(principals.get(currency) ?? ZERO, currency),
-      // 실현손익은 음수가 가능하다 — 과세 금융소득과 분기하는 지점이다(§4.4)
+      // 실현손익은 음수가 가능하다 — 과세 금융소득과 분기하는 지점이다(§4.4). 상세(§4.3)와 같은 함수다 — 상환된
+      // 월지급 상품은 월수익을 포함하고(포트폴리오 손익) 상환 시 지급 상품은 종전 `realizedPnl(gross, P)` 그대로다
       realizedPnl: moneyString(
-        aggregateRealizedPnl(
-          redeemed.map((row) => ({
-            grossAmount: row.redemptions!.gross_amount,
-            principal: row.principal,
-          })),
-        ),
+        redeemed.reduce((acc, row) => acc.plus(realizedPnlOfRow({ ...row, redemptions: row.redemptions! })), ZERO),
+        currency,
+      ),
+      // 보유중 월지급 상품만 — 상환된 상품의 월수익은 위 손익에 들어 있다(한 월수익을 두 줄에 담지 않는다)
+      receivedCoupons: moneyString(
+        active
+          .filter((row) => row.coupon_payout === 'MONTHLY')
+          .reduce((acc, row) => acc.plus(paidCouponGrossOf(row)), ZERO),
         currency,
       ),
     }
@@ -299,14 +313,19 @@ export function makeDashboardQueries(ctx: QueryContext) {
     // 판정은 상품당 **한 번**이다. `attentionReasonsOf(row, prices, asOf)`를 쓰면
     // 위 `judgments`와 합쳐 두 번 판정하게 되고, 결함 상품의 로그가 두 번 찍혀
     // 원인을 가린다 — `listSchedule`이 부모별로 한 번만 매핑하는 것과 같은 이유다.
-    const attentionItems = judgments.flatMap((entry) =>
-      attentionReasonsFor(entry.j).map((reason) => ({
+    const attentionItems = judgments.flatMap((entry) => {
+      // 미기록 달 수 — 상세의 `coupons`와 같은 매퍼에서 센다(E-10의 판정을 다시 하지 않는다 — 화면이 세지 않는 이유와 같다)
+      const unrecorded = (couponObservationsOf(entry.row, entry.j, ctx.asOf) ?? []).filter(
+        (coupon) => coupon.state === 'UNRECORDED',
+      ).length
+      return attentionReasonsFor(entry.j, unrecorded).map((reason) => ({
         productId: entry.row.id,
         productName: entry.row.name,
         ownerName: ownerNameOf(entry.row),
         reason,
-      })),
-    )
+        ...(reason === 'COUPON_UNRECORDED' ? { count: unrecorded } : {}),
+      }))
+    })
 
     /**
      * ⑤ — **기간 창을 두지 않는다.** `upcomingEvaluations`와 같은 근거이고 여기서는
@@ -329,10 +348,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
           redemptionDate: r.redemption_date,
           currency: row.currency,
           grossAmount: moneyString(dec(r.gross_amount), row.currency),
-          realizedPnl: moneyString(
-            realizedPnl({ grossAmount: r.gross_amount, principal: row.principal }),
-            row.currency,
-          ),
+          // 위 합계와 같은 함수 — 항등식 `byCurrency[c].realizedPnl = Σ recentRedemptions[c].realizedPnl`이 산식 위에 선다
+          realizedPnl: moneyString(realizedPnlOfRow({ ...row, redemptions: r }), row.currency),
           isConfirmed: r.is_confirmed,
         }
       })

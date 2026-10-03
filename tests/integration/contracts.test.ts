@@ -383,7 +383,7 @@ describe('§4.1 getDashboard', () => {
     // 원화뿐인 범위는 원화 한 행이고 그 값이 종전 두 필드와 **같은 문자열**이다(§4.1 v4.9)
     expect(view.totals.byCurrency).toEqual([
       // 상환 완료 1건: 104,000,000 − 100,000,000
-      { currency: 'KRW', activeCount: 3, activePrincipal: '150000000', realizedPnl: '4000000' },
+      { currency: 'KRW', activeCount: 3, activePrincipal: '150000000', realizedPnl: '4000000', receivedCoupons: '0' },
     ])
   })
 

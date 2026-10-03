@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { loadProduct, loadScheduleRows, type ProductRow, type ScheduleWithProductRow } from '@/lib/db/queries/load'
-import type { ProductDetailView } from '@/lib/db/queries/map'
+import type { DashboardView } from '@/lib/db/queries/dashboard'
+import { dec } from '@/lib/decimal'
+import type { ProductDetailView, ProductListItem } from '@/lib/db/queries/map'
 
 import { FX, ITG_USER_A } from './helpers/fixtures'
 import { collect, type Coverage, type Spec } from './helpers/formats'
@@ -71,6 +73,28 @@ const COUPON_TABLE: Record<string, Spec> = {
   'redemption.pnlBreakdown.redemption': 'MONEY',
   'redemption.pnlBreakdown.coupons': 'MONEY',
 }
+/** §4.2 목록의 월수익 경로 (b3-5) — 상위 키(`couponProgress` · `terms.monthlyCoupon`)는 formats.test.ts가 null로 본다 */
+const LIST_TABLE: Record<string, Spec> = {
+  couponPayout: ['AT_REDEMPTION', 'MONTHLY'],
+  couponProgress: 'NULL_OBJECT',
+  'couponProgress.paid': 'NUMBER',
+  'couponProgress.recorded': 'NUMBER',
+  'couponProgress.total': 'NUMBER',
+  'couponProgress.nextEvaluationDate': 'DATE',
+  'couponProgress.nextDDay': 'NUMBER',
+  'terms.monthlyCoupon': 'NULL_OBJECT',
+  'terms.monthlyCoupon.annualRate': 'RATIO',
+  'terms.monthlyCoupon.barrier': 'RATIO',
+}
+const LIST_PREFIXES = ['couponPayout', 'couponProgress', 'terms.monthlyCoupon']
+
+/** §4.1 홈의 월수익 경로 (b3-5) */
+const DASHBOARD_TABLE: Record<string, Spec> = {
+  'totals.byCurrency[].receivedCoupons': 'MONEY',
+  'attentionItems[].count': 'NUMBER',
+}
+const DASHBOARD_PREFIXES = ['totals.byCurrency[].receivedCoupons', 'attentionItems[].count']
+
 /** 이 파일이 맡는 경로의 뿌리 — `product` · `redemption` 전체가 아니라 그 안의 월수익 필드만이다 */
 const COUPON_PREFIXES = ['product.monthlyCouponAnnualRate', 'coupons', 'unnumberedCouponRecords', 'redemption.pnlBreakdown']
 
@@ -80,6 +104,10 @@ let coverage: Coverage
 /** 로더가 낸 행 그대로 — 존재 탐침의 길이를 잰다(뷰는 탐침을 싣지 않는다) */
 let rawProduct: ProductRow | null
 let rawScheduleRows: ScheduleWithProductRow[]
+let list: ProductListItem[]
+let dashboard: DashboardView
+let listCoverage: Coverage
+let dashboardCoverage: Coverage
 
 async function seedMonthlyFull(params: {
   id: string
@@ -229,6 +257,11 @@ beforeAll(async () => {
     entries.map(([label, value]) => ({ label, value })),
   )
 
+  list = await s.asA.listProducts()
+  dashboard = await s.asA.getDashboard({ scope: 'MINE' })
+  listCoverage = collect(LIST_TABLE, list.map((value, i) => ({ label: `listProducts[${i}]`, value })))
+  dashboardCoverage = collect(DASHBOARD_TABLE, [{ label: 'MINE', value: dashboard }])
+
   const ctx = { db: (await contractsFor(ITG_USER_A)).db, asOf: AS_OF, viewerId: ITG_USER_A }
   rawProduct = await loadProduct(ctx, FX.productMonthlyKrw)
   rawScheduleRows = (await loadScheduleRows(ctx, { ownerId: ITG_USER_A })).filter(
@@ -334,5 +367,56 @@ describe('값 — 상환 · 기실현 · 결함 · 대조', () => {
     expect(views.plain?.product.monthlyCouponAnnualRate).toBeNull()
     expect(views.plainRedeemed?.redemption?.pnlBreakdown).toBeNull()
     expect(views.plainRedeemed?.unnumberedCouponRecords).toEqual([])
+  })
+})
+
+describe('§4.2 목록 · §4.1 홈 — 월수익 경로 (b3-5)', () => {
+  const mine = (c: Coverage, prefixes: readonly string[]) =>
+    c.unclassified.filter((entry) => prefixes.some((p) => entry.startsWith(p)))
+
+  it('형식 — 위반 없음 · 미분류 없음 · 관측됨 · 비-null 관측(③)', () => {
+    for (const [c, prefixes] of [
+      [listCoverage, LIST_PREFIXES],
+      [dashboardCoverage, DASHBOARD_PREFIXES],
+    ] as const) {
+      expect(c.violations).toEqual([])
+      expect(mine(c, prefixes)).toEqual([])
+      expect(c.unobserved).toEqual([])
+      expect(c.neverNonNull).toEqual([])
+    }
+  })
+
+  it('★ 받은 월수익 — 원화 · 달러 둘 다 관측되고 값은 보유중 월지급 상품의 PAID 합이다(상환된 상품은 손익으로)', () => {
+    expect(dashboardCoverage.moneyCurrencies['totals.byCurrency[].receivedCoupons']).toEqual(['KRW', 'USD'])
+    const by = Object.fromEntries(dashboard.totals.byCurrency.map((row) => [row.currency, row.receivedCoupons]))
+    expect(by).toEqual({ KRW: '600000', USD: '202.01' })
+  })
+
+  it('항등식은 통화별로 그대로 선다 — realizedPnl = Σ recentRedemptions (월수익 포함 산식이 양쪽에 같다)', () => {
+    for (const row of dashboard.totals.byCurrency) {
+      const sum = dashboard.recentRedemptions
+        .filter((r) => r.currency === row.currency)
+        .reduce((acc, r) => acc.plus(dec(r.realizedPnl)), dec('0'))
+      expect(dec(row.realizedPnl).equals(sum), `${row.currency} ${row.realizedPnl} ≠ ${sum.toString()}`).toBe(true)
+    }
+    const krwRedeemed = dashboard.recentRedemptions.find((r) => r.productId === FX.productMonthlyKrwRedeemed)
+    expect(krwRedeemed?.realizedPnl).toBe('1800000')
+  })
+
+  it('조치 — 월수익 미기록은 상품 단위 · count = 미기록 달 수(원화 3 · 달러 4) · 상환 · 기실현 · 결함은 없다', () => {
+    const unrecorded = dashboard.attentionItems.filter((item) => item.reason === 'COUPON_UNRECORDED')
+    expect(Object.fromEntries(unrecorded.map((item) => [item.productId, item.count]))).toEqual({
+      [FX.productMonthlyKrw]: 3,
+      [FX.productMonthlyUsd]: 4,
+    })
+    expect(dashboard.attentionItems.filter((item) => item.reason !== 'COUPON_UNRECORDED' && item.count != null)).toEqual([])
+  })
+
+  it('목록 — 원화 보유중 월지급 「지급 1/12 · 다음 07-01」, 상환 시 지급은 null', () => {
+    const krw = list.find((row) => row.id === FX.productMonthlyKrw)
+    expect(krw?.couponProgress).toEqual({ paid: 1, recorded: 2, total: 12, nextEvaluationDate: '2026-07-01', nextDDay: 1 })
+    expect(krw?.terms.monthlyCoupon).toEqual({ annualRate: '0.0720', barrier: '0.6000' })
+    const plain = list.find((row) => row.id === FX.productA)
+    expect([plain?.couponPayout, plain?.couponProgress, plain?.terms.monthlyCoupon]).toEqual(['AT_REDEMPTION', null, null])
   })
 })

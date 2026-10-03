@@ -7,6 +7,7 @@ import type { DashboardView } from '@/lib/db/queries/dashboard'
 import {
   ATTENTION_REASON_GRADES,
   ATTENTION_REASON_LABELS,
+  attentionChipLabel,
   IMMINENT_LABEL,
   RECENT_VISIBLE,
   REDEMPTION_TYPE_LABELS,
@@ -266,6 +267,18 @@ export function TotalsSection({
               ))}
             </dd>
           )}
+          {/*
+            받은 월수익 — 보유중 월지급 상품이 이미 받은 월수익(DOC-008 SCR-101 ② · 민서 결정(2026-10-02) ②). **실현손익에
+            넣지 않는다** — 만기에 KI 손실이 나면 원금 손실과 합쳐야 손익이 확정된다. 통화별 · 환산하지 않는다. 그 통화에
+            받은 월수익이 없으면(상환 시 지급뿐) 줄이 없다 — 원화 · 상환 시 지급뿐인 홈의 마크업이 바뀌지 않는다
+          */}
+          {totals.byCurrency
+            .filter((row) => row.receivedCoupons !== '0' && row.receivedCoupons !== '0.00')
+            .map((row) => (
+              <p key={row.currency} className="mt-0.5 text-xs text-neutral-500">
+                받은 월수익 {signedMoney(row.receivedCoupons, row.currency)}
+              </p>
+            ))}
         </div>
       </dl>
     </section>
@@ -445,7 +458,8 @@ export function AttentionSection({
               >
                 {group.reasons.map((reason) => (
                   <Badge key={reason} grade={ATTENTION_REASON_GRADES[reason]}>
-                    {ATTENTION_REASON_LABELS[reason]}
+                    {/* 「월수익 미기록 · n개월」 — n은 계약의 `count`. 칩은 링크가 아니다(v2.31 · ST-04) */}
+                    {attentionChipLabel(ATTENTION_REASON_LABELS[reason], group.counts[reason])}
                   </Badge>
                 ))}
               </span>
