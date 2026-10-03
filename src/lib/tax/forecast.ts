@@ -209,9 +209,14 @@ export function forecastYears(params: {
       // 두 축 중 **행 축**이다(§7.5) — 화면 전체 고지는 화면이 따로 한다.
       // 그 해에 상환이 가정된 항목이 있거나, 연도 말에 미상환 항목이 남아 있으면
       // 이 행의 값이 적용 차수 가정에 의존한다.
+      //
+      // 둘째 절은 **원금을 돌려주는 항목만** 본다(DOC-007 v1.7 · RD-19 ⓑ). 그 절의 근거가 남은 원금이고, 원금 0인
+      // 항목(월수익 사건 — §7.6)은 이 행의 어느 값에도 들지 않는다. 그 해에 귀속되는 추정 월수익은 첫 절이 잡는다
       hasEstimates:
         attributed.some((item) => item.isEstimated) ||
-        remaining.some((item) => item.isEstimated || item.attributionYear == null),
+        remaining.some(
+          (item) => !dec(item.principal).isZero() && (item.isEstimated || item.attributionYear == null),
+        ),
     })
   }
 

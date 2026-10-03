@@ -1,14 +1,15 @@
-import { dec, truncateToUnit, type DecimalInput, type DecimalValue } from '@/lib/decimal'
+import { dec, maxZero, truncateToUnit, ZERO, type DecimalInput, type DecimalValue } from '@/lib/decimal'
 
-import { MINOR_UNITS, type ProductCurrency } from './currency'
+import { MINOR_UNITS, toKrw, type EstimateRates, type ForeignCurrency, type ProductCurrency } from './currency'
 import { dDay, isPast } from './schedule'
+import type { AccountType } from './types'
 
 /**
  * 쿠폰 지급방식 · 월수익 지급 기록의 결과 — DOC-002 v1.14 §4.6 · §4.14 · D-09, DOC-011 §4.0 「쿠폰 지급방식과 월수익」
  * (P8 컷 b2 · 계산은 b3)
  *
  * 순수 모듈이다(절대 규칙 #3). 값의 집합(b2)과 월수익의 표시 계산 — 금액 · 흐름 끝 · 상태 · 기록 가능 · 다음 행
- * 판정(b3, DOC-007 §3.5 · §4.7 · §7.6 · §9.4) — 을 둔다. 과세(§4.7의 `couponTaxableIncome` · `F`)는 b4다.
+ * 판정(b3, DOC-007 §3.5 · §4.7 · §7.6 · §9.4) — 을 둔다. 과세(§4.7 · §4.8 `couponTaxableIncomeKrw`)는 b4다.
  * 위쪽에는 **값의 집합**을 둔다 — 계약(`mutations/types.ts`) · 셰이프 파싱 · 폼 선택지가 같은
  * 목록을 읽는다(`Record<CouponPayout, …>`가 값이 늘어나는 날 컴파일되지 않게 — 절대 규칙 #6 「열거가 따라온다」).
  */
@@ -204,4 +205,54 @@ export function couponConditionOf(params: {
 }): CouponConditionResult {
   if (params.worstOf == null) return 'UNKNOWN'
   return params.worstOf.gte(dec(params.barrier)) ? 'EXPECTED_PAID' : 'EXPECTED_UNPAID'
+}
+
+// ---------------------------------------------------------------------------
+// 과세 — 월수익 사건 하나의 과세 금융소득 (DOC-007 §4.7 · §4.8, P8 컷 b4)
+// ---------------------------------------------------------------------------
+
+/**
+ * 월수익 사건 하나의 과세 금융소득 — **원화**(과세 축). DOC-007 §4.7 `couponTaxableIncome` · §4.8
+ * `couponTaxableIncomeKrw`를 한 함수로 둔다(상환의 `taxableIncomeKrw`가 두 통화를 한 함수로 두는 것과 같다).
+ *
+ * ```
+ * 0                       TAX_FREE        # 기록값보다 먼저 — §4.3과 같은 순서. 환율 없이 안다
+ * record.taxableIncome    PAID 기록        # 거래내역의 원화 확정값(A-04). 기록의 적용 환율도 x도 곱하지 않는다
+ * q_k                     추정 · 원화      # 원금을 빼지 않는다 — 전액이 소득이다
+ * q_k × x                 추정 · 달러 · x 있음
+ * null                    그 밖           # E-09 — 그 사건만 빠지고 호출부가 센다(§9.3)
+ * ```
+ *
+ * **이익 ≤ 0 분기가 없다**(§4.8) — 월수익은 원금을 돌려주지 않으므로 `max(0, q_k − P)`를 쓰면 과세가 지워진다(검산
+ * C의 음성 대조). `q_k`가 0이어도 분기를 두지 않는다 — 환율이 없으면 E-09로 센다(값을 지어내지 않고 세는 쪽으로 틀린다).
+ * 반올림하지 않는다 — `F`에는 반올림 전 값이 들어간다(§2 · 검산 C 279,810.4원).
+ */
+export function couponTaxableIncomeKrw(params: {
+  currency: ProductCurrency
+  accountType: AccountType
+  /** PAID 기록의 과세 금융소득(원화). 기록이 없거나 미지급이면 `null` — 미지급은 사건이 아니다(호출부가 거른다) */
+  record: { taxableIncome: DecimalInput } | null
+  /** `q_k`(상품 통화 — `couponAmount`). 추정에만 쓴다 */
+  amount: DecimalInput
+  rates: EstimateRates
+}): DecimalValue | null {
+  if (params.accountType === 'TAX_FREE') return ZERO
+  // 절대 규칙 #8과 같은 방어 — DB CHECK(`monthly_coupon_payments_taxable_income_check`)가 0 이상을 보장한다
+  if (params.record != null) return maxZero(dec(params.record.taxableIncome))
+  return toKrw({ amount: params.amount, currency: params.currency, rates: params.rates })
+}
+
+/**
+ * 이 월수익 사건의 과세가 추정 환율을 **곱하는가** — 곱하면 그 외화, 아니면 `null`. `couponTaxableIncomeKrw`의 분기
+ * 순서 그 자체다(상환의 `estimateConversionOf`와 같은 자리 — `convertedCount`가 실제로 곱한 사건과 갈리지 않게).
+ * 환율의 유무는 보지 않는다 — 곱해야 하는데 없는 것이 E-09다.
+ */
+export function couponConversionOf(params: {
+  currency: ProductCurrency
+  accountType: AccountType
+  record: { taxableIncome: DecimalInput } | null
+}): ForeignCurrency | null {
+  if (params.currency === 'KRW') return null
+  if (params.accountType === 'TAX_FREE' || params.record != null) return null
+  return params.currency
 }
