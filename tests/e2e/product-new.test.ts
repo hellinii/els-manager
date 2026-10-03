@@ -71,7 +71,7 @@ const BASIC = {
   note: '단일 페이지 확인',
 }
 
-const ONE_ROW: RowCounts = { underlyings: 1, rounds: 0 }
+const ONE_ROW: RowCounts = { underlyings: 1, rounds: 0, monthly: false, couponRows: 0 }
 
 describe('SCR-204 단일 페이지 폼', () => {
   let jar: ReturnType<typeof cookieJar>

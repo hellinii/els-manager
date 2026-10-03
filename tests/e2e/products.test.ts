@@ -591,7 +591,7 @@ describe('SCR-204 수정 모드 (컷 5)', () => {
     const rendered = inputNamesOf(form)
 
     // `registerProduct`가 만드는 형태 — 기초자산 1종, 배리어 3개 = 차수 3
-    for (const name of productFieldNames({ underlyings: 1, rounds: 3 })) {
+    for (const name of productFieldNames({ underlyings: 1, rounds: 3, monthly: false, couponRows: 0 })) {
       expect(rendered, `${name}이 렌더되지 않았다`).toContain(name)
     }
     // 대상 id도 폼에 있다 — 없으면 어댑터가 무엇을 고칠지 모른다.

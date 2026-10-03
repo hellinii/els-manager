@@ -6,6 +6,7 @@ import { AssetForm } from '@/components/prices/AssetForm'
 import { Field, INPUT_CLASS, hintWith } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
+import { LockedChoice } from '@/components/products/LockedChoice'
 import { ConditionStep } from '@/components/products/ConditionStep'
 import { UnderlyingRow } from '@/components/products/UnderlyingRow'
 import type { AssetOption } from '@/lib/db/queries/prices'
@@ -17,10 +18,10 @@ import {
   PRODUCT_ID_FIELD,
   UNDERLYING_SUBS,
   currencyOptionsOf,
-  roundCountOf,
-  rowCountOf,
+  rowCountsOf,
   type RowCounts,
 } from '@/lib/forms/productForm'
+import type { CouponLock } from '@/lib/forms/monthly'
 
 /**
  * SCR-204 ELS 등록 — **단일 페이지 폼** (DOC-008 §5·§7.1 v1.8, P6 컷 1)
@@ -78,6 +79,7 @@ export function ProductForm({
   initialValues,
   productId,
   fieldNotes,
+  couponLock,
 }: {
   assets: readonly AssetOption[]
   /** 이 폼을 받는 어댑터. 등록은 `productFormAction`, 수정은 `productEditFormAction` */
@@ -91,14 +93,13 @@ export function ProductForm({
    * 배열 행에는 붙이지 않는다 — 행은 사용자가 지우면 번호가 밀린다.
    */
   fieldNotes?: Readonly<Record<string, string>>
+  /** 월수익 지급 기록이 있는 상품의 잠금 — 수정 화면만(`couponLockOf(view)`, P8 컷 b3-4) */
+  couponLock?: CouponLock | null
 }) {
   const [state, formAction] = useActionState(action, initialFormState(initialValues))
 
   const values = state.values
-  const counts: RowCounts = {
-    underlyings: rowCountOf(values, 'underlyings'),
-    rounds: roundCountOf(values),
-  }
+  const counts: RowCounts = rowCountsOf(values)
 
   return (
     <section className="flex flex-col gap-6">
@@ -115,7 +116,12 @@ export function ProductForm({
         )}
 
         <FormSection title="기본 정보">
-          <BasicFields state={state} fieldNotes={fieldNotes} editing={productId != null} />
+          <BasicFields
+            state={state}
+            fieldNotes={fieldNotes}
+            editing={productId != null}
+            couponLock={couponLock ?? null}
+          />
         </FormSection>
 
         <FormSection title="기초자산">
@@ -127,7 +133,7 @@ export function ProductForm({
         </FormSection>
 
         <FormSection title="평가 조건">
-          <ConditionStep state={state} fieldNotes={fieldNotes} />
+          <ConditionStep state={state} fieldNotes={fieldNotes} couponLock={couponLock ?? null} />
         </FormSection>
 
         <div className="flex flex-wrap gap-2">
@@ -196,9 +202,12 @@ function BasicFields({
   state,
   fieldNotes,
   editing,
+  couponLock,
 }: StepProps & {
   /** 수정 화면 — 통화를 바꾸면 투자원금을 옮기지 않는다는 힌트가 붙는다(DOC-008 SCR-204) */
   editing: boolean
+  /** 월수익 지급 기록이 있으면 상품 통화를 바꿀 수 없다(DQ-14) */
+  couponLock: CouponLock | null
 }) {
   const { values, fieldErrors } = state
 
@@ -261,35 +270,45 @@ function BasicFields({
         1,400배 틀린다. 계좌유형과 같은 자리다. 기초자산 구획의 「USD」(기초자산 통화)와 다른 축이므로
         힌트가 둘을 가른다(DOC-005 §8.11).
       */}
-      <Field
-        name="currency"
-        label="상품 통화"
-        error={fieldErrors.currency}
-        hint={hintWith(
-          editing
-            ? '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다. 바꾸면 투자원금을 그 통화로 고쳐 적는다'
-            : '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다',
-          fieldNotes,
-          'currency',
-        )}
-      >
-        {(props) => (
-          <select
-            {...props}
-            // AQ-64 — `key`가 `defaultValue`와 같은 식이다(아래 계좌유형의 각주)
-            key={values.currency ?? ''}
-            defaultValue={values.currency ?? ''}
-            className={INPUT_CLASS}
-          >
-            <option value="">선택</option>
-            {currencyOptionsOf(values.currency).map((currency) => (
-              <option key={currency} value={currency}>
-                {PRODUCT_CURRENCY_LABELS[currency]}
-              </option>
-            ))}
-          </select>
-        )}
-      </Field>
+      {couponLock != null && values.currency != null && values.currency !== '' ? (
+        <LockedChoice
+          name="currency"
+          label="상품 통화"
+          value={values.currency}
+          shown={PRODUCT_CURRENCY_LABELS[values.currency as keyof typeof PRODUCT_CURRENCY_LABELS] ?? values.currency}
+          error={fieldErrors.currency}
+        />
+      ) : (
+        <Field
+          name="currency"
+          label="상품 통화"
+          error={fieldErrors.currency}
+          hint={hintWith(
+            editing
+              ? '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다. 바꾸면 투자원금을 그 통화로 고쳐 적는다'
+              : '돈이 오가는 통화다 — 기초자산의 통화와 따로 고른다',
+            fieldNotes,
+            'currency',
+          )}
+        >
+          {(props) => (
+            <select
+              {...props}
+              // AQ-64 — `key`가 `defaultValue`와 같은 식이다(아래 계좌유형의 각주)
+              key={values.currency ?? ''}
+              defaultValue={values.currency ?? ''}
+              className={INPUT_CLASS}
+            >
+              <option value="">선택</option>
+              {currencyOptionsOf(values.currency).map((currency) => (
+                <option key={currency} value={currency}>
+                  {PRODUCT_CURRENCY_LABELS[currency]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         {/*

@@ -332,7 +332,7 @@ describe('불변식', () => {
   it('★ 채운 이름이 전부 폼의 이름이다 — 폼에 없는 이름은 값 좁힘에서 조용히 사라진다', () => {
     for (const code of ['E04000', 'EM1740', 'EM2046'] as const) {
       const v = filled(importFillOf(termsOf(code), {})).values
-      const names = new Set(productFieldNames({ underlyings: 2, rounds: Number.parseInt(v.totalRounds!, 10) }))
+      const names = new Set(productFieldNames({ underlyings: 2, rounds: Number.parseInt(v.totalRounds!, 10), monthly: false, couponRows: 0 }))
       for (const key of Object.keys(v)) expect(names, `${code} ${key}`).toContain(key)
     }
   })

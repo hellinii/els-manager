@@ -3,6 +3,13 @@ import { COUPON_PAYOUT_ORDER, type CouponPayout } from '@/lib/domain/coupon'
 import { CURRENCY_ORDER, type ProductCurrency } from '@/lib/domain/currency'
 
 import { barrierNotice, parseBarrierList } from './barriers'
+import {
+  applyCouponBarriers,
+  applyCouponDates,
+  couponRowCountOf,
+  isMonthlyValues,
+  monthlyFieldNames,
+} from './monthly'
 import { parseFieldPath, path } from './fieldPath'
 import { initialFormState, toFormState, type FormState } from './state'
 import { MAX_ROUNDS, roundCountOf } from './rounds'
@@ -98,6 +105,9 @@ export type Intent =
   | { kind: 'REMOVE_UNDERLYING'; index: number }
   | { kind: 'APPLY_BARRIERS' }
   | { kind: 'APPLY_EVALUATION_DATES' }
+  // 월지급 블록의 조작 둘(P8 컷 b3-4 — DOC-008 SCR-204 「남는 조작」) — 같은 규약(제출 · JS 없이 동작)
+  | { kind: 'APPLY_COUPON_BARRIERS' }
+  | { kind: 'APPLY_COUPON_DATES' }
   | { kind: 'NONE' }
 
 /**
@@ -121,6 +131,10 @@ export function parseIntent(raw: string | null | undefined): Intent {
       return { kind: 'APPLY_BARRIERS' }
     case 'APPLY_EVALUATION_DATES':
       return { kind: 'APPLY_EVALUATION_DATES' }
+    case 'APPLY_COUPON_BARRIERS':
+      return { kind: 'APPLY_COUPON_BARRIERS' }
+    case 'APPLY_COUPON_DATES':
+      return { kind: 'APPLY_COUPON_DATES' }
     case 'REMOVE_UNDERLYING': {
       const index = /^\d+$/.test(arg) ? Number.parseInt(arg, 10) : -1
       return index < 0 ? { kind: 'NONE' } : { kind: 'REMOVE_UNDERLYING', index }
@@ -251,6 +265,24 @@ export type RowCounts = {
   underlyings: number
   /** 차수표의 행 수. `totalRounds` 입력에서 나오며 0은 「아직 정하지 않았다」다 */
   rounds: number
+  /**
+   * 월지급 블록이 폼의 이름인가 (P8 컷 b3-4). **b3에서는 지급방식 값이 월지급식인 렌더만이다**(DOC-008 v2.29 —
+   * 선택지가 b4이므로 그 값은 저장값뿐이고, 상환 시 지급 상품의 폼에 칸을 두면 기존 폼이 바뀐다)
+   */
+  monthly: boolean
+  /** 월수익 일정의 행 수 — 값에서 파생(`couponRowCountOf`). 월지급식이 아니면 0 */
+  couponRows: number
+}
+
+/** 값 맵 → 계수 — 화면(`ProductForm`)과 전이가 같은 함수를 쓴다(두 곳이 다른 수를 보면 저장에서야 어긋난다) */
+export function rowCountsOf(values: Record<string, string>): RowCounts {
+  const monthly = isMonthlyValues(values)
+  return {
+    underlyings: rowCountOf(values, 'underlyings'),
+    rounds: roundCountOf(values),
+    monthly,
+    couponRows: monthly ? couponRowCountOf(values) : 0,
+  }
 }
 
 /** 배열 행의 이름 — 생성기와 파서가 이 함수를 공유한다 */
@@ -283,6 +315,7 @@ export function productFieldNames(counts: RowCounts): string[] {
     ...rowNames('underlyings', counts.underlyings, UNDERLYING_SUBS),
     ...CONDITION_NAMES,
     ...rowNames('schedules', counts.rounds, SCHEDULE_SUBS),
+    ...(counts.monthly ? monthlyFieldNames(counts.couponRows) : []),
   ]
 }
 
@@ -478,6 +511,18 @@ export function transition(form: FormData): Transition {
       notice = applied.notice
       break
     }
+    case 'APPLY_COUPON_DATES': {
+      const applied = applyCouponDates(raw)
+      raw = applied.values
+      notice = applied.notice
+      break
+    }
+    case 'APPLY_COUPON_BARRIERS': {
+      const applied = applyCouponBarriers(raw)
+      raw = applied.values
+      notice = applied.notice
+      break
+    }
     case 'SUBMIT': {
       /*
        * 저장도 일괄 칸을 펼친다 — 다만 **빈 칸에만**. 근거는 `applyBarriers`의
@@ -504,10 +549,13 @@ export function transition(form: FormData): Transition {
       break
   }
 
-  const counts: RowCounts = {
-    underlyings: rowCountOf(raw, 'underlyings'),
-    rounds: roundCountOf(raw),
-  }
+  /*
+   * 월지급식이면 연쿠폰율은 0이다(DOC-011 V-08′ — 수익은 월수익 연쿠폰율에서만 나온다). 칸은 `readOnly`이지만 칸만 막으면
+   * 앞서 적은 값이 고칠 수 없는 칸에 남아 V-08′가 거기 붙는다 — 전이가 함께 고정한다(DOC-008 v2.29 (4)).
+   */
+  if (isMonthlyValues(raw)) raw = { ...raw, annualCouponRate: '0' }
+
+  const counts = rowCountsOf(raw)
 
   const values: Record<string, string> = {}
   for (const name of productFieldNames(counts)) {

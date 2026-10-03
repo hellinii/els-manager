@@ -35,6 +35,7 @@ export {
   isPast,
   nextEvaluation,
   overdueEvaluations,
+  shiftBusinessDays,
   shiftDays,
   type OverdueEvaluation,
 } from './schedule'

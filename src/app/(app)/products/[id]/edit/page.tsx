@@ -8,6 +8,7 @@ import { AccessDenied } from '@/components/system/AccessDenied'
 import { getQueries } from '@/lib/db/server'
 import { importPanelOf } from '@/lib/forms/importPanel'
 import { isUuid, parseEditImportQuery, type QueryValues } from '@/lib/forms/query'
+import { couponLockOf } from '@/lib/forms/monthly'
 import { productValuesOf } from '@/lib/forms/values'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 import { PATHS } from '@/lib/routes/paths'
@@ -144,6 +145,8 @@ export default async function ProductEditPage({
         initialValues={panel.initialValues}
         fieldNotes={panel.fieldNotes}
         productId={id}
+        // 월수익 지급 기록이 있으면 상품 통화 · 쿠폰 지급방식 · 기록된 달의 날짜를 바꿀 수 없다(DQ-14 — 칸에서 말한다)
+        couponLock={couponLockOf(view)}
       />
     </section>
   )

@@ -11,8 +11,7 @@ import { formOfValues, parseProductForm, percentToRatio, ratioToPercent } from '
 import {
   INTENT_FIELD,
   productFieldNames,
-  roundCountOf,
-  rowCountOf,
+  rowCountsOf,
   transition,
 } from '@/lib/forms/productForm'
 import { EVALUATION_DATE_BASIS_FIELD } from '@/lib/forms/schedules'
@@ -132,13 +131,10 @@ describe('ratioToPercent — percentToRatio의 역', () => {
 
 describe('productValuesOf — 폼의 모든 이름을 덮는다', () => {
   const values = productValuesOf(viewOf())
-  const counts = {
-    underlyings: rowCountOf(values, 'underlyings'),
-    rounds: roundCountOf(values),
-  }
+  const counts = rowCountsOf(values)
 
   it('행 수가 뷰에서 파생된다', () => {
-    expect(counts).toEqual({ underlyings: 2, rounds: ROUNDS })
+    expect(counts).toEqual({ underlyings: 2, rounds: ROUNDS, monthly: false, couponRows: 0 })
   })
 
   it('★ 선언된 모든 이름에 값이 있다 — 빠진 칸은 수정 저장이 비운다', () => {

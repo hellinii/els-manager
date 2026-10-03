@@ -3,12 +3,13 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { today } from '@/lib/db/today'
 import { shiftDays } from '@/lib/domain'
 import { COUPON_PAYMENT_IDS_FIELD, rowName } from '@/lib/forms/coupons'
+import { MONTHLY_RATE_FIELD, couponCell } from '@/lib/forms/monthly'
 import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'
 import { queryRows } from '../integration/helpers/seed'
 
-import { actionIdOf, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
+import { actionIdOf, buttonField, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
 import { makeMonthly, monthsAround } from './helpers/monthly'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
@@ -187,3 +188,60 @@ describe('SCR-206 — 제출', () => {
     expect(await detailHtml(monthly.productId)).not.toContain(`href="${PATHS.productCoupons(monthly.productId)}"`)
   })
 })
+
+describe('SCR-204 월지급 블록 (b3-4)', () => {
+  it('★ 기록 없는 월지급 상품 — 블록 · 율 · 행이 저장값으로 서고, 그대로 저장된다(b2~b3의 V-25 공백이 닫혔다)', async () => {
+    const fresh = await registerProduct(jar, { label: '월지급수정', principal: '100,000,000' })
+    await makeMonthly(fresh.productId, monthsAround(asOf))
+    const editPath = PATHS.productEdit(fresh.productId)
+    const html = await (await get(editPath, jar)).text()
+    const actionId = actionIdOf('productEditFormAction')
+    const form = formHtmlFor(html, actionId)
+    expect(form).toContain(`name="${MONTHLY_RATE_FIELD}"`)
+    expect(form).toContain('value="7.2"')
+    expect(form).toContain(`name="${couponCell(4, 'evaluationDate')}"`)
+    // 연쿠폰율은 0으로 고정된 칸이다(V-08′)
+    expect(/<input[^>]*name="annualCouponRate"[^>]*>/.exec(form)?.[0]).toMatch(/readOnly|readonly/)
+    // 기록이 없으므로 잠금이 없다 — 선택 상자가 그대로이고 산식 버튼이 있다
+    expect(form).toContain('<select')
+    expect(form).toContain('value="APPLY_COUPON_DATES"')
+
+    const saved = await submitAction(editPath, jar, [...formValuesFor(html, actionId), buttonField(form, 'SUBMIT')])
+    // 실패면 그 화면의 오류 문구 · 칸 오류를 단언 메시지에 싣는다 — 200만 보이면 원인을 찾을 수 없다
+    const failure = saved.status === 200 ? alertTextOf(await saved.text()) : ''
+    expect([302, 303], failure).toContain(saved.status)
+    expect(locationPath(saved)).toBe(PATHS.product(fresh.productId))
+    const { rows } = await queryRows<{ n: string }>(
+      'select count(*)::text as n from public.monthly_coupon_schedules where els_id = $1::uuid',
+      [fresh.productId],
+    )
+    expect(rows[0]?.n).toBe('5')
+  })
+
+  it('기록이 있는 상품 — 통화 · 지급방식은 값 글자 + 숨은 입력, 기록된 달은 readOnly, 산식 버튼이 없다', async () => {
+    const html = await (await get(PATHS.productEdit(monthly.productId), jar)).text()
+    const form = formHtmlFor(html, actionIdOf('productEditFormAction'))
+    expect(form).toContain('월수익 지급 기록이 있어 바꿀 수 없다')
+    expect(form).not.toMatch(/<select[^>]*name="currency"/)
+    expect(form).not.toMatch(/<select[^>]*name="couponPayout"/)
+    expect(form).toMatch(/<input[^>]*type="hidden"[^>]*name="couponPayout"[^>]*value="MONTHLY"|<input[^>]*name="couponPayout"[^>]*type="hidden"/)
+    // 1번째 달은 지급 기록이 있다 — 평가일 칸이 readOnly다
+    expect(new RegExp(`<input[^>]*name="${couponCell(0, 'evaluationDate').replace(/[[\].]/g, '\\$&')}"[^>]*>`).exec(form)?.[0]).toMatch(/readOnly|readonly/)
+    expect(form).not.toContain('value="APPLY_COUPON_DATES"')
+  })
+
+  it('★ 상환 시 지급 상품의 등록 · 수정 폼에는 월지급 블록이 없다 — 기존 폼이 그대로(b3)', async () => {
+    const created = await (await get(PATHS.productNew, jar)).text()
+    expect(created).not.toContain(`name="${MONTHLY_RATE_FIELD}"`)
+    const edit = await (await get(PATHS.productEdit(plain.productId), jar)).text()
+    expect(edit).not.toContain(`name="${MONTHLY_RATE_FIELD}"`)
+  })
+})
+
+/** 응답 문서의 오류 요약(`role="alert"`)과 칸 오류(`…-error`)의 글자 */
+function alertTextOf(html: string): string {
+  const strip = (fragment: string) => fragment.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  const alert = /<div[^>]*role="alert"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? ''
+  const fields = [...html.matchAll(/<p id="([^"]+)-error"[^>]*>([\s\S]*?)<\/p>/g)].map((m) => `${m[1]}: ${strip(m[2] ?? '')}`)
+  return [strip(alert), ...fields].join(' | ')
+}

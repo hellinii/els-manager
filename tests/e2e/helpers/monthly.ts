@@ -33,6 +33,14 @@ export async function makeMonthly(
       where id = $1::uuid`,
     [productId, annualRate],
   )
+  // 월지급식 + 리자드는 v2다(V-25 · 쓰기 함수 `els_products_monthly_lizard_forbidden`) — `registerProduct`의 2차 리자드를
+  // 걷는다. 남기면 계약이 만들 수 없는 상품이 되고 그 상품의 수정 저장이 늘 거부된다(실측 — 이 헬퍼의 첫 판)
+  await sql(
+    `update public.redemption_schedules
+        set lizard_barrier = null, lizard_coupon_rate = null, lizard_requires_no_ki = null
+      where els_id = $1::uuid`,
+    [productId],
+  )
   for (const month of months) {
     await sql(
       `insert into public.monthly_coupon_schedules

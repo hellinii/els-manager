@@ -307,7 +307,7 @@ describe('수정 화면 — 저장값 위에 채운다 (DOC-008 v2.12 · SQ-10)'
     }).initialValues
     expect(Object.keys(v).filter((k) => k.startsWith('schedules[6]') || k.startsWith('underlyings[2]'))).toEqual([])
     // 폼이 그릴 이름은 전부 있다 — 전체 교체(§5.2)가 비울 칸이 없다
-    for (const name of productFieldNames({ underlyings: 2, rounds: 6 })) expect(v, name).toHaveProperty([name])
+    for (const name of productFieldNames({ underlyings: 2, rounds: 6, monthly: false, couponRows: 0 })) expect(v, name).toHaveProperty([name])
   })
 
   it('★ 저장값의 관찰방식이 「관찰방식 미정」을 메운다 — 등록에서는 일부 채움, 수정에서는 불러옴', () => {

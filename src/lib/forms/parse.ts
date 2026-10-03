@@ -1,3 +1,4 @@
+import { couponCell, couponRowCountOf, isMonthlyValues, MONTHLY_RATE_FIELD } from './monthly'
 import { dec } from '@/lib/decimal'
 import type {
   AssetInput,
@@ -278,12 +279,26 @@ export function parseProductForm(form: FormData): ProductInput {
     evaluationPeriodMonths,
     totalRounds,
     annualCouponRate: percentToRatio(text(form, 'annualCouponRate')),
-    // 빈 칸이면 빈 문자열이 계약에 가서 V-25가 「쿠폰 지급방식을 선택한다」를 붙인다 — 기본값 없음(U7).
-    // 월수익 연쿠폰율 · 월수익 일정은 이 폼에 아직 칸이 없다(월지급 블록은 컷 b3 — DOC-008 SCR-204)
+    // 빈 칸이면 빈 문자열이 계약에 가서 V-25가 「쿠폰 지급방식을 선택한다」를 붙인다 — 기본값 없음(U7)
     couponPayout: text(form, 'couponPayout') as ProductInput['couponPayout'],
     accountType: text(form, 'accountType') as ProductInput['accountType'],
     underlyings,
     schedules,
+  }
+
+  /*
+   * 월지급 블록 — 지급방식이 월지급식일 때만 싣는다(P8 컷 b3-4, DOC-008 SCR-204). 상환 시 지급이면 두 필드가 없어야
+   * 한다(V-25) — 칸이 남아 있어도 보내지 않는다. 행 수는 화면과 같은 함수로 뽑는다(어긋나면 저장에서야 드러난다).
+   * 빈 월수익 연쿠폰율은 빈 문자열로 보내 V-25가 그 칸에 붙는다. 순번은 행의 위치다 — 사용자가 정할 것이 없다.
+   */
+  if (isMonthlyValues(values)) {
+    input.monthlyCouponAnnualRate = percentToRatio(text(form, MONTHLY_RATE_FIELD))
+    input.couponSchedules = Array.from({ length: couponRowCountOf(values) }, (_, index) => ({
+      couponNo: index + 1,
+      evaluationDate: text(form, couponCell(index, 'evaluationDate')),
+      paymentDate: text(form, couponCell(index, 'paymentDate')),
+      couponBarrier: percentToRatio(text(form, couponCell(index, 'couponBarrier'))),
+    }))
   }
 
   const issuer = optionalText(form, 'issuer')

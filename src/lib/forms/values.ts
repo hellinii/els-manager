@@ -3,6 +3,7 @@ import type { ProductDetailView } from '@/lib/db/queries/map'
 import { path } from './fieldPath'
 import { ratioToPercent } from './parse'
 import { BARRIERS_FIELD, SCHEDULE_SUBS, UNDERLYING_SUBS } from './productForm'
+import { COUPON_BARRIERS_FIELD, MONTHLY_RATE_FIELD, couponCell } from './monthly'
 import { EVALUATION_DATE_BASIS_FIELD, evaluationDateBasisOf } from './schedules'
 
 /**
@@ -88,6 +89,25 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
     values[path('underlyings', index, UNDERLYING_SUBS[0])] = underlying.assetId
     values[path('underlyings', index, UNDERLYING_SUBS[1])] = underlying.basePrice
   })
+
+  /*
+   * 월지급 블록 — 월지급식 상품만(P8 컷 b3-4). 월수익 연쿠폰율은 `product.monthlyCouponAnnualRate`, 일정 행은 `coupons[]`의
+   * 순번 · 평가일 · 지급일 · 배리어에서 온다(DOC-011 §4.3 — 읽는 계약이 늘지 않는다). ★ 빠지면 수정 저장이 V-25로 막히고
+   * (월지급식에 율 · 일정이 필수다), 일정이 빠진 저장은 입력에 없는 순번을 지운다(§5.2) — 기록된 달이면 `CONFLICT`다.
+   * `coupons`가 `null`인 월지급 상품(셋째 결함 — 일정 0행)은 빈 블록이다: 고칠 곳이 그 블록이다.
+   */
+  if (product.couponPayout === 'MONTHLY') {
+    values[MONTHLY_RATE_FIELD] =
+      product.monthlyCouponAnnualRate == null ? '' : ratioToPercent(product.monthlyCouponAnnualRate)
+    values[COUPON_BARRIERS_FIELD] = ''
+    ;[...(view.coupons ?? [])]
+      .sort((a, b) => a.couponNo - b.couponNo)
+      .forEach((coupon, index) => {
+        values[couponCell(index, 'evaluationDate')] = coupon.evaluationDate
+        values[couponCell(index, 'paymentDate')] = coupon.paymentDate
+        values[couponCell(index, 'couponBarrier')] = ratioToPercent(coupon.couponBarrier)
+      })
+  }
 
   view.schedules.forEach((schedule, index) => {
     const at = (sub: (typeof SCHEDULE_SUBS)[number]): string =>

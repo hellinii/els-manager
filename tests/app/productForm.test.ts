@@ -66,7 +66,7 @@ function formData(entries: Record<string, string>): FormData {
   return form
 }
 
-const COUNTS: RowCounts = { underlyings: 2, rounds: 3 }
+const COUNTS: RowCounts = { underlyings: 2, rounds: 3, monthly: false, couponRows: 0 }
 
 // ---------------------------------------------------------------------------
 // 폼의 이름과 원장
@@ -175,7 +175,7 @@ describe('폼의 이름 — DOC-008 §5 SCR-204 v1.8', () => {
   })
 
   it('배열 이름이 행·차수 수에 따라 늘어난다', () => {
-    const names = productFieldNames({ underlyings: 3, rounds: 2 })
+    const names = productFieldNames({ underlyings: 3, rounds: 2, monthly: false, couponRows: 0 })
     expect(names).toContain('underlyings[2].basePrice')
     expect(names).not.toContain('underlyings[3].basePrice')
     expect(names).toContain('schedules[1].lizardCouponRate')
@@ -277,7 +277,7 @@ describe('행 — 값에서 개수를 파생시킨다', () => {
       'schedules[5].barrier': '65',
     }
     expect(roundCountOf(stale)).toBe(3)
-    expect(productFieldNames({ underlyings: 1, rounds: roundCountOf(stale) })).not.toContain(
+    expect(productFieldNames({ underlyings: 1, rounds: roundCountOf(stale), monthly: false, couponRows: 0 })).not.toContain(
       'schedules[5].barrier',
     )
   })
@@ -1029,7 +1029,7 @@ describe('상품 폼 왕복 — 생성기와 파서가 갈리지 않는다', () 
      * 다음 단계로 가면 값이 사라진다. 반대 방향(이름은 있는데 파서가 안 읽는다)은
      * 조용히 무시되므로 여기서 좌변을 고정한다.
      */
-    const names = new Set(productFieldNames({ underlyings: 2, rounds: 3 }))
+    const names = new Set(productFieldNames({ underlyings: 2, rounds: 3, monthly: false, couponRows: 0 }))
     for (const key of filled().keys()) {
       expect(names, `${key}가 폼의 이름 목록에 없다`).toContain(key)
     }

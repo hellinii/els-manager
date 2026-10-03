@@ -119,6 +119,28 @@ export function shiftDays(iso: string, days: number): string {
 }
 
 /**
+ * 영업일 가산 — **주말만 건너뛴다** (P8 컷 b3 · DOC-008 SCR-204 「평가일 산식으로 채우기」).
+ *
+ * 월수익 지급일의 산식이 「월수익 평가일 + 3영업일」이다(EM2048 투자설명서 원문 — DOC-011 §9 X-08). **휴장일은
+ * 모른다** — 공휴일 표가 없다(DOC-007 RD-03 ⓐ). 산식 날짜는 「산식」 표식을 달고 칸의 기본값일 뿐이며 정본은
+ * 거래내역 · 투자설명서의 실제 날짜다. 시작일이 주말이어도 그날은 세지 않는다 — 다음 평일이 첫째다.
+ */
+export function shiftBusinessDays(iso: string, days: number): string {
+  if (!Number.isInteger(days) || days < 0) {
+    throw new RangeError(`영업일 가산은 0 이상의 정수여야 한다: ${days}`)
+  }
+  let epoch = toEpochDay(parseIsoDate(iso))
+  let remaining = days
+  while (remaining > 0) {
+    epoch += 1
+    // 1970-01-01(에포크 0)은 목요일이다 — (epoch + 4) % 7 이 0이면 일요일, 6이면 토요일
+    const weekday = (((epoch + 4) % 7) + 7) % 7
+    if (weekday !== 0 && weekday !== 6) remaining -= 1
+  }
+  return formatIsoDate(fromEpochDay(epoch))
+}
+
+/**
  * 평가일 기산 규약 — `발행일 + n × 주기` **에서 하루 앞**이다 (DOC-007 §11 RD-03)
  *
  * 증권사 통지서의 평가일이 그 형태였다. 실보유 ELS 11건 65차수 전부에서
