@@ -4,7 +4,12 @@ import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMiss
 import { ForecastTable } from '@/components/forecast/ForecastTable'
 import { EmptyState } from '@/components/state/EmptyState'
 import { getQueries, getViewerId } from '@/lib/db/server'
-import { FOREIGN_FORECAST_DISCLAIMER, forecastBasisLine, isForecastEmpty } from '@/lib/format'
+import {
+  FOREIGN_FORECAST_DISCLAIMER,
+  MONTHLY_COUPON_ASSUMPTION,
+  forecastBasisLine,
+  isForecastEmpty,
+} from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
 /**
@@ -97,6 +102,15 @@ export default async function ForecastPage() {
           {/* 다섯째 표 밖 표식 — 환율 기준(DOC-008 SCR-402 a3). 표 아래 한 줄로 한 번 */}
           {rateBasis != null && (
             <p className="text-xs text-neutral-500">{forecastBasisLine(rateBasis)}</p>
+          )}
+
+          {/*
+            여섯째 표 밖 표식 — 월지급 가정(DOC-008 SCR-402 「P8 월지급식」 · DOC-011 §4.7). 행마다 같은 값이라 첫 행에서
+            읽는다. **화면 전체 고지와 별개다** — 그 조건은 그대로 「미상환 상품이 하나라도 있다」(DOC-007 v1.7 RD-19).
+            `FOREIGN_FORECAST_DISCLAIMER`를 고치지 않고 따로 둔다(가정이 둘이다)
+          */}
+          {rows[0]?.monthlyCouponAssumption === true && (
+            <p className="text-xs text-neutral-500">{MONTHLY_COUPON_ASSUMPTION}</p>
           )}
 
           <div className="flex flex-col gap-1 text-xs text-neutral-500">

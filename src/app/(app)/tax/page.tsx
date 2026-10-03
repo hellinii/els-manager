@@ -21,6 +21,7 @@ import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
 import { currentYear } from '@/lib/db/today'
 import {
   FOREIGN_TAX_ASSUMPTION_NOTE,
+  MONTHLY_COUPON_ESTIMATE_NOTE,
   HEALTH_INSURANCE_TYPE_LABELS,
   selectableYears,
 } from '@/lib/format'
@@ -225,6 +226,16 @@ export default async function TaxPage({
       {summary.income.convertedCount > 0 && (
         <p className="rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600">
           {FOREIGN_TAX_ASSUMPTION_NOTE}
+        </p>
+      )}
+
+      {/*
+        월지급 가정 (P8 컷 b4 — DOC-008 SQ-21 ⓚ (c)). 그 해의 F에 추정 월수익 사건이 있을 때만 — 조건은 계약이 준다
+        (`income.monthlyCouponAssumption`). 문장은 SCR-502 · SCR-101 ③과 같은 상수다
+      */}
+      {summary.income.monthlyCouponAssumption && (
+        <p className="rounded-md bg-neutral-100 px-3 py-2 text-xs text-neutral-600">
+          {MONTHLY_COUPON_ESTIMATE_NOTE}
         </p>
       )}
     </section>

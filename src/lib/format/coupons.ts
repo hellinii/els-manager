@@ -1,10 +1,11 @@
 import type { CouponObservationView, CouponRecordView } from '@/lib/db/queries/map'
+import type { TaxSummaryView } from '@/lib/db/queries/tax'
 
 import { dec } from '@/lib/decimal'
 
 import { dDayLabel, ymd } from './date'
 import { REDEMPTION_KRW_TAXABLE_HINT, type ExchangeRateBasisText } from './exchangeRate'
-import { exchangeRateDisplay } from './money'
+import { exchangeRateDisplay, won } from './money'
 import { percent } from './ratio'
 
 /**
@@ -97,5 +98,46 @@ export function couponSummaryOf(item: {
     pieces.push(`지급 ${item.couponProgress.paid}/${item.couponProgress.total}`)
     if (item.couponProgress.nextDDay != null) pieces.push(`다음 ${dDayLabel(item.couponProgress.nextDDay)}`)
   }
+  return pieces.join(' · ')
+}
+
+// ---------------------------------------------------------------------------
+// 세금 · 전망의 월수익 표시 (P8 컷 b4 — DOC-008 SQ-21 ⓚ · ⓛ · SCR-401 · SCR-402 · SCR-502)
+// ---------------------------------------------------------------------------
+
+/**
+ * 월지급식 가정의 면책 한 문장 — SCR-502(조건 없이) · SCR-401 · SCR-101 ③(그 해의 `F`에 추정 월수익 사건이 있을 때 —
+ * `monthlyCouponAssumption`)이 같은 상수다(DOC-008 SQ-21 ⓛ · ⓚ (c)). 한 가정을 세 화면이 다르게 말하지 않는다
+ */
+export const MONTHLY_COUPON_ESTIMATE_NOTE =
+  '월지급식 — 기록 없는 지난 월수익은 지급된 것으로, 미상환 상품은 적용 차수까지 매월 지급된다고 가정한 추정이다. 확정값은 월수익 지급 기록(거래내역)이다'
+
+/** SCR-402 표 밖 표식 여섯째 — 표식이라 짧다(DOC-008 SCR-402 v2.22 · 「표 밖 표식」 셀). 화면 전체 고지와 별개다(RD-19) */
+export const MONTHLY_COUPON_ASSUMPTION = '월지급식은 적용 차수까지 매월 지급 가정'
+
+/**
+ * SCR-401 — 금액이 있는데 `exchangeRateMissing`인 행(확정분은 들어가고 달러 추정분만 빠졌다). ST-07의 「환율이 없어」를
+ * 공유하고 빠진 것만 말한다(DOC-008 SQ-21 ⓚ (a)). 몇 건인지는 내역 줄이 적는다
+ */
+export const PARTIAL_RATE_MISSING_NOTE = '환율이 없어 추정분은 빠졌다'
+
+/**
+ * SCR-401 기여 상품 행의 내역 한 줄 — 「상환 0원 (추정) · 월수익 확정 1건 600,000원 · 추정 4건 2,400,000원」.
+ *
+ * **월수익 내역이 없으면 `null`이다** — 상환 시 지급 상품의 행은 사건이 상환 하나라 내역이 행의 금액과 같은 말을 되풀이한다.
+ * 그 행은 종전과 바이트 단위로 같다. 금액은 원화(과세 축)이고 `null`은 「환율 없음」이다(E-09 — 0으로 적지 않는다)
+ */
+export function contributionBreakdownLine(
+  breakdown: TaxSummaryView['contributingProducts'][number]['breakdown'],
+): string | null {
+  const coupons = breakdown.coupons
+  if (coupons == null) return null
+  const money = (value: string | null) => (value == null ? '환율 없음' : won(value))
+  const pieces: string[] = []
+  if (breakdown.redemption != null) {
+    pieces.push(`상환 ${money(breakdown.redemption.taxableIncome)}${breakdown.redemption.isEstimated ? ' (추정)' : ''}`)
+  }
+  if (coupons.confirmedCount > 0) pieces.push(`월수익 확정 ${coupons.confirmedCount}건 ${won(coupons.confirmedTaxableIncome)}`)
+  if (coupons.estimatedCount > 0) pieces.push(`추정 ${coupons.estimatedCount}건 ${money(coupons.estimatedTaxableIncome)}`)
   return pieces.join(' · ')
 }

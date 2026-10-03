@@ -10,6 +10,10 @@ import { sql } from '../../integration/helpers/seed'
  * 세우는 것과 같은 자리다. 한 UPDATE에서 연쿠폰율 0 · 월수익 연쿠폰율 > 0을 함께 바꿔 I-23(`els_products_monthly_terms_check`)을
  * 만족한다. 기록이 없으므로 동결 트리거는 발화하지 않는다.
  *
+ * *(b4-3c 뒤)* 폼이 「월지급식」을 고를 수 있게 되었다 — 화면 등록은 `registerProduct`의 `monthly` 옵션이다. 이 헬퍼는
+ * **기준일 상대 날짜의 월수익 일정**(지난 달 · 다가올 달이 섞인)이 필요한 파일을 위해 남는다 — 폼의 산식 채우기는 발행일에서
+ * 출발하므로 「어느 날 돌려도 무기록 지난 달이 있다」를 만들지 못한다.
+ *
  * 월수익 평가일은 **오늘 기준 상대 날짜**다 — 시각이 데이터인 테스트를 만들지 않는다(redeem.test.ts의 같은 각주).
  */
 export type MonthlyMonth = { couponNo: number; evaluationDate: string; paymentDate: string }

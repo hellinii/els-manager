@@ -258,6 +258,8 @@ export default async function ProductDetailPage({
       {/* ── ⑤ 예상 수령액·과세소득 ─────────────────────────────────────── */}
       <Section title="예상 수령액 · 과세소득">
         <Projection projection={projection} product={product} />
+        {/* P8 컷 b4 — 잔여 월수익. `projection` 밖의 형제다(그 값이 null인 상환 완료 · NO_ROUND에서도 남는다) */}
+        <RemainingCoupons remaining={view.remainingCoupons} currency={product.currency} />
       </Section>
 
       {/* ── ⑥ 상환 실적 ────────────────────────────────────────────────── */}
@@ -275,6 +277,7 @@ export default async function ProductDetailPage({
               rounds={roundOptionsOf(view)}
               initialValues={redemptionValuesOf(redemption)}
               currency={product.currency}
+              couponPayout={product.couponPayout}
             />
           </OwnerOnly>
         </Section>
@@ -464,6 +467,62 @@ function Projection({
         <Fact label="귀속연도">{projection.attributionYear}년</Fact>
       </dl>
     </>
+  )
+}
+
+/**
+ * ⑤ 잔여 월수익 (P8 컷 b4 — DOC-008 SCR-202 ⑤ · DOC-011 §4.3 `remainingCoupons`).
+ *
+ * 흐름 끝 안의 **추정** 월수익(기록 없는 달)을 귀속연도(월수익 지급일의 연도)로 묶어 적는다 — 그 해의 건수 · 세전(상품
+ * 통화) · 과세 금융소득(원). 세금 화면의 그 상품 행 「추정 n건」과 같은 사건 집합이다(계약이 같은 사건에서 낸다).
+ * 상환 시 지급 상품 · 셋째 결함은 `null`이라 없고, 추정이 없으면(전부 기록됨 · 기실현) 블록도 없다. 근거 줄은
+ * `remainingCoupons.exchangeRateBasis`다 — `projection`의 것을 빌리지 않는다(그것이 null인 상품에서도 남는다)
+ */
+function RemainingCoupons({
+  remaining,
+  currency,
+}: {
+  remaining: ProductDetailView['remainingCoupons']
+  currency: ProductDetailView['product']['currency']
+}) {
+  if (remaining == null || remaining.byYear.length === 0) return null
+  return (
+    <div className="mt-4 border-t border-neutral-200 pt-3">
+      <p className="mb-2 text-sm text-neutral-600">
+        <strong className="font-medium">잔여 월수익</strong> — 기록하지 않은 달을 지급된 것으로{' '}
+        <em className="font-medium not-italic">가정한</em> 추정값이다(월수익 흐름 끝까지). 기록하면 확정값으로 바뀐다.
+      </p>
+      <ul className="divide-y divide-neutral-200 rounded-md border border-neutral-200 text-sm">
+        {remaining.byYear.map((entry) => (
+          <li key={entry.year} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-3 py-2">
+            <span className="tabular-nums">
+              {entry.year}년 · {entry.count}건 · 세전 {money(entry.grossAmount, currency)}
+            </span>
+            <span className="tabular-nums">
+              과세 금융소득{' '}
+              {entry.taxableIncome == null ? (
+                <span className="text-amber-900">환율 없음</span>
+              ) : (
+                won(entry.taxableIncome)
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {remaining.exchangeRateBasis != null && (
+        <p className="mt-1 text-xs text-neutral-500">{projectionBasisLine(remaining.exchangeRateBasis)}</p>
+      )}
+      {/*
+        ST-07 한 상품 형태(DOC-008 v2.37) — 행의 「환율 없음」은 빠졌다는 사실만 말하고 다음 행동(환율 입력)을 말하지 않는다.
+        추정 환율은 요청당 통화별 하나라 빠지면 모든 해가 함께 빠지므로 목록 아래 한 번이다. 월지급 상품의 상환 추정은
+        연쿠폰율 0이라 환율 없이 0원이므로 위 `Projection`의 같은 문구와 겹치지 않는다
+      */}
+      {remaining.byYear.some((entry) => entry.taxableIncome == null) && (
+        <p className="mt-1 text-xs text-amber-900">
+          <ExchangeRateMissingNotice missing={{ kind: 'PRODUCT' }} />
+        </p>
+      )}
+    </div>
   )
 }
 

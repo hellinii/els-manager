@@ -7,6 +7,9 @@ import { LABEL_AXES, STALE_LABEL } from '@/lib/format'
 import {
   ATTENTION_REASON_GRADES,
   CONDITION_RESULT_GRADES,
+  CONTRIBUTION_BASIS_GRADES,
+  COUPON_CONDITION_RESULT_GRADES,
+  COUPON_STATE_GRADES,
   INTEGRITY_ISSUE_GRADES,
   KI_STATUS_GRADES,
   STATUS_GRADES,
@@ -162,8 +165,21 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
       ...Object.values(CONDITION_RESULT_GRADES),
       ...Object.values(INTEGRITY_ISSUE_GRADES),
       ...Object.values(ATTENTION_REASON_GRADES),
+      // P8 — 월수익 축 둘(b3-3)과 기여 근거(b4-4). b3-3은 이 집합에 넣지 않았다 — 결과는 같았지만(새 등급 토큰이 없다)
+      // 그 축이 새 토큰을 들이면 보이지 않았다(b4-4에서 메웠다)
+      ...Object.values(COUPON_STATE_GRADES),
+      ...Object.values(COUPON_CONDITION_RESULT_GRADES),
+      ...Object.values(CONTRIBUTION_BASIS_GRADES),
     ])
     expect([...used].sort()).toEqual(documentedGrades().sort())
+  })
+
+  it('기여 근거 — 확정은 neutral, 추정이 섞이면 caution이다 · §6.3의 「쓰는 곳」과 같다 (ST-05 · DOC-005 v1.17)', () => {
+    const rows = tableAfterHeader(DOC_005, '| 등급 | 의미 | 쓰는 곳 |')
+    const usesOf = (grade: string) => rows.find(([g]) => bare(g ?? '') === grade)?.[2] ?? ''
+    expect(CONTRIBUTION_BASIS_GRADES).toEqual({ CONFIRMED: 'neutral', ESTIMATED: 'caution', MIXED: 'caution' })
+    expect(usesOf('neutral')).toContain('`contributionBasis.CONFIRMED`')
+    expect(usesOf('caution')).toContain('`contributionBasis.ESTIMATED` · `MIXED`')
   })
 
   it('결함은 조치와 다른 등급이다 — ST-06', () => {

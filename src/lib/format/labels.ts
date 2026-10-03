@@ -1,4 +1,11 @@
-import type { ConditionResult, CouponConditionResult, CouponOutcome, CouponState, KiStatus } from '@/lib/domain'
+import type {
+  ConditionResult,
+  ContributionBasis,
+  CouponConditionResult,
+  CouponOutcome,
+  CouponState,
+  KiStatus,
+} from '@/lib/domain'
 import type { AttentionReason, IntegrityIssue, ProductListItem, RedemptionView } from '@/lib/db/queries/map'
 import type { AssetPriceView } from '@/lib/db/queries/prices'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
@@ -93,6 +100,17 @@ export const COUPON_CONDITION_RESULT_LABELS: Record<CouponConditionResult, strin
   EXPECTED_PAID: '예상 지급',
   EXPECTED_UNPAID: '예상 미지급',
   UNKNOWN: '시세 없음',
+}
+
+/**
+ * 기여 근거 — DOC-005 §6.1 `contributionBasis` (P8 컷 b4 — SCR-401 기여 상품 행의 배지가 처음 렌더하는 커밋).
+ * 종전 행 배지(`isEstimated` → 「추정」 / 「확정」)의 낱말을 그대로 넓힌다 — 상환 시 지급 상품의 행은 바뀌지 않는다
+ * (사건이 하나라 `MIXED`가 없다). DOC-008 SQ-21 ⓚ(v2.34)
+ */
+export const CONTRIBUTION_BASIS_LABELS: Record<ContributionBasis, string> = {
+  CONFIRMED: '확정',
+  ESTIMATED: '추정',
+  MIXED: '확정 + 추정',
 }
 
 export const REDEMPTION_TYPE_LABELS: Record<RedemptionView['redemptionType'], string> = {
@@ -240,6 +258,7 @@ export const LABEL_AXES = {
   couponState: COUPON_STATE_LABELS,
   couponOutcome: COUPON_OUTCOME_LABELS,
   couponConditionResult: COUPON_CONDITION_RESULT_LABELS,
+  contributionBasis: CONTRIBUTION_BASIS_LABELS,
   redemptionType: REDEMPTION_TYPE_LABELS,
   conditionResult: CONDITION_RESULT_LABELS,
   kiStatus: KI_STATUS_LABELS,

@@ -108,6 +108,8 @@ export function TaxOverrideForm({
             defaultValue={profile.otherFinancialIncome}
             className={`${INPUT_CLASS} text-right tabular-nums`}
           />
+          {/* P8 컷 b4 — 월수익은 ELS 과세 금융소득에 사건으로 이미 들어 있다. 여기 다시 적으면 두 번 센다(DOC-008 SCR-401 ②) */}
+          <span className="text-xs text-neutral-500">ELS 월수익은 여기 넣지 않는다</span>
         </label>
 
         <label className="flex flex-col gap-1.5">

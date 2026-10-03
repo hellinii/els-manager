@@ -101,6 +101,7 @@ export function RedemptionForm({
   redemptionId,
   submitLabel,
   currency,
+  couponPayout,
   taxableHintBasis = null,
 }: {
   action: (prev: FormState, form: FormData) => Promise<FormState>
@@ -111,6 +112,12 @@ export function RedemptionForm({
    * 이 값에서 나온다(DOC-008 SCR-203 「P8 달러 ELS」): 실수령액의 단위 · 적용 환율 칸의 유무
    */
   currency: ProductCurrency
+  /**
+   * 쿠폰 지급방식 — **필수다**(P8 컷 b4 · DOC-008 SCR-203). 월지급식이면 상환은 원금만이다(V-29): 과세 칸을 0으로 고정하고
+   * 실수령액 힌트가 「투자원금 이하 — 그 달 월수익은 여기 넣지 않는다」를 말한다. 선택으로 두면 잊은 호출부에서 월지급 상품의
+   * 과세 칸이 열려 V-29가 저장에서야 거부한다
+   */
+  couponPayout: 'AT_REDEMPTION' | 'MONTHLY'
   /**
    * 달러 상품의 과세 칸 힌트에 적을 추정 환율(DOC-008 SCR-203 a3) — 상세 계약의 `projection.exchangeRateBasis`다.
    * 없으면(원화 · 만기 상환 · 비과세 · 이익 ≤ 0 · 환율 없음) 힌트는 뒷절만이다(v2.19)
@@ -147,7 +154,9 @@ export function RedemptionForm({
       ? roundFillOf(rounds, picked.roundNo, type)
       : null
 
-  const locked = taxableIncomeLocked(type)
+  const monthly = couponPayout === 'MONTHLY'
+  // 만기손실(V-12)과 월지급식(V-29)이 같은 고정이다 — 둘 다 과세 0을 요구한다
+  const locked = taxableIncomeLocked(type) || monthly
   const foreign = currency !== 'KRW'
 
   /*
@@ -268,9 +277,12 @@ export function RedemptionForm({
           label={foreign ? '실수령액 (달러)' : '실수령액 (원)'}
           error={fieldErrors.grossAmount}
           hint={
-            foreign
-              ? `거래내역의 달러 거래금액 · ${grossHint({ fill, type })}`
-              : grossHint({ fill, type })
+            monthly
+              ? // V-29 — 같은 날 나오는 그 달 월수익을 여기 합치면 그 달이 월수익 사건이 아니라 상환으로 셈해진다(U6)
+                '투자원금 이하 — 그 달 월수익은 여기 넣지 않는다'
+              : foreign
+                ? `거래내역의 달러 거래금액 · ${grossHint({ fill, type })}`
+                : grossHint({ fill, type })
           }
         >
           {(props) => (
@@ -292,7 +304,9 @@ export function RedemptionForm({
           label="과세 금융소득 (원)"
           error={fieldErrors.taxableIncome}
           hint={
-            locked
+            monthly
+              ? '월지급식 상환은 원금만이다 — 과세 금융소득은 0이고 수익은 월수익으로 적는다'
+              : locked
               ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
               : foreign
                 ? // 채우지 않는다(U1) — 과세표준은 지급일 환율로 환산한 원화이고 그 환율은 거래내역만 안다.

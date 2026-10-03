@@ -1,11 +1,13 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { today } from '@/lib/db/today'
 import { shiftDays } from '@/lib/domain'
 import { COUPON_PAYMENT_IDS_FIELD, rowName } from '@/lib/forms/coupons'
 import { MONTHLY_RATE_FIELD, couponCell } from '@/lib/forms/monthly'
 import { SCHEDULE_KEYS } from '@/lib/forms/query'
-import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
+import { EXCHANGE_RATE_INPUT_LINK_LABEL, EXCHANGE_RATE_MISSING_JOINER, exchangeRateMissingLead } from '@/lib/format'
+import { MONTHLY_COUPON_ASSUMPTION, MONTHLY_COUPON_ESTIMATE_NOTE } from '@/lib/format/coupons'
+import { COUPON_SECTION, EXCHANGE_RATE_SECTION, PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'
 import { queryRows } from '../integration/helpers/seed'
@@ -405,5 +407,85 @@ describe('SCR-301 월수익 — ⑮ 상품별 카드의 하위 목록 · ⑯ 시
     const rows = timeRowsOf(time, orphan.productId)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toContain('1번째')
+  })
+})
+
+describe('세금 · 전망 · 상세 · 상환 · 설정 — 월수익이 사건으로 든다 (b4)', () => {
+  /*
+   * 픽스처의 월수익 다섯 달은 기준일 −70 · −40 · −10 · +20 · +50일이다 — 어느 날 돌려도 올해에 추정 월수익이 하나 이상
+   * 있다(연말이면 −10, 연초면 +20). 그래서 아래 단언은 시각에 기대지 않는다(배지 낱말만은 연초에 「추정」일 수 있어 둘 다 받는다)
+   */
+  const visible = (html: string) => html.replace(/<!--[\s\S]*?-->/g, '')
+  const page = async (path: string) => visible(await (await get(path, jar)).text())
+
+  it('★ SCR-401 — 월지급 상품 행에 기여 근거 배지 · 내역 줄 · 확정/추정 분할 · 월지급 가정 문장', async () => {
+    const html = await page(PATHS.tax)
+    const at = html.indexOf(`href="${PATHS.product(monthly.productId)}"`)
+    expect(at).toBeGreaterThan(-1)
+    const row = html.slice(at, html.indexOf('</li>', at))
+    expect(row).toMatch(/>(확정 \+ 추정|추정)</)
+    expect(row).toContain('월수익')
+    expect(html).toContain('ELS 과세 금융소득 중 확정')
+    expect(html).toContain(MONTHLY_COUPON_ESTIMATE_NOTE)
+    // 상환 시 지급 상품 행에는 내역이 없다 — 종전 그대로
+    const plainAt = html.indexOf(`href="${PATHS.product(plain.productId)}"`)
+    if (plainAt > -1) expect(html.slice(plainAt, html.indexOf('</li>', plainAt))).not.toContain('월수익')
+  })
+
+  it('SCR-101 ③ · SCR-402 · SCR-502 — 같은 가정을 같은 문장으로(전망은 짧은 표식)', async () => {
+    expect(await page(PATHS.home)).toContain(MONTHLY_COUPON_ESTIMATE_NOTE)
+    expect(await page(PATHS.forecast)).toContain(MONTHLY_COUPON_ASSUMPTION)
+    expect(await page(PATHS.settings)).toContain(MONTHLY_COUPON_ESTIMATE_NOTE)
+  })
+
+  it('SCR-202 ⑤ — 잔여 월수익 블록(월지급식에만) · SCR-203 — 과세 칸 0 고정 · 실수령액 힌트', async () => {
+    expect(await page(PATHS.product(monthly.productId))).toContain('잔여 월수익')
+    expect(await page(PATHS.product(plain.productId))).not.toContain('잔여 월수익')
+    const redeem = await page(PATHS.productRedeem(monthly.productId))
+    expect(redeem).toContain('투자원금 이하 — 그 달 월수익은 여기 넣지 않는다')
+    expect(redeem).toMatch(/<input[^>]*name="taxableIncome"[^>]*readOnly|<input[^>]*readOnly[^>]*name="taxableIncome"/i)
+  })
+})
+
+describe('달러 월지급 · 환율 없음 — ST-07이 무기록 달러 월수익에서도 뜬다 (b4 · DOC-008 v2.37)', () => {
+  /*
+   * **이 describe는 스스로 정리한다** — usd.test.ts와 같은 이유다. 미상환 달러 상품이 남으면 그 사용자의 세금 · 전망에 ST-07이
+   * 생기고, 환율을 저장하는 usd.test.ts의 「n = 1」 단언이 이 파일이 먼저 돌았는가에 의존하게 된다. 환율은 쓰지 않는다 —
+   * 이 describe가 보는 것이 환율이 없는 상태다(db:reset 직후 `exchange_rates`는 비어 있고 usd.test.ts가 자기 좌표를 지운다)
+   */
+  let usd: RegisteredProduct | null = null
+  const visible = (html: string) => html.replace(/<!--[\s\S]*?-->/g, '')
+
+  beforeAll(async () => {
+    usd = await registerProduct(jar, { label: '달러월지급', currency: 'USD', principal: '10,000.00' })
+    await makeMonthly(usd.productId, monthsAround(asOf))
+  })
+
+  afterAll(async () => {
+    if (usd == null) return
+    const path = PATHS.product(usd.productId)
+    await submitAction(path, jar, formFieldsFor(await detailHtml(usd.productId), actionIdOf('deleteProductAction')))
+  })
+
+  it('★ SCR-202 ⑤ — 잔여 월수익의 과세는 「환율 없음」이고 목록 아래 ST-07 한 상품 형태가 한 번 뜬다(링크까지)', async () => {
+    const html = visible(await detailHtml(usd!.productId))
+    // **스크립트 밖에서 본다** — RSC 페이로드(`self.__next_f.push`)가 같은 글자를 한 번 더 싣는다(실측: 전체 2 · 스크립트 밖 1).
+    // 안을 보면 렌더에서 지워도 페이로드만으로 초록이 될 수 있다
+    const rendered = html.replace(/<script\b[\s\S]*?<\/script>/g, '')
+    expect(rendered).toContain('잔여 월수익')
+    expect(rendered).toContain('환율 없음')
+    const lead = exchangeRateMissingLead({ kind: 'PRODUCT' })
+    // 한 번이다 — 상환 추정은 연쿠폰율 0이라 환율 없이 0원이므로 `Projection`의 같은 문구가 겹치지 않는다
+    expect(rendered.split(lead).length - 1).toBe(1)
+    expect(rendered).toMatch(
+      new RegExp(
+        `${lead}${EXCHANGE_RATE_MISSING_JOINER}<a\\b[^>]*href="${EXCHANGE_RATE_SECTION.href.replace(/[?]/g, '\\?')}"[^>]*>${EXCHANGE_RATE_INPUT_LINK_LABEL}</a>`,
+      ),
+    )
+  })
+
+  it('SCR-401 — 그 상품을 「달러 상품 1건」으로 센다(상품 수 — 월수익 추정 여럿이어도 하나)', async () => {
+    const html = visible(await (await get(PATHS.tax, jar)).text())
+    expect(html).toContain(exchangeRateMissingLead({ kind: 'COUNT', count: 1 }))
   })
 })

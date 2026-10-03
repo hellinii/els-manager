@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import type { ForecastRow } from '@/lib/db/queries/forecast'
+import { MONTHLY_COUPON_ASSUMPTION } from '@/lib/format/coupons'
 import { isForecastEmpty } from '@/lib/format/forecast'
 
 /**
@@ -153,8 +154,8 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(row![1]).toContain('환율이 없어 뺀 달러 상품 수')
     // P8 컷 a3 — 다섯째. 같은 이유로 그 커밋이 자기 문구를 함께 단언한다
     expect(row![1]).toContain('환율 기준')
-    // P8 컷 b4 — 여섯째. 가정 문장 그 자체가 표식의 문구다(DOC-008 SCR-402 「P8 월지급식」)
-    expect(row![1]).toContain('월지급식은 적용 차수까지 매월 지급 가정')
+    // P8 컷 b4 — 여섯째. 가정 문장 그 자체가 표식의 문구이고 화면의 상수가 그 문구다(DOC-008 SCR-402 「P8 월지급식」)
+    expect(row![1]).toContain(MONTHLY_COUPON_ASSUMPTION)
   })
 })
 

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 import { signOutAction } from '@/app/(auth)/actions'
-import { SETTINGS_FOREIGN_DISCLAIMER } from '@/lib/format'
+import { MONTHLY_COUPON_ESTIMATE_NOTE, SETTINGS_FOREIGN_DISCLAIMER } from '@/lib/format'
 
 /**
  * SCR-502 설정 — P4 컷 10 (DOC-008 §5)
@@ -104,7 +104,12 @@ export default function SettingsPage() {
               P8 컷 a3 — **조건 없이** 적는다(DOC-008 SCR-502). 이 화면은 조회 계약을 부르지 않아 정적으로
               프리렌더되므로 사용자의 상품 통화를 모르고, 앱 전체에 대한 고지라 달러 상품이 없어도 참이다.
             */}
-            {SETTINGS_FOREIGN_DISCLAIMER}
+            {SETTINGS_FOREIGN_DISCLAIMER}{' '}
+            {/*
+              P8 컷 b4 — 월지급 가정(DOC-008 SQ-21 ⓛ). 같은 이유로 **조건 없이** 적는다(정적 화면 · 앱 전체 고지).
+              `SETTINGS_FOREIGN_DISCLAIMER`를 고치지 않고 따로 둔다 — SCR-401 · SCR-101 ③과 같은 상수다
+            */}
+            {MONTHLY_COUPON_ESTIMATE_NOTE}.
           </p>
           {/*
             종전 「자동 수집은 아직 연결되어 있지 않으므로」는 P5a 컷 3(수집기) 이후 거짓이었다(DOC-008 SCR-502

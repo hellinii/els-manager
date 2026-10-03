@@ -9,6 +9,7 @@ import {
   ATTENTION_REASON_LABELS,
   attentionChipLabel,
   IMMINENT_LABEL,
+  MONTHLY_COUPON_ESTIMATE_NOTE,
   RECENT_VISIBLE,
   REDEMPTION_TYPE_LABELS,
   UPCOMING_VISIBLE,
@@ -357,6 +358,11 @@ export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }
         <p className="text-xs text-neutral-500">
           미상환 상품은 적용 차수(다음 도래 평가일)에 상환된다고 가정한 추정이며,
           과세 프로필을 저장하지 않았으면 금융소득 외 소득이 0으로 계산된다.
+          {/*
+            월지급 가정 (P8 컷 b4 — DOC-008 SQ-21 ⓚ (c)) — 올해 F에 추정 월수익 사건이 있을 때만(계약의
+            `currentYearTax.monthlyCouponAssumption`). 문장은 SCR-401 · SCR-502와 같은 상수다
+          */}
+          {tax.monthlyCouponAssumption && <> {MONTHLY_COUPON_ESTIMATE_NOTE}.</>}
         </p>
 
         {/*

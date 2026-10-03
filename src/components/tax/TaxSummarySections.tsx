@@ -4,11 +4,15 @@ import { Badge } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import {
+  CONTRIBUTION_BASIS_GRADES,
+  CONTRIBUTION_BASIS_LABELS,
   HEALTH_INSURANCE_TYPE_LABELS,
   INTEGRITY_ISSUE_GRADES,
   INTEGRITY_ISSUE_LABELS,
   PRODUCT_CURRENCY_LABELS,
+  PARTIAL_RATE_MISSING_NOTE,
   amount,
+  contributionBreakdownLine,
   convertedTaxLine,
   koreanWon,
   percent,
@@ -44,6 +48,18 @@ export function IncomeSection({ view }: { view: TaxSummaryView }) {
         <Amount label="ELS 외 금융소득" value={income.otherFinancialIncome} />
         <Amount label="금융소득 합계" value={income.total} emphasis />
       </dl>
+
+      {/*
+        확정 / 추정 분할 (P8 컷 b4 — DOC-008 SCR-401 「P8 월지급식」). 합계 하나로는 어디까지가 거래내역의 값인지 보이지
+        않는다 — 월지급식은 한 해 안에 기록된 달(확정)과 무기록 달(추정)이 섞인다. 둘의 합이 ELS 과세 금융소득이고 계약이
+        낸다(화면은 더하지 않는다). 기여가 없으면(0원) 줄도 없다
+      */}
+      {income.elsTaxableIncome !== '0' && (
+        <p className="text-xs tabular-nums text-neutral-500">
+          ELS 과세 금융소득 중 확정 {won(income.confirmedElsTaxableIncome)} · 추정{' '}
+          {won(income.estimatedElsTaxableIncome)}
+        </p>
+      )}
 
       {/*
         환율 기준 줄(DOC-008 SCR-401 a3) — 추정을 하나라도 환산했으면 그 건수와 환율을 적는다. n은 계약의
@@ -272,10 +288,11 @@ export function ContributingSection({ view }: { view: TaxSummaryView }) {
               </Link>
               {/*
                 ST-05 — 추정과 확정을 구분한다. 상환 확정값은 증권사가 낸 숫자이고
-                추정은 적용 차수의 예상 수령액에서 나온다(RD-02).
+                추정은 적용 차수의 예상 수령액에서 나온다(RD-02). P8 컷 b4 — 기여 근거 배지다: 월지급식은
+                한 해에 확정(기록된 달)과 추정(무기록 달)이 섞여 「확정 + 추정」이 된다. 상환 시 지급은 종전 낱말 그대로다
               */}
-              <Badge grade={item.isEstimated ? 'caution' : 'neutral'}>
-                {item.isEstimated ? '추정' : '확정'}
+              <Badge grade={CONTRIBUTION_BASIS_GRADES[item.basis]}>
+                {CONTRIBUTION_BASIS_LABELS[item.basis]}
               </Badge>
               {item.integrityIssue != null && (
                 <Badge grade={INTEGRITY_ISSUE_GRADES[item.integrityIssue]}>
@@ -294,6 +311,22 @@ export function ContributingSection({ view }: { view: TaxSummaryView }) {
             <span className="tabular-nums">
               {item.taxableIncome == null ? '환율 없음' : won(item.taxableIncome)}
             </span>
+            {/*
+              내역 · 일부 빠짐 (P8 컷 b4 — DOC-008 SQ-21 ⓚ (a)). 금액이 있는데 추정분이 빠졌으면 금액을 그대로 적고 빠진
+              사실을 함께 적는다 — 금액 자리를 「환율 없음」으로 바꾸면 확정분을 숨긴다. 내역은 월지급 상품에만 있다
+            */}
+            {(contributionBreakdownLine(item.breakdown) != null ||
+              (item.taxableIncome != null && item.exchangeRateMissing)) && (
+              <span className="w-full text-xs text-neutral-500">
+                {contributionBreakdownLine(item.breakdown)}
+                {item.taxableIncome != null && item.exchangeRateMissing && (
+                  <span className="text-amber-800">
+                    {contributionBreakdownLine(item.breakdown) != null ? ' — ' : ''}
+                    {PARTIAL_RATE_MISSING_NOTE}
+                  </span>
+                )}
+              </span>
+            )}
           </li>
         ))}
       </ul>

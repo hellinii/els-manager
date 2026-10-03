@@ -64,8 +64,12 @@ export function RealizedProductForm({
   const [date, setDate] = useState(values.redemptionDate ?? '')
   // 파생 표시의 단위 — 고르기 전에는 실현손익을 적지 않는다(DOC-008 SCR-205 「P8 달러 ELS」)
   const [currency, setCurrency] = useState(values.currency ?? '')
+  // P8 컷 b4 — 월지급식이면 상환은 원금만이다(V-29): 과세 칸을 0으로 고정하고(SCR-203과 같은 고정) 미리보기가
+  // 「상환분」이라고 말한다(DOC-008 SQ-21 ⓗ)
+  const [payout, setPayout] = useState(values.couponPayout ?? '')
+  const monthly = payout === 'MONTHLY'
 
-  const locked = taxableIncomeLocked(type)
+  const locked = taxableIncomeLocked(type) || monthly
   const year = attributionYearOf(date)
   // 통화를 고르기 전에는 계산하지 않는다 — 단위를 모르면 자릿수도 모른다
   const pnl = currency === 'KRW' || currency === 'USD' ? realizedPnlOf(gross, principal, currency) : null
@@ -187,6 +191,7 @@ export function RealizedProductForm({
               {...props}
               key={values.couponPayout ?? ''}
               defaultValue={values.couponPayout ?? ''}
+              onChange={(event) => setPayout(event.target.value)}
               className={INPUT_CLASS}
             >
               <option value="">선택</option>
@@ -275,9 +280,11 @@ export function RealizedProductForm({
             label="과세 금융소득 (원)"
             error={fieldErrors.taxableIncome}
             hint={
-              locked
-                ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
-                : '거래내역의 「과표」 · 달러 상품도 거래내역의 원화 금액'
+              monthly
+                ? '월지급식 상환은 원금만이다 — 과세 금융소득은 0이고 수익은 월수익으로 적는다'
+                : locked
+                  ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
+                  : '거래내역의 「과표」 · 달러 상품도 거래내역의 원화 금액'
             }
           >
             {(props) => (
@@ -344,8 +351,11 @@ export function RealizedProductForm({
         */}
         {pnl != null && (currency === 'KRW' || currency === 'USD') && (
           <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
-            실현손익 <strong className="tabular-nums">{signedMoney(pnl, currency)}</strong> —
-            실수령액 − 투자원금이다. 저장하지 않고 두 값에서 계산한다.
+            실현손익 <strong className="tabular-nums">{signedMoney(pnl, currency)}</strong> —{' '}
+            {monthly
+              ? // SQ-21 ⓗ — V-29로 상환분은 늘 0 이하다. 수익은 뒤에 SCR-206으로 들어오므로 확정된 손실로 읽히지 않게 말한다
+                '상환분이다(실수령액 − 투자원금). 월수익은 등재한 뒤 기록하면 실현손익에 더해진다.'
+              : '실수령액 − 투자원금이다. 저장하지 않고 두 값에서 계산한다.'}
           </p>
         )}
 

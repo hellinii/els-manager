@@ -46,11 +46,14 @@ export function RedemptionActions({
   rounds,
   initialValues,
   currency,
+  couponPayout,
 }: {
   redemption: RedemptionView
   rounds: readonly RoundOption[]
   /** 상품 통화 — 수정 폼의 칸 모양을 정한다(`RedemptionForm`) */
   currency: ProductCurrency
+  /** 쿠폰 지급방식 — 월지급식이면 수정 폼의 과세 칸이 0으로 고정된다(V-29 — §5.5도 지난다) */
+  couponPayout: 'AT_REDEMPTION' | 'MONTHLY'
   /** `redemptionValuesOf(redemption)` — 저장된 값이다. 추정이 아니다 */
   initialValues: Record<string, string>
 }) {
@@ -69,6 +72,7 @@ export function RedemptionActions({
             rounds={rounds}
             redemptionId={redemption.id}
             currency={currency}
+            couponPayout={couponPayout}
             submitLabel="상환 실적 저장"
           />
         </div>

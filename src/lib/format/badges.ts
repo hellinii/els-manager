@@ -1,4 +1,4 @@
-import type { ConditionResult, CouponConditionResult, CouponState, KiStatus } from '@/lib/domain'
+import type { ConditionResult, ContributionBasis, CouponConditionResult, CouponState, KiStatus } from '@/lib/domain'
 import type { AttentionReason, IntegrityIssue, ProductListItem } from '@/lib/db/queries/map'
 
 /**
@@ -63,6 +63,16 @@ export const COUPON_CONDITION_RESULT_GRADES: Record<CouponConditionResult, Badge
   EXPECTED_PAID: 'positive',
   EXPECTED_UNPAID: 'caution',
   UNKNOWN: 'caution',
+}
+
+/**
+ * 기여 근거 (P8 컷 b4 · DOC-005 §6.3) — 종전 행 배지와 같은 짝: 확정 neutral · 추정 caution. 둘이 섞이면 추정이 낀
+ * 것이므로 caution이다(ST-05 — 추정을 확정처럼 보이지 않게)
+ */
+export const CONTRIBUTION_BASIS_GRADES: Record<ContributionBasis, BadgeGrade> = {
+  CONFIRMED: 'neutral',
+  ESTIMATED: 'caution',
+  MIXED: 'caution',
 }
 
 export const INTEGRITY_ISSUE_GRADES: Record<IntegrityIssue, BadgeGrade> = {

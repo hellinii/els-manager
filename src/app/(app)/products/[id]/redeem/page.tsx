@@ -141,6 +141,7 @@ export default async function ProductRedeemPage({
             rounds={roundOptionsOf(view)}
             productId={id}
             currency={product.currency}
+            couponPayout={product.couponPayout}
             taxableHintBasis={view.projection?.exchangeRateBasis ?? null}
             submitLabel="상환 저장"
           />
