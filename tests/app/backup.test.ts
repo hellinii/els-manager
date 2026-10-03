@@ -175,4 +175,42 @@ describe('백업 — DOC-013 §8.2 ↔ scripts/', () => {
     expect(check, '검사가 1단계(DB 생성)보다 앞이어야 한다').toBeLessThan(createDb)
     expect(check, '검사가 5단계(data 복구)보다 앞이어야 한다').toBeLessThan(restore)
   })
+
+  /**
+   * 복원된 행이 규칙을 만족하는가 — DOC-010 AQ-80 · DOC-013 §8.3.5 (P8.5 드릴 B)
+   *
+   * 5단계(replica)의 「일치」는 「행이 그대로 들어갔다」일 뿐이다. 실측(2026-10-04): 상환 시
+   * 지급 상품에 월수익 기록 한 행을 끼운 덤프가 6단계를 「✓ 통과」했다. 7단계가 같은 덤프를
+   * 트리거 · FK를 켠 채 새 DB에 다시 적재해 그 행을 23514로 막았다.
+   *
+   * 이 테스트는 그 단계가 **코드로 있는가**를 본다 — 실제 덤프는 저장소 밖이다(위와 같은 이유).
+   * 넷이 빠지면 단계가 «있는데 아무것도 판별하지 않는» 형태가 된다: ① origin으로 바꾸지 않음
+   * ② 뒤쪽 replica 전환을 세지 않음(그 아래가 트리거 없이 적재된다) ③ 적재 세션이 origin이었는지
+   * 묻지 않음 ④ 거부를 0이 아닌 종료로 말하지 않음.
+   */
+  it('훈련이 트리거 · FK를 켠 채 다시 적재해 복원된 행의 규칙을 재검사한다 — AQ-80', () => {
+    const src = stripComments(DRILL)
+    // ① 첫 줄을 origin으로 바꿔 적재한다 — 바꾸는 대상이 0단계가 단언한 그 리터럴이다
+    expect(src).toContain(`ORIGIN_LINE='SET session_replication_role = origin;'`)
+    expect(src).toContain('s/^SET session_replication_role = replica;\\$/${ORIGIN_LINE}/')
+    // ② session_replication_role 줄이 정확히 하나인지 센다
+    expect(src).toContain(`SRR_LINES=$(grep -c 'session_replication_role' "$DUMP_DIR/data.sql")`)
+    expect(src).toMatch(/if \[\[ "\$SRR_LINES" -ne 1 \]\]; then\n[^\n]*>&2\n\s*exit [1-9]/)
+    // ③ 같은 스트림 끝에서 세션이 origin이었는지 묻고, 아니면 실패한다
+    expect(src).toContain(`select 'SRR=' || current_setting('session_replication_role');`)
+    expect(src).toContain('if [[ "$ORIGIN_OUT" != *"SRR=origin"* ]]; then')
+    // ④ 거부는 ON_ERROR_STOP으로 멈추고 0이 아닌 코드(4)로 끝난다
+    const reload = src.indexOf('ORIGIN_OUT=$(')
+    expect(reload, '7단계 적재가 있어야 한다').toBeGreaterThan(0)
+    expect(src.slice(reload, reload + 600)).toContain('-v ON_ERROR_STOP=1')
+    expect(src).toMatch(/규칙 재검사 실패[\s\S]{0,400}?\n\s*exit 4\n/)
+    // ⑤ auth.users는 5단계 DB의 public.users에서 온다 — 대상(GoTrue)이 제공하는 것의 대역
+    expect(src).toContain(`select format('insert into auth.users (id) values (%L);', id) from public.users`)
+    // ⑥ 6단계(행 수 대조) 뒤에 돈다 — 대조가 실패하거나 공허하면 이 단계는 의미가 없다
+    const count = src.indexOf('▶ 6단계')
+    const step7 = src.indexOf('▶ 7단계')
+    expect(count).toBeGreaterThan(0)
+    expect(step7, '7단계가 6단계 뒤여야 한다').toBeGreaterThan(count)
+    expect(src).toContain('if [[ $rc -eq 0 ]]; then')
+  })
 })

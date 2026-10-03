@@ -110,8 +110,9 @@ docker exec -i "$CONTAINER" psql -U postgres -d postgres -q \
 # 이 훈련이 실패해서 알려 준다. 그것이 이 블록을 스크립트에 두는 이유다 —
 # 문서에만 적으면 다음 마이그레이션이 조용히 넘어간다.
 # ---------------------------------------------------------------------------
-echo "▶ 2단계 — 복구 대상의 전제를 세운다 (새 Supabase 프로젝트가 제공하는 것)"
-psql_drill -q <<'SQL' >/dev/null 2>&1
+# 1단계 DB와 7단계 DB가 같은 전제를 받는다 — 그래서 함수다.
+prepare_target() {
+  docker exec -i "$CONTAINER" psql -U postgres -d "$1" -q <<'SQL' >/dev/null 2>&1
 create schema if not exists auth;
 create table if not exists auth.users (id uuid primary key);
 create or replace function auth.uid() returns uuid language sql stable
@@ -125,6 +126,9 @@ do $$ begin
   if not found then create role service_role nologin noinherit bypassrls; end if;
 end $$;
 SQL
+}
+echo "▶ 2단계 — 복구 대상의 전제를 세운다 (새 Supabase 프로젝트가 제공하는 것)"
+prepare_target "$DRILL_DB"
 echo "  auth 스키마 · auth.users(id) · auth.uid() · 롤 셋"
 
 echo "▶ 3단계 — roles.sql (클러스터 단위이므로 이 훈련으로 검증되지 않는다. 동작만 관측한다)"
@@ -209,8 +213,86 @@ print("\n✓ 복구 대조 통과")
 PY
 rc=$?
 
+# ---------------------------------------------------------------------------
+# ★ 7단계 — 트리거 · FK를 «켠 채» 같은 덤프를 다시 적재한다
+#   *(실측 2026-10-04 — DOC-010 AQ-80 · DOC-013 §8.3.5, P8.5 드릴 B)*
+#
+# 5단계는 replica로 돈다 — 트리거와 FK가 꺼진다. 그래서 6단계의 「일치」는 「덤프의
+# 행이 그대로 들어갔다」이지 「들어간 행이 규칙을 만족한다」가 아니다. 실측: 상환 시
+# 지급 상품에 월수익 기록 한 행을 덤프에 끼워 넣어도 6단계는 「✓ 복구 대조 통과」였다
+# (11 = 11). 같은 행을 이 단계가 23514(`monthly_coupon_payments_monthly_required`)로 막았다.
+#
+# 방법 — 새 DB에 schema를 붓고 data.sql을 **첫 줄만 origin으로 바꿔** 한 번 더 적재한다.
+#   · INSERT 때 도는 트리거와 FK가 행마다 발화한다. pg_dump의 COPY 순서는 FK 의존
+#     순서라 FK가 순서 때문에 거짓으로 실패하지 않는다
+#   · 두 테이블이 서로를 보는 규칙(월수익 기록 ↔ 상환)은 **나중에 적재되는 쪽의
+#     트리거**가 잡는다 — 실측: 상환 뒤 달의 기록을 끼우면 `COPY redemptions`에서
+#     `redemptions_before_coupon_payment`로 멈췄다(기록이 상환보다 먼저 적재된다)
+#   · UPDATE에만 도는 트리거(동결 · `updated_at`)는 «전이»를 지킨다 — 정지한 상태의
+#     복원과 무관하다
+#
+# auth.users는 5단계 DB의 public.users id로 채운다 — 실제 대상에서는 GoTrue의 복원이
+# 하는 일이다(§8.3.2). 그 INSERT만 replica로 — 대상의 auth 트리거가 끼어들지 않게.
+#
+# ★ `session_replication_role` 줄이 data.sql에 «정확히 하나»여야 한다. 뒤쪽에 replica
+#   전환이 또 있으면 이 단계가 그 아래를 트리거 없이 적재하고 초록을 낸다(AQ-80 잔여 ⓑ).
+#   그리고 적재가 끝난 세션이 실제로 origin이었는지를 같은 스트림 끝에서 묻는다.
+# ---------------------------------------------------------------------------
+ORIGIN_DB="${DRILL_DB}_origin"
+ORIGIN_LINE='SET session_replication_role = origin;'
+if [[ $rc -eq 0 ]]; then
+  echo "▶ 7단계 — 트리거 · FK를 켠 채 다시 적재한다 ($ORIGIN_DB — AQ-80)"
+  SRR_LINES=$(grep -c 'session_replication_role' "$DUMP_DIR/data.sql")
+  if [[ "$SRR_LINES" -ne 1 ]]; then
+    echo "✗ data.sql에 session_replication_role 줄이 ${SRR_LINES}개다 — 하나여야 이 단계가 트리거를 켰다고 말할 수 있다 (AQ-80)" >&2
+    exit 1
+  fi
+  docker exec -i "$CONTAINER" psql -U postgres -d postgres -q \
+    -c "drop database if exists $ORIGIN_DB" -c "create database $ORIGIN_DB" >/dev/null 2>&1 \
+    || { echo "✗ 데이터베이스를 만들 수 없다 ($ORIGIN_DB)" >&2; exit 1; }
+  prepare_target "$ORIGIN_DB"
+  docker exec -i "$CONTAINER" psql -U postgres -d "$ORIGIN_DB" -q -v ON_ERROR_STOP=1 \
+    < "$DUMP_DIR/schema.sql" >/dev/null 2>"$DUMP_DIR/.restore-origin.err" \
+    || { echo "✗ schema 복구 실패 ($ORIGIN_DB):"; tail -5 "$DUMP_DIR/.restore-origin.err"; exit 1; }
+  { echo 'set session_replication_role = replica;'
+    psql_drill -tA -c "select format('insert into auth.users (id) values (%L);', id) from public.users"
+  } | docker exec -i "$CONTAINER" psql -U postgres -d "$ORIGIN_DB" -q -v ON_ERROR_STOP=1 >/dev/null \
+    || { echo "✗ auth.users를 채울 수 없다 ($ORIGIN_DB)" >&2; exit 1; }
+  ORIGIN_OUT=$( { sed "s/^SET session_replication_role = replica;\$/${ORIGIN_LINE}/" "$DUMP_DIR/data.sql"
+                  echo "select 'SRR=' || current_setting('session_replication_role');"
+                } | docker exec -i "$CONTAINER" psql -U postgres -d "$ORIGIN_DB" -qtA \
+                      -v ON_ERROR_STOP=1 -v VERBOSITY=verbose 2>"$DUMP_DIR/.restore-origin.err" )
+  if [[ $? -ne 0 ]]; then
+    echo "✗ 규칙 재검사 실패 — 복원은 됐지만 «트리거 · FK가 거부하는 행»이 덤프에 있다:" >&2
+    grep -E '^(ERROR|DETAIL|CONTEXT|COPY)' "$DUMP_DIR/.restore-origin.err" | head -6 | sed 's/^/  /' >&2
+    exit 4
+  fi
+  if [[ "$ORIGIN_OUT" != *"SRR=origin"* ]]; then
+    echo "✗ 적재가 끝난 세션이 origin이 아니다 — 트리거가 꺼진 채 돌았다 (AQ-80)" >&2
+    exit 1
+  fi
+  docker exec -i "$CONTAINER" psql -U postgres -d "$ORIGIN_DB" -tAF$'\t' -c "
+    select count(*) filter (where kind = 'T'),
+           count(*) filter (where kind = 'T' and rows > 0),
+           count(*) filter (where kind = 'F'),
+           count(*) filter (where kind = 'F' and rows > 0)
+    from (
+      select 'T' as kind, (xpath('/row/n/text()', query_to_xml(format('select count(*) as n from %s', t.tgrelid::regclass), false, true, '')))[1]::text::int as rows
+      from pg_trigger t join pg_class c on c.oid = t.tgrelid
+      where c.relnamespace = 'public'::regnamespace and not t.tgisinternal and (t.tgtype & 4) = 4
+      union all
+      select 'F', (xpath('/row/n/text()', query_to_xml(format('select count(*) as n from %s', f.conrelid::regclass), false, true, '')))[1]::text::int
+      from pg_constraint f where f.connamespace = 'public'::regnamespace and f.contype = 'f'
+    ) x" 2>/dev/null | {
+      IFS=$'\t' read -r trig trig_live fk fk_live
+      echo "  INSERT 트리거 ${trig}개(행이 있는 테이블 ${trig_live}개) · FK ${fk}개(행이 있는 테이블 ${fk_live}개)가 다시 발화했다 · 세션 origin 확인"
+      echo "  ★ 행이 0인 테이블의 트리거 · FK는 0 = 0과 같다 — 발화했지만 아무것도 판별하지 않는다"
+    }
+  echo "✓ 규칙 재검사 통과"
+fi
+
 if [[ -n "$SOURCE_URL" ]]; then
-  echo "▶ 7단계 — 원본 3자 대조 (덤프가 원본을 빠뜨렸는지도 갈린다)"
+  echo "▶ 8단계 — 원본 3자 대조 (덤프가 원본을 빠뜨렸는지도 갈린다)"
   docker exec -i "$CONTAINER" psql "$SOURCE_URL" -tAF$'\t' -c "
     select relname, n_live_tup from pg_stat_user_tables where schemaname='public' order by relname
   " 2>/dev/null | sed 's/^/  원본 /'
