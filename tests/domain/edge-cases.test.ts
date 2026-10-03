@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { couponConditionOf } from '@/lib/domain/coupon'
 import { evaluateCondition } from '@/lib/domain/condition'
 import { isKiTouchCandidate, kiStatus } from '@/lib/domain/ki'
 import { asActive, isRedeemed } from '@/lib/domain/redemption'
@@ -121,6 +122,9 @@ describe('E-05: 상환 완료 상품 (DOC-007 §9.1)', () => {
 
       // @ts-expect-error — null 가능성이 남은 값을 그대로 넘길 수 없다
       evaluateCondition(asActive(PARAMS, REDEEMED as RedemptionMark))
+
+      // @ts-expect-error — 월수익 조건도 보유중 상품에만 정의된다(DOC-007 §9.1 v1.5 행 — P8.5에서 타입으로)
+      couponConditionOf({ worstOf: null, barrier: '0.5' })
     }
 
     expect(rejectedAtCompileTime).toBeTypeOf('function')

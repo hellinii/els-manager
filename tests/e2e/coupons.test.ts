@@ -240,7 +240,7 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
     )
   })
 
-  it('기록이 있는 상품 — 통화 · 지급방식은 값 글자 + 숨은 입력, 기록된 달은 readOnly, 산식 버튼이 없다', async () => {
+  it('기록이 있는 상품 — 통화 · 지급방식은 값 글자 + 숨은 입력, 기록된 달은 readOnly, 산식 버튼은 「기록 뒤 달」뿐이다', async () => {
     const html = await (await get(PATHS.productEdit(monthly.productId), jar)).text()
     const form = formHtmlFor(html, actionIdOf('productEditFormAction'))
     expect(form).toContain('월수익 지급 기록이 있어 바꿀 수 없다')

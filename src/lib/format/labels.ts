@@ -62,8 +62,9 @@ export const PRODUCT_CURRENCY_LABELS: Record<ProductListItem['currency'], string
 /**
  * 쿠폰 지급방식 — DOC-005 §6.1 `couponPayout` (P8 컷 b2 — 「쿠폰 지급」 선택 상자를 처음 렌더하는 커밋).
  *
- * 「월지급식」 표시어는 지금도 있어야 한다 — b2 · b3의 폼은 그 선택지를 열지 않지만 저장값이 월지급식인
- * 상품(개발 표본 · 통합 픽스처)을 열면 그 값을 선택지에 더한다(DOC-008 SCR-204 — `currencyOptionsOf` 선례).
+ * 「월지급식」 표시어는 b2부터 있어야 했다 — b2 · b3의 폼은 그 선택지를 열지 않았지만 저장값이 월지급식인
+ * 상품(개발 표본 · 통합 픽스처)을 열면 그 값을 선택지에 더했다(DOC-008 SCR-204 — `currencyOptionsOf` 선례).
+ * b4-3c부터는 폼이 그 선택지를 연다(SB-13 — `SELECTABLE_COUPON_PAYOUTS`).
  */
 export const COUPON_PAYOUT_LABELS: Record<ProductInput['couponPayout'], string> = {
   AT_REDEMPTION: '상환 시 지급',

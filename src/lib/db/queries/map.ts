@@ -1304,10 +1304,12 @@ export function couponObservationsOf(
       }),
       record: payment == null ? null : couponRecordViewOf(payment, row.currency),
       expectedAmount: amount,
-      conditionResult:
-        next != null && next.couponNo === s.coupon_no
-          ? couponConditionOf({ worstOf: j.worstOf, barrier: s.coupon_barrier })
-          : null,
+      conditionResult: (() => {
+        if (next == null || next.couponNo !== s.coupon_no) return null
+        // 상환 완료면 asActive가 null을 준다 — 판정값으로 대체하지 않는다(E-05 · DOC-007 §9.1)
+        const input = asActive({ worstOf: j.worstOf, barrier: s.coupon_barrier }, redemptionMarkOf(row))
+        return input == null ? null : couponConditionOf(input)
+      })(),
       recordable: isCouponRecordable({
         evaluationDate: s.evaluation_date,
         asOf,

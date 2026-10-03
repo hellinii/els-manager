@@ -71,12 +71,13 @@ export type TaxSummaryView = {
     isComprehensive: boolean
     thresholdGap: string
     /**
-     * 환율이 없어 F에서 빠진 달러 추정 건 수 — E-09 (§4.6 v4.9). **건 단위다** — 확정 원화
+     * 환율이 없어 F에서 빠진 달러 추정이 있는 상품 수 — E-09 (§4.6 v4.9). **상품 단위다**(v4.16 — 한 상품의 사건 여럿이
+     * 빠져도 하나) — 확정 원화
      * 과세는 환율과 무관하게 늘 들어간다. `total`·`isComprehensive`·`tax`는 뺀 뒤의 F다
      */
     unconvertedCount: number
     /**
-     * 추정 환율로 환산해 F에 넣은 달러 추정 건 수 (§4.6 v4.9 — P8 컷 a3). 일반계좌 · 달러 이익 > 0 ·
+     * 추정 환율로 환산해 F에 넣은 달러 추정이 있는 상품 수 (§4.6 v4.9 — P8 컷 a3 · 상품 단위 — v4.16). 일반계좌 · 달러 이익 > 0 ·
      * 추정 환율 있음. 비과세와 이익 ≤ 0은 환율 없이 0이라 이쪽에도 `unconvertedCount`에도 들지 않는다
      */
     convertedCount: number
@@ -144,7 +145,7 @@ export type TaxSummaryView = {
      * 결함 표식 — 금액에 영향을 주지 않는다.
      *
      * `isEstimated`와 **직교**한다. 그쪽은 "증권사 확정값이 아니라 시스템 추정"을
-     * 뜻하고 미상환이면 전부 `true`다. §4.4처럼 한 값으로 좁히지 않는 이유는
+     * 뜻한다 — 미상환이어도 기록된 월수익뿐이면 `false`일 수 있다(v4.16 — 사건마다 판정). §4.4처럼 한 값으로 좁히지 않는 이유는
      * `contributionOf`의 주석에 있다.
      */
     integrityIssue: IntegrityIssue | null

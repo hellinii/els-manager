@@ -204,7 +204,8 @@ export function monthlyFieldNames(couponRows: number): string[] {
  * 기록이 하나라도 있으면 상품 통화 · 쿠폰 지급방식을 바꿀 수 없고(트리거 `els_products_coupon_recorded_immutable`),
  * 기록된 달의 평가일 · 지급일 · 순번도 바꿀 수 없다(`monthly_coupon_schedules_recorded_immutable`). 화면은 그 사실을
  * 칸에서 말한다 — 두 선택 상자는 값 글자 + 숨은 입력(`<select>`에는 `readOnly`가 없고 `disabled`는 제출되지 않는다 —
- * DOC-008 SQ-21 ⓖ b3 개정), 기록된 달의 두 날짜는 `readOnly`, 「평가일 산식으로 채우기」는 그리지 않는다(v2.29 (3)).
+ * DOC-008 SQ-21 ⓖ b3 개정), 기록된 달의 두 날짜는 `readOnly`, 「평가일 산식으로 채우기」 대신 「기록 뒤 달 산식으로
+ * 채우기」를 그린다(v2.29 (3) → v2.41 — 기록 뒤 달만 채운다).
  * `null` = 잠금 없음(기록 없음 · 등록 화면).
  */
 export type CouponLock = { recordedCouponNos: readonly number[] }

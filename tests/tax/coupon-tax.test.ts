@@ -10,6 +10,7 @@ import {
   type EstimateRates,
 } from '@/lib/domain'
 import { forecastYears, type ForecastItem, type ForecastYearInput } from '@/lib/tax'
+import { calculateHealthInsurance } from '@/lib/tax/healthInsurance'
 import { separateTaxationWithholding } from '@/lib/tax/withholding'
 
 import { BRACKETS_2026, CONSTANTS_2026 } from '../fixtures/tax-2026'
@@ -149,5 +150,54 @@ describe('RD-19 ⓑ — hasEstimates의 둘째 절은 원금을 돌려주는 항
     // 생략하면 `principal ≠ 0` — 종전 입력의 의미
     expect(first(unknownPrincipal)).toBe(false)
     expect(first({ ...unknownPrincipal, principal: '1' })).toBe(true)
+  })
+})
+
+/*
+ * 검산 B-5 · B-6 — DOC-007 v1.5 §7.6 검산 블록 B (P8.5 명세 ↔ 구현 대조)
+ *
+ * DOC-007은 「이 일곱은 … 구현 컷 b4가 고정한다」고 적었는데 b4가 세운 것은 B-1 · B-3 · B-4 · B-7이었고
+ * B-2 · B-5 · B-6은 어느 테스트에도 없었다(대조에서 발견 — 기대값 문자열 0건). B-2는 사상을 거쳐야 하므로
+ * `tests/db/coupon-views.test.ts`에 두고, 순수 함수로 닫히는 둘을 여기 둔다. 검산 블록이지 TC가 아니다.
+ */
+describe('검산 B-5 — 피부양자의 월지급은 해마다 문턱 아래, 일괄이면 한 해에 몰린다', () => {
+  // P 300,000,000 · r_m = 0.06 → q = 1,500,000 · 연 18,000,000
+  const q = couponAmount({ principal: '300000000', annualRate: '0.06', currency: 'KRW' })
+
+  it('월 1,500,000 · 연 18,000,000 ≤ 20,000,000 → 보험료 0', () => {
+    expect(q.toString()).toBe('1500000')
+    const yearly = q.times(12)
+    expect(yearly.toString()).toBe('18000000')
+    const r = calculateHealthInsurance({ financialIncome: yearly, subscriberType: 'DEPENDENT', constants: CONSTANTS_2026 })
+    expect(r.total.toString()).toBe('0')
+  })
+
+  it('틀린 경로 — 3년치 54,000,000이 한 해에 몰리면 3,882,600 + 510,173 = 4,392,773', () => {
+    const r = calculateHealthInsurance({
+      financialIncome: q.times(36),
+      subscriberType: 'DEPENDENT',
+      constants: CONSTANTS_2026,
+    })
+    expect(r.healthPremium.toString()).toBe('3882600')
+    expect(r.longTermCarePremium.toString()).toBe('510173')
+    expect(r.total.toString()).toBe('4392773')
+  })
+})
+
+describe('검산 B-6 — 건별 원천징수의 합과 연 합계의 원천징수는 원 단위로 갈린다 (RD-10 ②)', () => {
+  // 원화 · 1억 · 7% → 583,333.33…을 원 미만 절사 = 583,333
+  const q = couponAmount({ principal: '100000000', annualRate: '0.07', currency: 'KRW' })
+
+  it('건별 89,833 × 12 = 1,077,996 · F 6,999,996의 원천징수 1,077,999 — 3원 차이가 기대값이다', () => {
+    expect(q.toString()).toBe('583333')
+    const perRecord = separateTaxationWithholding({ taxableIncome: q, constants: CONSTANTS_2026 })
+    expect(perRecord.toString()).toBe('89833')
+    const yearlyF = q.times(12)
+    expect(yearlyF.toString()).toBe('6999996')
+    const onTotal = separateTaxationWithholding({ taxableIncome: yearlyF, constants: CONSTANTS_2026 })
+    expect(perRecord.times(12).toString()).toBe('1077996')
+    expect(onTotal.toString()).toBe('1077999')
+    // 두 값을 같다고 두는 것이 틀린 경로다 — §5.5의 `withheld(F)`는 바꾸지 않는다
+    expect(onTotal.minus(perRecord.times(12)).toString()).toBe('3')
   })
 })

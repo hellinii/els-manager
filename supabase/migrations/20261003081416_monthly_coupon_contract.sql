@@ -19,6 +19,12 @@
 
 alter table public.els_products alter column coupon_payout drop default;
 
+-- 열 설명을 바로잡는다(P8.5 대조 — DOC-002 §4.6). M-b2가 적은 「W6에서 drop default」는 묶음 전의 웨이브 이름이다 — 이
+-- contract는 W5에 실렸다(DOC-013 v1.23). 상품 통화의 열 설명처럼 시간표를 말하되(M-a2c는 설명을 바꾸지 않았다 — 그쪽
+-- 웨이브 이름은 맞았다) 이름을 고친다. 동작과 무관하고 카탈로그만 바뀐다.
+comment on column public.els_products.coupon_payout is
+  'DOC-002 §4.6 ★ — W4 expand 기본값 AT_REDEMPTION(구 코드용). 계약은 필수·기본값 없음(V-25). W5(M-b2c)에서 drop default.';
+
 create or replace function public.create_els_product(payload jsonb)
 returns uuid
 language plpgsql

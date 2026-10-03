@@ -1,6 +1,7 @@
 import { dec, maxZero, truncateToUnit, ZERO, type DecimalInput, type DecimalValue } from '@/lib/decimal'
 
 import { MINOR_UNITS, toKrw, type EstimateRates, type ForeignCurrency, type ProductCurrency } from './currency'
+import type { Active } from './redemption'
 import { dDay, isPast } from './schedule'
 import type { AccountType } from './types'
 
@@ -197,12 +198,15 @@ export function nextCoupon<T extends { couponNo: number; evaluationDate: string 
 
 /**
  * 월수익 지급 조건 `W ≥ β`(경계 포함) — 표시 전용 (DOC-007 §3.5).
- * `W`가 `null`이면 `UNKNOWN`이다(E-01 — 기본값을 대입하지 않는다). 상환 완료 상품에는 부르지 않는다(E-05 · `asActive`).
+ * `W`가 `null`이면 `UNKNOWN`이다(E-01 — 기본값을 대입하지 않는다). 상환 완료 상품에는 **부를 수 없다** — 입력이
+ * `asActive`만 붙일 수 있는 표식을 요구한다(DOC-007 §9.1 「호출 불가」를 타입으로 — `evaluateCondition` · `kiStatus`와 같다).
  */
-export function couponConditionOf(params: {
-  worstOf: DecimalValue | null
-  barrier: DecimalInput
-}): CouponConditionResult {
+export function couponConditionOf(
+  params: Active<{
+    worstOf: DecimalValue | null
+    barrier: DecimalInput
+  }>,
+): CouponConditionResult {
   if (params.worstOf == null) return 'UNKNOWN'
   return params.worstOf.gte(dec(params.barrier)) ? 'EXPECTED_PAID' : 'EXPECTED_UNPAID'
 }

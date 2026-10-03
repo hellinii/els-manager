@@ -68,7 +68,7 @@ export function CouponRecordForm({
   growable: boolean
   productId: string
   currency: ProductCurrency
-  /** 달러 과세 힌트의 추정 환율 — `projection.exchangeRateBasis`(SCR-203 선례). 없으면 숫자 없는 힌트 */
+  /** 달러 과세 힌트의 추정 환율 — `remainingCoupons.exchangeRateBasis`(DOC-008 v2.41 — 월지급 상품은 `projection`이 늘 없다). 없으면 숫자 없는 힌트 */
   taxableHintBasis: ExchangeRateBasisText | null
   /** §5.15 수정이면 그 기록 id — 한 행 폼이다 */
   editId?: string

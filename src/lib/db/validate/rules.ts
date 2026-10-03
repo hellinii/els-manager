@@ -60,7 +60,7 @@ export const RULE_TARGETS: Record<RuleId, string> = {
   'V-25':
     'couponPayout — AT_REDEMPTION·MONTHLY, 기본값 없음 · MONTHLY ⇒ 월수익 연쿠폰율 0 < x ≤ 2 · 일정 ≥ 1 · 리자드 없음 · AT_REDEMPTION ⇒ 둘 다 없음 (I-23 · I-25)',
   'V-26':
-    'couponSchedules — 1..60행 · 순번 1..K 연속 · 평가일 엄격 증가 · 발행일 이상 · 만기 이하 · 지급일 ≥ 평가일 · 배리어 0 초과 1 이하 (I-24)',
+    'couponSchedules — 1..60행 · 행 수 = 평가주기 × 총 차수 · 순번 1..K 연속 · 평가일 엄격 증가 · 발행일 이상 · 만기 이하 · 지급일 ≥ 평가일 · 배리어 0 초과 1 이하 (I-24 · DOC-011 v4.37)',
   'V-27':
     '월수익 기록 대상 — 부모 MONTHLY · FULL은 일정의 순번 · 평가일 ≤ 기준일 · 미기록 · 상환일 이하(양방향 — 상환일 ≥ 기록된 달의 평가일) · 기실현은 순번 없는 PAID · 60건 (I-27)',
   'V-28':

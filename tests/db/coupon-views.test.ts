@@ -144,6 +144,73 @@ describe('상환된 월지급 상품 — 흐름 끝 = 상환일 · 포트폴리�
   })
 })
 
+/*
+ * 검산 B-2 — DOC-007 v1.5 §7.6 (P8.5 명세 ↔ 구현 대조). 「구현 컷 b4가 고정한다」고 적혔는데 어느 테스트에도 없었다.
+ * 사상을 거친다 — 포트폴리오 손익은 `realizedPnlOfRow`가 기록을 접어 만들고, UNPAID가 합에 들어가면 이 값이 틀린다.
+ * 36개월 = 6차수 × 평가주기 6(V-26). 만기(6차) 손실 상환 세전 60,000,000 · 과세 0(I-08).
+ */
+describe('검산 B-2 — 만기 손실 상환 + 월수익 30 · 미지급 6 → 포트폴리오 손익 −22,000,000', () => {
+  const months = Array.from({ length: 36 }, (_, index) => {
+    const evaluation = new Date(Date.UTC(2026, 10 + index, 16))
+    const pay = new Date(Date.UTC(2026, 10 + index, 19))
+    return {
+      coupon_no: index + 1,
+      evaluation_date: evaluation.toISOString().slice(0, 10),
+      payment_date: pay.toISOString().slice(0, 10),
+      coupon_barrier: '0.6000',
+    }
+  })
+  const rounds = Array.from({ length: 6 }, (_, index) => ({
+    round_no: index + 1,
+    evaluation_date: months[index * 6 + 5]!.evaluation_date,
+    barrier: '0.9000',
+    lizard_barrier: null,
+    lizard_coupon_rate: null,
+    lizard_requires_no_ki: null,
+  }))
+  const maturity = rounds[5]!.evaluation_date
+  // 1~30번째 달 지급 · 31~36번째 달 미지급(월수익 배리어 아래) — 미지급은 금액이 없다(I-26)
+  const records = months.map((m) =>
+    m.coupon_no <= 30
+      ? couponPayment({ id: `payment-${m.coupon_no}`, coupon_no: m.coupon_no, payment_date: m.payment_date })
+      : couponPayment({
+          id: `payment-${m.coupon_no}`,
+          coupon_no: m.coupon_no,
+          outcome: 'UNPAID',
+          payment_date: null,
+          gross_amount: null,
+          taxable_income: null,
+          withholding_tax: null,
+        }),
+  )
+  const lost = monthlyProductRow({
+    monthly_coupon_schedules: months,
+    redemption_schedules: rounds,
+    monthly_coupon_payments: records,
+    redemptions: redemption({
+      redemption_type: 'MATURITY_LOSS',
+      round_no: 6,
+      redemption_date: maturity,
+      gross_amount: '60000000',
+      taxable_income: '0',
+      withholding_tax: '0',
+    }),
+  })
+
+  it('실현손익 = 60,000,000 + 30 × 600,000 − 100,000,000 · 구성 한 줄(상환 −40,000,000 · 월수익 +18,000,000)', () => {
+    const r = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES).redemption
+    expect(r?.realizedPnl).toBe('-22000000')
+    expect(r?.pnlBreakdown).toEqual({ redemption: '-40000000', coupons: '18000000' })
+  })
+
+  it('상환 과세는 0이다(I-08) — 월수익의 과세는 그대로 남고 만기 손실과 통산하지 않는다', () => {
+    const v = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES)
+    expect(v.redemption?.taxableIncome).toBe('0')
+    expect(v.coupons?.filter((c) => c.state === 'PAID')).toHaveLength(30)
+    expect(v.coupons?.filter((c) => c.state === 'UNPAID')).toHaveLength(6)
+  })
+})
+
 describe('셋째 결함 COUPON_SCHEDULE_MISSING — 월수익만 억제한다', () => {
   const broken = monthlyProductRow({ monthly_coupon_schedules: [] })
 

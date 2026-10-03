@@ -99,11 +99,11 @@ export type DashboardView = {
     isComprehensive: boolean
     additionalTax: string
     /**
-     * 환율이 없어 F에서 빠진 달러 추정 건 수 — E-09 (§4.1 v4.9). §4.6 `income.unconvertedCount`와
+     * 환율이 없어 F에서 빠진 달러 추정이 있는 **상품** 수 — E-09 (§4.1 v4.9 · 단위는 상품 — v4.16). §4.6 `income.unconvertedCount`와
      * **같은 값**이다(같은 `computeOwnTax`). 0보다 크면 위 셋이 과소 추정이다(DOC-008 ST-07)
      */
     unconvertedCount: number
-    /** 추정 환율로 환산해 넣은 달러 추정 건 수 (§4.1 v4.9 — P8 컷 a3). §4.6 `income.convertedCount`와 같은 값 */
+    /** 추정 환율로 환산해 넣은 달러 추정이 있는 **상품** 수 (§4.1 v4.9 — P8 컷 a3 · 단위는 상품 — v4.16). §4.6 `income.convertedCount`와 같은 값 */
     convertedCount: number
     /** v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계). SCR-101 ③ 추정 안내 줄의 조건 */
     monthlyCouponAssumption: boolean
@@ -159,8 +159,9 @@ export type DashboardView = {
  * `totals.byCurrency` — 통화별로 **먼저 가르고** 그 안에서 더한다 (§4.1 v4.9).
  *
  * 행의 집합은 범위 안의 **모든** 상품의 통화다 — 보유중만 보면 상환 완료 달러 상품의
- * `realizedPnl`이 갈 행이 없다. `sumByCurrency`로 원금을, `aggregateRealizedPnl`(서명 불변 —
- * TC-17이 직접 부른다)로 손익을 통화마다 낸다.
+ * `realizedPnl`이 갈 행이 없다. `sumByCurrency`로 원금을, 상환된 상품마다의 `realizedPnlOfRow`(월지급식은 받은
+ * 월수익을 포함한 포트폴리오 손익 — DOC-007 §7.7)를 통화마다 더해 손익을 낸다. `aggregateRealizedPnl`(서명 불변 —
+ * TC-17이 직접 부른다)은 이 경로에 없다.
  */
 export function totalsByCurrency(
   rows: readonly ProductRow[],

@@ -14,6 +14,7 @@ import {
   nextCoupon,
   type CouponFlowEnd,
 } from '@/lib/domain'
+import { asActive } from '@/lib/domain/redemption'
 
 /**
  * 월수익의 표시 계산 — DOC-007 §3.5 · §4.7 · §7.6 · §9.4 E-10 (P8 컷 b3)
@@ -160,8 +161,8 @@ describe('다음 월수익 · 조건 판정 (§3.5)', () => {
   })
 
   it('W ≥ β 경계 포함 · W 없음은 UNKNOWN', () => {
-    expect(couponConditionOf({ worstOf: dec('0.5'), barrier: '0.5' })).toBe('EXPECTED_PAID')
-    expect(couponConditionOf({ worstOf: dec('0.4999'), barrier: '0.5' })).toBe('EXPECTED_UNPAID')
-    expect(couponConditionOf({ worstOf: null, barrier: '0.5' })).toBe('UNKNOWN')
+    expect(couponConditionOf(asActive({ worstOf: dec('0.5'), barrier: '0.5' }, null))).toBe('EXPECTED_PAID')
+    expect(couponConditionOf(asActive({ worstOf: dec('0.4999'), barrier: '0.5' }, null))).toBe('EXPECTED_UNPAID')
+    expect(couponConditionOf(asActive({ worstOf: null, barrier: '0.5' }, null))).toBe('UNKNOWN')
   })
 })
