@@ -62,12 +62,15 @@ import { EVALUATION_DATE_BASIS_FIELD } from './schedules'
  * 다시 판정하지 않는다. 「상환 시 지급」은 추정이 아니다 — 누적 수익률이 헤드라인과 선형으로 맞아야(`CUMULATIVE_YIELD`)
  * 여기까지 온다. 채우지 않으면 등록 화면에 필수 칸(V-25 — 기본값 없음) 하나가 빈다(b2 반박 검토).
  *
- * ## 월지급식의 월수익 일정 — 이 컷은 산식 폴백만이다 (P8 컷 b5-1 · ADR-009 §8.6)
+ * ## 월지급식의 월수익 일정 — 두 갈래 (P8 컷 b5-1 · b5′ — ADR-009 §8.6)
  *
- * 투자설명서를 읽는 주 경로는 컷 b5′다. 여기서는 **앱 산식**(`couponFormulaOf` — 월지급 블록의 「평가일 산식으로
- * 채우기」와 같은 산식)으로 채우고 조기상환 · 만기와 겹치는 달(주기 × r번째 · K번째)만 안내 화면의 실제 날짜로
- * 바꾼다(RD-20 실측 — 겹침 3/3). 폴백이 앱 산식인 이유: 월지급 블록의 「산식」 표식이 앱 산식과의 비교라서 확인할
- * 행(산식)과 원천의 행(겹치는 달)이 화면에서 갈린다. 결과는 「일부 채움」이다 — 월수익 일정이 산식이다.
+ * - **투자설명서를 읽었다**(주 경로 — `terms.prospectus.kind === 'READ'`): 그 표의 날짜 · 「연 y%」 · 「후 n영업일」이다.
+ *   어댑터의 대조가 안내 화면과 전부 맞는지 이미 봤다(맞지 않으면 여기 오지 않는다) — 그래서 겹치는 달은 원천 둘이 같은 날을
+ *   말한다. 결과는 다른 빈 곳이 없으면 「불러옴」이다
+ * - **못 읽었다**(폴백): **앱 산식**(`couponFormulaOf` — 월지급 블록의 「평가일 산식으로 채우기」와 같은 산식)이되 조기상환 ·
+ *   만기와 겹치는 달(주기 × r번째 · K번째)만 안내 화면의 실제 날짜다(RD-20 실측 — 겹침 25/25 · 5/5). 폴백이 앱 산식인
+ *   이유: 월지급 블록의 「산식」 표식이 앱 산식과의 비교라서 확인할 행(산식)과 원천의 행(겹치는 달)이 화면에서 갈린다.
+ *   결과는 「일부 채움」이다 — 월수익 일정이 산식이다
  *
  * ## 던지지 않는다
  *
@@ -189,9 +192,12 @@ function fill(
     for (const problem of dateProblems(terms.header.issueDate, period, dates)) reasons.push(problem)
   }
 
-  /* ---------- 월지급식 — 월수익 일정 K행 (산식 폴백 · ADR-009 §8.6). 전진 검사는 어댑터가 했다 */
+  /* ---------- 월지급식 — 월수익 일정 K행 (ADR-009 §8.6). 전진 검사 · 투자설명서 대조는 어댑터가 했다 */
   const monthly = isMonthlyTerms(terms)
-  const coupons =
+  // 읽은 투자설명서 — 대조가 안내 화면과 맞는지 봤다(어긋났으면 위에서 거부됐다)
+  const prospectus = monthly && terms.prospectus?.kind === 'READ' ? terms.prospectus : null
+  const paymentDays = prospectus?.paymentBusinessDays ?? COUPON_PAYMENT_BUSINESS_DAYS
+  const formula =
     monthly && period != null && reasons.length === 0
       ? couponFormulaOf({
           issueDate: terms.header.issueDate,
@@ -199,10 +205,19 @@ function fill(
           totalRounds: String(totalRounds),
         })
       : null
-  if (monthly && period != null && reasons.length === 0 && coupons == null) {
-    // V-26 — 1..60행. 산식이 없으면(K > 60) 저장할 수 없는 상품이다
+  if (monthly && period != null && reasons.length === 0 && formula == null) {
+    // V-26 — 1..60행. 산식이 없으면(K > 60) 저장할 수 없는 상품이다 — 투자설명서를 읽었어도 같다
     reasons.push(`월수익 일정이 ${period * totalRounds}개월이다 — 60개월을 넘는 월지급식은 등록할 수 없다.`)
   }
+  const coupons =
+    formula == null
+      ? null
+      : prospectus == null
+        ? formula
+        : prospectus.coupons.map((c) => ({
+            evaluationDate: c.evaluationDate,
+            paymentDate: shiftBusinessDays(c.evaluationDate, paymentDays),
+          }))
 
   if (reasons.length > 0) return { kind: 'REFUSED', reasons, notes }
   // 여기부터는 거부가 없다 — 어댑터의 대응표가 아래 넷의 부재를 BLOCKING으로 막았다
@@ -235,13 +250,15 @@ function fill(
   if (monthly) {
     // 전진 검사(`MONTHLY_BARRIER_UNKNOWN` · `MONTHLY_HEADLINE`)가 둘의 부재를 막았다
     const couponBarrier = pct(ladder.monthlyBarrierPct!)
-    values[MONTHLY_RATE_FIELD] = pct(headline)
+    // 읽었으면 투자설명서의 「연 y%」(대조가 헤드라인과 같음을 봤다), 못 읽었으면 헤드라인
+    values[MONTHLY_RATE_FIELD] = pct(prospectus?.annualPct ?? headline)
     values[COUPON_BARRIERS_FIELD] = couponBarrier
     // 겹치는 달 — r차 조기상환은 (주기 × r)번째, 만기는 K번째다(RD-20 실측 · 순번은 1부터)
     const anchors = new Map<number, string>(early.map((r, index) => [period! * (index + 1), r.evaluationDate]))
     anchors.set(coupons!.length, maturityDate)
     coupons!.forEach((row, index) => {
-      const anchor = anchors.get(index + 1)
+      // 투자설명서의 날짜는 이미 원천이다 — 겹치는 달도 대조가 같음을 봤다. 폴백만 겹치는 달을 바꾼다
+      const anchor = prospectus == null ? anchors.get(index + 1) : undefined
       const evaluationDate = anchor ?? row.evaluationDate
       values[couponCell(index, 'evaluationDate')] = evaluationDate
       values[couponCell(index, 'paymentDate')] =
@@ -291,7 +308,10 @@ function fill(
     // 투자원금은 원천에 없고 사용자가 적는 칸이다 — 단위를 구획이 말한다(DOC-008 SCR-204 「P8 달러 ELS」)
     notes.push({ field: null, text: '달러 상품이다 — 투자원금은 달러로 적는다(센트까지).' })
   }
-  if (monthly) {
+  if (monthly && prospectus != null) {
+    notes.push({ field: null, text: PROSPECTUS_READ_NOTE })
+    notes.push({ field: null, text: couponPaymentNote(paymentDays) })
+  } else if (monthly) {
     notes.push({ field: null, text: COUPON_FORMULA_NOTE })
     notes.push({ field: MONTHLY_RATE_FIELD, text: MONTHLY_RATE_HEADLINE_NOTE })
     notes.push({ field: null, text: couponPaymentNote(COUPON_PAYMENT_BUSINESS_DAYS) })
@@ -341,11 +361,14 @@ function fill(
   // KI 상품은 관찰방식이 비므로 늘 PARTIAL이다 — 「무엇이 비었는지」를 화면이 말해야 한다.
   // 상품 통화의 증인이 없어도 빈칸이 남는다(여기 오는 비확정은 `NO_WITNESS`뿐이다 — 나머지는 거부됐다).
   // 월수익 일정이 산식이면 빈칸은 아니지만 확인할 곳이다(ADR-009 §8.6)
-  const couponSchedule = monthly ? 'FORMULA' : null
+  const couponSchedule = !monthly ? null : prospectus != null ? 'PROSPECTUS' : 'FORMULA'
   const partial =
     unresolved.length > 0 || !ladder.noKi || duplicate || currency.kind !== 'DECIDED' || couponSchedule === 'FORMULA'
   return { kind: partial ? 'PARTIAL' : 'FILLED', values, notes, unresolved, couponSchedule }
 }
+
+/** 월수익 일정 · 월수익 연쿠폰율을 투자설명서에서 읽었다 — 주 경로(DOC-008 SCR-204 「P8 월지급식 — 불러오기」) */
+export const PROSPECTUS_READ_NOTE = '월수익 일정 · 월수익 연쿠폰율은 투자설명서에서 읽었다.'
 
 /**
  * 월수익 일정이 산식이다 — 투자설명서를 읽지 못한 렌더(DOC-008 SCR-204 「P8 월지급식 — 불러오기」). 「산식」 표식이
@@ -520,6 +543,26 @@ function reasonOf(d: TermsDiscrepancy, currency: ProductCurrencyVerdict): string
       return '월지급 배리어를 읽을 수 없다.'
     case 'MONTHLY_BARRIER_ORDER':
       return `월지급 배리어가 KI 배리어보다 높고 조기상환 배리어 이하가 아니다 — 사다리 ${d.expected ?? '없음'}.`
+    case 'PROSPECTUS_COUPON_COUNT':
+      return prospectusMismatch(`월수익 일정의 회차 수 — 투자설명서 ${d.actual ?? '없음'}(표 머리/날짜) · 안내 화면 ${d.expected}개월`)
+    case 'PROSPECTUS_COUPON_ORDER':
+      return prospectusMismatch(`${d.round}번째 월수익 평가일 ${d.actual} — 앞(${d.expected})보다 늦어야 한다`)
+    case 'PROSPECTUS_COUPON_ANCHOR':
+      return prospectusMismatch(`${d.round}번째 월수익 평가일 — 투자설명서 ${d.actual} · 안내 화면 ${d.expected}(조기상환 · 만기 평가일)`)
+    case 'PROSPECTUS_RATE':
+      return prospectusMismatch(
+        d.round === 'ABSENT'
+          ? '월수익 지급금액(액면금액 × x%(연 y%))을 찾지 못했다'
+          : d.round === 'MONTHLY'
+            ? `월수익 연쿠폰율 — 투자설명서 연 ${d.actual}% · 월 지급률 × 12 = ${d.expected}%`
+            : `월수익 연쿠폰율 — 투자설명서 연 ${d.actual}% · 안내 화면 연 ${d.expected}%`,
+      )
+    case 'PROSPECTUS_EARLY_DATE':
+      return prospectusMismatch(
+        d.round === 'COUNT'
+          ? `조기상환 평가일 수 — 투자설명서 ${d.actual}개 · 안내 화면 ${d.expected}개`
+          : `${roundName(d.round)} 조기상환 평가일 — 투자설명서 ${d.actual} · 안내 화면 ${d.expected}`,
+      )
     case 'MONTHLY_VARIANT':
       // 찾은 낱말을 원천에서 인용한다 — 변형의 이름을 만들지 않는다(DOC-008 SCR-204 · DOC-005 GQ-06)
       return `기본형 월지급식만 등록한다 — ${VARIANT_PLACES[d.expected as keyof typeof VARIANT_PLACES] ?? '안내 화면'}에 「${d.actual ?? ''}」이 있다. 다른 변형은 v2다.`
@@ -544,7 +587,17 @@ function reasonOf(d: TermsDiscrepancy, currency: ProductCurrencyVerdict): string
 }
 
 /** `MONTHLY_VARIANT`의 자리 → 사람의 말. 낱말 목록은 어댑터의 것이다(`MONTHLY_VARIANT_WORDS` — `terms-check.ts`) */
-const VARIANT_PLACES = { NAME: '상품명', HEADLINE: '연 수익률 문구', LADDER: '상환조건' } as const
+const VARIANT_PLACES = {
+  NAME: '상품명',
+  HEADLINE: '연 수익률 문구',
+  LADDER: '상환조건',
+  PROSPECTUS: '투자설명서의 월수익 지급 구간',
+} as const
+
+/** 투자설명서 ↔ 안내 화면 — 한 틀의 사유(DOC-008 SCR-204 「P8 월지급식 — 불러오기」의 거부 사유 표) */
+function prospectusMismatch(what: string): string {
+  return `투자설명서와 안내 화면이 다르다 — ${what}. 투자설명서로 확인한다.`
+}
 
 function yesNoText(value: string | null): string {
   return value === 'Y' ? '월지급' : value === 'N' ? '월지급 아님' : '없음'

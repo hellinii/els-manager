@@ -1,4 +1,5 @@
 import type { ListedAsset } from './parse'
+import type { ProspectusTerms } from './prospectus-parse'
 import type { LookupOutcome } from '../types'
 
 /**
@@ -191,7 +192,37 @@ export type KiwoomProductTerms = {
    */
   listing: KiwoomProductCandidate | null
   listingMiss: 'NOT_FOUND' | 'CALL_FAILED' | null
+  /**
+   * 투자설명서의 월수익 구간 (P8 컷 b5′ · DOC-010 ADR-009 §8.4) — **팝업 사다리가 `월지급`일 때만** 부른다. 그 밖에는
+   * `null`(부르지 않았다). 월지급식에서 읽지 못하면 `UNREAD`이고 그것도 실패가 아니다 — 조건 조회는 성립하고 채움이 산식
+   * 폴백으로 접힌다(DOC-011 X-08 · X-02의 정신). 읽었으면 그 값과 안내 화면의 대조는 `terms-check.ts`가 한다
+   */
+  prospectus: ProspectusOutcome | null
 }
+
+/**
+ * 투자설명서 읽기의 결과 — **값이다**(던지지 않는다).
+ *
+ * - `READ` — 표 머리(`월수익지급평가일(1차~K차)`)를 찾았다. 그 뒤의 어긋남은 대조가 거부로 바꾼다
+ * - `UNREAD` — 못 찾았다. 사유는 진단용이다(화면은 하나의 안내로 말한다 — 「투자설명서를 읽지 못했다」)
+ */
+export type ProspectusOutcome =
+  | ({ kind: 'READ' } & ProspectusTerms)
+  | { kind: 'UNREAD'; reason: ProspectusUnreadReason; detail: string }
+
+export type ProspectusUnreadReason =
+  /** 팝업 문서 목록에 `B<code>.pdf`가 없다 — 유도하지 않는다 */
+  | 'NO_DOCUMENT'
+  /** 데드라인 · 네트워크 · HTTP 상태 · 리다이렉트 */
+  | 'FETCH_FAILED'
+  /** 내려받기 상한(`PROSPECTUS_MAX_BYTES`)을 넘었다 */
+  | 'TOO_LARGE'
+  /** 본문이 `%PDF-`로 시작하지 않는다 */
+  | 'NOT_PDF'
+  /** 텍스트 추출이 던졌다(라이브러리 · 번들 · 메모리 — DOC-010 AQ-95) */
+  | 'EXTRACT_FAILED'
+  /** 텍스트는 있는데 표 머리가 없다 — 형태가 바뀌었거나 다른 문서다 */
+  | 'TABLE_NOT_FOUND'
 
 /**
  * 대조가 낸 불일치 하나 — `terms-check.ts`.
@@ -242,7 +273,7 @@ export type TermsDiscrepancyKind =
   | 'MONTHLY_BARRIER_ORDER'
   /**
    * 변형의 낱말(`MONTHLY_VARIANT_WORDS`)이 있다 — 기본형만 받는다(DOC-001 S-14). `expected` = 자리(`'NAME'` ·
-   * `'HEADLINE'` · `'LADDER'`), `actual` = 찾은 낱말. **범위가 그 셋뿐이다** — 투자설명서 전체에 걸면 마이크론의
+   * `'HEADLINE'` · `'LADDER'` · 읽었으면 `'PROSPECTUS'` — 투자설명서의 「월수익 지급」 구간), `actual` = 찾은 낱말. **범위가 그 셋뿐이다** — 투자설명서 전체에 걸면 마이크론의
    * 사업 설명(「메모리 반도체」)이 걸린다(ADR-009 ㉑)
    */
   | 'MONTHLY_VARIANT'
@@ -250,6 +281,20 @@ export type TermsDiscrepancyKind =
   | 'MONTHLY_LIZARD'
   /** 팝업 사다리의 `월지급`과 목록 행의 `mm_pay_frml_yn`이 다르다. `expected` = 팝업 · `actual` = 목록(`'Y'`/`'N'`) */
   | 'MONTHLY_WITNESS_CONFLICT'
+  /*
+   * 투자설명서 ↔ 안내 화면 (P8 컷 b5′ — ADR-009 §8.4). **읽었을 때만** 낸다(`prospectus.kind === 'READ'`) — 못 읽었으면
+   * 산식 폴백이다. 읽고 어긋나면 원천 둘이 다른 말을 한다는 신호라 전부 거부다(⑦과 같은 부류)
+   */
+  /** 회차 수 — 표 머리의 K · 주운 토큰 수 · 순번 1..K 중 하나라도 평가주기 × 총 차수와 다르다. `expected` = K · `actual` = `머리/토큰` */
+  | 'PROSPECTUS_COUPON_COUNT'
+  /** 월수익 평가일이 발행일보다 이르거나 앞 회차보다 늦지 않다. `round` = 순번 · `expected` = 앞 날짜 · `actual` = 그 날짜 */
+  | 'PROSPECTUS_COUPON_ORDER'
+  /** (주기 × r)번째 ≠ r차 조기상환 평가일 · K번째 ≠ 만기 평균의 마지막 날. `round` = 순번 · `expected` = 안내 화면 · `actual` = 투자설명서 */
+  | 'PROSPECTUS_COUPON_ANCHOR'
+  /** 지급금액 문장이 없다 · 월 지급률 × 12 ≠ 연율 · 연율 ≠ 헤드라인. `round` = `'MONTHLY'` | `'HEADLINE'` | `'ABSENT'` */
+  | 'PROSPECTUS_RATE'
+  /** 투자설명서의 자동조기상환평가일 ≠ 안내 화면의 조기상환 평가일. `round` = 차수 라벨(수가 다르면 `'COUNT'`) */
+  | 'PROSPECTUS_EARLY_DATE'
   /**
    * 상품 통화의 증인이 서로 다른 통화를 말한다 — **거부**(DOC-010 ADR-009 §7 · `currency.ts`).
    * 다수결을 하지 않는다. `expected`는 `null`, `actual`은 말해진 통화들을 증인 순서대로 `·`로 이은 것이다.
@@ -320,4 +365,9 @@ export type KiwoomProductSourceDeps = {
   timeoutMs?: number
   /** 전체 데드라인(epoch ms). 주지 않으면 조회마다 15초로 잡는다 */
   deadlineAt?: number
+  /**
+   * PDF 바이트 → 텍스트 (P8 컷 b5′). 주지 않으면 `unpdf`다(`prospectus.ts`). 상시 스위트는 주입한다 — 투자설명서 PDF를
+   * 저장소에 싣지 않고(표본 하나 약 650KB) 추출 텍스트 픽스처로 그 뒤를 본다
+   */
+  extractPdfText?: (bytes: Uint8Array) => Promise<string>
 }

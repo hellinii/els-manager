@@ -59,10 +59,15 @@ function failed(code: string, html: string): Failure {
   return p as Failure
 }
 
-const withListing = (p: ParsedTerms, listing: KiwoomProductCandidate | null = null): KiwoomProductTerms => ({
+const withListing = (
+  p: ParsedTerms,
+  listing: KiwoomProductCandidate | null = null,
+  prospectus: KiwoomProductTerms['prospectus'] = null,
+): KiwoomProductTerms => ({
   ...p,
   listing,
   listingMiss: listing == null ? 'NOT_FOUND' : null,
+  prospectus,
 })
 
 /** 원문에 정확히 한 번 있는 조각을 바꾼다 — 없으면 테스트가 무효이므로 먼저 단언한다 */

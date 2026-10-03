@@ -288,6 +288,9 @@ describe('★ adjclose 단언 — 허용 목록으로 쓴다 (ADR-007 §4)', () 
       'kiwoom/index.ts',
       'kiwoom/ladder.ts',
       'kiwoom/parse.ts',
+      // P8 컷 b5′ — 투자설명서 읽기(I/O) · 해석(순수). 둘 다 adjclose와 무관하지만 의식적으로 올린다(위 각주)
+      'kiwoom/prospectus-parse.ts',
+      'kiwoom/prospectus.ts',
       'kiwoom/search-parse.ts',
       'kiwoom/symbols.ts',
       'kiwoom/terms-check.ts',

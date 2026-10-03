@@ -8,6 +8,7 @@ import {
   importFillOf,
   lizardCouponPct,
   MONTHLY_RATE_HEADLINE_NOTE,
+  PROSPECTUS_READ_NOTE,
   type ImportFill,
 } from '@/lib/forms/importFill'
 import { couponFormulaOf, isFormulaCouponRow } from '@/lib/forms/monthly'
@@ -22,7 +23,15 @@ import { parseSearchBody } from '@/lib/providers/kiwoom/search-parse'
 import { parseTermsHtml } from '@/lib/providers/kiwoom/terms-parse'
 import type { KiwoomProductCandidate, KiwoomProductTerms } from '@/lib/providers/kiwoom/terms-types'
 
-import { SEARCH_FIXTURES, popupHtml, searchJson, type PopupCode } from '../providers/fixtures/kiwoom-terms'
+import { parseProspectusText } from '@/lib/providers/kiwoom/prospectus-parse'
+
+import {
+  SEARCH_FIXTURES,
+  popupHtml,
+  prospectusText,
+  searchJson,
+  type PopupCode,
+} from '../providers/fixtures/kiwoom-terms'
 
 /**
  * 키움 조건 → SCR-204 폼 값 (DOC-008 §5 SCR-204 v2.9 · DOC-010 ADR-009)
@@ -37,7 +46,7 @@ import { SEARCH_FIXTURES, popupHtml, searchJson, type PopupCode } from '../provi
 function termsOf(code: PopupCode): KiwoomProductTerms {
   const parsed = parseTermsHtml(popupHtml(code), code)
   if (!('status' in parsed)) throw new Error(`${code} 파싱 실패: ${parsed.detail}`)
-  return { ...parsed, listing: null, listingMiss: null }
+  return { ...parsed, listing: null, listingMiss: null, prospectus: null }
 }
 
 /** 같은 상품의 목록 행을 붙인 조건 — 어댑터가 하는 일(팝업 → 목록 행)을 픽스처로 되풀이한다 */
@@ -453,6 +462,68 @@ describe('월지급식 — 산식 폴백으로 채운다 (P8 컷 b5-1 · DOC-010
     expect([input.couponPayout, input.annualCouponRate, input.monthlyCouponAnnualRate]).toEqual(['MONTHLY', '0.0000', '0.2364'])
     expect(input.couponSchedules).toHaveLength(36)
     expect(input.couponSchedules?.[35]).toMatchObject({ couponNo: 36, evaluationDate: '2029-08-13', couponBarrier: '0.5000' })
+    const problems = new Problems()
+    parseProductInput(problems, input)
+    expect(problems.fields()).toEqual({})
+  })
+})
+
+describe('월지급식 — 투자설명서를 읽었다 (주 경로 · P8 컷 b5′ · ADR-009 §8.6)', () => {
+  /** 어댑터가 하는 일(팝업 → 목록 행 ∥ 투자설명서)을 픽스처로 되풀이한다 — 투자설명서는 추출 텍스트 픽스처 */
+  const withProspectus = (code: 'EM2048' | 'EM2014'): KiwoomProductTerms => ({
+    ...termsWithListing(code, code === 'EM2048' ? SEARCH_FIXTURES.q2048 : SEARCH_FIXTURES.q2014),
+    prospectus: { kind: 'READ', ...parseProspectusText(prospectusText(code))! },
+  })
+  const coupon = (v: Record<string, string>, sub: string) =>
+    Array.from({ length: 36 }, (_, i) => v[`couponSchedules[${i}].${sub}`])
+
+  it('★ EM2014 — 날짜가 투자설명서 그대로다(산식이면 틀리는 달까지) · 출처 PROSPECTUS', () => {
+    const fill = filled(importFillOf(withProspectus('EM2014'), {}))
+    const v = fill.values
+    const pdf = parseProspectusText(prospectusText('EM2014'))!.coupons.map((c) => c.evaluationDate)
+    expect(fill.couponSchedule).toBe('PROSPECTUS')
+    expect(coupon(v, 'evaluationDate')).toEqual(pdf)
+    // EM2014는 「같은 날」 규약이다 — 앱 산식(−1일)은 2번째를 2026-10-12로 냈을 것이다(ADR-009 §8.1 — 6/36)
+    const formula = couponFormulaOf({ issueDate: v.issueDate!, evaluationPeriodMonths: '6', totalRounds: '6' })!
+    expect([v['couponSchedules[1].evaluationDate'], formula[1]!.evaluationDate]).toEqual(['2026-10-13', '2026-10-12'])
+    // 지급일은 평가일 + 투자설명서의 n(= 3)영업일 — 2026-10-13(화) → 2026-10-16(금)
+    expect(v['couponSchedules[1].paymentDate']).toBe('2026-10-16')
+    expect(v.monthlyCouponAnnualRate).toBe('23.64')
+  })
+
+  it('★ 안내 — 「투자설명서에서 읽었다」 · 지급일 계산 — 산식 안내와 연율 힌트는 없다', () => {
+    const fill = filled(importFillOf(withProspectus('EM2048'), {}))
+    expect(fill.notes).toEqual(
+      expect.arrayContaining([{ field: null, text: PROSPECTUS_READ_NOTE }, { field: null, text: couponPaymentNote(3) }]),
+    )
+    expect(fill.notes.map((n) => n.text)).not.toContain(COUPON_FORMULA_NOTE)
+    expect(fill.notes.some((n) => n.field === 'monthlyCouponAnnualRate')).toBe(false)
+  })
+
+  it('★ 일부 채움의 사유에 월수익 일정이 없다 — KI 상품이라 관찰방식 때문에만 PARTIAL이다(폴백이면 둘 다)', () => {
+    const fill = filled(importFillOf(withProspectus('EM2048'), {}))
+    expect(fill.kind).toBe('PARTIAL')
+    // 노낙인으로 바꿔 관찰방식 사유를 없애면 — 자산 미해결이 남는다(자산 해석 없음). 폴백은 같은 조건에서 FORMULA를 싣는다
+    expect(filled(importFillOf(termsWithListing('EM2048', SEARCH_FIXTURES.q2048), {})).couponSchedule).toBe('FORMULA')
+  })
+
+  it('★ 왕복 — 투자설명서로 채운 폼이 저장 제출을 지나 V-25 · V-26을 지난다', () => {
+    const v = filled(importFillOf(withProspectus('EM2014'), {})).values
+    const next = transition(
+      formOfValues({
+        ...productDefaults(),
+        ...v,
+        principal: '100,000,000',
+        accountType: 'GENERAL',
+        kiObservation: 'CLOSING',
+        'underlyings[0].assetId': '00000000-0000-4000-8000-0000000000b1',
+        'underlyings[1].assetId': '00000000-0000-4000-8000-0000000000b2',
+        [INTENT_FIELD]: 'SUBMIT',
+      }),
+    )
+    expect(next.saveHeld).toBe(false)
+    const input = parseProductForm(formOfValues(next.values))
+    expect(input.couponSchedules?.[1]).toMatchObject({ couponNo: 2, evaluationDate: '2026-10-13', paymentDate: '2026-10-16' })
     const problems = new Problems()
     parseProductInput(problems, input)
     expect(problems.fields()).toEqual({})

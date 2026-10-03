@@ -2,6 +2,7 @@ import { dec, truncateToUnit, type DecimalValue } from '@/lib/decimal'
 
 import { productCurrencyOf } from './currency'
 import { parseTenor } from './ladder'
+import type { ProspectusTerms } from './prospectus-parse'
 import { DISPLAY_SCALE } from './terms-endpoints'
 import type {
   KiwoomProductTerms,
@@ -41,6 +42,7 @@ import type {
  * | 빈 안내 화면 · ELS 아님 · 날짜 이상(증가·발행일·지급일) | 파서의 실패(`EMPTY`·`MALFORMED`·`BAD_DATE`) — `ok`가 아니다 |
  * | 만기 구획 없음 · K ≥ L(리자드) | `MATURITY_ABSENT` · `KI_NOT_BELOW_LIZARD` |
  * | 월지급식의 전진 검사 실패 *(P8 컷 b5)* | `MONTHLY_YIELD_NONZERO` · `MONTHLY_HEADLINE` · `MONTHLY_BARRIER_UNKNOWN` · `MONTHLY_BARRIER_ORDER` · `MONTHLY_VARIANT` · `MONTHLY_LIZARD` · `MONTHLY_WITNESS_CONFLICT` |
+ * | 투자설명서 ↔ 안내 화면의 불일치 *(P8 컷 b5′ — 읽었을 때만)* | `PROSPECTUS_COUPON_COUNT` · `PROSPECTUS_COUPON_ORDER` · `PROSPECTUS_COUPON_ANCHOR` · `PROSPECTUS_RATE` · `PROSPECTUS_EARLY_DATE` · `MONTHLY_VARIANT`(`PROSPECTUS`) |
  * | 상품 통화 — 증인 충돌 · 원화·달러 밖 *(P8 컷 a4)* | `CURRENCY_CONFLICT` · `CURRENCY_UNSUPPORTED` — 판정은 `currency.ts` |
  * | 사다리를 못 읽음 · 표 ≠ 사다리 | `LADDER_STEPS_ABSENT` · `LADDER_STEP_COUNT` · `LADDER_BARRIER` · `LIZARD_POSITION` |
  * | 가격 ≠ 기준가 × 배리어 · KI 비율 불일치 | `BARRIER_PRICE` · `KI_PRICE` · `KI_PCT_UNKNOWN` · `KI_CONFLICT` |
@@ -176,6 +178,66 @@ export function crossCheckTerms(terms: KiwoomProductTerms): TermsDiscrepancy[] {
     // ⑥ 월지급식 + 리자드는 v2다(V-25) — 사다리의 낱말 · 계단의 `(Lxx)` · 표의 `n-2` 행 중 하나라도
     if (ladder.lizard || terms.rounds.some((r) => r.variant === 2) || steps?.some((step) => step.lizardPct != null)) {
       add('MONTHLY_LIZARD', 'BLOCKING', null, null)
+    }
+    // 투자설명서 — 읽었으면 안내 화면과 전부 맞아야 한다(ADR-009 §8.4). 못 읽었으면 대조할 것이 없다(산식 폴백)
+    if (terms.prospectus?.kind === 'READ') checkProspectus(terms.prospectus)
+  }
+
+  function checkProspectus(p: ProspectusTerms) {
+    const period = ladder.periodMonths ?? parseTenor(terms.header.tenorText).periodMonths
+    // 청약 중 · 주기 미상 · 만기 구획 없음은 다른 사유가 이미 거부한다 — 회차를 셀 기준이 없다
+    if (issued && period != null && terms.maturity != null) {
+      const total = period * (distinct.length + 1)
+      const numbered = p.coupons.every((c, i) => c.couponNo === i + 1)
+      if (p.declaredCount !== total || p.coupons.length !== total || !numbered) {
+        add('PROSPECTUS_COUPON_COUNT', 'BLOCKING', String(total), `${p.declaredCount}/${p.coupons.length}`)
+      } else {
+        let previous: string | null = null
+        for (const c of p.coupons) {
+          if (c.evaluationDate < terms.header.issueDate || (previous != null && c.evaluationDate <= previous)) {
+            add('PROSPECTUS_COUPON_ORDER', 'BLOCKING', previous ?? terms.header.issueDate, c.evaluationDate, {
+              round: String(c.couponNo),
+            })
+          }
+          previous = c.evaluationDate
+        }
+        // 겹치는 달 — r차 조기상환은 (주기 × r)번째, 만기는 K번째다(RD-20 실측 — 25/25 · 5/5)
+        const anchors = [
+          ...distinct.map((r, i) => ({ couponNo: period * (i + 1), date: r.evaluationDate })),
+          { couponNo: total, date: terms.maturity.evaluationDates.at(-1) ?? '' },
+        ]
+        for (const anchor of anchors) {
+          const found = p.coupons[anchor.couponNo - 1]!.evaluationDate
+          if (found !== anchor.date) {
+            add('PROSPECTUS_COUPON_ANCHOR', 'BLOCKING', anchor.date, found, { round: String(anchor.couponNo) })
+          }
+        }
+      }
+      const early = distinct.map((r) => r.evaluationDate)
+      if (p.earlyRedemptionDates.length !== early.length) {
+        add('PROSPECTUS_EARLY_DATE', 'BLOCKING', String(early.length), String(p.earlyRedemptionDates.length), {
+          round: 'COUNT',
+        })
+      } else {
+        early.forEach((date, i) => {
+          if (p.earlyRedemptionDates[i] !== date) {
+            add('PROSPECTUS_EARLY_DATE', 'BLOCKING', date, p.earlyRedemptionDates[i]!, { round: distinct[i]!.label })
+          }
+        })
+      }
+    }
+    // 지급금액 — 월 지급률 × 12 = 연율 = 헤드라인(실측 5/5). 헤드라인이 없으면 `MONTHLY_HEADLINE`이 이미 거부했다
+    const headline = terms.header.headlineAnnualPct
+    if (p.monthlyPct == null || p.annualPct == null) {
+      add('PROSPECTUS_RATE', 'BLOCKING', headline, null, { round: 'ABSENT' })
+    } else if (!dec(p.monthlyPct).times(12).eq(dec(p.annualPct))) {
+      add('PROSPECTUS_RATE', 'BLOCKING', dec(p.monthlyPct).times(12).toString(), p.annualPct, { round: 'MONTHLY' })
+    } else if (headline != null && !dec(p.annualPct).eq(dec(headline))) {
+      add('PROSPECTUS_RATE', 'BLOCKING', headline, p.annualPct, { round: 'HEADLINE' })
+    }
+    // 변형 낱말 — 「월수익 지급」 구간만(ADR-009 ㉑ — 문서 전체에는 마이크론의 「메모리」가 있다)
+    for (const word of MONTHLY_VARIANT_WORDS) {
+      if (p.couponSection.includes(word)) add('MONTHLY_VARIANT', 'BLOCKING', 'PROSPECTUS', word)
     }
   }
 

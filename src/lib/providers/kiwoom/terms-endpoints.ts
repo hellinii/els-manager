@@ -232,6 +232,12 @@ export const DISPLAY_SCALE = {
 /** 응답 본문 상한(바이트). 스트림으로 센다 — `text()`는 전부 읽은 뒤에야 크기를 안다. 실측 최대 102,654B */
 export const MAX_BODY_BYTES = 1_048_576
 
+/**
+ * 투자설명서 PDF 내려받기 상한 (P8 컷 b5′ · ADR-009 §8.4). 실측 636~670KB(표본 다섯)의 일곱 배쯤이다 — 넘으면 「못 읽음」
+ * (`TOO_LARGE`)이고 산식 폴백으로 접힌다. 팝업 본문 상한(`MAX_BODY_BYTES`)과 따로 둔다 — 단위가 다른 원천이다
+ */
+export const PROSPECTUS_MAX_BYTES = 5_242_880
+
 /** 요청당 상한(ms) — DOC-011 §4.10 X-06 */
 export const REQUEST_TIMEOUT_MS = 8_000
 

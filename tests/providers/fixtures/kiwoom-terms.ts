@@ -177,3 +177,69 @@ export function searchJson(fixture: SearchFixture): unknown {
 export function searchText(fixture: SearchFixture): string {
   return searchBytes(fixture).toString('utf8')
 }
+
+/* ================================================================== 투자설명서 (P8 컷 b5′) */
+
+/**
+ * 투자설명서 PDF의 **추출 텍스트** — `B<code>.txt` (2026-10-03 KST 18시대 수집 · DOC-010 ADR-009 §8.1)
+ *
+ * PDF 바이너리를 저장소에 싣지 않는다(표본 하나 약 650KB). 대신 **어댑터가 쓰는 추출 그대로**(`unpdf` 1.8.1 ·
+ * `extractText(pdf, { mergePages: true })` — `prospectus.ts` `extractWithUnpdf`)의 결과를 커밋한다. 그래서 이 픽스처가
+ * 지나는 것은 `prospectus-parse.ts`부터이고, PDF → 텍스트 단계는 ⓐ 원본 PDF의 크기 · sha256을 여기 적고 ⓑ 프로젝트에
+ * 설치된 `unpdf`로 다시 뽑아 **바이트 단위로 같음**을 수집 때 확인했다(다섯 다). pypdf 6.19로 뽑은 날짜와도 180/180 같았다.
+ *
+ * 다섯은 검색어 `100조` 목록의 월지급식 전부다(픽스처 `search-100001-100jo` — EM2048 · EM2040 · EM2032 · EM2014 · EM2005).
+ * **자르지 않았다** — 「월수익 지급」 구간 밖의 「메모리」(마이크론 사업 설명 — ADR-009 ㉑)가 변형 낱말 검사의 범위를
+ * 시험하는 재료다. 공개 저장소 검사(AQ-83): 이메일 · 휴대전화 · 주민등록번호 형태 0건(발행사 고객센터 같은 공개 정보뿐이다).
+ */
+export const PROSPECTUS_FIXTURES = {
+  EM2014: {
+    file: 'BEM2014.txt',
+    pdfBytes: 636284,
+    pdfSha256: '674fa3a3c0fc90faa64de41139ca78c9da68a146c1780bb0f1455cc63e016874',
+    textBytes: 102792,
+    textSha256: 'f118a04eb9438a2d650342c6af2e93874e1f63d979681990c3aea99785cca3e4',
+    note: '원화 · KOSPI200 · 마이크론 · 「같은 날」 규약(앱 산식 6/36)',
+  },
+  EM2048: {
+    file: 'BEM2048.txt',
+    pdfBytes: 667396,
+    pdfSha256: '33d7a7468ac47691b10271e91f3e1ef7abb8a3ed4404f4cf9d72bc376ba5f6a5',
+    textBytes: 109484,
+    textSha256: '4d7b065b43babc7945aa98dc5dd76ddb972bebc4c5d6f59442f0c34866d5ec4a',
+    note: '달러 · 팔란티어 · 마이크론 · 표 한가운데 페이지 경계',
+  },
+  EM2040: {
+    file: 'BEM2040.txt',
+    pdfBytes: 667249,
+    pdfSha256: '07cb300c937db279e1874f10113c436143a4a0a5984011ae1da4db36ee9fb7cc',
+    textBytes: 109461,
+    textSha256: 'c45514a066c0ede0489932df1a2a6e924d380168b1475f975cf90b4609b7f21a',
+    note: '달러 · 팔란티어 · 마이크론',
+  },
+  EM2032: {
+    file: 'BEM2032.txt',
+    pdfBytes: 670260,
+    pdfSha256: '6a10d36e94471a99f1d64910657ab5b872d68ea98fa1fd073e441c09a4186d4e',
+    textBytes: 110733,
+    textSha256: '3872b1441d7b1c8a770459ae73135730cafee29fd1c6ae427d408dd96409e451',
+    note: '달러 · 팔란티어 · 마이크론',
+  },
+  EM2005: {
+    file: 'BEM2005.txt',
+    pdfBytes: 636513,
+    pdfSha256: '9995f4d804c20e1d876ad9789d078912b903f0691b37582607a58be656d14758',
+    textBytes: 103456,
+    textSha256: '0627313d926331d059c62b2657a3f953307ac98ac58fa3026ce219f9b219100b',
+    note: '원화 · KOSPI200 · 마이크론 · 「−1일」 규약',
+  },
+} as const
+export type ProspectusCode = keyof typeof PROSPECTUS_FIXTURES
+
+export function prospectusText(code: ProspectusCode): string {
+  return readFileSync(join(DIR, PROSPECTUS_FIXTURES[code].file), 'utf8')
+}
+
+export function prospectusBytes(code: ProspectusCode): Buffer {
+  return readFileSync(join(DIR, PROSPECTUS_FIXTURES[code].file))
+}

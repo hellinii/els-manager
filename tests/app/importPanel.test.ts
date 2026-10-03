@@ -9,6 +9,7 @@ import {
   couponPaymentNote,
   CURRENCY_UNKNOWN_NOTE,
   MONTHLY_RATE_HEADLINE_NOTE,
+  PROSPECTUS_READ_NOTE,
 } from '@/lib/forms/importFill'
 import {
   CLEARED_OBSERVATION_NOTE,
@@ -27,7 +28,9 @@ import { parseTermsHtml } from '@/lib/providers/kiwoom/terms-parse'
 import type { KiwoomProductCandidate, KiwoomProductTerms } from '@/lib/providers/kiwoom/terms-types'
 import type { LookupOutcome } from '@/lib/providers/types'
 
-import { SEARCH_FIXTURES, popupHtml, searchJson, type PopupCode } from '../providers/fixtures/kiwoom-terms'
+import { parseProspectusText } from '@/lib/providers/kiwoom/prospectus-parse'
+
+import { SEARCH_FIXTURES, popupHtml, prospectusText, searchJson, type PopupCode } from '../providers/fixtures/kiwoom-terms'
 
 /**
  * SCR-204 등록·수정 화면의 조립 (DOC-008 §5 SCR-204 v2.9 · 수정 v2.12)
@@ -39,7 +42,7 @@ import { SEARCH_FIXTURES, popupHtml, searchJson, type PopupCode } from '../provi
 const okTerms = (code: PopupCode): LookupOutcome<KiwoomProductTerms> => {
   const parsed = parseTermsHtml(popupHtml(code), code)
   if (!('status' in parsed)) throw new Error(parsed.detail)
-  return { ok: true, data: { ...parsed, listing: null, listingMiss: null } }
+  return { ok: true, data: { ...parsed, listing: null, listingMiss: null, prospectus: null } }
 }
 
 /** 같은 상품의 목록 행을 붙인 상세 — 어댑터의 두 요청(팝업 → 목록 행)을 픽스처로 되풀이한다 */
@@ -844,6 +847,20 @@ describe('월지급식 불러오기 — 등록 · 수정 · X-09 (P8 컷 b5 · D
     expect(p.notes[0]).toContain('월수익 연쿠폰율')
     expect(p.notes[0]).toContain('월수익 일정(36개월)')
     expect(p.fieldNotes.couponPayout).toBe('저장값 상환 시 지급')
+  })
+
+  it('★ 투자설명서를 읽었으면 같은 조건에서 「불러옴」이다 — 일부 채움의 사유가 월수익 일정 산식 하나였다 (P8 컷 b5′)', () => {
+    const base = terms()
+    if (!base.ok) throw new Error('fixture')
+    const withPdf: LookupOutcome<KiwoomProductTerms> = {
+      ok: true,
+      data: { ...base.data, prospectus: { kind: 'READ', ...parseProspectusText(prospectusText('EM2048'))! } },
+    }
+    const read = panel({ target: EDIT, query: EM2048, terms: withPdf, listed: PLTR_MU, options: OPTIONS, defaults: stored() })
+    expect(read.state).toBe('FILLED')
+    expect(read.notes).toContain(PROSPECTUS_READ_NOTE)
+    // 같은 저장값 · 같은 자산 — 폴백이면 일부 채움(위 테스트)
+    expect(editOf(stored()).state).toBe('PARTIAL')
   })
 
   it('★ X-09 — 기록된 달의 지급일을 사용자가 고쳐 두었으면 그 불러오기를 거부한다 · 폼은 저장값 그대로', () => {

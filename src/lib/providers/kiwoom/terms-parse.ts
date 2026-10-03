@@ -54,7 +54,7 @@ import type {
  * ④ 기준가격이 있는데 조기상환 표가 비었다(ELB 등) → `MALFORMED`
  */
 
-export type ParsedTerms = Omit<KiwoomProductTerms, 'listing' | 'listingMiss'>
+export type ParsedTerms = Omit<KiwoomProductTerms, 'listing' | 'listingMiss' | 'prospectus'>
 
 /**
  * 가격 토큰. 쉼표는 **세 자리마다이거나 아예 없거나**다 — 공지의 오타 `1134,250.0000`을 거부한다.

@@ -1,6 +1,7 @@
 import { ENDPOINTS, UNDERLYING_TYPES } from './endpoints'
 import { bodyLooksBlocked, httpFailure, message } from './http'
 import { parseAssetList, type ListedAsset, type ParseFailure } from './parse'
+import { readProspectus } from './prospectus'
 import { parseSearchBody } from './search-parse'
 import {
   LOOKUP_BUDGET_MS,
@@ -41,7 +42,8 @@ import type { LookupOutcome } from '../types'
  * - **쿠키를 싣지 않는다** — `credentials`를 만지지 않는 것이 이행이다(ADR-008 §2 ③)
  * - **함수 안에서는 순차다** — 조건 조회는 요청 최대 2개(팝업 → 목록 행), 자산 목록은 3개다. 화면은
  *   조건 조회와 자산 목록을 **나란히** 부르므로 한 번의 상세 렌더가 다섯 요청이고 동시에 최대 둘이다
- *   (ADR-009 §5 v3.9)
+ *   (ADR-009 §5 v3.9). **월지급식은 예외 하나** *(P8 컷 b5′ — ADR-009 §5 v3.35)*: 팝업 사다리가 `월지급`이면
+ *   투자설명서 1이 목록 행 검색과 **나란히** 나간다 — 상세 여섯 · 동시에 최대 셋
  *
  * ## es040과 다른 셋
  *
@@ -145,12 +147,22 @@ export function createKiwoomProductSource(deps: KiwoomProductSourceDeps): Kiwoom
      * 검색어는 팝업의 정확한 상품명이고 사용자 입력 상한(30자) 밖이다(실측 최장 28자
      * `USD_키움 뉴글로벌 100조 ELS 2048회`). 부분 일치이므로 코드로 행을 고른다.
      */
-    const listed = await search(parsed.name, deadline)
+    /*
+     * 투자설명서는 **팝업 사다리가 `월지급`일 때만** 부른다(ADR-009 §8.4) — 목록 행만 월지급을 말하면 두 증인이 충돌해 어차피
+     * 거부된다(§8.2). 목록 행 검색과 나란히 나간다 — 둘 다 팝업에만 기대고 서로에게 기대지 않는다. 읽기의 실패는 값이다
+     */
+    const [listed, prospectus] = await Promise.all([
+      search(parsed.name, deadline),
+      parsed.ladder.monthly
+        ? readProspectus({ fetchImpl: deps.fetchImpl, timeoutMs, extractPdfText: deps.extractPdfText }, parsed.documents, deadline)
+        : Promise.resolve(null),
+    ])
     const listing = listed.ok ? (listed.data.find((c) => c.productCode === code) ?? null) : null
     const terms: KiwoomProductTerms = {
       ...parsed,
       listing,
       listingMiss: listing != null ? null : listed.ok ? 'NOT_FOUND' : 'CALL_FAILED',
+      prospectus,
     }
     return { ok: true, data: terms }
   }
