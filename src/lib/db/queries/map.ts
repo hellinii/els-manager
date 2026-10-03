@@ -52,6 +52,7 @@ import {
 import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 
 import { attributionOf, type Attribution } from './attribution'
+import { incomeEventsOf } from './income'
 import type {
   CouponPaymentRow,
   LatestPrice,
@@ -948,6 +949,25 @@ export type ProductDetailView = {
   coupons: CouponObservationView[] | null
   /** 순번 없는 월수익 지급 기록(기실현 월지급의 PAID), 지급일 순. 그 밖은 [] (b3) */
   unnumberedCouponRecords: CouponRecordView[]
+  /**
+   * 잔여 월수익 (§4.3 v4.16 — 구현 b4) — 흐름 끝 안 **추정** 월수익을 귀속연도별로. `projection`의 형제다(그 값이 `null`인
+   * 상환 완료 · NO_ROUND에서도 이 사건들은 F에 남는다). `null` = `coupons`와 같은 경우
+   */
+  remainingCoupons: RemainingCouponsView | null
+}
+
+/** §4.3 `remainingCoupons` — 사건 집합은 `incomeEventsOf`의 추정 월수익 그대로다(§4.6 `breakdown.coupons`의 추정 몫과 같다) */
+export type RemainingCouponsView = {
+  byYear: Array<{
+    year: number
+    count: number
+    /** 상품 통화 — Σ q_k */
+    grossAmount: string
+    /** 원화(과세 축). `null` = E-09(달러 · 추정 환율 없음). 비과세는 '0' */
+    taxableIncome: string | null
+  }>
+  /** 달러 추정 월수익을 환산한 추정 환율. 원화 · 비과세 · 환산 없음이면 `null` */
+  exchangeRateBasis: ExchangeRateBasisView | null
 }
 
 /**
@@ -988,6 +1008,8 @@ export function toProductDetailView(
   rates: EstimateRates,
 ): ProductDetailView {
   const j = judge(row, prices, asOf)
+  // §4.3 `coupons` · `remainingCoupons`가 같이 빈다 — 한 번 만들어 둘 다 읽는다
+  const coupons = couponObservationsOf(row, j, asOf)
   /*
    * 세 값(`currentPrice`·`ratio`·`isWorst`)을 §4.2·§4.4와 **같은 함수**에서 얻는다.
    * 여기서 다시 계산하면 「동률이면 전부 true」와 「반올림 전 값으로 비교한다」가
@@ -1100,11 +1122,42 @@ export function toProductDetailView(
             note: row.redemptions.note,
           },
 
-    coupons: couponObservationsOf(row, j, asOf),
+    coupons,
     unnumberedCouponRecords: row.monthly_coupon_payments
       .filter((payment) => payment.coupon_no == null)
       .sort((a, b) => (a.payment_date ?? '').localeCompare(b.payment_date ?? ''))
       .map((payment) => couponRecordViewOf(payment, row.currency)),
+    // `coupons`와 같은 경우에 빈다(상환 시 지급 · 셋째 결함의 억제 · 계약 밖 율 없음) — 기실현은 `{ byYear: [] }`
+    remainingCoupons: coupons == null ? null : remainingCouponsOf(row, asOf, rates),
+  }
+}
+
+/**
+ * §4.3 `remainingCoupons` — **§4.6과 같은 사건 집합에서** 만든다(`incomeEventsOf`의 추정 월수익). 그래서
+ * `byYear[Y].taxableIncome` = `getTaxSummary(Y)`의 그 상품 행 `breakdown.coupons.estimatedTaxableIncome`이 구성으로 선다 —
+ * 같은 문자열 함수(`amountString`)가 같은 합을 접는다.
+ */
+export function remainingCouponsOf(row: ProductRow, asOf: string, rates: EstimateRates): RemainingCouponsView {
+  const estimated = incomeEventsOf(row, asOf, rates).filter((event) => event.kind === 'COUPON' && event.isEstimated)
+  const years = [...new Set(estimated.map((event) => event.year))].sort((a, b) => a - b)
+  return {
+    byYear: years.map((year) => {
+      const own = estimated.filter((event) => event.year === year)
+      const gross = own.reduce((acc, event) => acc.plus(event.gross), dec('0'))
+      const missing = own.some((event) => event.taxableIncomeKrw == null)
+      return {
+        year,
+        count: own.length,
+        grossAmount: moneyString(gross, row.currency),
+        taxableIncome: missing
+          ? null
+          : amountString(own.reduce((acc, event) => acc.plus(event.taxableIncomeKrw as DecimalValue), dec('0'))),
+      }
+    }),
+    exchangeRateBasis: exchangeRateBasisOf(
+      estimated.find((event) => event.estimateRate != null)?.estimateRate ?? null,
+      asOf,
+    ),
   }
 }
 

@@ -105,6 +105,8 @@ export type DashboardView = {
     unconvertedCount: number
     /** 추정 환율로 환산해 넣은 달러 추정 건 수 (§4.1 v4.9 — P8 컷 a3). §4.6 `income.convertedCount`와 같은 값 */
     convertedCount: number
+    /** v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계). SCR-101 ③ 추정 안내 줄의 조건 */
+    monthlyCouponAssumption: boolean
     /** 환산이 한 건이라도 있었을 때의 추정 환율 — `≠ null ⇔ convertedCount > 0` */
     exchangeRateBasis: ExchangeRateBasisView | null
   }
@@ -373,6 +375,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
         additionalTax: amountString(own.result.additionalPayment),
         unconvertedCount: own.unconvertedCount,
         convertedCount: own.convertedCount,
+        monthlyCouponAssumption: own.monthlyCouponAssumption,
         exchangeRateBasis: exchangeRateBasisOf(own.estimateRate, ctx.asOf),
       },
       attentionItems,

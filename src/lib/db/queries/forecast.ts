@@ -87,6 +87,13 @@ export type ForecastRow = {
    * 열에도 없으므로 이 표식을 세우지 않는다.
    */
   exchangeRateBasis: ExchangeRateBasisView | null
+  /**
+   * v4.16 (구현 b4) — **표 밖 표식 여섯째**: 이 표(기준 연도 ~ 마지막 연도)에 추정 월수익 사건이 하나라도 있다.
+   * 문장 「월지급식은 적용 차수까지 매월 지급 가정」의 조건이다(DOC-008 SCR-402 · DOC-007 §7.5). 열이 아니라 표 전체의
+   * 조건이라 행마다 같은 값이다(`excludedForeignCount` · `exchangeRateBasis`와 같은 형태). 화면 전체 고지의 조건은
+   * 아니다(DOC-007 v1.7 RD-19 — 그대로 「미상환 상품이 하나라도 있다」)
+   */
+  monthlyCouponAssumption: boolean
 }
 
 /**
@@ -117,6 +124,11 @@ export type ForecastProductItem = ForecastItem & {
    * 연도 이전 상환(어느 열에도 없다) · 환율 없음(그쪽은 `excludedForeign`)이면 `null`
    */
   estimateRate: ExchangeRate | null
+  /**
+   * 이 항목이 **추정 월수익 사건**에서 왔다(컷 b4) — `monthlyCouponAssumption`이 센다. `isEstimated`로는 가를 수 없다 —
+   * 외화 항목은 확정이어도 원화 환산이 추정이라 참이다
+   */
+  couponEstimate: boolean
 }
 
 export function forecastItemsOf(
@@ -164,6 +176,7 @@ function itemOf(
     // 원화다(과세 축). `null`(E-09)을 0으로 두는 것은 흡수가 아니다 — 그 상품은 아래 셋째
     // 분기로 가고 `excludedForeignCount`가 센다. 확정 원화 과세는 환율과 무관하게 여기 있다
     taxableIncome: event?.taxableIncomeKrw ?? ZERO,
+    couponEstimate: event?.kind === 'COUPON' && event.isEstimated,
   }
   const gross = event?.gross ?? ZERO
   // 사건이 없으면 원금은 그대로 남는다(잔여 원금) — 사건이 있으면 그 사건이 돌려주는 원금이다.
@@ -301,6 +314,15 @@ export function makeForecastQueries(ctx: QueryContext) {
       items.find((item) => item.estimateRate != null)?.estimateRate ?? null,
       ctx.asOf,
     )
+    // 표 밖 표식 여섯째 — **이 표의 연도에 귀속되는** 추정 월수익만 센다. 기준 연도 이전 사건(상환된 상품의 지난
+    // 무기록 달 — U5)은 어느 열에도 없고(§7.5) 마지막 연도 뒤의 사건도 이 표에 없다
+    const monthlyCouponAssumption = items.some(
+      (item) =>
+        item.couponEstimate &&
+        item.attributionYear != null &&
+        item.attributionYear >= startYear &&
+        item.attributionYear < startYear + years,
+    )
 
     const yearInputs: ForecastYearInput[] = []
     for (let offset = 0; offset < years; offset += 1) {
@@ -347,6 +369,7 @@ export function makeForecastQueries(ctx: QueryContext) {
         hasEstimates: row.hasEstimates,
         excludedForeignCount,
         exchangeRateBasis,
+        monthlyCouponAssumption,
       }),
     )
   }

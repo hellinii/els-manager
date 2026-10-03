@@ -63,8 +63,8 @@ type Equals<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 /**
  * **계약에 대응 없는 필드가 없다.** 위 표는 「요소 → 필드」이고 이 별칭은 그 역을 본다.
  *
- * 다섯을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`·
- * `exchangeRateBasis`는 열이 아니라 **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로
+ * ~~다섯을~~ 여섯을 의도적으로 제외한다 — `taxLawYear`·`profileYear`·`hasEstimates`·`excludedForeignCount`·
+ * `exchangeRateBasis`·`monthlyCouponAssumption`(P8 컷 b4)은 열이 아니라 **표 밖 표식**이며 DOC-008 §5가 그것을 별 행(`| 표 밖 표식 |`)으로
  * 규정한다. 아래 케이스가 그 행의 존재와 **다섯의 문구 각각**을 함께 단언하므로, 이 다섯을 「대응 없음」으로
  * 두는 것이 침묵이 아니다. 다섯째(컷 a3 — `exchangeRateBasis`)가 생길 때 여기가 컴파일에서 깨졌고 그때 물은
  * 것이 「그것이 열인가 표 밖 표식인가」였다 — 전 연도에 한 값이라(RD-09) 표 아래 한 줄이다(DOC-008 SCR-402).
@@ -76,6 +76,7 @@ type OutsideTable =
   | 'hasEstimates'
   | 'excludedForeignCount'
   | 'exchangeRateBasis'
+  | 'monthlyCouponAssumption'
 type Unmapped = Exclude<keyof ForecastRow, Mapped | OutsideTable>
 type _NoUnmappedField = Expect<Equals<Unmapped, never>>
 
@@ -152,6 +153,8 @@ describe('DOC-008 §5 주요 요소 ↔ `ForecastRow`', () => {
     expect(row![1]).toContain('환율이 없어 뺀 달러 상품 수')
     // P8 컷 a3 — 다섯째. 같은 이유로 그 커밋이 자기 문구를 함께 단언한다
     expect(row![1]).toContain('환율 기준')
+    // P8 컷 b4 — 여섯째. 가정 문장 그 자체가 표식의 문구다(DOC-008 SCR-402 「P8 월지급식」)
+    expect(row![1]).toContain('월지급식은 적용 차수까지 매월 지급 가정')
   })
 })
 
@@ -179,6 +182,7 @@ function zeroRow(year: number, overrides: Partial<ForecastRow> = {}): ForecastRo
     hasEstimates: false,
     excludedForeignCount: 0,
     exchangeRateBasis: null,
+    monthlyCouponAssumption: false,
     ...overrides,
   }
 }

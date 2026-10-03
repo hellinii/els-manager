@@ -4,6 +4,8 @@ import { loadProduct, loadProducts, loadScheduleRows, type ProductRow, type Sche
 import type { DashboardView } from '@/lib/db/queries/dashboard'
 import { dec } from '@/lib/decimal'
 import type { MonthlyCouponScheduleItem, ProductDetailView, ProductListItem, ScheduleItem } from '@/lib/db/queries/map'
+import type { ForecastRow } from '@/lib/db/queries/forecast'
+import type { TaxSummaryView, UserSummary } from '@/lib/db/queries/tax'
 
 import { FX, ITG_USER_A } from './helpers/fixtures'
 import { collect, type Coverage, type Spec } from './helpers/formats'
@@ -12,12 +14,13 @@ import {
   resetFixtures,
   seedCouponPayment,
   seedCouponSchedule,
+  seedExchangeRate,
   seedProduct,
   seedRedemption,
   seedSchedule,
   seedUnderlying,
 } from './helpers/seed'
-import { AS_OF, contractsFor, countRequests, setupScenario, tallyPaths, type Scenario } from './helpers/scenario'
+import { AS_OF, RATE_AS_OF, YEAR, contractsFor, countRequests, setupScenario, tallyPaths, type Scenario } from './helpers/scenario'
 
 /**
  * §4.3 월수익 필드의 직렬화 — `coupons` · `unnumberedCouponRecords` · `monthlyCouponAnnualRate` · `pnlBreakdown`
@@ -72,7 +75,35 @@ const COUPON_TABLE: Record<string, Spec> = {
   'redemption.pnlBreakdown': 'NULL_OBJECT',
   'redemption.pnlBreakdown.redemption': 'MONEY',
   'redemption.pnlBreakdown.coupons': 'MONEY',
+  // §4.3 잔여 월수익 (b4) — 세전은 상품 통화(조상에 통화가 없어 루트 `product.currency`), 과세는 원화
+  remainingCoupons: 'NULL_OBJECT',
+  'remainingCoupons.byYear[].year': 'NUMBER',
+  'remainingCoupons.byYear[].count': 'NUMBER',
+  'remainingCoupons.byYear[].grossAmount': 'MONEY',
+  'remainingCoupons.byYear[].taxableIncome': 'AMOUNT_KRW',
+  'remainingCoupons.exchangeRateBasis': 'NULL_OBJECT',
+  'remainingCoupons.exchangeRateBasis.currency': ['USD'],
+  'remainingCoupons.exchangeRateBasis.rate': 'PRICE',
+  'remainingCoupons.exchangeRateBasis.asOfDate': 'DATE',
+  'remainingCoupons.exchangeRateBasis.source': ['AUTO', 'MANUAL'],
+  'remainingCoupons.exchangeRateBasis.isStale': 'BOOL',
 }
+
+/**
+ * §4.6 월수익 경로 (b4) — 상환 내역의 `null`(월수익만 있는 해 — NO_ROUND 픽스처)과 월수익 내역 전부. 나머지 §4.6 경로는
+ * formats.test.ts가 본다(그쪽에서는 이 경로들이 늘 객체 · 늘 null이다)
+ */
+const TAX_TABLE: Record<string, Spec> = {
+  'contributingProducts[].breakdown.redemption': 'NULL_OBJECT',
+  'contributingProducts[].breakdown.coupons': 'NULL_OBJECT',
+  'contributingProducts[].breakdown.coupons.confirmedCount': 'NUMBER',
+  'contributingProducts[].breakdown.coupons.confirmedTaxableIncome': 'AMOUNT_KRW',
+  'contributingProducts[].breakdown.coupons.estimatedCount': 'NUMBER',
+  'contributingProducts[].breakdown.coupons.estimatedTaxableIncome': 'AMOUNT_KRW',
+}
+const isTaxPath = (entry: string) =>
+  entry.startsWith('contributingProducts[].breakdown.redemption (') ||
+  entry.startsWith('contributingProducts[].breakdown.coupons')
 /** §4.2 목록의 월수익 경로 (b3-5) — 상위 키(`couponProgress` · `terms.monthlyCoupon`)는 formats.test.ts가 null로 본다 */
 const LIST_TABLE: Record<string, Spec> = {
   couponPayout: ['AT_REDEMPTION', 'MONTHLY'],
@@ -119,7 +150,13 @@ const MONTHLY_SCHEDULE_TABLE: Record<string, Spec> = {
 }
 
 /** 이 파일이 맡는 경로의 뿌리 — `product` · `redemption` 전체가 아니라 그 안의 월수익 필드만이다 */
-const COUPON_PREFIXES = ['product.monthlyCouponAnnualRate', 'coupons', 'unnumberedCouponRecords', 'redemption.pnlBreakdown']
+const COUPON_PREFIXES = [
+  'product.monthlyCouponAnnualRate',
+  'coupons',
+  'unnumberedCouponRecords',
+  'redemption.pnlBreakdown',
+  'remainingCoupons',
+]
 
 let s: Scenario
 let views: Record<string, ProductDetailView>
@@ -137,6 +174,14 @@ let schedule: ScheduleItem[]
 /** §4.12의 루트 질의가 지급방식 · 상환 부재를 질의로 내리는가 — 매퍼의 가드와 갈라 본다 */
 let monthlyRoots: ProductRow[]
 let activeMonthlyRoots: ProductRow[]
+let tax: TaxSummaryView
+let taxLater: TaxSummaryView
+let taxCoverage: Coverage
+let forecast: ForecastRow[]
+let forecastLater: ForecastRow[]
+let users: UserSummary[]
+let usersLater: UserSummary[]
+let usdLater: ProductDetailView
 
 async function seedMonthlyFull(params: {
   id: string
@@ -265,6 +310,16 @@ beforeAll(async () => {
   // ⑦ 셋째 결함 — 월지급식인데 일정 0행
   await seedMonthlyFull({ id: FX.productMonthlyBroken, name: '월지급결함', currency: 'KRW', principal: '100000000', rate: '0.0720', rounds: ACTIVE_ROUNDS, months: 0 })
 
+  // ⑨ 적용 차수 없음(NO_ROUND) — 유일한 차수(03-02)가 지났고 상환이 없다. 월 300,000원 · 흐름 끝 무한
+  await seedMonthlyFull({
+    id: FX.productMonthlyNoRound,
+    name: '월지급차수경과',
+    currency: 'KRW',
+    principal: '50000000',
+    rate: '0.0720',
+    rounds: [{ roundNo: 1, evaluationDate: '2026-03-02' }],
+  })
+
   // ⑧ 계약 밖 쓰기 — 상환 시 지급 상품 아래 월수익 일정 한 행(§4.12의 지급방식 조건 대조)
   await seedProduct({ id: FX.productMonthlyStray, ownerId: ITG_USER_A, name: '상환시지급잔재', principal: '100000000' })
   await seedUnderlying({ elsId: FX.productMonthlyStray, assetId: FX.assetSolo, basePrice: '100.000000', sequence: 1 })
@@ -287,10 +342,25 @@ beforeAll(async () => {
     Object.entries(ids).map(async ([key, id]) => [key, (await s.asA.getProduct(id))!] as const),
   )
   views = Object.fromEntries(entries)
-  coverage = collect(
-    COUPON_TABLE,
-    entries.map(([label, value]) => ({ label, value })),
-  )
+  // 환율이 보이는 기준일(RATE_AS_OF)로 한 번 더 읽는다 — 달러 잔여 월수익의 환율 기준 · 환산된 추정의 항등(b4)
+  await seedExchangeRate({ asOfDate: '2026-07-03', rate: '1392.400000' })
+  const later = (await contractsFor(ITG_USER_A, RATE_AS_OF)).read
+  usdLater = (await later.getProduct(FX.productMonthlyUsd))!
+  coverage = collect(COUPON_TABLE, [
+    ...entries.map(([label, value]) => ({ label, value })),
+    { label: 'usd@환율', value: usdLater },
+  ])
+
+  tax = await s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })
+  taxLater = await later.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR })
+  taxCoverage = collect(TAX_TABLE, [
+    { label: 'A', value: tax },
+    { label: 'A@환율', value: taxLater },
+  ])
+  forecast = await s.asA.getForecast({ ownerId: ITG_USER_A })
+  forecastLater = await later.getForecast({ ownerId: ITG_USER_A })
+  users = await s.asA.listUserSummaries()
+  usersLater = await later.listUserSummaries()
 
   list = await s.asA.listProducts()
   dashboard = await s.asA.getDashboard({ scope: 'MINE' })
@@ -449,6 +519,8 @@ describe('§4.2 목록 · §4.1 홈 — 월수익 경로 (b3-5)', () => {
     expect(Object.fromEntries(unrecorded.map((item) => [item.productId, item.count]))).toEqual({
       [FX.productMonthlyKrw]: 3,
       [FX.productMonthlyUsd]: 4,
+      // b4 — NO_ROUND 픽스처: 흐름 끝이 무한이라 지급일이 지난 무기록 달 다섯(2~6월 지급)이 전부 미기록이다
+      [FX.productMonthlyNoRound]: 5,
     })
     expect(dashboard.attentionItems.filter((item) => item.reason !== 'COUPON_UNRECORDED' && item.count != null)).toEqual([])
   })
@@ -473,11 +545,17 @@ describe('§4.12 월수익 일정 — SCR-301 (b3-6)', () => {
     expect(monthlyCoverage.moneyCurrencies).toEqual({ expectedAmount: ['KRW', 'USD'], 'record.grossAmount': ['KRW', 'USD'] })
   })
 
-  it('행의 집합 — 일정이 있는 월지급 넷 × 12 · 기실현(일정 없음) · 결함(억제) · 상환 시 지급의 잔재 행은 없다', () => {
+  it('행의 집합 — 일정이 있는 월지급 다섯 × 12 · 기실현(일정 없음) · 결함(억제) · 상환 시 지급의 잔재 행은 없다', () => {
     expect(new Set(monthlySchedule.map((row) => row.productId))).toEqual(
-      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyKrwRedeemed, FX.productMonthlyUsdRedeemed]),
+      new Set([
+        FX.productMonthlyKrw,
+        FX.productMonthlyUsd,
+        FX.productMonthlyKrwRedeemed,
+        FX.productMonthlyUsdRedeemed,
+        FX.productMonthlyNoRound,
+      ]),
     )
-    expect(monthlySchedule).toHaveLength(48)
+    expect(monthlySchedule).toHaveLength(60)
     // 잔재 행은 나오지 않는다 — 이 단언은 결과만 본다(매퍼도 지급방식을 가드한다). 질의 조건은 아래 케이스가 가른다
     expect(byProduct(FX.productMonthlyStray)).toEqual([])
   })
@@ -493,11 +571,12 @@ describe('§4.12 월수익 일정 — SCR-301 (b3-6)', () => {
         FX.productMonthlyKrwRealized,
         FX.productMonthlyUsdRealized,
         FX.productMonthlyBroken,
+        FX.productMonthlyNoRound,
       ]),
     )
     // 상환 부재 = 루트의 to-one 임베드 `redemptions=is.null` — 차수 루트의 `els_products.redemptions=is.null`과 같은 형태
     expect(new Set(activeMonthlyRoots.map((row) => row.id))).toEqual(
-      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyBroken]),
+      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyBroken, FX.productMonthlyNoRound]),
     )
   })
 
@@ -544,7 +623,7 @@ describe('§4.12 월수익 일정 — SCR-301 (b3-6)', () => {
     // 임베드를 거르면 다음 행과 흐름 끝이 잘린 집합에서 나온다 — 여기서는 상환된 상품이 여전히 「상환 후 없음」이다
     expect(day.find((row) => row.productId === FX.productMonthlyKrwRedeemed)?.state).toBe('ENDED')
     expect(day.every((row) => row.evaluationDate === '2026-07-01')).toBe(true)
-    expect(day).toHaveLength(4)
+    expect(day).toHaveLength(5)
   })
 
   it('★ 범위가 다음 행을 자르면 판정은 범위 밖에 남는다 — 범위 안의 첫 행에 옮겨 붙지 않는다', async () => {
@@ -558,7 +637,9 @@ describe('§4.12 월수익 일정 — SCR-301 (b3-6)', () => {
 
   it('미상환만 — 상환된 상품의 행이 빠진다(부모의 상환 부재 조건)', async () => {
     const active = await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A, activeOnly: true })
-    expect(new Set(active.map((row) => row.productId))).toEqual(new Set([FX.productMonthlyKrw, FX.productMonthlyUsd]))
+    expect(new Set(active.map((row) => row.productId))).toEqual(
+      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyNoRound]),
+    )
   })
 
   it('★ 왕복 2 — 상품 한 번 + 시세 한 번. 세율 · 환율을 읽지 않는다(DOC-011 §4.0 왕복 표)', async () => {
@@ -588,5 +669,96 @@ describe('§4.4 — 월지급 상품의 차수 행 (b3-6)', () => {
       'COUPON_SCHEDULE_MISSING',
     ])
     expect(of(FX.productA).every((item) => item.couponPayout === 'AT_REDEMPTION')).toBe(true)
+  })
+})
+
+describe('§4.6 · §4.3 · §4.1 · §4.7 · §4.8 — 월수익 사건이 세금 · 전망에 든다 (b4)', () => {
+  const rowOf = (view: TaxSummaryView, id: string) => view.contributingProducts.find((row) => row.productId === id)
+
+  it('형식 — 월수익 내역 경로: 위반 · 미분류 · 미관측 · null로만 관측 없음', () => {
+    expect(taxCoverage.violations).toEqual([])
+    expect(taxCoverage.unclassified.filter(isTaxPath)).toEqual([])
+    expect(taxCoverage.unobserved).toEqual([])
+    expect(taxCoverage.neverNonNull).toEqual([])
+  })
+
+  it('★ 원화 보유중 — 확정 1(600,000) + 추정 넷(2,400,000 — 3~6번째) + 추정 상환(과세 0) = 3,000,000 · MIXED', () => {
+    expect(rowOf(tax, FX.productMonthlyKrw)).toMatchObject({
+      taxableIncome: '3000000',
+      basis: 'MIXED',
+      isEstimated: true,
+      exchangeRateMissing: false,
+      breakdown: {
+        redemption: { taxableIncome: '0', isEstimated: true },
+        coupons: { confirmedCount: 1, confirmedTaxableIncome: '600000', estimatedCount: 4, estimatedTaxableIncome: '2400000' },
+      },
+    })
+  })
+
+  it('★ 달러 보유중 · 환율 없음 — 확정 월수익만 들어가고 추정 다섯(2~6번째 — 미지급 기록이 없다)이 빠진다: 금액 279,810 · 일부 빠짐 · MIXED', () => {
+    expect(rowOf(tax, FX.productMonthlyUsd)).toMatchObject({
+      taxableIncome: '279810',
+      basis: 'MIXED',
+      exchangeRateMissing: true,
+      breakdown: { coupons: { confirmedCount: 1, confirmedTaxableIncome: '279810', estimatedCount: 5, estimatedTaxableIncome: null } },
+    })
+    // 상품 수로 센다 — 빠진 사건이 다섯이어도 하나
+    expect(tax.income.unconvertedCount).toBe(1)
+  })
+
+  it('상환됨(확정 셋 · CONFIRMED) · NO_ROUND(상환 사건 없음 — 추정 11달 3,300,000) · 결함(월수익 억제)', () => {
+    expect(rowOf(tax, FX.productMonthlyKrwRedeemed)).toMatchObject({
+      taxableIncome: '1800000',
+      basis: 'CONFIRMED',
+      isEstimated: false,
+      breakdown: { coupons: { confirmedCount: 3, estimatedCount: 0, estimatedTaxableIncome: '0' } },
+    })
+    expect(rowOf(tax, FX.productMonthlyNoRound)).toMatchObject({
+      taxableIncome: '3300000',
+      basis: 'ESTIMATED',
+      breakdown: { redemption: null, coupons: { confirmedCount: 0, estimatedCount: 11, estimatedTaxableIncome: '3300000' } },
+    })
+    expect(rowOf(tax, FX.productMonthlyBroken)?.breakdown).toEqual({
+      redemption: { taxableIncome: '0', isEstimated: true },
+      coupons: null,
+    })
+  })
+
+  it('★ 분할의 합 = ELS 과세 금융소득 · 월수익 가정 참 — 환율 없음 · 있음', () => {
+    for (const view of [tax, taxLater]) {
+      const sum = dec(view.income.confirmedElsTaxableIncome).plus(dec(view.income.estimatedElsTaxableIncome))
+      expect(sum.toString()).toBe(view.income.elsTaxableIncome)
+      expect(view.income.monthlyCouponAssumption).toBe(true)
+    }
+    // 환율이 보이면 달러 추정 월수익도 들어간다 — 일부 빠짐이 풀린다
+    expect(rowOf(taxLater, FX.productMonthlyUsd)?.exchangeRateMissing).toBe(false)
+  })
+
+  it('★ §4.3 잔여 월수익 = §4.6 그 상품 행의 추정 월수익(같은 사건 집합) · 기실현은 빈 배열 · 결함 · 상환 시 지급은 null', () => {
+    expect(views.krw?.remainingCoupons).toEqual({
+      byYear: [{ year: 2026, count: 4, grossAmount: '2400000', taxableIncome: '2400000' }],
+      exchangeRateBasis: null,
+    })
+    expect(views.usd?.remainingCoupons?.byYear).toEqual([{ year: 2026, count: 5, grossAmount: '1010.05', taxableIncome: null }])
+    const usdRow = rowOf(taxLater, FX.productMonthlyUsd)
+    const usdYear = usdLater.remainingCoupons?.byYear.find((entry) => entry.year === YEAR)
+    expect(usdYear?.taxableIncome).toBe(usdRow?.breakdown.coupons?.estimatedTaxableIncome)
+    expect(usdLater.remainingCoupons?.exchangeRateBasis).toMatchObject({ currency: 'USD', rate: '1392.400000' })
+    expect(views.krwRealized?.remainingCoupons).toEqual({ byYear: [], exchangeRateBasis: null })
+    expect([views.broken?.remainingCoupons, views.plain?.remainingCoupons]).toEqual([null, null])
+  })
+
+  it('★ 같은 사건 집합의 항등 — §4.6 total = §4.1 currentYearTax = §4.7 첫 행 = §4.8 본인 행 (환율 없음 · 있음)', async () => {
+    const dashboardLater = await (await contractsFor(ITG_USER_A, RATE_AS_OF)).read.getDashboard({ scope: 'MINE' })
+    for (const [view, rows, people, home] of [
+      [tax, forecast, users, dashboard],
+      [taxLater, forecastLater, usersLater, dashboardLater],
+    ] as const) {
+      expect(rows[0]?.financialIncome).toBe(view.income.total)
+      expect(people.find((user) => user.isMe)?.currentYearFinancialIncome).toBe(view.income.total)
+      expect(home.currentYearTax.financialIncome).toBe(view.income.total)
+      expect(home.currentYearTax.monthlyCouponAssumption).toBe(true)
+      expect(rows.every((row) => row.monthlyCouponAssumption)).toBe(true)
+    }
   })
 })

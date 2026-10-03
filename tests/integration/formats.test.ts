@@ -70,6 +70,7 @@ const KI_OBSERVATIONS = ['CONTINUOUS', 'CLOSING'] as const
 const CURRENCIES = ['KRW', 'USD'] as const
 /** 쿠폰 지급방식 (P8 컷 b2 — DOC-011 §4.0 `CouponPayout`). 열거형이므로 형식이 아니라 값의 집합으로 본다 */
 const COUPON_PAYOUTS = ['AT_REDEMPTION', 'MONTHLY'] as const
+const CONTRIBUTION_BASES = ['CONFIRMED', 'ESTIMATED', 'MIXED'] as const
 /** 지원 외화 (§4.0 `ExchangeRateBasisView.currency` · §4.11) — 원화는 환율의 대상이 아니다 */
 const FOREIGN = ['USD'] as const
 
@@ -119,6 +120,8 @@ const DASHBOARD: Record<string, Spec> = {
   'currentYearTax.additionalTax': 'AMOUNT_KRW',
   'currentYearTax.unconvertedCount': 'NUMBER',
   'currentYearTax.convertedCount': 'NUMBER',
+  // P8 컷 b4 (v4.29) — 추정 월수익 가정의 조건. 이 파일엔 월지급이 없어 늘 false다(값 단언은 coupon-views)
+  'currentYearTax.monthlyCouponAssumption': 'BOOL',
   ...basisSpec('currentYearTax.exchangeRateBasis'),
   'attentionItems[].productId': 'UUID',
   'attentionItems[].productName': 'TEXT',
@@ -216,6 +219,8 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   // `coupon-views.test.ts`가 같은 계기로 본다(월지급 픽스처를 여기 세우면 이 파일의 값 단언이 그 인질이 된다)
   'product.monthlyCouponAnnualRate': 'RATIO',
   coupons: 'NULL_OBJECT',
+  // P8 컷 b4 — 잔여 월수익. 같은 이유로 여기서는 null로만 온다(하위 경로는 coupon-views)
+  remainingCoupons: 'NULL_OBJECT',
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
   // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면
@@ -359,6 +364,10 @@ const TAX_SUMMARY: Record<string, Spec> = {
   'profile.healthInsuranceType': HEALTH_TYPES,
   'profile.isSaved': 'BOOL',
   'income.elsTaxableIncome': 'AMOUNT_KRW',
+  // P8 컷 b4 — 확정/추정 분할(합 = elsTaxableIncome) · 월수익 가정의 조건
+  'income.confirmedElsTaxableIncome': 'AMOUNT_KRW',
+  'income.estimatedElsTaxableIncome': 'AMOUNT_KRW',
+  'income.monthlyCouponAssumption': 'BOOL',
   'income.otherFinancialIncome': 'AMOUNT_KRW',
   'income.total': 'AMOUNT_KRW',
   'income.isComprehensive': 'BOOL',
@@ -389,6 +398,12 @@ const TAX_SUMMARY: Record<string, Spec> = {
   'contributingProducts[].currency': CURRENCIES,
   'contributingProducts[].taxableIncome': 'AMOUNT_KRW',
   'contributingProducts[].isEstimated': 'BOOL',
+  // P8 컷 b4 — 기여 근거 · 내역. 월수익 내역은 이 파일에서 null로만 온다(하위 경로는 coupon-views)
+  'contributingProducts[].basis': CONTRIBUTION_BASES,
+  // 상환 내역은 이 파일에서 늘 객체다 — 그 null(월수익만 있는 해)은 coupon-views가 관측한다
+  'contributingProducts[].breakdown.redemption.taxableIncome': 'AMOUNT_KRW',
+  'contributingProducts[].breakdown.redemption.isEstimated': 'BOOL',
+  'contributingProducts[].breakdown.coupons': 'NULL_OBJECT',
   'contributingProducts[].exchangeRateMissing': 'BOOL',
   'contributingProducts[].integrityIssue': INTEGRITY_ISSUES,
 }
@@ -420,6 +435,8 @@ const FORECAST_ROW: Record<string, Spec> = {
   excludedForeignCount: 'NUMBER',
   // 표 밖 표식 다섯째 (P8 컷 a3)
   ...basisSpec('exchangeRateBasis'),
+  // 표 밖 표식 여섯째 (P8 컷 b4) — 이 파일엔 월지급이 없어 늘 false
+  monthlyCouponAssumption: 'BOOL',
 }
 
 /** §4.8 사용자별 현황 */

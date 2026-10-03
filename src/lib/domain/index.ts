@@ -8,10 +8,12 @@
 export type {
   AccountType,
   ConditionResult,
+  ContributionBasis,
   KiObservation,
   KiStatus,
   RedemptionType,
 } from './types'
+export { CONTRIBUTION_BASES } from './types'
 
 export { underlyingRatio, worstOf, type UnderlyingPrice } from './worstOf'
 

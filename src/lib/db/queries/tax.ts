@@ -2,6 +2,7 @@ import { dec, ZERO, type DecimalValue } from '@/lib/decimal'
 import {
   moneyString,
   sumByCurrency,
+  type ContributionBasis,
   type EstimateRates,
   type ExchangeRate,
   type ProductCurrency,
@@ -61,6 +62,10 @@ export type TaxSummaryView = {
   }
   income: {
     elsTaxableIncome: string
+    /** v4.16 (구현 b4) — 확정 사건(상환 기록 · PAID 기록)의 과세 합. 환율과 무관하다 */
+    confirmedElsTaxableIncome: string
+    /** v4.16 (구현 b4) — F에 들어간 추정 사건의 과세 합. 둘의 합이 `elsTaxableIncome`이다(빠진 사건은 어느 쪽에도 없다) */
+    estimatedElsTaxableIncome: string
     otherFinancialIncome: string
     total: string
     isComprehensive: boolean
@@ -77,6 +82,11 @@ export type TaxSummaryView = {
     convertedCount: number
     /** 환산이 한 건이라도 있었을 때의 추정 환율 — `≠ null ⇔ convertedCount > 0`. 기여 행마다 두지 않는다 */
     exchangeRateBasis: ExchangeRateBasisView | null
+    /**
+     * v4.29 (구현 b4) — 그 해(본인)에 귀속되는 추정 월수익 사건이 하나라도 있다(빠진 사건 포함). §4.7 표 밖 표식과
+     * 같은 이름 · 같은 정의 — SCR-401의 추정 안내 줄이 월지급 가정 문장을 잇는 조건이다
+     */
+    monthlyCouponAssumption: boolean
   }
   tax: {
     method1: string | null
@@ -110,10 +120,24 @@ export type TaxSummaryView = {
      * 「그 상품은 올해 과세되지 않는다」로 읽힌다
      */
     taxableIncome: string | null
+    /** = `basis !== 'CONFIRMED'`(v4.16 — 유지한다) */
     isEstimated: boolean
+    /** v4.16 (구현 b4) — 그 해 그 상품의 사건이 전부 확정 · 전부 추정 · 둘 다 */
+    basis: ContributionBasis
+    /** v4.16 (구현 b4) — 사건 종류별 내역. 금액은 원화(과세 축). 그 종류의 사건이 없으면 `null` */
+    breakdown: {
+      redemption: { taxableIncome: string | null; isEstimated: boolean } | null
+      coupons: {
+        confirmedCount: number
+        confirmedTaxableIncome: string
+        estimatedCount: number
+        estimatedTaxableIncome: string | null
+      } | null
+    }
     /**
      * 이 상품의 추정분이 E-09로 빠졌다. 상환 시 일괄(컷 a2)에서는 한 상품의 기여가 한 건이라
-     * `exchangeRateMissing ⇔ taxableIncome = null`이다 — 월지급식(컷 b1)이 그 동치를 깬다
+     * `exchangeRateMissing ⇔ taxableIncome = null`이었다 — 월지급식(컷 b4)이 그 동치를 깬다: 추정 달러 사건이
+     * **하나라도** 빠지면 참이고, `taxableIncome`은 사건이 **전부** 빠졌을 때만 `null`이다
      */
     exchangeRateMissing: boolean
     /**
@@ -170,8 +194,15 @@ export function toConstants(ctx: TaxYearContext): TaxConstants {
  * 구현은 상환·일정 0건·전 차수 경과를 이 함수 안에서 각각 끊었고, 같은 규칙이
  * `queries/map.ts`에도 따로 있었다.
  *
- * **사건을 접는다 (P8 컷 b0)** — 분기와 산식은 `./income`의 `incomeEventsOf`로 옮겼고 이 함수는 그 해에
- * 귀속되는 사건의 값을 기여로 옮긴다. 이 컷에서는 사건이 상품당 최대 하나이므로 값이 종전과 같다.
+ * **사건을 접는다** (P8 컷 b0 · 규칙은 b4) — 분기와 산식은 `./income`의 `incomeEventsOf`가 내고 이 함수는 그 해에
+ * 귀속되는 사건을 **상품당 한 행**으로 접는다(DOC-007 §7.6 「사건을 접는 규칙」 · DOC-011 §4.6 「월지급 상품의 기여」):
+ *
+ * ```
+ * amount      = Σ 들어간 사건의 과세                       null ⇔ 사건이 «전부» 빠졌다(E-09)
+ * basis       = 전부 확정 CONFIRMED · 전부 추정 ESTIMATED · 둘 다 MIXED
+ * exchangeRateMissing = 추정 달러 사건이 «하나라도» 빠졌다     a2의 동치(⇔ amount = null)가 깨진다
+ * ```
+ *
  * 소비자는 둘이다 — `computeOwnTax`(§4.6 · §4.1)와 `listUserSummaries`(§4.8)(설계 원자료 SB-4).
  */
 export function contributionOf(
@@ -182,29 +213,51 @@ export function contributionOf(
   rates: EstimateRates,
 ): {
   /**
-   * 과세 금융소득 — **원화**(과세 축). `null` = E-09: 달러 추정인데 추정 환율이 없다.
+   * 과세 금융소득 — **원화**(과세 축). 들어간 사건의 합이다. `null` = 그 해의 사건이 **전부** E-09로 빠졌다.
    * 0으로 흡수하지 않는다 — 소비자가 합에서 빼고 **센다**(DOC-011 §4.0 규칙 3).
    */
   amount: DecimalValue | null
   /**
-   * 세전 실수령액 — 원금 반환분을 **포함한다**(`grossExpected`의 정의).
+   * 세전 실수령액 — 원금 반환분을 **포함한다**(`grossExpected`의 정의). 상품 통화다.
    *
    * DOC-007 §7.4의 `netProceeds`가 `Σ gross`를 요구하고 §7.5의 `cumulativeAssets`가
    * 「한 상품은 누적과 잔여 원금 중 정확히 하나에만 들어간다」를 그 포함 관계에
    * 의존해 성립시킨다 — 원금이 빠지면 상환된 상품의 원금이 화면에서 증발한다.
    */
   gross: DecimalValue
+  /** = `basis !== 'CONFIRMED'`. 상환 시 지급 상품에서는 종전 값과 같다(사건이 하나다) */
   isEstimated: boolean
-  /** `amount = null`과 같은 사실 — 소비자가 `null` 검사를 다시 적지 않게 이름을 붙인다 */
+  basis: ContributionBasis
+  /** DOC-011 §4.6 `breakdown` — 사건 종류별 내역. 그 해에 그 종류의 사건이 없으면 `null` */
+  breakdown: {
+    redemption: { taxableIncome: DecimalValue | null; isEstimated: boolean } | null
+    coupons: {
+      confirmedCount: number
+      confirmedTaxableIncome: DecimalValue
+      estimatedCount: number
+      /** `null` = 달러 추정인데 추정 환율이 없다 — 환율은 요청당 하나라 함께 들어가거나 함께 빠진다 */
+      estimatedTaxableIncome: DecimalValue | null
+    } | null
+  }
+  /** 확정 사건의 과세 합 — `income.confirmedElsTaxableIncome`의 몫. 환율과 무관하다 */
+  confirmedAmount: DecimalValue
+  /** 들어간 추정 사건의 과세 합 — `income.estimatedElsTaxableIncome`의 몫. 빠진 사건은 없다 */
+  estimatedAmount: DecimalValue
+  /** 추정 달러 사건이 하나라도 빠졌다 — `amount = null ⇒ exchangeRateMissing`만 남는다 */
   exchangeRateMissing: boolean
   /**
    * 이 기여를 환산한 추정 환율 (P8 컷 a3). `null` = **곱하지 않았다** — 원화 · 확정값 · 비과세 · 달러
    * 이익 ≤ 0(환율 없이 안다), 또는 곱해야 하는데 환율이 없다(그쪽은 `exchangeRateMissing`).
    *
    * `exchangeRateMissing: false`만으로는 「환산함」과 「환율 없이 0」이 갈리지 않는다 — 그 둘을 가르는
-   * 것이 이 필드이며 `convertedCount`(§4.1·§4.6)가 이것을 센다.
+   * 것이 이 필드이며 `convertedCount`(§4.1·§4.6)가 이것을 센다(환산한 사건이 하나라도 있는 상품).
    */
   estimateRate: ExchangeRate | null
+  /**
+   * 그 해에 추정 월수익 사건이 하나라도 있다 — 빠진 사건도 센다(가정은 그 사건에도 걸려 있다). `income` ·
+   * `currentYearTax`의 `monthlyCouponAssumption`이 이것의 OR다(DOC-011 v4.29)
+   */
+  hasCouponEstimate: boolean
   /**
    * 결함 표식 — **금액에 영향을 주지 않는다.** 과세 기여는 계약 조건에서만
    * 나오고 결함이 파괴한 입력(기초자산·시세)을 쓰지 않으므로 금액은 유효하다.
@@ -219,26 +272,61 @@ export function contributionOf(
    */
   integrityIssue: IntegrityIssue | null
 } | null {
-  // 사건이 **최대 하나**다(컷 b0 — `income.ts`의 머리 주석). 이 대입이 그 사실의 단언이다 — 사건이 여럿으로
-  // 넓어지면(컷 b4 월수익) 여기서 컴파일이 멈추고, 사건을 접는 규칙(E-09 사건 단위 · 건수 · 확정/추정 분할 —
-  // 컷 b1의 명세)을 정해야 넘어간다. 첫 사건만 읽는 구현이 조용히 서지 않게 한다.
-  //
-  // **공용 별칭(`IncomeEvents`)을 쓰지 않고 튜플을 여기 적는다** — 별칭으로 적으면 b4가 별칭 자체를 넓히는
-  // 가장 자연스러운 편집에서 이 줄이 같이 넓어져 아무것도 멈추지 않는다(반박 검토가 tsc로 쟀다)
-  const events: readonly [] | readonly [IncomeEvent] = incomeEventsOf(row, asOf, rates, { year })
-  const event = events.length === 0 ? null : events[0]
+  // 다른 해의 사건은 값을 계산하기 전에 걸렀다(`income.ts` — 거름의 단위는 사건이다, b4)
+  const events = incomeEventsOf(row, asOf, rates, { year }).filter((event) => event.year === year)
 
   // 사건이 없으면(적용 차수 없음 · 계약 조건 없음 · 다른 해에 귀속) 기여하지 않는다 —
-  // 집계 키는 `(owner_id, year)`다(절대 규칙 #7). 다른 해의 사건은 값을 계산하기 전에 걸렀다(`income.ts`)
-  if (event == null || event.year !== year) return null
+  // 집계 키는 `(owner_id, year)`다(절대 규칙 #7)
+  if (events.length === 0) return null
+
+  const entered = events.flatMap((event) => (event.taxableIncomeKrw == null ? [] : [event.taxableIncomeKrw]))
+  const confirmed = events.filter((event) => !event.isEstimated)
+  const estimated = events.filter((event) => event.isEstimated)
+  const basis: ContributionBasis =
+    estimated.length === 0 ? 'CONFIRMED' : confirmed.length === 0 ? 'ESTIMATED' : 'MIXED'
 
   return {
-    amount: event.taxableIncomeKrw,
-    gross: event.gross,
-    isEstimated: event.isEstimated,
-    exchangeRateMissing: event.taxableIncomeKrw == null,
-    estimateRate: event.estimateRate,
+    amount: entered.length === 0 ? null : sumOf(entered),
+    gross: sumOf(events.map((event) => event.gross)),
+    isEstimated: basis !== 'CONFIRMED',
+    basis,
+    breakdown: breakdownOf(events),
+    confirmedAmount: sumOf(confirmed.flatMap((event) => (event.taxableIncomeKrw == null ? [] : [event.taxableIncomeKrw]))),
+    estimatedAmount: sumOf(estimated.flatMap((event) => (event.taxableIncomeKrw == null ? [] : [event.taxableIncomeKrw]))),
+    exchangeRateMissing: estimated.some((event) => event.taxableIncomeKrw == null),
+    estimateRate: events.find((event) => event.estimateRate != null)?.estimateRate ?? null,
+    hasCouponEstimate: estimated.some((event) => event.kind === 'COUPON'),
     integrityIssue: integrityIssueOf(row),
+  }
+}
+
+function sumOf(values: readonly DecimalValue[]): DecimalValue {
+  return values.reduce((acc, value) => acc.plus(value), ZERO)
+}
+
+/** §4.6 `breakdown` — 상환은 그 해에 최대 하나다(I-01) */
+function breakdownOf(events: readonly IncomeEvent[]): NonNullable<ReturnType<typeof contributionOf>>['breakdown'] {
+  const redemption = events.find((event) => event.kind === 'REDEMPTION') ?? null
+  const coupons = events.filter((event) => event.kind === 'COUPON')
+  const confirmed = coupons.filter((event) => !event.isEstimated)
+  const estimated = coupons.filter((event) => event.isEstimated)
+  return {
+    redemption:
+      redemption == null
+        ? null
+        : { taxableIncome: redemption.taxableIncomeKrw, isEstimated: redemption.isEstimated },
+    coupons:
+      coupons.length === 0
+        ? null
+        : {
+            confirmedCount: confirmed.length,
+            // 기록값은 환율과 무관해 `null`이 없다
+            confirmedTaxableIncome: sumOf(confirmed.map((event) => event.taxableIncomeKrw ?? ZERO)),
+            estimatedCount: estimated.length,
+            estimatedTaxableIncome: estimated.some((event) => event.taxableIncomeKrw == null)
+              ? null
+              : sumOf(estimated.map((event) => event.taxableIncomeKrw as DecimalValue)),
+          },
   }
 }
 
@@ -252,10 +340,19 @@ export type OwnTaxComputation = {
   brackets: TaxBracket[]
   constants: TaxConstants
   taxLawYear: number
-  /** 환율이 없어 합에서 뺀 기여 수(E-09). `contributions` 중 `amount = null`인 것의 수다 */
+  /**
+   * 환율이 없어 합에서 뺀 추정 사건이 있는 **상품** 수(E-09). `contributions` 중 `exchangeRateMissing`인 것의 수다 —
+   * ~~`amount = null`인 것의 수~~(b4 — 일부만 빠진 월지급 상품도 센다. 빼는 단위는 사건, 세는 단위는 상품)
+   */
   unconvertedCount: number
-  /** 추정 환율로 환산해 합에 넣은 기여 수. `contributions` 중 `estimateRate ≠ null`인 것의 수다 */
+  /** 추정 환율로 환산해 합에 넣은 사건이 있는 **상품** 수. `contributions` 중 `estimateRate ≠ null`인 것의 수다 */
   convertedCount: number
+  /** 확정 사건의 과세 합 — §4.6 `income.confirmedElsTaxableIncome` */
+  confirmedElsTaxableIncome: DecimalValue
+  /** 들어간 추정 사건의 과세 합 — §4.6 `income.estimatedElsTaxableIncome` */
+  estimatedElsTaxableIncome: DecimalValue
+  /** 그 해에 추정 월수익 사건이 하나라도 있다 — §4.1 · §4.6 `monthlyCouponAssumption` */
+  monthlyCouponAssumption: boolean
   /**
    * 환산에 쓴 추정 환율 — `convertedCount > 0`일 때만 값이다. 요청당 통화별 하나이므로(§4.0 규칙 2)
    * 어느 기여에서 읽어도 같다
@@ -301,7 +398,8 @@ export function computeOwnTax(params: {
         entry.contribution != null,
     )
 
-  // E-09는 **건 단위**로 뺀다 — 빠진 건은 행(`contributions`)에는 남고 합에서만 빠진다
+  // E-09는 **사건 단위**로 뺀다 — 빠진 사건은 행(`contributions`)에는 남고 합에서만 빠진다(그 상품의 `amount`가
+  // 이미 들어간 사건만의 합이다 — `contributionOf`). 사건이 전부 빠진 상품은 `amount = null`이라 여기서 빠진다
   const converted = items.flatMap((entry) =>
     entry.contribution.amount == null ? [] : [entry.contribution.amount],
   )
@@ -340,10 +438,33 @@ export function computeOwnTax(params: {
     brackets,
     constants,
     taxLawYear: params.yearContext.taxLawYear,
-    unconvertedCount: items.length - converted.length,
+    unconvertedCount: items.filter((entry) => entry.contribution.exchangeRateMissing).length,
     convertedCount: rated.length,
+    confirmedElsTaxableIncome: items.reduce((acc, entry) => acc.plus(entry.contribution.confirmedAmount), ZERO),
+    estimatedElsTaxableIncome: items.reduce((acc, entry) => acc.plus(entry.contribution.estimatedAmount), ZERO),
+    monthlyCouponAssumption: items.some((entry) => entry.contribution.hasCouponEstimate),
     estimateRate: rated[0] ?? null,
     contributions: items,
+  }
+}
+
+/** §4.6 `breakdown` — 원화 정수 문자열(과세 축 — `amountString`, Q-07). `null`은 그대로 나른다 */
+function breakdownView(breakdown: Contribution['breakdown']): TaxSummaryView['contributingProducts'][number]['breakdown'] {
+  const money = (value: DecimalValue | null) => (value == null ? null : amountString(value))
+  return {
+    redemption:
+      breakdown.redemption == null
+        ? null
+        : { taxableIncome: money(breakdown.redemption.taxableIncome), isEstimated: breakdown.redemption.isEstimated },
+    coupons:
+      breakdown.coupons == null
+        ? null
+        : {
+            confirmedCount: breakdown.coupons.confirmedCount,
+            confirmedTaxableIncome: amountString(breakdown.coupons.confirmedTaxableIncome),
+            estimatedCount: breakdown.coupons.estimatedCount,
+            estimatedTaxableIncome: money(breakdown.coupons.estimatedTaxableIncome),
+          },
   }
 }
 
@@ -446,6 +567,8 @@ export function makeTaxQueries(ctx: QueryContext) {
       },
       income: {
         elsTaxableIncome: amountString(own.elsTaxableIncome),
+        confirmedElsTaxableIncome: amountString(own.confirmedElsTaxableIncome),
+        estimatedElsTaxableIncome: amountString(own.estimatedElsTaxableIncome),
         otherFinancialIncome: amountString(own.otherFinancialIncome),
         total: amountString(own.financialIncome),
         isComprehensive: own.result.isComprehensive,
@@ -455,6 +578,7 @@ export function makeTaxQueries(ctx: QueryContext) {
         unconvertedCount: own.unconvertedCount,
         convertedCount: own.convertedCount,
         exchangeRateBasis: exchangeRateBasisOf(own.estimateRate, ctx.asOf),
+        monthlyCouponAssumption: own.monthlyCouponAssumption,
       },
       tax: {
         method1: own.result.method1 == null ? null : amountString(own.result.method1),
@@ -493,6 +617,8 @@ export function makeTaxQueries(ctx: QueryContext) {
         taxableIncome:
           entry.contribution.amount == null ? null : amountString(entry.contribution.amount),
         isEstimated: entry.contribution.isEstimated,
+        basis: entry.contribution.basis,
+        breakdown: breakdownView(entry.contribution.breakdown),
         exchangeRateMissing: entry.contribution.exchangeRateMissing,
         // 금액은 바꾸지 않고 표식만 붙인다. 표식이 없으면 SCR-202에서 "수정 필요"로
         // 표시되는 같은 상품이 SCR-401에는 숫자로만 나타나 모순으로 읽힌다.
