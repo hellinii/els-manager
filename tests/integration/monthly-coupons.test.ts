@@ -40,12 +40,14 @@ const NAME = {
   asset: `${FX_NAME_PREFIX} 월지급자산`,
 } as const
 
-const MONTHS = [1, 2, 3, 4, 5, 6].map((couponNo) => ({
-  couponNo,
-  evaluationDate: `2026-${String(couponNo + 1).padStart(2, '0')}-01`,
-  paymentDate: `2026-${String(couponNo + 1).padStart(2, '0')}-04`,
-  couponBarrier: '0.6000',
-}))
+/**
+ * 만기까지 매월 — 평가주기 6 × 총 차수 2 = **12행**(V-26 행 수 규칙 · DOC-011 v4.37 · P8.5). 2026-02-01 · 03-01 · … ·
+ * 2027-01-01이고 만기(2027-01-04) 이하다. 종전 6행 픽스처는 그 규칙 아래에서 생성부터 거부된다
+ */
+const MONTHS = Array.from({ length: 12 }, (_, index) => {
+  const evaluationDate = new Date(Date.UTC(2026, 1 + index, 1)).toISOString().slice(0, 10)
+  return { couponNo: index + 1, evaluationDate, paymentDate: `${evaluationDate.slice(0, 8)}04`, couponBarrier: '0.6000' }
+})
 
 function monthlyInput(assetId: string, overrides: Partial<ProductInput> = {}): ProductInput {
   return {
@@ -148,7 +150,7 @@ describe('§5.1 — 월지급식 상품을 계약으로 만든다 (b2부터 계�
       .select('coupon_no,evaluation_date,payment_date,coupon_barrier::text')
       .eq('els_id', id)
       .order('coupon_no')
-    expect(schedules.data).toHaveLength(6)
+    expect(schedules.data).toHaveLength(12)
     expect(schedules.data![4]).toEqual({
       coupon_no: 5,
       evaluation_date: '2026-06-01',
@@ -338,13 +340,29 @@ describe('§5.15 updateCouponPayment · deleteCouponPayments', () => {
 describe('§5.2 · §5.3 — 기록이 상품을 고정한다 (DOC-002 DQ-14)', () => {
   it('기록된 달을 입력에서 빼면 CONFLICT — 그 달을 「5번째 · 2026-06-01」로 가리킨다', async () => {
     /*
-     * 순번은 1..K 연속이어야 하므로(V-26) 기록된 달이 입력에서 빠지는 실제 경로는 **꼬리를 자르는 것**이다(총 차수를
-     * 줄여 다시 채운 입력 — DOC-008 SCR-204). 가운데 달을 빼는 입력은 V-26이 먼저 「1부터 빠짐없이」로 거부한다
+     * 순번은 1..K 연속이고 K = 평가주기 × 총 차수이므로(V-26 — P8.5) 기록된 달이 입력에서 빠지는 실제 경로는 **만기를 줄이고
+     * 그 길이로 다시 채운 입력**이다(DOC-008 SCR-204). 그래서 주기 4 · 1차수(K = 4)로 줄인다 — V-26을 지나 사전 검사에 닿는다.
+     * 꼬리만 자른 입력(4행 · 12개월)은 이제 V-26이 먼저 「만기까지 이어지지 않는다」로 거부한다
      */
     const id = await freshMonthly()
     dataOf(await a.write.recordCouponPayments(id, { entries: [paid(5)] }))
-    const error = errorOf(
+    const tailOnly = errorOf(
       await a.write.updateProduct(id, monthlyInput(assetId, { couponSchedules: MONTHS.slice(0, 4) })),
+    )
+    expect([tailOnly.code, tailOnly.fields?.couponSchedules]).toEqual([
+      'VALIDATION_FAILED',
+      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+    ])
+    const error = errorOf(
+      await a.write.updateProduct(
+        id,
+        monthlyInput(assetId, {
+          evaluationPeriodMonths: 4,
+          totalRounds: 1,
+          schedules: [{ roundNo: 1, evaluationDate: '2026-05-02', barrier: '0.9000' }],
+          couponSchedules: MONTHS.slice(0, 4),
+        }),
+      ),
     )
     expect(error.code).toBe('CONFLICT')
     expect(error.message).toContain('5번째 · 2026-06-01')

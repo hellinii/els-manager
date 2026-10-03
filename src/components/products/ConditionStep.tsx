@@ -9,6 +9,7 @@ import { COUPON_PAYOUT_LABELS, KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import {
   COUPON_BARRIERS_FIELD,
+  COUPON_RECORDED_THROUGH_FIELD,
   COUPON_SCHEDULES_FIELD,
   MONTHLY_RATE_FIELD,
   couponCell,
@@ -562,10 +563,29 @@ function MonthlyBlock({
 
       <div className="mt-4 flex flex-col gap-2">
         {couponLock != null ? (
-          // 기록된 달은 칸이 readOnly라 산식이 덮은 값을 되돌릴 수 없고 저장은 CONFLICT다(DOC-008 v2.29 (3))
-          <p className="text-xs text-neutral-600">
-            월수익 지급 기록이 있어 산식으로 다시 채우지 않는다 — 기록 없는 달의 날짜는 칸에서 직접 고친다.
-          </p>
+          /*
+           * 기록이 있으면 「기록 뒤 달」만 채운다(DOC-008 v2.41 · 민서 결정 2026-10-03) — 기록된 달은 칸이 readOnly이고 동결이라
+           * 그 날짜를 덮으면 저장이 CONFLICT다. M은 숨은 칸이 나른다(전이가 읽는다 — `applyCouponDates`)
+           */
+          <>
+            <input
+              type="hidden"
+              name={COUPON_RECORDED_THROUGH_FIELD}
+              value={String(Math.max(0, ...couponLock.recordedCouponNos))}
+            />
+            <button
+              type="submit"
+              name="intent"
+              value="APPLY_COUPON_DATES"
+              className="self-start rounded-md border border-neutral-300 px-3 py-2 text-sm font-medium hover:bg-neutral-100"
+            >
+              기록 뒤 달 산식으로 채우기
+            </button>
+            <p className="text-xs text-neutral-600">
+              기록된 {Math.max(0, ...couponLock.recordedCouponNos)}번째 달까지는 그대로 두고 그 뒤만 산식으로 다시 채운다 — 총
+              차수를 고쳤으면 이 버튼으로 일정 길이를 맞춘다.
+            </p>
+          </>
         ) : (
           <button
             type="submit"

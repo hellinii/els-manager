@@ -15,7 +15,7 @@ import { queryRows } from '../integration/helpers/seed'
 import { actionIdOf, buttonField, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
 import { E2E_EMPTY } from './helpers/users'
-import { makeMonthly, monthsAround } from './helpers/monthly'
+import { makeMonthly, monthsAround, monthsToMaturity } from './helpers/monthly'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get, locationPath } from './helpers/server'
 
@@ -196,7 +196,9 @@ describe('SCR-206 — 제출', () => {
 describe('SCR-204 월지급 블록 (b3-4)', () => {
   it('★ 기록 없는 월지급 상품 — 블록 · 율 · 행이 저장값으로 서고, 그대로 저장된다(b2~b3의 V-25 공백이 닫혔다)', async () => {
     const fresh = await registerProduct(jar, { label: '월지급수정', principal: '100,000,000' })
-    await makeMonthly(fresh.productId, monthsAround(asOf))
+    // 저장을 시험하므로 만기까지 매월인 일정이다(V-26 행 수 — P8.5). 다섯 달 픽스처는 아래 「짧은 일정」 사례가 쓴다
+    const months = await monthsToMaturity(fresh.productId)
+    await makeMonthly(fresh.productId, months)
     const editPath = PATHS.productEdit(fresh.productId)
     const html = await (await get(editPath, jar)).text()
     const actionId = actionIdOf('productEditFormAction')
@@ -222,7 +224,20 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
       'select count(*)::text as n from public.monthly_coupon_schedules where els_id = $1::uuid',
       [fresh.productId],
     )
-    expect(rows[0]?.n).toBe('5')
+    expect(rows[0]?.n).toBe(String(months.length))
+  })
+
+  it('★ 만기보다 짧은 일정은 저장이 거부되고 블록의 일정 자리에 그 문구가 뜬다 — 행 수 = 평가주기 × 총 차수 (V-26 · P8.5)', async () => {
+    const short = await registerProduct(jar, { label: '월지급짧음', principal: '100,000,000' })
+    await makeMonthly(short.productId, monthsAround(asOf)) // 다섯 달 · 만기까지 18개월
+    const editPath = PATHS.productEdit(short.productId)
+    const html = await (await get(editPath, jar)).text()
+    const actionId = actionIdOf('productEditFormAction')
+    const res = await submitAction(editPath, jar, [...formValuesFor(html, actionId), buttonField(formHtmlFor(html, actionId), 'SUBMIT')])
+    expect(res.status).toBe(200)
+    expect((await res.text()).replace(/<!--[\s\S]*?-->/g, '')).toContain(
+      '월수익 일정이 만기까지 이어지지 않는다 — 18개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+    )
   })
 
   it('기록이 있는 상품 — 통화 · 지급방식은 값 글자 + 숨은 입력, 기록된 달은 readOnly, 산식 버튼이 없다', async () => {
@@ -234,7 +249,20 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
     expect(form).toMatch(/<input[^>]*type="hidden"[^>]*name="couponPayout"[^>]*value="MONTHLY"|<input[^>]*name="couponPayout"[^>]*type="hidden"/)
     // 1번째 달은 지급 기록이 있다 — 평가일 칸이 readOnly다
     expect(new RegExp(`<input[^>]*name="${couponCell(0, 'evaluationDate').replace(/[[\].]/g, '\\$&')}"[^>]*>`).exec(form)?.[0]).toMatch(/readOnly|readonly/)
-    expect(form).not.toContain('value="APPLY_COUPON_DATES"')
+    // 산식 버튼은 「기록 뒤 달」만 채운다(DOC-008 v2.41 · P8.5 — 종전에는 버튼이 없어 일정 길이를 맞출 길이 없었다)
+    expect(form).toContain('기록 뒤 달 산식으로 채우기')
+    const through = Number(/name="couponRecordedThrough"[^>]*value="(\d+)"|value="(\d+)"[^>]*name="couponRecordedThrough"/.exec(form)?.slice(1).find(Boolean))
+    expect(through).toBeGreaterThanOrEqual(1)
+
+    // 눌러 보면 — 기록된 달까지의 날짜는 그대로이고 일정이 만기까지(18행) 이어진다
+    const editPath = PATHS.productEdit(monthly.productId)
+    const actionId = actionIdOf('productEditFormAction')
+    const res = await submitAction(editPath, jar, [...formValuesFor(html, actionId), buttonField(form, 'APPLY_COUPON_DATES')])
+    expect(res.status).toBe(200)
+    const after = formHtmlFor(await res.text(), actionId)
+    expect(after).toContain(`name="${couponCell(17, 'evaluationDate')}"`)
+    expect(after).not.toContain(`name="${couponCell(18, 'evaluationDate')}"`)
+    expect(after).toContain(`value="${monthsAround(asOf)[0]!.evaluationDate}"`)
   })
 
   it('★ b4 — 상환 시 지급 상품의 폼에도 월지급 블록이 닫힌 채 있고 「월지급식」을 고를 수 있다(JS 없이 같은 렌더에서 채운다)', async () => {

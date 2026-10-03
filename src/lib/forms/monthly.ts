@@ -31,6 +31,13 @@ export const COUPON_BARRIERS_FIELD = 'couponBarriers'
 export const COUPON_SCHEDULES_FIELD = 'couponSchedules'
 export const COUPON_SCHEDULE_SUBS = ['evaluationDate', 'paymentDate', 'couponBarrier'] as const
 
+/**
+ * 기록된 마지막 월수익 순번 — 수정 화면의 잠금(`couponLock`)이 있을 때만 숨은 칸으로 싣는다(DOC-008 v2.41 · 민서 결정
+ * 2026-10-03). 「평가일 산식으로 채우기」가 이 순번까지의 행을 그대로 두고 그 뒤만 다시 채운다 — 기록된 달의 날짜를 덮으면
+ * 동결(DQ-14)과 부딪혀 저장이 `CONFLICT`가 되기 때문이다. **계약 필드가 아니다** — 조작해도 저장은 계약 · 트리거가 막는다
+ */
+export const COUPON_RECORDED_THROUGH_FIELD = 'couponRecordedThrough'
+
 /** 월수익 지급일 = 평가일 + 3영업일(주말만 건너뛴다 — 휴장일은 모른다, RD-03) */
 export const COUPON_PAYMENT_BUSINESS_DAYS = 3
 
@@ -105,6 +112,10 @@ export function isFormulaCouponRow(
 /**
  * 「평가일 산식으로 채우기」 — 행을 K개로 맞추고 두 날짜를 산식으로 덮는다. 남는 행의 월수익 배리어는 그대로 두고,
  * 새 행은 일괄 칸의 값(없으면 빈칸)이다. 산식이 없으면 값을 바꾸지 않고 안내만 한다.
+ *
+ * **기록이 있으면(`COUPON_RECORDED_THROUGH_FIELD` = M > 0) 「기록 뒤 달」만 채운다** (P8.5 · DOC-008 v2.41): 1..M번째 행은
+ * 날짜를 그대로 두고 M+1번째부터 산식이다. 산식의 행 수가 M보다 적으면(총 차수를 줄여 기록된 달이 만기 뒤가 된다) 값을 바꾸지
+ * 않고 안내한다 — 기록된 달을 잘라 내면 저장이 사전 검사(`CONFLICT`)로 거부된다.
  */
 export function applyCouponDates(values: Record<string, string>): {
   values: Record<string, string>
@@ -117,6 +128,13 @@ export function applyCouponDates(values: Record<string, string>): {
       notice: `발행일 · 평가주기 · 총 차수를 먼저 입력한다(월수익은 만기까지 ${MAX_COUPON_SCHEDULES}개월 이하).`,
     }
   }
+  const through = recordedThroughOf(values)
+  if (through > formula.length) {
+    return {
+      values,
+      notice: `기록된 ${through}번째 달까지는 줄일 수 없다 — 총 차수를 확인한다(지금 만기까지 ${formula.length}개월).`,
+    }
+  }
   const before = couponRowCountOf(values)
   const fill = (values[COUPON_BARRIERS_FIELD] ?? '').trim()
   const next: Record<string, string> = {}
@@ -127,16 +145,34 @@ export function applyCouponDates(values: Record<string, string>): {
     next[key] = value
   }
   formula.forEach((dates, index) => {
+    // 기록된 달까지는 그대로 — 날짜도 배리어도 덮지 않는다
+    if (index < through) return
     next[couponCell(index, 'evaluationDate')] = dates.evaluationDate
     next[couponCell(index, 'paymentDate')] = dates.paymentDate
     if (index >= before) next[couponCell(index, 'couponBarrier')] = fill
   })
+  if (through > 0) {
+    return {
+      values: next,
+      notice:
+        through === formula.length
+          ? `기록된 ${through}번째 달이 만기까지다 — 산식으로 채울 기록 뒤 달이 없다.`
+          : `기록된 ${through}번째 달까지는 그대로 두고 ${through + 1}~${formula.length}번째를 산식으로 채웠다(지급일 = 평가일 + ${COUPON_PAYMENT_BUSINESS_DAYS}영업일). ` +
+            '휴장일은 모른다 — 투자설명서의 실제 날짜로 고친다.',
+    }
+  }
   return {
     values: next,
     notice:
       `월수익 일정 ${formula.length}행을 산식으로 채웠다(평가일 = 발행일 + k개월 − 1일 · 지급일 = 평가일 + ${COUPON_PAYMENT_BUSINESS_DAYS}영업일). ` +
       '휴장일은 모른다 — 투자설명서의 실제 날짜로 고친다.',
   }
+}
+
+/** 숨은 칸의 M — 정수가 아니거나 없으면 0(잠금 없음) */
+function recordedThroughOf(values: Record<string, string>): number {
+  const raw = (values[COUPON_RECORDED_THROUGH_FIELD] ?? '').trim()
+  return /^\d{1,2}$/.test(raw) ? Number.parseInt(raw, 10) : 0
 }
 
 /** 「월수익 배리어 일괄 채우기」 — 한 값을 모든 행에 펼친다(차수표의 일괄 배리어와 같은 짝 — 정본은 행마다의 칸) */

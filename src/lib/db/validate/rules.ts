@@ -311,16 +311,39 @@ export function V25_couponPayoutTerms(p: Problems, input: ProductInput): void {
  * 입력이 곧 저장 결과다(DOC-011 §6 V-26).
  *
  * 행의 형태(순번 정수 ≥ 1 · 날짜 형식 · 배리어 범위)는 셰이프 파싱이 본다. 여기서는 행 사이의 관계 —
- * 1..60행 · 순번 1..K 연속 · 평가일 엄격 증가 · 발행일 이상 · 만기(마지막 차수 평가일) 이하 · 지급일 ≥ 평가일.
+ * 1..60행 · **행 수 K = 평가주기 × 총 차수**(만기까지 매월 — DOC-011 v4.37 · 민서 결정 2026-10-03) · 순번 1..K 연속 ·
+ * 평가일 엄격 증가 · 발행일 이상 · 만기(마지막 차수 평가일) 이하 · 지급일 ≥ 평가일.
+ *
+ * 행 수 규칙이 없던 동안(b2 ~ b5) 만기보다 **짧은** 일정이 통과했다 — 6개월 · 5차수로 산식 30행을 만든 뒤 총 차수를 6으로 고쳐
+ * 저장하면 31~36번째 달이 없는 채 저장되고 그 달의 추정 월수익이 세금 · 전망에서 조용히 빠졌다(P8.5 반박 검토).
  * 오류 경로는 **입력의 색인**이다(`couponSchedules[i].…`) — 정렬한 뒤의 순서로 색인을 붙이면 사용자가
  * 엉뚱한 행을 고친다.
  */
 export function V26_couponSchedules(
   p: Problems,
   couponSchedules: readonly CouponScheduleInput[],
-  context: { issueDate: string | undefined; schedules: readonly ScheduleInput[] },
+  context: {
+    issueDate: string | undefined
+    schedules: readonly ScheduleInput[]
+    evaluationPeriodMonths: number | undefined
+  },
 ): void {
   if (couponSchedules.length === 0) return
+
+  // 만기까지 매월 — 행 수가 평가주기 × 총 차수여야 한다. 차수가 없거나 주기가 정수가 아니면 다른 규칙(V-03 · 셰이프)이 말한다
+  const period = context.evaluationPeriodMonths
+  if (period != null && Number.isInteger(period) && period > 0 && context.schedules.length > 0) {
+    const expected = period * context.schedules.length
+    if (expected > MAX_COUPON_SCHEDULES) {
+      p.add('V-26', 'couponSchedules', `만기까지 ${expected}개월이다 — ${MAX_COUPON_SCHEDULES}개월을 넘는 월지급식은 등록할 수 없다.`)
+    } else if (couponSchedules.length !== expected) {
+      p.add(
+        'V-26',
+        'couponSchedules',
+        `월수익 일정이 만기까지 이어지지 않는다 — ${expected}개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.`,
+      )
+    }
+  }
 
   if (couponSchedules.length > MAX_COUPON_SCHEDULES) {
     p.add(
@@ -397,6 +420,7 @@ export function validateProductCrossFields(p: Problems, input: ProductInput): vo
   V26_couponSchedules(p, input.couponSchedules ?? [], {
     issueDate: input.issueDate,
     schedules: input.schedules,
+    evaluationPeriodMonths: input.evaluationPeriodMonths,
   })
 }
 

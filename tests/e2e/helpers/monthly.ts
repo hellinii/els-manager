@@ -1,6 +1,6 @@
 import { shiftDays } from '@/lib/domain'
 
-import { sql } from '../../integration/helpers/seed'
+import { queryRows, sql } from '../../integration/helpers/seed'
 
 /**
  * 등록된 상품을 **월지급식으로 바꾼다** — e2e 전용 (P8 컷 b3).
@@ -18,7 +18,14 @@ import { sql } from '../../integration/helpers/seed'
  */
 export type MonthlyMonth = { couponNo: number; evaluationDate: string; paymentDate: string }
 
-/** 기준일에서 앞뒤로 다섯 달 — 1~3번째는 평가가 끝났고(3번째는 지급일도 지났다) 4 · 5번째는 아직이다 */
+/**
+ * 기준일에서 앞뒤로 다섯 달 — 1~3번째는 평가가 끝났고(3번째는 지급일도 지났다) 4 · 5번째는 아직이다.
+ *
+ * ★ **표시 시험용 저장 상태다 — 계약을 지나지 않는다** (P8.5 · DOC-011 v4.37). 상품은 평가주기 6 × 3차수(만기까지 18개월)인데
+ * 다섯 달뿐이므로 V-26 행 수 규칙에 걸린다 — 이 상품을 그대로 **저장**하면 거부된다. SQL로 심는 이유가 「기준일 상대 날짜」라서
+ * 그렇다(SCR-202 ⑦ · SCR-206 · SCR-301이 「지난 달 · 다가올 달」을 렌더하는 상태). **저장을 시험하는 사례는 `monthsToMaturity`를
+ * 쓴다**
+ */
 export function monthsAround(asOf: string): MonthlyMonth[] {
   return [-70, -40, -10, 20, 50].map((offset, index) => {
     const evaluationDate = shiftDays(asOf, offset)
@@ -53,4 +60,26 @@ export async function makeMonthly(
       [productId, month.couponNo, month.evaluationDate, month.paymentDate],
     )
   }
+}
+
+/**
+ * 만기까지 매월 — 계약(V-26 행 수 = 평가주기 × 총 차수)을 지나는 일정 (P8.5). 앱 산식(발행일 + k개월 − 1일 · 지급일 = 평가일 +
+ * 3일)이고 `registerProduct`의 차수 평가일도 같은 산식이라 K번째가 만기와 같은 날이다(만기 이하).
+ */
+export async function monthsToMaturity(productId: string): Promise<MonthlyMonth[]> {
+  const { rows } = await queryRows<{ issue_date: string; period: number; rounds: number }>(
+    `select p.issue_date::text, p.evaluation_period_months as period,
+            (select count(*)::int from public.redemption_schedules s where s.els_id = p.id) as rounds
+       from public.els_products p where p.id = $1::uuid`,
+    [productId],
+  )
+  const { issue_date: issueDate, period, rounds } = rows[0]!
+  return Array.from({ length: period * rounds }, (_, index) => {
+    const [y, m, d] = issueDate.split('-').map((part) => Number.parseInt(part, 10)) as [number, number, number]
+    const plus = new Date(Date.UTC(y, m - 1 + index + 1, d))
+    // 달 끝 넘침(1-31 + 1개월)은 그 달의 마지막 날로 — `generateEvaluationDates`와 같은 처리
+    if (plus.getUTCDate() !== d) plus.setUTCDate(0)
+    const evaluationDate = shiftDays(plus.toISOString().slice(0, 10), -1)
+    return { couponNo: index + 1, evaluationDate, paymentDate: shiftDays(evaluationDate, 3) }
+  })
 }

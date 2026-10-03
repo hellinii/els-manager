@@ -7,6 +7,7 @@ import {
   MONTHLY_RATE_FIELD,
   applyCouponBarriers,
   applyCouponDates,
+  COUPON_RECORDED_THROUGH_FIELD,
   couponCell,
   couponFormulaOf,
   couponLockOf,
@@ -77,6 +78,39 @@ describe('채우기 둘 — 버튼만 바꾼다', () => {
     expect(couponRowCountOf(values)).toBe(6)
     expect(values[couponCell(0, 'couponBarrier')]).toBe('55')
     expect(values[couponCell(6, 'evaluationDate')]).toBeUndefined()
+  })
+
+  it('★ 기록이 있으면 기록 뒤 달만 다시 채운다 — 1..M번째 날짜 · 배리어는 그대로 (DOC-008 v2.41 · P8.5)', () => {
+    // 4차수(24개월)로 채운 뒤 사용자가 1 · 2번째를 실제 날짜로 고쳤고 3번째까지 기록했다 → 총 차수를 6(36개월)으로 고친다
+    const filled = applyCouponDates({ ...BASE, totalRounds: '4', [COUPON_BARRIERS_FIELD]: '50' }).values
+    const edited = {
+      ...filled,
+      [couponCell(0, 'evaluationDate')]: '2026-11-13',
+      [couponCell(1, 'evaluationDate')]: '2026-12-14',
+      [couponCell(2, 'couponBarrier')]: '55',
+      totalRounds: '6',
+      [COUPON_RECORDED_THROUGH_FIELD]: '3',
+    }
+    const { values, notice } = applyCouponDates(edited)
+    expect(couponRowCountOf(values)).toBe(36)
+    // 기록된 달까지 — 사용자의 값 그대로
+    expect([values[couponCell(0, 'evaluationDate')], values[couponCell(1, 'evaluationDate')]]).toEqual(['2026-11-13', '2026-12-14'])
+    expect(values[couponCell(2, 'couponBarrier')]).toBe('55')
+    // 그 뒤 — 산식(발행일 + k개월 − 1일)과 새 행의 일괄 배리어
+    const formula = couponFormulaOf({ ...BASE, totalRounds: '6' })!
+    expect(values[couponCell(3, 'evaluationDate')]).toBe(formula[3]!.evaluationDate)
+    expect(values[couponCell(35, 'evaluationDate')]).toBe(formula[35]!.evaluationDate)
+    expect(values[couponCell(30, 'couponBarrier')]).toBe('50')
+    expect(notice).toContain('3번째 달까지는 그대로 두고 4~36번째')
+  })
+
+  it('★ 총 차수를 줄여 기록된 달이 만기 뒤가 되면 바꾸지 않고 안내한다 · 기록이 만기까지면 채울 달이 없다', () => {
+    const filled = applyCouponDates(BASE).values // 12행
+    const shrunk = { ...filled, totalRounds: '1', [COUPON_RECORDED_THROUGH_FIELD]: '8' }
+    const { values, notice } = applyCouponDates(shrunk)
+    expect(values).toBe(shrunk)
+    expect(notice).toBe('기록된 8번째 달까지는 줄일 수 없다 — 총 차수를 확인한다(지금 만기까지 6개월).')
+    expect(applyCouponDates({ ...filled, [COUPON_RECORDED_THROUGH_FIELD]: '12' }).notice).toContain('채울 기록 뒤 달이 없다')
   })
 
   it('산식이 없으면 값을 바꾸지 않고 안내만', () => {

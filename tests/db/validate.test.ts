@@ -18,6 +18,7 @@ import {
   V17_notFuture,
   V18_kiTouchedRequiresBarrier,
   type RuleId,
+  V26_couponSchedules,
 } from '@/lib/db/validate/rules'
 import { checkAgainstProduct } from '@/lib/db/mutations/coupons'
 import {
@@ -99,8 +100,12 @@ function validRedemption(): Record<string, unknown> {
 }
 
 /**
- * 월지급식으로 바꾸는 조각 (P8 컷 b2) — 연쿠폰율 0 · 월수익 연쿠폰율 · 일정 두 달 · **리자드 없는** 차수.
+ * 월지급식으로 바꾸는 조각 (P8 컷 b2) — 연쿠폰율 0 · 월수익 연쿠폰율 · **리자드 없는** 차수 · 월수익 일정.
  * 기준 입력의 2차는 원금상환형 리자드이므로 그대로 두면 V-25의 리자드 금지가 함께 걸린다.
+ *
+ * **일정은 12행이다**(P8.5) — 평가주기 6 × 총 차수 2 = 만기까지 12개월(V-26 행 수 규칙 · DOC-011 v4.37). 종전 2행 픽스처는 그
+ * 규칙 아래에서 늘 V-26에 걸리므로, V-26 사례들이 **겨냥한 결함 없이도** 초록이 됐을 것이다(`CASES`는 「선언한 규칙이 걸린다」만
+ * 본다). 그래서 이 조각은 그 자체로 모든 규칙을 지나야 한다 — 아래 「월지급식 정상 입력」 단언이 그것을 본다.
  */
 function monthlyTerms() {
   return {
@@ -111,11 +116,17 @@ function monthlyTerms() {
       { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' },
       { roundNo: 2, evaluationDate: '2027-01-04', barrier: '0.85' },
     ],
-    couponSchedules: [
-      { couponNo: 1, evaluationDate: '2026-02-01', paymentDate: '2026-02-04', couponBarrier: '0.6' },
-      { couponNo: 2, evaluationDate: '2026-03-01', paymentDate: '2026-03-04', couponBarrier: '0.6' },
-    ],
+    // 2026-02-01 · 03-01 · … · 2027-01-01 — 발행일(2026-01-02) 뒤 · 만기(2027-01-04) 이하
+    couponSchedules: Array.from({ length: 12 }, (_, index) => {
+      const evaluationDate = new Date(Date.UTC(2026, 1 + index, 1)).toISOString().slice(0, 10)
+      return { couponNo: index + 1, evaluationDate, paymentDate: `${evaluationDate.slice(0, 8)}04`, couponBarrier: '0.6' }
+    }),
   }
+}
+
+/** 12행 중 몇 행만 바꾼 일정 — 사례가 **그 칸 하나의 결함만** 갖게 한다(행 수 규칙에 걸리지 않는다) */
+function couponsWith(patches: Record<number, Partial<ReturnType<typeof monthlyTerms>['couponSchedules'][number]>>) {
+  return monthlyTerms().couponSchedules.map((row, index) => ({ ...row, ...(patches[index] ?? {}) }))
 }
 
 /** §5.11 기실현 등재의 정상 입력 (P8 컷 b2 — 지급방식 케이스가 쓴다) */
@@ -690,7 +701,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [{ ...monthlyTerms().couponSchedules[0], couponNo: 0 }],
+          couponSchedules: couponsWith({ 0: { couponNo: 0 } }),
         }),
       ),
   },
@@ -701,10 +712,8 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            monthlyTerms().couponSchedules[0],
-            { ...monthlyTerms().couponSchedules[1], couponNo: 3 },
-          ],
+          // 마지막 행을 13번으로 — 1..11, 13(행 수는 12 그대로)
+          couponSchedules: couponsWith({ 11: { couponNo: 13 } }),
         }),
       ),
   },
@@ -715,10 +724,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            monthlyTerms().couponSchedules[0],
-            { ...monthlyTerms().couponSchedules[1], evaluationDate: '2026-02-01', paymentDate: '2026-02-04' },
-          ],
+          couponSchedules: couponsWith({ 1: { evaluationDate: '2026-02-01', paymentDate: '2026-02-04' } }),
         }),
       ),
   },
@@ -729,10 +735,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            { ...monthlyTerms().couponSchedules[0], evaluationDate: '2025-12-31', paymentDate: '2026-01-05' },
-            monthlyTerms().couponSchedules[1],
-          ],
+          couponSchedules: couponsWith({ 0: { evaluationDate: '2025-12-31', paymentDate: '2026-01-05' } }),
         }),
       ),
   },
@@ -743,10 +746,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            monthlyTerms().couponSchedules[0],
-            { ...monthlyTerms().couponSchedules[1], evaluationDate: '2027-01-05', paymentDate: '2027-01-08' },
-          ],
+          couponSchedules: couponsWith({ 11: { evaluationDate: '2027-01-05', paymentDate: '2027-01-08' } }),
         }),
       ),
   },
@@ -757,10 +757,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            { ...monthlyTerms().couponSchedules[0], paymentDate: '2026-01-31' },
-            monthlyTerms().couponSchedules[1],
-          ],
+          couponSchedules: couponsWith({ 0: { paymentDate: '2026-01-31' } }),
         }),
       ),
   },
@@ -771,10 +768,7 @@ const CASES: Case[] = [
       parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            { ...monthlyTerms().couponSchedules[0], couponBarrier: '1.2' },
-            monthlyTerms().couponSchedules[1],
-          ],
+          couponSchedules: couponsWith({ 0: { couponBarrier: '1.2' } }),
         }),
       ),
   },
@@ -791,6 +785,25 @@ const CASES: Case[] = [
             const month = new Date(Date.UTC(2026, 1 + index, 1)).toISOString().slice(0, 10)
             return { couponNo: index + 1, evaluationDate: month, paymentDate: month, couponBarrier: '0.6' }
           }),
+        }),
+      ),
+  },
+  {
+    rule: 'V-26',
+    what: '★ 월수익 일정이 만기보다 짧다 — 11행(평가주기 6 × 총 차수 2 = 12, P8.5)',
+    run: () => parse(product({ ...monthlyTerms(), couponSchedules: monthlyTerms().couponSchedules.slice(0, 11) })),
+  },
+  {
+    rule: 'V-26',
+    what: '월수익 일정이 만기보다 길다 — 13행(만기 이하로 끼워 넣어도)',
+    run: () =>
+      parse(
+        product({
+          ...monthlyTerms(),
+          couponSchedules: [
+            ...monthlyTerms().couponSchedules,
+            { couponNo: 13, evaluationDate: '2027-01-03', paymentDate: '2027-01-04', couponBarrier: '0.6' },
+          ],
         }),
       ),
   },
@@ -918,6 +931,26 @@ describe.each(CASES)('$rule — $what', ({ rule, run }) => {
   })
 })
 
+describe('월지급식 정상 입력 — 어느 규칙에도 걸리지 않는다 (V-26 사례들이 판별하는 전제 · P8.5)', () => {
+  it('★ monthlyTerms()는 그 자체로 통과한다 — 그래야 V-26 사례가 각자 겨냥한 한 칸으로 걸린다', () => {
+    expect(parse(product(monthlyTerms())).rules()).toEqual([])
+  })
+
+  it('행 수 규칙의 문구 — 짧으면 「만기까지 이어지지 않는다 · 12개월」, 만기까지 61개월이면 「60개월을 넘는」', () => {
+    const short = parse(product({ ...monthlyTerms(), couponSchedules: monthlyTerms().couponSchedules.slice(0, 11) }))
+    expect(short.fields().couponSchedules).toBe(
+      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+    )
+    const p = new Problems()
+    V26_couponSchedules(p, monthlyTerms().couponSchedules, {
+      issueDate: '2026-01-02',
+      schedules: [{ roundNo: 1, evaluationDate: '2031-02-01', barrier: '0.9' }],
+      evaluationPeriodMonths: 61,
+    })
+    expect(p.fields().couponSchedules).toBe('만기까지 61개월이다 — 60개월을 넘는 월지급식은 등록할 수 없다.')
+  })
+})
+
 describe(`전수 열거 — 규칙 ${RULE_IDS.length}개에 케이스가 하나도 빠지지 않았다`, () => {
   it('CASES가 RULE_IDS 전부를 덮는다', () => {
     const covered = [...new Set(CASES.map((c) => c.rule))].sort()
@@ -1022,10 +1055,7 @@ describe('fields — 화면이 필드별로 표시할 수 있는 형태', () => 
       const problems = parse(
         product({
           ...monthlyTerms(),
-          couponSchedules: [
-            { ...monthlyTerms().couponSchedules[0], couponBarrier },
-            monthlyTerms().couponSchedules[1],
-          ],
+          couponSchedules: couponsWith({ 0: { couponBarrier } }),
         }),
       )
       const message = problems.fields()['couponSchedules[0].couponBarrier']
