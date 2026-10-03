@@ -87,6 +87,66 @@ export function splitByPast<T extends { isPast: boolean }>(
 }
 
 // ---------------------------------------------------------------------------
+// 시간순 병합 — 차수 행 + 월수익 행 (P8 컷 b3-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * 시간순 보기의 한 행 — 어느 계약에서 왔는지(`kind`)를 들고 있다. 절 나누기(`splitByPast`)와 월 그룹(`groupByMonth`)이
+ * 그대로 받도록 `evaluationDate` · `isPast`를 꺼내 둔다(둘 다 계약이 준 값을 옮길 뿐이다)
+ */
+export type TimelineRow<R, C> =
+  | { kind: 'ROUND'; evaluationDate: string; isPast: boolean; item: R }
+  | { kind: 'COUPON'; evaluationDate: string; isPast: boolean; item: C }
+
+/**
+ * 두 계약의 행을 한 시간순으로 — DOC-008 SCR-301 v2.26 「병합은 화면의 순수 함수다」.
+ *
+ * 두 입력은 저마다 계약이 평가일 오름차순으로 준다(§4.4 · §4.12). 여기서는 **두 정렬된 목록을 병합만 한다** — 각 입력
+ * 안의 순서는 건드리지 않고(재정렬하지 않는다 — `groupByMonth`의 규약), 머리끼리 평가일 문자열의 사전순으로 고른다.
+ * **같은 날은 조기상환 평가일이 먼저다**(v2.26 — 그날의 주 사건이 조기상환이고, 상환되면 그날 월수익은 그 상품의
+ * 마지막 달이다).
+ *
+ * **이 사전순 비교는 「화면은 날짜를 비교하지 않는다」의 대상 밖이다**(v2.26이 그은 범위) — 그 규칙의 근거는 경계(당일은
+ * 경과가 아니다)의 해석이 계약과 갈리지 않는 것이고, 병합은 경계를 해석하지 않는다. 절은 여전히 계약의 `isPast`로만
+ * 가른다. ISO 날짜(`YYYY-MM-DD`)라 사전순이 곧 시간순이다.
+ */
+export function mergeTimeline<
+  R extends { evaluationDate: string; isPast: boolean },
+  C extends { evaluationDate: string; isPast: boolean },
+>(rounds: readonly R[], coupons: readonly C[]): Array<TimelineRow<R, C>> {
+  const out: Array<TimelineRow<R, C>> = []
+  let i = 0
+  let j = 0
+  while (i < rounds.length || j < coupons.length) {
+    const round = rounds[i]
+    const coupon = coupons[j]
+    // 같은 날이면 차수 먼저(`<=`) — 월수익이 남았는데 차수가 끝났으면 월수익을, 그 반대면 차수를
+    if (round != null && (coupon == null || round.evaluationDate <= coupon.evaluationDate)) {
+      out.push({ kind: 'ROUND', evaluationDate: round.evaluationDate, isPast: round.isPast, item: round })
+      i += 1
+    } else if (coupon != null) {
+      out.push({ kind: 'COUPON', evaluationDate: coupon.evaluationDate, isPast: coupon.isPast, item: coupon })
+      j += 1
+    }
+  }
+  return out
+}
+
+/**
+ * 상품별 보기에 카드가 서지 못한 월지급 상품 수 — 월수익 행은 있는데 같은 필터의 차수 행이 없는 상품(DOC-008 SCR-301
+ * v2.26 · v2.33 ⓕ). 카드는 차수가 있어야 존재하므로(「다섯째는 없다」) 그 상품은 상품별 보기에서 말없이 사라진다 —
+ * 화면이 이 수를 한 줄로 말한다. 도달은 기간 = 지난이고 첫 차수 평가일 전인 상품뿐이다(다가오는 · 전체에서는 만기
+ * 차수가 남는다). `productId`로 센다 — 이름이 아니다(`groupByProduct`와 같은 이유)
+ */
+export function productsWithoutRounds(
+  rounds: readonly { productId: string }[],
+  coupons: readonly { productId: string }[],
+): number {
+  const withRounds = new Set(rounds.map((round) => round.productId))
+  return new Set(coupons.map((coupon) => coupon.productId).filter((id) => !withRounds.has(id))).size
+}
+
+// ---------------------------------------------------------------------------
 // 상품 그룹 — SCR-301 상품별 보기 (P6 컷 6)
 // ---------------------------------------------------------------------------
 
@@ -103,6 +163,8 @@ export type ScheduleProductFacts = {
   principal: string
   /** `principal`과 차수 금액의 단위 — 카드 하나가 한 상품이므로 통화가 하나다 (§4.4 v4.9) */
   currency: ProductCurrency
+  /** 쿠폰 지급방식 — 월지급식 카드는 ⑧(늘 0%)을 숨기고 월수익 하위 목록을 단다 (P8 컷 b3-6 · DOC-008 SCR-301) */
+  couponPayout: 'AT_REDEMPTION' | 'MONTHLY'
   annualCouponRate: string | null
   totalRounds: number
   /** DOC-008 §5 ⑨ — 계약(기준가)과 관측(현재가)이 한 칸에 온다 (v3.4) */
@@ -188,6 +250,7 @@ export function groupByProduct<
           productName: item.productName,
           principal: item.principal,
           currency: item.currency,
+          couponPayout: item.couponPayout,
           annualCouponRate: item.annualCouponRate,
           totalRounds: item.totalRounds,
           underlyings: item.underlyings,

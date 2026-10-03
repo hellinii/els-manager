@@ -6,9 +6,11 @@ import {
   OWNER_ALL,
   OWNER_MINE,
   SCHEDULE_KEYS,
+  SCHEDULE_KIND_DEFAULT,
   SCHEDULE_VIEW_DEFAULT,
   scheduleQuery,
   type ScheduleFilter,
+  type ScheduleKind,
   type ScheduleRange,
   type ScheduleView,
 } from '@/lib/forms/query'
@@ -61,6 +63,7 @@ const DEFAULT_FILTER: ScheduleFilter = {
   owner: OWNER_MINE,
   range: 'ALL',
   activeOnly: false,
+  kind: SCHEDULE_KIND_DEFAULT,
 }
 
 const RANGE_LABELS: Record<ScheduleRange, string> = {
@@ -69,15 +72,28 @@ const RANGE_LABELS: Record<ScheduleRange, string> = {
   PAST: '지난 평가일',
 }
 
+/** 「종류」 — DOC-008 SCR-301 필터 행(v2.33). 「전체」가 기본값이자 하나의 값이다(기간과 같은 형태) */
+const KIND_LABELS: Record<ScheduleKind, string> = {
+  ALL: '전체',
+  ROUND: '조기상환 평가일',
+  COUPON: '월수익 평가일',
+}
+
 export function ScheduleFilters({
   filter,
   owners,
   view,
+  showKind,
 }: {
   filter: ScheduleFilter
   /** 좁히지 않은 조회에서 나온다 — 필터가 자기 선택지를 지우지 않게(SCR-201과 같다) */
   owners: readonly OwnerOption[]
   view: ScheduleView
+  /**
+   * 「종류」를 그리는가 — 시간순 보기이고, 월수익 행이 있거나 이미 좁혀 있을 때(DOC-008 SCR-301 v2.26 · v2.33 ⓐ).
+   * 좁힌 상태에서는 늘 그린다 — 되돌릴 칸이 사라지면 사용자가 그 필터에 갇힌다
+   */
+  showKind: boolean
 }) {
   return (
     <form
@@ -89,7 +105,12 @@ export function ScheduleFilters({
         <input type="hidden" name={SCHEDULE_KEYS.view} value={view} />
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {/* 완전한 리터럴 둘 — Tailwind가 소스를 스캔하므로 조립하지 않는다(`ProductScheduleCard`의 `ROUND_COLS` 각주) */}
+      <div
+        className={
+          showKind ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-4' : 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
+        }
+      >
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-neutral-600">소유자</span>
           {/*
@@ -131,6 +152,23 @@ export function ScheduleFilters({
             ))}
           </select>
         </label>
+
+        {showKind && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-neutral-600">종류</span>
+            <select
+              name={SCHEDULE_KEYS.kind}
+              defaultValue={filter.kind}
+              className={INPUT_CLASS}
+            >
+              {Object.entries(KIND_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {/*
           체크박스다 — 「미상환만 보기」는 켜고 끄는 하나의 조건이므로 선택 상자로

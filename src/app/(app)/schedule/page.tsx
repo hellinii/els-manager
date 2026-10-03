@@ -1,21 +1,34 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 
 import type { OwnerOption } from '@/components/products/ProductFilters'
+import { CouponScheduleRow } from '@/components/schedule/CouponScheduleRow'
 import { ProductScheduleList } from '@/components/schedule/ProductScheduleList'
 import { ScheduleFilters } from '@/components/schedule/ScheduleFilters'
 import { ScheduleRow } from '@/components/schedule/ScheduleRow'
 import { ViewSwitch } from '@/components/schedule/ViewSwitch'
 import { EmptyState } from '@/components/state/EmptyState'
-import type { ScheduleItem } from '@/lib/db/queries/map'
+import type { MonthlyCouponScheduleItem, ScheduleItem } from '@/lib/db/queries/map'
 import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
-import { groupByMonth, korDate, splitByPast, type MonthGroup } from '@/lib/format'
 import {
+  groupByMonth,
+  korDate,
+  mergeTimeline,
+  productsWithoutRounds,
+  splitByPast,
+  type MonthGroup,
+  type TimelineRow,
+} from '@/lib/format'
+import {
+  isScheduleKindShown,
   isScheduleMineOnly,
   isScheduleNarrowed,
   OWNER_ALL,
   OWNER_MINE,
   parseScheduleFilter,
   parseScheduleView,
+  SCHEDULE_KIND_DEFAULT,
+  scheduleKindIncludes,
   scheduleQuery,
   toScheduleParams,
   type QueryValues,
@@ -78,6 +91,18 @@ import { PATHS } from '@/lib/routes/paths'
  * 받아들이는 근거는 DOC-008 §5 SCR-201 ★★ ⓐ에 있다.
  */
 
+/*
+ * ## 월수익 행 (P8 컷 b3-6 — DOC-008 SCR-301 「P8 월지급식」 · DOC-011 §4.12)
+ *
+ * 두 계약을 **나란히** 읽는다 — 합집합 계약은 없다(§4.12가 기각했다 — `groupByProduct`의 차수 정렬). 같은 필터가 같은
+ * 인자로 두 계약에 간다. 시간순은 `mergeTimeline`(순수 함수 — 사전순 병합, 같은 날은 차수 먼저)이 한 목록으로 엮고 절은
+ * 여전히 계약의 `isPast`로만 가른다. 상품별은 카드마다 그 상품의 월수익 행을 붙인다(⑮).
+ *
+ * **조회가 늘었다** — 월수익 계약이 늘 하나 더 나가고, 시간순 보기에서 좁혔으면(소유자 기본값이 본인이라 늘) 「N건 중」의
+ * 풀을 위해 하나 더 나간다(DOC-008 v2.33 ⓔ — 시간순은 넷, 상품별은 셋). 소유자 선택지는 차수 풀에서만 만든다 — 월수익
+ * 행에는 `ownerId`가 없고, 월수익 행이 있는 상품은 차수도 있다(기실현 월지급은 둘 다 없다).
+ */
+
 export const metadata: Metadata = {
   title: '평가일정 · 언제들어오나',
 }
@@ -90,20 +115,39 @@ export default async function SchedulePage({
 }) {
   const params = await searchParams
   const [queries, viewerId] = await Promise.all([getQueries(), getViewerId()])
-  const filter = parseScheduleFilter(params, viewerId)
   const view = parseScheduleView(params)
+  // 「종류」는 시간순 보기에서만 읽는다 — 그래서 보기를 먼저 읽는다(DOC-008 v2.33 ⓐ)
+  const filter = parseScheduleFilter(params, viewerId, view)
   // 화면과 계약이 **같은 기준일**을 본다(Q-02) — 기간 조건이 여기서 나온다.
   const asOf = getAsOf()
 
   const narrowed = isScheduleNarrowed(filter)
-  const [items, pool] = await Promise.all([
-    queries.listSchedule(toScheduleParams(filter, asOf, viewerId)),
+  const contractParams = toScheduleParams(filter, asOf, viewerId)
+  const [items, coupons, pool, couponPool] = await Promise.all([
+    queries.listSchedule(contractParams),
+    queries.listMonthlyCouponSchedule(contractParams),
     narrowed ? queries.listSchedule({}) : null,
+    // 「N건 중」의 N — 시간순만 월수익 행을 센다(상품별의 건수는 차수다 — v2.33 ⓔ)
+    narrowed && view === 'TIME' ? queries.listMonthlyCouponSchedule({}) : null,
   ])
-  // 좁히지 않았으면(= 소유자 「전체」 + 기본 기간) 첫 조회가 곧 전체다.
+  // 좁히지 않았으면(= 소유자 「전체」 + 기본 기간 · 기본 종류) 첫 조회가 곧 전체다.
   const all = pool ?? items
+  const allCoupons = couponPool ?? coupons
 
-  const { past, upcoming } = splitByPast(items)
+  // 셋째 빈 상태는 차수 기준 그대로다(v2.26 — 월수익 평가일은 만기 평가일 이하) — 차수의 다가오는 것만 본다
+  const { upcoming } = splitByPast(items)
+
+  // 시간순 — 「종류」가 고른 계약의 행만 엮는다. 「종류」는 월수익 행이 있거나 이미 좁혀 있을 때만 그린다(v2.26)
+  const includes = scheduleKindIncludes(filter.kind)
+  const timeline = mergeTimeline(includes.rounds ? items : [], includes.coupons ? coupons : [])
+  const showKind = isScheduleKindShown(view, coupons.length, filter.kind)
+  const timeSplit = splitByPast(timeline)
+
+  // 상품별 — 이 기간에 차수가 없어 카드가 서지 못한 월지급 상품(「다섯째는 없다」 — v2.26 · ⓕ)
+  const orphanCount = productsWithoutRounds(items, coupons)
+
+  const shownCount = view === 'TIME' ? timeline.length : items.length
+  const allCount = view === 'TIME' ? all.length + allCoupons.length : all.length
 
   /*
    * ★ **셋째 빈 상태의 판정은 보기와 무관하다** (DOC-008 §6). 자리만 다르다 —
@@ -123,15 +167,31 @@ export default async function SchedulePage({
           <h1 className="text-xl font-semibold tracking-tight">평가일정</h1>
           <p className="mt-1 text-sm text-neutral-600">
             기준일 {korDate(asOf)} ·{' '}
-            {narrowed ? `${all.length}건 중 ${items.length}건` : `${items.length}건`}
+            {narrowed ? `${allCount}건 중 ${shownCount}건` : `${shownCount}건`}
           </p>
         </div>
         <ViewSwitch filter={filter} view={view} />
       </header>
 
-      <ScheduleFilters filter={filter} owners={ownersOf(all, viewerId)} view={view} />
+      <ScheduleFilters
+        filter={filter}
+        owners={ownersOf(all, viewerId)}
+        view={view}
+        showKind={showKind}
+      />
 
-      {items.length === 0 ? (
+      {/* ⓕ — 빈 상태 위에도 선다. 상품별에서만 — 시간순은 그 상품의 월수익 행을 이미 그린다 */}
+      {view === 'PRODUCT' && orphanCount > 0 && (
+        <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
+          이 기간에 차수가 없어 상품별 보기에 없는 월지급 상품 {orphanCount}건 —{' '}
+          <Link href={`${PATHS.schedule}${scheduleQuery(filter, 'TIME')}`} className="underline">
+            시간순 보기
+          </Link>
+          에서 월수익 행을 본다.
+        </p>
+      )}
+
+      {shownCount === 0 ? (
         <ScheduleEmpty
           narrowed={narrowed}
           mineOnly={isScheduleMineOnly(filter)}
@@ -147,6 +207,7 @@ export default async function SchedulePage({
           <ProductScheduleList
             items={items}
             noteMissingUpcoming={missingUpcoming == null}
+            coupons={coupons}
           />
         </div>
       ) : (
@@ -159,11 +220,17 @@ export default async function SchedulePage({
             빈 절은 렌더되지 않는다. 예외가 하나 있고 그것이 §6의 「예정 평가일 없음」
             이다 — 아래 `emptyNote`.
           */}
-          <Section title="지난 평가일" groups={groupByMonth(past)} count={past.length} />
+          <Section
+            title="지난 평가일"
+            groups={groupByMonth(timeSplit.past)}
+            count={timeSplit.past.length}
+            showKind={showKind}
+          />
           <Section
             title="다가오는 평가일"
-            groups={groupByMonth(upcoming)}
-            count={upcoming.length}
+            groups={groupByMonth(timeSplit.upcoming)}
+            count={timeSplit.upcoming.length}
+            showKind={showKind}
             /*
              * ★ **셋째 빈 상태** (DOC-008 §6 「예정 평가일 없음」). 지난 차수는 있고
              * 다가오는 것이 없는 상태이며, 전 차수가 경과한 미상환 상품만 남았다는
@@ -192,12 +259,15 @@ function Section({
   groups,
   count,
   emptyNote = null,
+  showKind,
 }: {
   title: string
-  groups: ReadonlyArray<MonthGroup<ScheduleItem>>
+  groups: ReadonlyArray<MonthGroup<TimelineRow<ScheduleItem, MonthlyCouponScheduleItem>>>
   count: number
   /** 비었을 때 그 자리에 남길 안내. `null`이면 절 자체를 렌더하지 않는다 */
   emptyNote?: string | null
+  /** 「종류」를 그리는가 — 행이 종류를 말하고 머리글 두 칸이 두 종류를 함께 이른다(v2.33 ⓑ ⓒ) */
+  showKind: boolean
 }) {
   if (count === 0) {
     if (emptyNote == null) return null
@@ -221,9 +291,9 @@ function Section({
         <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.5fr)] gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-500 lg:grid">
           <span>평가일</span>
           <span>상품</span>
-          <span>차수</span>
+          <span>{showKind ? '차수 · 월수익' : '차수'}</span>
           <span>배리어 · 워스트오브</span>
-          <span>예상 충족</span>
+          <span>{showKind ? '예상 충족 · 월수익 상태' : '예상 충족'}</span>
         </div>
 
         {groups.map((group) => (
@@ -239,9 +309,20 @@ function Section({
               </span>
             </h3>
             <ul className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 lg:gap-0 lg:divide-y lg:divide-neutral-200">
-              {group.items.map((item) => (
-                <ScheduleRow key={`${item.productId}-${item.roundNo}`} item={item} />
-              ))}
+              {group.items.map((row) =>
+                row.kind === 'ROUND' ? (
+                  <ScheduleRow
+                    key={`${row.item.productId}-${row.item.roundNo}`}
+                    item={row.item}
+                    showKind={showKind}
+                  />
+                ) : (
+                  <CouponScheduleRow
+                    key={`${row.item.productId}-c${row.item.couponNo}`}
+                    item={row.item}
+                  />
+                ),
+              )}
             </ul>
           </div>
         ))}
@@ -328,6 +409,7 @@ const DEFAULT_FILTER: ScheduleFilter = {
   owner: OWNER_MINE,
   range: 'ALL',
   activeOnly: false,
+  kind: SCHEDULE_KIND_DEFAULT,
 }
 
 /** 소유자만 「전체」로 연 상태 — 둘째 빈 상태의 다음 행동이 가리키는 곳 */

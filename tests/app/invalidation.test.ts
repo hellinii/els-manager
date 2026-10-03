@@ -739,8 +739,9 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/tax',
   ],
   /*
-   * P8 컷 b2 — 월수익 기록 셋(`COUPON_RECORD_WIDE`). **세금이 있고 `/prices` · `/schedule`이 없다** — 기록은 그 달의
-   * 사건을 바꾸지만 상환 여부(「미상환」 수)도 조기상환 차수 행도 바꾸지 않는다. SCR-206 라우트는 b3이다
+   * P8 컷 b2 — 월수익 기록 셋(`COUPON_RECORD_WIDE`). **세금이 있고 `/prices`가 없다** — 기록은 그 달의 사건을 바꾸지만
+   * 상환 여부(「미상환」 수)를 바꾸지 않는다. ~~`/schedule`도 없다 — 조기상환 차수 행을 바꾸지 않는다~~ → **`/schedule`이
+   * 든다** *(b3-6)* — 그 라우트가 §4.12 월수익 행을 읽고 행의 상태 · 기록이 이 입력이다. 차수 행은 여전히 그대로다
    */
   recordCouponPayments: [
     '/',
@@ -750,6 +751,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]/edit',
     '/products/[id]/redeem',
     '/products/[id]/coupons',
+    '/schedule',
     '/tax',
   ],
   updateCouponPayment: [
@@ -760,6 +762,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]/edit',
     '/products/[id]/redeem',
     '/products/[id]/coupons',
+    '/schedule',
     '/tax',
   ],
   deleteCouponPayments: [
@@ -770,6 +773,7 @@ const STALE_ROUTES: Record<MutationName, string[]> = {
     '/products/[id]/edit',
     '/products/[id]/redeem',
     '/products/[id]/coupons',
+    '/schedule',
     '/tax',
   ],
 }
@@ -1093,6 +1097,41 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
     expect(called).toEqual(ledger)
     // 스캐너가 무언가를 봤다 — 빈 대조는 아무것도 증명하지 않는다
     expect(Object.keys(called).sort()).toEqual(['/products/[id]/edit', '/products/new'])
+  })
+
+  it('★ 페이지가 실제로 부르는 조회 계약과 `ROUTE_QUERIES`가 **라우트 단위로** 같다 — `page.tsx`를 훑는다 (P8 컷 b3-6)', () => {
+    /*
+     * 아래 대조는 원장 ↔ §8(문서)이고 원장 ↔ 페이지는 아무도 보지 않았다 — 외부 조회 원장(위 케이스)에는 있던
+     * 좌변이 조회 계약 원장에는 없었다. b3-6의 중간 상태가 그 공백을 실측했다: `ROUTE_QUERIES[PATHS.schedule]`에
+     * `listMonthlyCouponSchedule`을 적고 §8 행을 맞춘 채 페이지는 아직 부르지 않았는데 이 파일 전체가 초록이었다.
+     * 과잉 쪽은 무해하지만(무효화는 부족할 때만 틀린다) **부족 쪽도 같은 공백으로 들어온다** — 페이지가 새 계약을
+     * 부르기 시작하고 원장을 잊으면 그 화면이 그 계약의 변경에 낡는다.
+     *
+     * 페이지가 계약을 `queries.이름(`으로 직접 부르는 것이 오늘의 규약이다(13개 라우트 전부 — 실측). 다른 모듈로
+     * 옮겨 부르면 여기가 빨간불이 되고, 그때는 스캐너를 넓히거나 원장의 좌변을 다른 데서 읽어야 한다.
+     */
+    const called: Record<string, string[]> = {}
+    const walk = (dir: string, prefix: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name === 'page.tsx') {
+          const source = readFileSync(join(dir, entry.name), 'utf8')
+          const names = QUERY_NAMES.filter((name) => new RegExp(`\\bqueries\\.${name}\\(`).test(source))
+          called[prefix === '' ? '/' : prefix] = [...names].sort()
+          continue
+        }
+        if (!entry.isDirectory()) continue
+        const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`
+        walk(join(dir, entry.name), `${prefix}${segment}`)
+      }
+    }
+    walk(APP, '')
+
+    // 원장에 없는 라우트(`/login`)는 빈 배열이어야 한다 — 인증 밖 화면은 조회 계약을 부르지 않는다
+    const ledger: Record<string, string[]> = { [PATHS.login]: [] }
+    for (const [route, names] of Object.entries(ROUTE_QUERIES)) ledger[route] = [...names].sort()
+    expect(called).toEqual(ledger)
+    // 스캐너가 무언가를 봤다 — 빈 대조는 아무것도 증명하지 않는다
+    expect(Object.values(called).flat().length).toBeGreaterThan(10)
   })
 
   it('화면이 읽는 계약과 `ROUTE_QUERIES`가 일치한다', () => {

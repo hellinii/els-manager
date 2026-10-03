@@ -88,6 +88,8 @@ const PRODUCT_WIDE = [
   'getProduct',
   'listProducts',
   'listSchedule',
+  // §4.12 — 상품 · 상환이 행의 존재와 흐름 끝(「상환 후 없음」)을 바꾼다(P8 컷 b3-6)
+  'listMonthlyCouponSchedule',
   'getDashboard',
   'listAssetPrices',
   'getTaxSummary',
@@ -122,8 +124,8 @@ const EXCHANGE_RATE_WIDE = [
  * 판정 기준은 그대로 「어느 입력을 읽는가」다 — 기록은 그 달의 사건을 바꾼다(`PAID`면 확정 사건, `UNPAID`면 사건 없음).
  * 그 사건 집합을 읽는 것이 상세(월수익 행 · 손익) · 목록(진행) · 홈(받은 월수익 · 미기록 주의 · 올해 세금) · 세금 ·
  * 사용자별 현황 · 전망이다. **들지 않는 것**: `listSchedule`(조기상환 차수만) · `listAssetPrices` · `searchAssets` ·
- * `listExchangeRates`(기록은 상환 여부를 바꾸지 않으므로 「미상환」 수가 그대로다). `listMonthlyCouponSchedule`은 그
- * 계약이 서는 컷 b3에서 더한다.
+ * `listExchangeRates`(기록은 상환 여부를 바꾸지 않으므로 「미상환」 수가 그대로다). `listMonthlyCouponSchedule`은
+ * 컷 b3-6에서 더했다 — 행의 상태와 기록이 이 입력이다(§4.12 무효화).
  *
  * ★ 표시 필드의 일부는 b3 · b4에 선다 — 그래도 축은 지금 «읽는 입력»으로 정한다. 지금 좁히면 b3가 표시를 더하는 날
  * 이 축을 넓히는 것을 잊고, 그때 화면이 낡는다(무효화는 부족할 때만 틀린다 — 위 머리글).
@@ -131,6 +133,7 @@ const EXCHANGE_RATE_WIDE = [
 const COUPON_RECORD_WIDE = [
   'getProduct',
   'listProducts',
+  'listMonthlyCouponSchedule',
   'getDashboard',
   'getTaxSummary',
   'listUserSummaries',
@@ -143,6 +146,8 @@ const PRICE_WIDE = [
   'listProducts',
   'getProduct',
   'listSchedule',
+  // §4.12 — 다음 행의 조건 판정(W ≥ 월수익 배리어)이 최신 시세를 쓴다. 상태는 시세를 쓰지 않으므로 세금은 여전히 없다
+  'listMonthlyCouponSchedule',
   'getDashboard',
 ] as const satisfies readonly QueryName[]
 
@@ -163,6 +168,8 @@ export const INVALIDATION = {
     affects: [
       'listProducts',
       'listSchedule',
+      // 새 월지급 상품이 월수익 행을 만든다(§4.12 — `listSchedule`이 여기 있는 것과 같은 근거)
+      'listMonthlyCouponSchedule',
       'getDashboard',
       'listAssetPrices',
       'getTaxSummary',
@@ -321,7 +328,7 @@ export const ROUTE_QUERIES: Record<string, readonly QueryName[]> = {
   // **비어 있는 것이 옳다** — 계약 조건을 입력받지 않으므로 자산 목록도 읽지 않고,
   // 읽는 것이 없으므로 어느 변경도 이 화면을 낡게 하지 않는다(`/settings`와 같은 자리).
   [PATHS.productRealizedNew]: [],
-  [PATHS.schedule]: ['listSchedule'],
+  [PATHS.schedule]: ['listSchedule', 'listMonthlyCouponSchedule'],
   // 환율 절(P8 컷 a3)이 같은 화면에 있다 — 새 화면을 만들지 않았다(DOC-008 SCR-302)
   [PATHS.prices]: ['listAssetPrices', 'listExchangeRates'],
   [PATHS.tax]: ['getTaxSummary'],

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { loadProduct, loadScheduleRows, type ProductRow, type ScheduleWithProductRow } from '@/lib/db/queries/load'
+import { loadProduct, loadProducts, loadScheduleRows, type ProductRow, type ScheduleWithProductRow } from '@/lib/db/queries/load'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
 import { dec } from '@/lib/decimal'
-import type { ProductDetailView, ProductListItem } from '@/lib/db/queries/map'
+import type { MonthlyCouponScheduleItem, ProductDetailView, ProductListItem, ScheduleItem } from '@/lib/db/queries/map'
 
 import { FX, ITG_USER_A } from './helpers/fixtures'
 import { collect, type Coverage, type Spec } from './helpers/formats'
@@ -17,7 +17,7 @@ import {
   seedSchedule,
   seedUnderlying,
 } from './helpers/seed'
-import { AS_OF, contractsFor, setupScenario, type Scenario } from './helpers/scenario'
+import { AS_OF, contractsFor, countRequests, setupScenario, tallyPaths, type Scenario } from './helpers/scenario'
 
 /**
  * §4.3 월수익 필드의 직렬화 — `coupons` · `unnumberedCouponRecords` · `monthlyCouponAnnualRate` · `pnlBreakdown`
@@ -95,6 +95,29 @@ const DASHBOARD_TABLE: Record<string, Spec> = {
 }
 const DASHBOARD_PREFIXES = ['totals.byCurrency[].receivedCoupons', 'attentionItems[].count']
 
+/**
+ * §4.12 월수익 일정의 행 전부 (b3-6). `formats.test.ts`는 이 계약의 표를 비워 둔다(그 파일엔 월지급 행이 없다) — 판정은
+ * 여기가 전담한다. 분류는 §4.3 `coupons[]`의 같은 이름 필드와 같아야 한다(같은 매퍼다)
+ */
+const MONTHLY_SCHEDULE_TABLE: Record<string, Spec> = {
+  productId: 'UUID',
+  productName: 'TEXT',
+  ownerName: 'TEXT',
+  currency: ['KRW', 'USD'],
+  couponNo: 'NUMBER',
+  evaluationDate: 'DATE',
+  paymentDate: 'DATE',
+  couponBarrier: 'RATIO',
+  state: COUPON_STATES,
+  expectedAmount: 'MONEY',
+  record: 'NULL_OBJECT',
+  'record.outcome': COUPON_OUTCOMES,
+  'record.grossAmount': 'MONEY',
+  'record.paymentDate': 'DATE',
+  conditionResult: COUPON_CONDITION_RESULTS,
+  isPast: 'BOOL',
+}
+
 /** 이 파일이 맡는 경로의 뿌리 — `product` · `redemption` 전체가 아니라 그 안의 월수익 필드만이다 */
 const COUPON_PREFIXES = ['product.monthlyCouponAnnualRate', 'coupons', 'unnumberedCouponRecords', 'redemption.pnlBreakdown']
 
@@ -108,6 +131,12 @@ let list: ProductListItem[]
 let dashboard: DashboardView
 let listCoverage: Coverage
 let dashboardCoverage: Coverage
+let monthlySchedule: MonthlyCouponScheduleItem[]
+let monthlyCoverage: Coverage
+let schedule: ScheduleItem[]
+/** §4.12의 루트 질의가 지급방식 · 상환 부재를 질의로 내리는가 — 매퍼의 가드와 갈라 본다 */
+let monthlyRoots: ProductRow[]
+let activeMonthlyRoots: ProductRow[]
 
 async function seedMonthlyFull(params: {
   id: string
@@ -236,6 +265,12 @@ beforeAll(async () => {
   // ⑦ 셋째 결함 — 월지급식인데 일정 0행
   await seedMonthlyFull({ id: FX.productMonthlyBroken, name: '월지급결함', currency: 'KRW', principal: '100000000', rate: '0.0720', rounds: ACTIVE_ROUNDS, months: 0 })
 
+  // ⑧ 계약 밖 쓰기 — 상환 시 지급 상품 아래 월수익 일정 한 행(§4.12의 지급방식 조건 대조)
+  await seedProduct({ id: FX.productMonthlyStray, ownerId: ITG_USER_A, name: '상환시지급잔재', principal: '100000000' })
+  await seedUnderlying({ elsId: FX.productMonthlyStray, assetId: FX.assetSolo, basePrice: '100.000000', sequence: 1 })
+  await seedSchedule({ elsId: FX.productMonthlyStray, roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' })
+  await seedCouponSchedule({ elsId: FX.productMonthlyStray, couponNo: 1, evaluationDate: '2026-07-01', paymentDate: '2026-07-04', couponBarrier: '0.6000' })
+
   const ids = {
     krw: FX.productMonthlyKrw,
     usd: FX.productMonthlyUsd,
@@ -262,7 +297,13 @@ beforeAll(async () => {
   listCoverage = collect(LIST_TABLE, list.map((value, i) => ({ label: `listProducts[${i}]`, value })))
   dashboardCoverage = collect(DASHBOARD_TABLE, [{ label: 'MINE', value: dashboard }])
 
+  monthlySchedule = await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A })
+  monthlyCoverage = collect(MONTHLY_SCHEDULE_TABLE, monthlySchedule.map((value, i) => ({ label: `listMonthlyCouponSchedule[${i}]`, value })))
+  schedule = await s.asA.listSchedule({ ownerId: ITG_USER_A })
+
   const ctx = { db: (await contractsFor(ITG_USER_A)).db, asOf: AS_OF, viewerId: ITG_USER_A }
+  monthlyRoots = await loadProducts(ctx, { ownerId: ITG_USER_A, couponPayout: 'MONTHLY' })
+  activeMonthlyRoots = await loadProducts(ctx, { ownerId: ITG_USER_A, couponPayout: 'MONTHLY', activeOnly: true })
   rawProduct = await loadProduct(ctx, FX.productMonthlyKrw)
   rawScheduleRows = (await loadScheduleRows(ctx, { ownerId: ITG_USER_A })).filter(
     (row) => row.els_products.id === FX.productMonthlyKrw,
@@ -418,5 +459,134 @@ describe('§4.2 목록 · §4.1 홈 — 월수익 경로 (b3-5)', () => {
     expect(krw?.terms.monthlyCoupon).toEqual({ annualRate: '0.0720', barrier: '0.6000' })
     const plain = list.find((row) => row.id === FX.productA)
     expect([plain?.couponPayout, plain?.couponProgress, plain?.terms.monthlyCoupon]).toEqual(['AT_REDEMPTION', null, null])
+  })
+})
+
+describe('§4.12 월수익 일정 — SCR-301 (b3-6)', () => {
+  const byProduct = (id: string) => monthlySchedule.filter((row) => row.productId === id)
+
+  it('형식 — 위반 · 미분류 · 미관측 · null로만 관측 없음 · 상품 통화 경로마다 원화와 달러(③′)', () => {
+    expect(monthlyCoverage.violations).toEqual([])
+    expect(monthlyCoverage.unclassified).toEqual([])
+    expect(monthlyCoverage.unobserved).toEqual([])
+    expect(monthlyCoverage.neverNonNull).toEqual([])
+    expect(monthlyCoverage.moneyCurrencies).toEqual({ expectedAmount: ['KRW', 'USD'], 'record.grossAmount': ['KRW', 'USD'] })
+  })
+
+  it('행의 집합 — 일정이 있는 월지급 넷 × 12 · 기실현(일정 없음) · 결함(억제) · 상환 시 지급의 잔재 행은 없다', () => {
+    expect(new Set(monthlySchedule.map((row) => row.productId))).toEqual(
+      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyKrwRedeemed, FX.productMonthlyUsdRedeemed]),
+    )
+    expect(monthlySchedule).toHaveLength(48)
+    // 잔재 행은 나오지 않는다 — 이 단언은 결과만 본다(매퍼도 지급방식을 가드한다). 질의 조건은 아래 케이스가 가른다
+    expect(byProduct(FX.productMonthlyStray)).toEqual([])
+  })
+
+  it('★ 부모 조건은 질의로 내려간다(Q-05) — 루트 행부터 월지급식만 · 미상환만', () => {
+    // 매퍼의 가드만 있고 질의 조건이 빠지면 결과는 같고 이 집합만 달라진다 — 상환 시 지급 상품 전부를 읽고 버린다
+    expect(new Set(monthlyRoots.map((row) => row.id))).toEqual(
+      new Set([
+        FX.productMonthlyKrw,
+        FX.productMonthlyUsd,
+        FX.productMonthlyKrwRedeemed,
+        FX.productMonthlyUsdRedeemed,
+        FX.productMonthlyKrwRealized,
+        FX.productMonthlyUsdRealized,
+        FX.productMonthlyBroken,
+      ]),
+    )
+    // 상환 부재 = 루트의 to-one 임베드 `redemptions=is.null` — 차수 루트의 `els_products.redemptions=is.null`과 같은 형태
+    expect(new Set(activeMonthlyRoots.map((row) => row.id))).toEqual(
+      new Set([FX.productMonthlyKrw, FX.productMonthlyUsd, FX.productMonthlyBroken]),
+    )
+  })
+
+  it('★ 같은 매퍼 — 같은 상품의 같은 달에 §4.3과 다른 상태 · 금액 · 판정 · 기록을 말하지 않는다', () => {
+    for (const key of ['krw', 'usd', 'krwRedeemed', 'usdRedeemed'] as const) {
+      const view = views[key]!
+      const fromDetail = view.coupons!.map((c) => ({
+        couponNo: c.couponNo,
+        evaluationDate: c.evaluationDate,
+        paymentDate: c.paymentDate,
+        couponBarrier: c.couponBarrier,
+        state: c.state,
+        expectedAmount: c.expectedAmount,
+        record:
+          c.record == null
+            ? null
+            : { outcome: c.record.outcome, grossAmount: c.record.grossAmount, paymentDate: c.record.paymentDate },
+        conditionResult: c.conditionResult,
+      }))
+      const fromSchedule = byProduct(view.product.id).map(
+        ({ productId: _p, productName: _n, ownerName: _o, currency: _c, isPast: _i, ...rest }) => rest,
+      )
+      expect(fromSchedule, key).toEqual(fromDetail)
+    }
+  })
+
+  it('정렬 — 월수익 평가일 · 상품명 · 순번(§4.4와 같은 열쇠)', () => {
+    const keys = monthlySchedule.map((row) => [row.evaluationDate, row.productName, row.couponNo] as const)
+    const sorted = [...keys].sort(
+      (a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2] - b[2],
+    )
+    expect(keys).toEqual(sorted)
+  })
+
+  it('isPast — 월수익 평가일 < 기준일(당일은 경과가 아니다)', () => {
+    for (const row of monthlySchedule) expect(row.isPast, row.evaluationDate).toBe(row.evaluationDate < AS_OF)
+  })
+
+  it('★ 날짜 범위는 매퍼 뒤에 건다 — 범위 안의 한 행의 판정 · 상태가 전체 집합에서 나온다', async () => {
+    // 07-01 하루만 — 원화 보유중의 6번째 달이 「다음 한 행」이고(07-02 흐름 끝 안) 예상 지급이다
+    const day = await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A, from: '2026-07-01', to: '2026-07-01' })
+    const krw = day.find((row) => row.productId === FX.productMonthlyKrw)
+    expect(krw).toMatchObject({ couponNo: 6, state: 'SCHEDULED', conditionResult: 'EXPECTED_PAID' })
+    // 임베드를 거르면 다음 행과 흐름 끝이 잘린 집합에서 나온다 — 여기서는 상환된 상품이 여전히 「상환 후 없음」이다
+    expect(day.find((row) => row.productId === FX.productMonthlyKrwRedeemed)?.state).toBe('ENDED')
+    expect(day.every((row) => row.evaluationDate === '2026-07-01')).toBe(true)
+    expect(day).toHaveLength(4)
+  })
+
+  it('★ 범위가 다음 행을 자르면 판정은 범위 밖에 남는다 — 범위 안의 첫 행에 옮겨 붙지 않는다', async () => {
+    // 다음 행은 07-01(6번째 달)이다. 07-02부터 보면 그 행이 빠지고 7번째 달(08-01)이 범위의 첫 행이 된다 —
+    // 날짜를 임베드 필터로 내리면 잘린 집합의 「다음」이 08-01이 되어 거기에 판정이 붙는다(§4.4 루트 각주의 함정)
+    const later = await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A, from: '2026-07-02' })
+    const krw = later.filter((row) => row.productId === FX.productMonthlyKrw)
+    expect(krw[0]).toMatchObject({ couponNo: 7, evaluationDate: '2026-08-01', state: 'BEYOND_ASSUMPTION' })
+    expect(krw.map((row) => row.conditionResult).filter((r) => r != null)).toEqual([])
+  })
+
+  it('미상환만 — 상환된 상품의 행이 빠진다(부모의 상환 부재 조건)', async () => {
+    const active = await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A, activeOnly: true })
+    expect(new Set(active.map((row) => row.productId))).toEqual(new Set([FX.productMonthlyKrw, FX.productMonthlyUsd]))
+  })
+
+  it('★ 왕복 2 — 상품 한 번 + 시세 한 번. 세율 · 환율을 읽지 않는다(DOC-011 §4.0 왕복 표)', async () => {
+    const counter = countRequests()
+    try {
+      await s.asA.listMonthlyCouponSchedule({ ownerId: ITG_USER_A })
+      expect(tallyPaths(counter.paths())).toEqual({ els_products: 1, assets: 1 })
+    } finally {
+      counter.restore()
+    }
+  })
+
+  it('JSON 왕복이 값을 바꾸지 않는다 — 금액이 문자열로 남는다', () => {
+    expect(JSON.parse(JSON.stringify(monthlySchedule))).toEqual(monthlySchedule)
+  })
+})
+
+describe('§4.4 — 월지급 상품의 차수 행 (b3-6)', () => {
+  it('couponPayout이 차수마다 오고 셋째 결함을 이 목록도 말한다(존재 탐침)', () => {
+    const of = (id: string) => schedule.filter((item) => item.productId === id)
+    expect(of(FX.productMonthlyKrw).map((item) => [item.couponPayout, item.integrityIssue])).toEqual([
+      ['MONTHLY', null],
+      ['MONTHLY', null],
+    ])
+    expect(of(FX.productMonthlyBroken).map((item) => item.integrityIssue)).toEqual([
+      'COUPON_SCHEDULE_MISSING',
+      'COUPON_SCHEDULE_MISSING',
+    ])
+    expect(of(FX.productA).every((item) => item.couponPayout === 'AT_REDEMPTION')).toBe(true)
   })
 })

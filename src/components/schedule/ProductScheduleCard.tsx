@@ -2,17 +2,23 @@ import Link from 'next/link'
 
 import { Badge } from '@/components/display/Badge'
 import { UnderlyingLines } from '@/components/display/UnderlyingLines'
-import type { ScheduleItem } from '@/lib/db/queries/map'
+import type { MonthlyCouponScheduleItem, ScheduleItem } from '@/lib/db/queries/map'
 import type { ProductCurrency } from '@/lib/domain/currency'
 import {
   ACCOUNT_TYPE_LABELS,
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
+  COUPON_CONDITION_RESULT_GRADES,
+  COUPON_CONDITION_RESULT_LABELS,
+  COUPON_STATE_GRADES,
+  COUPON_STATE_LABELS,
   KI_OBSERVATION_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   amount,
   barrierGap,
+  couponAmountShown,
+  couponMonthLabel,
   dDayLabel,
   deriveDisplay,
   kiTermLabel,
@@ -78,9 +84,15 @@ export function ProductScheduleCard({
   group,
   /** 셋째 빈 상태가 화면 단위로 떠 있으면 카드가 같은 말을 반복하지 않는다 */
   noteMissingUpcoming,
+  coupons,
 }: {
   group: ProductGroup<ScheduleItem>
   noteMissingUpcoming: boolean
+  /**
+   * 이 상품의 월수익 행(§4.12 — 같은 기간 · 같은 필터, 순번 오름차순). 상환 시 지급 상품은 늘 빈 배열이다 —
+   * ⑮는 `couponPayout`이 가르고 행의 유무로 가르지 않는다(⑧과 같은 이유 — DOC-008 SCR-301 「P8 월지급식」)
+   */
+  coupons: readonly MonthlyCouponScheduleItem[]
 }) {
   const head = group.upcoming[0] ?? group.past[0]
   // 그룹은 구성상 비지 않는다(차수가 있어야 카드가 생긴다). 타입이 그것을 말하지
@@ -125,14 +137,18 @@ export function ProductScheduleCard({
               <span className="tabular-nums">{money(group.principal, group.currency)}</span>
             )}
           </HeadFact>
-          <HeadFact label="연쿠폰">
-            {group.annualCouponRate == null ? (
-              /* 계약 조건이 없는 상품이다(D-07). 「0%」가 아니라 「모른다」다 */
-              <span className="text-neutral-400">—</span>
-            ) : (
-              <span className="tabular-nums">{percent(group.annualCouponRate)}</span>
-            )}
-          </HeadFact>
+          {/* ⑧ — 월지급식이면 숨긴다(늘 0% — I-23). 0%를 적으면 수익이 없는 상품으로 읽힌다(SCR-201 ⑩과 같은 판단).
+              가르는 값은 `couponPayout`이다 — 월수익 행의 유무로 가르면 기간 필터가 그 행을 다 자를 때 0%가 되살아난다 */}
+          {group.couponPayout !== 'MONTHLY' && (
+            <HeadFact label="연쿠폰">
+              {group.annualCouponRate == null ? (
+                /* 계약 조건이 없는 상품이다(D-07). 「0%」가 아니라 「모른다」다 */
+                <span className="text-neutral-400">—</span>
+              ) : (
+                <span className="tabular-nums">{percent(group.annualCouponRate)}</span>
+              )}
+            </HeadFact>
+          )}
           {/* 워스트오브는 «상품 단위 값»이라 열이 아니라 머리에 둔다 — 열로 두면
               N행에 같은 숫자가 N번 나온다(시간순 보기가 안고 있는 중복이다) */}
           <HeadFact label="워스트오브">
@@ -256,7 +272,97 @@ export function ProductScheduleCard({
             </ul>
           </details>
         )}
+
+        {/* ⑮ 월수익 하위 목록 — 차수 표 «아래»다(카드의 주 내용은 차수 — DOC-008 v2.33 ⓓ) */}
+        {group.couponPayout === 'MONTHLY' && coupons.length > 0 && (
+          <CouponSubList coupons={coupons} currency={group.currency} />
+        )}
       </div>
+    </li>
+  )
+}
+
+/**
+ * ⑮ 월수익 하위 목록 — **다음 월수익 하나를 보이고 나머지는 펼쳐 본다** (DOC-008 SCR-301 · SQ-14 해결).
+ *
+ * 월지급 상품은 월수익 행이 K개(EM2048은 36)라 펼친 채 두면 차수 행이 그 아래 묻힌다. **「다음」은 `isPast`가 거짓인
+ * 첫 행이다** — 계약의 다음 행(`t_k ≥ 기준일` — 판정이 붙는 행)과 같은 경계이고 화면은 날짜를 비교하지 않는다(v2.33
+ * ⓓ). 다음이 없으면(기간 = 지난 · 전 달 경과) 펼친다 — 위 「지난 차수」의 `open={upcoming.length === 0}`과 같은 규칙.
+ *
+ * 행의 표기는 SCR-202 ⑦과 같다 — 「5번째 · 2027-02-16」 · 월수익 지급일(기록이 있으면 거래내역의 것 — ⓖ) · 상태 ·
+ * 판정 · 금액(같은 절사값, 「상환 후 없음」은 적지 않는다). 액션이 없는 것만 다르다 — 기록은 상세의 「기록」이 한다.
+ */
+function CouponSubList({
+  coupons,
+  currency,
+}: {
+  coupons: readonly MonthlyCouponScheduleItem[]
+  currency: ProductCurrency
+}) {
+  const nextIndex = coupons.findIndex((coupon) => !coupon.isPast)
+  const next = nextIndex === -1 ? null : coupons[nextIndex]
+  const rest = coupons.filter((_, index) => index !== nextIndex)
+
+  return (
+    <div className="border-t border-neutral-200">
+      <p className="bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-500">
+        월수익 평가일 <span className="font-normal">{coupons.length}건</span>
+      </p>
+      {next != null && (
+        <ul className="border-t border-neutral-200">
+          <CouponLine coupon={next} currency={currency} />
+        </ul>
+      )}
+      {rest.length > 0 && (
+        <details open={next == null} className="border-t border-neutral-200">
+          <summary className="cursor-pointer px-4 py-2 text-xs text-neutral-600 marker:text-neutral-400 hover:bg-neutral-50">
+            {next == null ? `월수익 ${rest.length}건` : `나머지 월수익 ${rest.length}건`}
+          </summary>
+          <ul className="divide-y divide-neutral-200 border-t border-neutral-200">
+            {rest.map((coupon) => (
+              <CouponLine key={coupon.couponNo} coupon={coupon} currency={currency} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  )
+}
+
+/** 월수익 · 지급일 · 상태 · 금액 — 완전한 리터럴이다(위 `ROUND_COLS`의 각주) */
+const COUPON_LINE_COLS =
+  'lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)]'
+
+function CouponLine({
+  coupon,
+  currency,
+}: {
+  coupon: MonthlyCouponScheduleItem
+  currency: ProductCurrency
+}) {
+  const shown = couponAmountShown(coupon)
+  return (
+    // 지난 차수 행과 같은 흐림 — 지난 달은 `isPast`(계약의 값)로만 가른다
+    <li
+      className={`grid gap-1.5 px-4 py-3 lg:items-center lg:gap-3 ${COUPON_LINE_COLS} ${
+        coupon.isPast ? 'bg-neutral-50/60 text-neutral-500' : ''
+      }`}
+    >
+      <span className="text-sm font-medium tabular-nums">
+        {couponMonthLabel(coupon.couponNo, coupon.evaluationDate)}
+      </span>
+      <Cell label="월수익 지급일">
+        <span className="tabular-nums">{ymd(coupon.record?.paymentDate ?? coupon.paymentDate)}</span>
+      </Cell>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge grade={COUPON_STATE_GRADES[coupon.state]}>{COUPON_STATE_LABELS[coupon.state]}</Badge>
+        {coupon.conditionResult != null && (
+          <Badge grade={COUPON_CONDITION_RESULT_GRADES[coupon.conditionResult]}>
+            {COUPON_CONDITION_RESULT_LABELS[coupon.conditionResult]}
+          </Badge>
+        )}
+      </div>
+      <Money label="금액">{shown == null ? null : money(shown, currency)}</Money>
     </li>
   )
 }

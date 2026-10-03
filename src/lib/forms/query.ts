@@ -351,12 +351,45 @@ export function dashboardQuery(scope: DashboardScope): string {
  */
 export type ScheduleRange = 'ALL' | 'PAST' | 'UPCOMING'
 
+/**
+ * 종류 — 시간순 보기의 행을 조기상환 평가일 / 월수익 평가일로 좁힌다 (DOC-008 SCR-301 v2.26 · v2.33 ⓐ, P8 컷 b3-6).
+ *
+ * **좁히는 축이다** — 보기 전환(묶는 키만 다르다)과 달리 행을 뺀다. 그래서 `ScheduleFilter` 안에 있고
+ * `isScheduleNarrowed`가 센다(v2.26). **계약 입력이 아니다** — 두 계약 중 어느 행을 그릴지를 고를 뿐이다.
+ *
+ * ★ **시간순 보기에만 뜻이 있다** (v2.33 ⓐ). 상품별 카드는 두 종류를 이미 자리로 가르고 카드의 존재는 차수가
+ * 정하므로, 그 보기에서는 파서가 기본값으로 읽고 주소도 싣지 않는다(`scheduleQuery`). 그래야 한 보기에만 뜻이
+ * 있는 값이 다른 보기의 빈 상태 · 「N건 중」을 바꾸지 않는다.
+ */
+export type ScheduleKind = 'ALL' | 'ROUND' | 'COUPON'
+
+export const SCHEDULE_KIND_DEFAULT: ScheduleKind = 'ALL'
+
+const SCHEDULE_KINDS = ['ALL', 'ROUND', 'COUPON'] as const
+
+/**
+ * 「종류」를 그리는가 — 시간순 보기이고, 월수익 행이 있거나 이미 좁혀 있을 때(DOC-008 SCR-301 v2.26 · v2.33 ⓐ ⓑ).
+ *
+ * 월수익 행이 없고 기본값이면 그리지 않는다 — 원화 · 상환 시 지급뿐인 포트폴리오의 화면이 종전과 같다. 좁힌 상태는
+ * 늘 그린다 — 되돌릴 칸이 사라지면 사용자가 그 필터에 갇힌다. 행이 종류를 말하는 것(ⓑ)도 이 값을 따른다.
+ */
+export function isScheduleKindShown(view: ScheduleView, couponRowCount: number, kind: ScheduleKind): boolean {
+  return view === 'TIME' && (couponRowCount > 0 || kind !== SCHEDULE_KIND_DEFAULT)
+}
+
+/** 그 「종류」가 어느 계약의 행을 그리는가 — 페이지가 병합 앞에서 고른다(`mergeTimeline`은 병합만 한다) */
+export function scheduleKindIncludes(kind: ScheduleKind): { rounds: boolean; coupons: boolean } {
+  return { rounds: kind !== 'COUPON', coupons: kind !== 'ROUND' }
+}
+
 export type ScheduleFilter = {
   /** SCR-201과 **같은 축·같은 기본값**이다 — `OwnerScope`의 각주 */
   owner: OwnerScope
   range: ScheduleRange
   /** DOC-008 §5의 「미상환만 보기」. `false`가 「전체」다 */
   activeOnly: boolean
+  /** 시간순 보기의 「종류」 — 상품별 보기에서는 늘 기본값이다(위 `ScheduleKind`) */
+  kind: ScheduleKind
 }
 
 /**
@@ -367,6 +400,7 @@ export const SCHEDULE_KEYS = {
   owner: FILTER_KEYS.owner,
   range: 'range',
   activeOnly: 'activeOnly',
+  kind: 'kind',
   /** ★ 보기 축. **`ScheduleFilter`에 들어 있지 않다** — 아래 `parseScheduleView` */
   view: 'view',
 } as const
@@ -378,6 +412,11 @@ const SCHEDULE_RANGES = ['ALL', 'PAST', 'UPCOMING'] as const
 export function parseScheduleFilter(
   values: QueryValues,
   viewerId: string,
+  /**
+   * **필수다** — 「종류」를 읽을지가 보기에 달렸다(시간순에만 뜻이 있다). 선택으로 두면 잊은 호출부가 상품별 보기에서
+   * 주소의 `kind`를 읽어 걸지도 보이지도 않는 필터로 「좁혀짐」을 만든다
+   */
+  view: ScheduleView,
 ): ScheduleFilter {
   return {
     owner: parseOwnerScope(one(values[SCHEDULE_KEYS.owner]), viewerId),
@@ -388,6 +427,10 @@ export function parseScheduleFilter(
     // 같은 규약). 값은 보지 않는다: 주소를 손으로 적은 `activeOnly=0`도 「켬」이며,
     // 폼이 만들 수 없는 형태에 특별한 뜻을 주지 않는다.
     activeOnly: one(values[SCHEDULE_KEYS.activeOnly]) !== '',
+    kind:
+      view === 'TIME'
+        ? (oneOf(one(values[SCHEDULE_KEYS.kind]), SCHEDULE_KINDS) ?? SCHEDULE_KIND_DEFAULT)
+        : SCHEDULE_KIND_DEFAULT,
   }
 }
 
@@ -436,7 +479,9 @@ export function isScheduleNarrowed(filter: ScheduleFilter): boolean {
   return (
     filter.owner !== OWNER_ALL ||
     filter.activeOnly ||
-    filter.range !== SCHEDULE_RANGE_DEFAULT
+    filter.range !== SCHEDULE_RANGE_DEFAULT ||
+    // P8 컷 b3-6 — 「종류」도 행을 뺀다(DOC-008 SCR-301 v2.26)
+    filter.kind !== SCHEDULE_KIND_DEFAULT
   )
 }
 
@@ -450,7 +495,8 @@ export function isScheduleMineOnly(filter: ScheduleFilter): boolean {
   return (
     filter.owner === OWNER_MINE &&
     !filter.activeOnly &&
-    filter.range === SCHEDULE_RANGE_DEFAULT
+    filter.range === SCHEDULE_RANGE_DEFAULT &&
+    filter.kind === SCHEDULE_KIND_DEFAULT
   )
 }
 
@@ -507,6 +553,10 @@ export function scheduleQuery(filter: ScheduleFilter, view: ScheduleView): strin
     pairs.push([SCHEDULE_KEYS.range, filter.range])
   }
   if (filter.activeOnly) pairs.push([SCHEDULE_KEYS.activeOnly, 'on'])
+  // 「종류」는 시간순 보기에만 싣는다 — 상품별 주소에 남기면 그 보기의 파서가 버리는 값이 주소에 떠돈다(v2.33 ⓐ)
+  if (view === 'TIME' && filter.kind !== SCHEDULE_KIND_DEFAULT) {
+    pairs.push([SCHEDULE_KEYS.kind, filter.kind])
+  }
   if (view !== SCHEDULE_VIEW_DEFAULT) pairs.push([SCHEDULE_KEYS.view, view])
 
   if (pairs.length === 0) return ''

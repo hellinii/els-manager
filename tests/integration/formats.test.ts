@@ -290,7 +290,8 @@ const SCHEDULE_ITEM: Record<string, Spec> = {
   status: STATUSES,
   worstOf: 'RATIO',
   conditionResult: CONDITION_RESULTS,
-  integrityIssue: ['UNDERLYING_MISSING'],
+  // b3-6 — 셋째 결함도 이 목록에 온다(존재 탐침). 이 파일의 픽스처에는 없다 — 비-null은 UNDERLYING_MISSING이 관측한다
+  integrityIssue: ['UNDERLYING_MISSING', 'COUPON_SCHEDULE_MISSING'],
   isPast: 'BOOL',
   // v3.3 신설 다섯. **분류가 §4.2·§4.3의 같은 이름 필드와 같아야 한다** —
   // `principal`·`accountType`은 §4.2에, `expectedGross`는 §4.3에 있고 화면은
@@ -298,6 +299,8 @@ const SCHEDULE_ITEM: Record<string, Spec> = {
   // 다르게 직렬화한다는 뜻이다.
   principal: 'MONEY',
   currency: CURRENCIES,
+  // b3-6 — §4.2 `couponPayout`과 같은 분류(같은 열)
+  couponPayout: COUPON_PAYOUTS,
   annualCouponRate: 'RATIO',
   accountType: ACCOUNT_TYPES,
   totalRounds: 'NUMBER',
@@ -604,6 +607,7 @@ beforeAll(async () => {
     detailUsdRedeemed,
     detailUsdActive,
     schedule,
+    monthlySchedule,
     prices,
     assets,
     tax,
@@ -624,6 +628,7 @@ beforeAll(async () => {
     s.asA.getProduct(FX.productFormatUsdRedeemed),
     s.asA.getProduct(FX.productFormatUsdActive),
     s.asA.listSchedule(),
+    s.asA.listMonthlyCouponSchedule(),
     s.asA.listAssetPrices(),
     s.asA.searchAssets('자산'),
     s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
@@ -706,6 +711,15 @@ beforeAll(async () => {
       coverage: collect(SCHEDULE_ITEM, rows('listSchedule', schedule)),
     },
     {
+      /*
+       * §4.12 (P8 컷 b3-6) — **이 파일의 픽스처는 전부 상환 시 지급이라 행이 0이다.** 형식은 월지급 픽스처가 서는
+       * `coupon-views.test.ts`가 판정한다(같은 계기 · ③′ 포함). 여기서는 표를 비워 두는 것이 위임의 강제다 — 이
+       * 파일에 월지급 행이 생기면 모든 잎이 ②(미분류)로 죽어 판정을 옮기라고 말한다. 0을 세고 통과하는 자리가 아니다
+       */
+      contract: '§4.12 listMonthlyCouponSchedule',
+      coverage: collect({}, rows('listMonthlyCouponSchedule', monthlySchedule)),
+    },
+    {
       contract: '§4.5 listAssetPrices',
       coverage: collect(ASSET_PRICE, rows('listAssetPrices', prices)),
     },
@@ -747,9 +761,9 @@ afterAll(async () => {
   await closeSeedConnection()
 })
 
-describe('Q-07 형식 적합성 — 10계약 전 필드', () => {
-  it('계약 10개를 모두 수집했다', () => {
-    expect(coverages.map((c) => c.contract)).toHaveLength(10)
+describe('Q-07 형식 적합성 — 11계약 전 필드', () => {
+  it('계약 11개를 모두 수집했다', () => {
+    expect(coverages.map((c) => c.contract)).toHaveLength(11)
   })
 
   it('① 모든 값이 자기 분류의 형식을 지킨다', () => {

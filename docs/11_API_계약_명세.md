@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.27 |
+| 버전 | 4.28 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.28 | 2026-10-03 | 민서 | **P8 컷 b3-6 — §4.12 `listMonthlyCouponSchedule`가 섰다(조회 계약 10 → 11) · §4.4 `couponPayout` · 셋째 결함이 이 목록에 온다.** 표 행 셋이 같은 커밋에 움직였다: §8 SCR-301 행(조회 칸에 `listMonthlyCouponSchedule`) · §4.0 왕복 표(**2** — 상품 + 시세. 세율 · 환율을 읽지 않는다. 월지급 상품이 0건이면 상품 한 번에서 끝난다 — 빈 `in()`을 만들지 않는다, `getProductNoUnderlying`과 같은 갈래) · §9 계약면 표의 「지금」(11). 결속 원장 — `Queries`(`context.ts` 「11개」) · `ROUTE_QUERIES[PATHS.schedule]` · `INVALIDATION`의 세 축(`PRODUCT_WIDE` · `PRICE_WIDE` · `COUPON_RECORD_WIDE`)과 `createProduct` · 통합의 계약 수 넷(`formats` · `serialization` · `contracts` · `integrity-inputs`). **리드 결정 둘.** ① **`record.paymentDate`** — DOC-008 SCR-301이 하위 목록의 표기를 SCR-202 ⑦과 같다고 정했는데(지급 기록이 있으면 거래내역의 지급일) §4.12의 `record`가 결과 · 세전만 실어 같은 달의 지급일을 두 화면이 다르게 적게 되어 있었다. 같은 매퍼라 왕복 · 비용 0이다(DOC-008 v2.33 ⓖ). ② **같은 날의 정렬 열쇠.** 명세는 「상품의 질의 순서 · 월수익 순번(안정 정렬)」이었는데 상품 루트 질의(`loadProducts`)에 `order`가 없어 그 순서가 정해지지 않는다 — 같은 날의 두 상품이 요청마다 자리를 바꿀 수 있다. **§4.4와 같은 열쇠(평가일 · 상품명 · 순번)**로 바꿨다(그 계약이 같은 이유로 상품명을 둘째 열쇠로 둔다). **형식 판정의 자리** — 월지급 픽스처는 `tests/integration/coupon-views.test.ts`에만 서므로 §4.12의 형식(③′ 원화 · 달러 포함)은 그 파일이 판정하고, `formats.test.ts`는 이 계약의 표를 **비워 둔다** — 그 파일에 월지급 행이 생기면 모든 잎이 미분류로 죽어 판정을 옮기라고 말한다(0을 세고 통과하는 자리가 아니다). 같은 파일이 **같은 매퍼**(§4.3 `coupons`와 상태 · 금액 · 판정 · 기록이 행마다 같다) · 날짜 범위가 매퍼 뒤라는 것(범위 하루짜리 질의에서도 다음 행 판정과 「상환 후 없음」이 전체 집합에서 나온다) · 계약 밖 잔재(상환 시 지급 상품 아래 일정 한 행)가 나오지 않음을 단언한다. 페이로드(DOC-010 AQ-77의 두 형태 대조)는 dev 표본에 월지급 상품이 서는 b3-7에서 잰다 — 이 컷의 표본에는 월지급 상품이 없다. **부수 발견 — 조회 원장 ↔ 페이지 대조가 없었다.** §8 매트릭스의 코드 측 짝(`ROUTE_QUERIES`)은 문서(§8 행)와만 대조되고 페이지가 실제로 부르는 계약과는 아무도 대조하지 않았다 — 외부 조회 원장(`ROUTE_EXTERNAL_LOOKUPS`)에는 있던 좌변이다. 이 컷의 중간 상태(원장 · §8에 `listMonthlyCouponSchedule`을 적고 페이지는 아직 부르지 않음)에서 `tests/app/invalidation.test.ts` 전체가 초록이었다. 같은 커밋에 `page.tsx`의 `queries.이름(` 호출을 원장과 라우트 단위로 대조하는 케이스를 세웠다(13 라우트 + `/login` — 실측으로 원장과 정확히 같았다). 무효화는 부족할 때만 틀리므로 이 공백의 위험한 쪽은 반대 방향(페이지가 새 계약을 부르고 원장을 잊는다)이다 |
 | 4.27 | 2026-10-03 | 민서 | **P8 컷 b3-5 선행 — §4.2 `couponProgress.nextDDay` 한 필드(문서 전용).** DOC-008 SCR-201 ⑮의 「다음 D-12」를 그리려면 D-Day가 필요한데 b1 명세는 날짜(`nextEvaluationDate`)만 실었다 — 화면이 기준일과 그 날짜를 셈하면 같은 뷰의 `nextEvaluation.dDay`를 계약이 주는 판단(화면은 날짜를 셈하지 않는다 — 경계 「당일 = D-0」의 해석이 계약과 갈리지 않게)과 어긋난다. 날짜와 함께 빈다. 구현은 b3-5 코드 커밋 |
 | 4.26 | 2026-10-03 | 민서 | **P8 컷 b3-4 — §4.0 컷별 도달 b2 항목의 b2~b3 공백에 「닫혔다」(문서 전용).** 「b2~b3 동안 저장값이 월지급식인 상품의 수정 저장은 V-25로 거부된다」는 SCR-204 월지급 블록(율 · 일정의 칸 · `productValuesOf`의 초기값 · `parseProductForm`)이 서면서 끝났다. 계약은 바뀌지 않았다 |
 | 4.25 | 2026-10-03 | 민서 | **P8 컷 b3-3 — §8 매트릭스 SCR-206 행의 조회 칸 「—」 → `getProduct`(코드와 같은 커밋).** §9 ⑭ⓑ의 답(v4.23)을 표에 옮겼다 — `ROUTE_QUERIES['/products/[id]/coupons']`와 DOC-008 §4의 새 행이 같은 커밋이라 `tests/app/invalidation.test.ts`의 화면-계약 대조가 이 행을 처음으로 대조한다(b2~b3의 「대조 밖」 공백이 닫혔다). `getProduct`를 읽는 라우트가 넷이 되어 그 계약을 낡게 하는 모든 변경의 낡는 라우트에 `/products/[id]/coupons`가 더해졌다(같은 파일의 `STALE_ROUTES` 열두 줄 — 합성 `affects × ROUTE_QUERIES`가 낸 값과 대조) |
@@ -431,6 +432,7 @@ type QueryContext = {
 | `listUserSummaries` | **5** | 사용자 / 상품 / 세율 연도 / 프로필 / **추정 환율** |
 | `getDashboard` | **5** | 상품 / 시세 / 세율 연도 / 프로필 / **추정 환율** |
 | `listExchangeRates` | 2 | 환율(통화별 `limit(1)`) / 상품(미상환 수) *(v4.13 신설 — §4.11)* |
+| `listMonthlyCouponSchedule` | 2 | 상품+하위 임베드(월지급식 · 부모 조건) / 자산별 최신 시세 *(v4.28 신설 — §4.12, P8 컷 b3-6)*. 월지급 상품이 0건이면 **1**(시세 로더가 나가지 않는다). 세율 · 환율을 읽지 않는다 |
 
 > **추정 환율 한 왕복이 다섯 계약에 붙었다 (v4.13 — P8 컷 a3, 아래 「왕복 — 컷 a3에서」의 이행).** 전부 **첫 물결에서 나란히** 나가므로 물결 수는 그대로다. `getProduct`는 종전 `loadProduct` → `loadLatestPrices` 순차였고, 환율을 `loadProduct`와 같은 물결에 두었다 — **상품이 없거나(`null`) 기초자산이 0건이어도 그 왕복은 이미 나갔다**(`tests/integration/contracts.test.ts`의 `getProductNoUnderlying` 예산이 `{els_products: 1, exchange_rates: 1}`이다). 상품을 읽은 뒤 통화를 보고 둘째 물결(시세와 나란히)에서 조건부로 내면 물결은 그대로 둘이고 원화 · 미존재 상품에서 왕복 하나를 아낀다 — **그래도 택하지 않는다.** 다섯 계약이 같은 모양(첫 물결 · 무조건)이어야 규칙 2가 한 문장으로 서고, 예산 다중집합이 상품의 통화와 무관하게 고정된다. 사용자 3명 규모에서 아끼는 왕복 하나는 그 균일함보다 싸다 *(v4.13 반박 검토 정정 — 초안은 「통화를 보고 고르면 물결이 셋이 된다」를 근거로 들었는데 사실이 아니었다)*.
 
@@ -1806,7 +1808,7 @@ type MonthlyCouponScheduleItem = {
   couponBarrier: string                 // 월수익 배리어. 4자리
   state: CouponState                    // §4.0 「구획」
   expectedAmount: string                // 상품 통화 — q_k(보조단위 절사값 — §4.0 「형식」)
-  record: { outcome: CouponOutcome; grossAmount: string | null } | null   // 그 달의 기록. UNPAID면 grossAmount null
+  record: { outcome: CouponOutcome; grossAmount: string | null; paymentDate: string | null } | null   // 그 달의 기록. UNPAID면 grossAmount · paymentDate null. paymentDate는 v4.28(b3-6) — SCR-202 ⑦과 같은 표기(기록이 있으면 거래내역의 지급일 — DOC-008 SCR-301 ⓖ)
   conditionResult: CouponConditionResult | null   // 다음 한 행에만 값 (§4.3과 같다)
   isPast: boolean                       // v4.23 (b3 개정) — 월수익 평가일 < 기준일(§4.4 차수의 isPast와 같은 규칙 · Q-02). SCR-301 시간순의 「지난 / 다가오는」 절이 이것으로만 가른다
 }
@@ -1816,7 +1818,7 @@ type MonthlyCouponScheduleItem = {
 
 ~~**질의의 루트는 `monthly_coupon_schedules`다 — 자기 루트 쿼리.** §4.4 「질의의 루트」 각주와 같은 이유다: 상품을 루트로 두고 월수익 일정을 임베드하면 `from`·`to`가 임베드 필터가 되어 **잘린 일정 집합**에서 다음 행(조건 판정)을 고르게 된다. 루트를 월수익 행으로 두고 부모 상품이 자기 월수익 일정 · 기록 · 조기상환 일정 · 상환 **전체**를 다시 담으면 상태(§4.0 「구획」 — 흐름 끝이 적용 차수 · 상환일에서 나온다)와 다음 행 판정이 온전하다. ⚠ **그 「전체」는 상품마다 월수익 행 수만큼 복제된다** — 한 상품에서 K행(최대 60)이 저마다 부모의 K행을 다시 담으므로 K²이다. b1 개정이 차수 루트(§4.4)에서 피한 복제와 같은 부류이고 크기만 다르다(그쪽은 차수 수 × 월수익 수). 다음 행 판정과 흐름 끝에 필요한 것은 부모의 월수익 평가일들과 기록 유무이므로 부모 임베드를 그 열로 좁힐 수 있는지는 b1 명세에 없다 — §9 「P8 월지급 — b2 전에 정한다」 ⑰(b3 전, 페이로드 실측은 DOC-010 AQ-77).~~ *(v4.23 — 철회, 아래)*
 
-**→ 질의의 루트는 상품이다 — 상품 루트 로더를 그대로 쓴다** *(v4.23 — b3 개정, §9 ⑰ⓑ 해결)*. 부모 조건(`ownerId` · `activeOnly` · `coupon_payout = 'MONTHLY'`)은 루트 조건이 되어 질의로 내리고(Q-05), 월수익 두 테이블 · 조기상환 일정 · 상환 · 기초자산은 **거르지 않은 채** 임베드된다(상품 루트 셀렉트 — §4.0 「쿠폰 지급방식과 월수익」 왕복). 행은 §4.3 `coupons`와 **같은 매퍼**가 상품마다 만들고, 날짜 범위는 그 뒤에 계약 층이 월수익 평가일로 거른다. 정렬은 월수익 평가일 오름차순이고 같은 날은 상품의 질의 순서 · 월수익 순번이다(안정 정렬). **§4.4의 루트 각주가 경계한 함정이 생기지 않는다** — 그 함정은 날짜 범위가 **임베드 필터**가 되어 판정이 잘린 집합에서 이루어지는 것인데, 여기서는 임베드를 거르지 않으므로 다음 행 판정과 흐름 끝(적용 차수 · 상환일)이 늘 전체 집합에서 나온다. 종전 형태(월수익 행이 루트이고 부모가 자기 전체를 다시 담는다)는 같은 정확성을 상품마다 K²행(최대 3,600)의 복제로 샀다. **대가는 Q-05의 날짜 범위다** — 저장된 열의 조건인데 조회 후에 적용한다. 받아들이는 근거 셋: ① 다음 행과 흐름 끝이 범위 밖의 행을 요구하므로 어느 형태든 범위 밖을 읽는다(종전 형태는 부모 임베드로 읽었다) ② 루트 행이 상품이므로 Q-06의 상한에서 오히려 멀어진다(아래) ③ §4.3과 한 매퍼라 아래 「같은 상품의 같은 달에 두 화면이 다른 상태를 말할 수 없다」가 규율이 아니라 구성이다. 페이로드는 DOC-010 AQ-77이 두 형태로 잰다(b3 코드 커밋).
+**→ 질의의 루트는 상품이다 — 상품 루트 로더를 그대로 쓴다** *(v4.23 — b3 개정, §9 ⑰ⓑ 해결)*. 부모 조건(`ownerId` · `activeOnly` · `coupon_payout = 'MONTHLY'`)은 루트 조건이 되어 질의로 내리고(Q-05), 월수익 두 테이블 · 조기상환 일정 · 상환 · 기초자산은 **거르지 않은 채** 임베드된다(상품 루트 셀렉트 — §4.0 「쿠폰 지급방식과 월수익」 왕복). 행은 §4.3 `coupons`와 **같은 매퍼**가 상품마다 만들고, 날짜 범위는 그 뒤에 계약 층이 월수익 평가일로 거른다. 정렬은 월수익 평가일 오름차순이고 같은 날은 ~~상품의 질의 순서 · 월수익 순번이다(안정 정렬)~~ **상품명 · 월수익 순번이다 — §4.4와 같은 열쇠** *(v4.28 — 상품 루트 질의에 `order`가 없어 「질의 순서」가 정해지지 않는다. 같은 날의 두 상품이 요청마다 자리를 바꾸지 않게)*. **§4.4의 루트 각주가 경계한 함정이 생기지 않는다** — 그 함정은 날짜 범위가 **임베드 필터**가 되어 판정이 잘린 집합에서 이루어지는 것인데, 여기서는 임베드를 거르지 않으므로 다음 행 판정과 흐름 끝(적용 차수 · 상환일)이 늘 전체 집합에서 나온다. 종전 형태(월수익 행이 루트이고 부모가 자기 전체를 다시 담는다)는 같은 정확성을 상품마다 K²행(최대 3,600)의 복제로 샀다. **대가는 Q-05의 날짜 범위다** — 저장된 열의 조건인데 조회 후에 적용한다. 받아들이는 근거 셋: ① 다음 행과 흐름 끝이 범위 밖의 행을 요구하므로 어느 형태든 범위 밖을 읽는다(종전 형태는 부모 임베드로 읽었다) ② 루트 행이 상품이므로 Q-06의 상한에서 오히려 멀어진다(아래) ③ §4.3과 한 매퍼라 아래 「같은 상품의 같은 달에 두 화면이 다른 상태를 말할 수 없다」가 규율이 아니라 구성이다. 페이로드는 DOC-010 AQ-77이 두 형태로 잰다(b3 코드 커밋).
 
 **`ScheduleItem` 합집합을 쓰지 않는다.** §4.4의 행과 한 유니온으로 섞으면 화면의 `groupByProduct`가 `roundNo`로 정렬하는 것이 깨진다 — 월수익 순번은 차수가 아니다(DOC-005 §8.3). 그리고 차수 행의 판정(`conditionResult` · `isPast` · `proceeds`)을 월수익 행에서 다시 해석해야 하고, 그 해석은 어느 스위트도 대조하지 않는 화면 합성이 된다(DOC-010 AQ-23). **두 계약을 화면이 나란히 읽는다** — 상품별 보기의 카드에는 월수익 평가일 하위 목록(다음 월수익 하나 + 펼치기 — DOC-008 SQ-14 해소)이, 시간순 보기에는 「종류」 필터와 함께 월수익 행이 선다(DOC-008 SCR-301 ⑮⑯).
 
@@ -1826,7 +1828,7 @@ type MonthlyCouponScheduleItem = {
 
 **무효화 — 세금이 없다.** `PRODUCT_WIDE`(상품 · 상환 — 행의 존재와 흐름 끝, 「상환 후 없음」이 바뀐다) · `PRICE_WIDE`(다음 행의 조건 판정이 최신 시세를 쓴다) · `COUPON_RECORD_WIDE`(행의 상태와 기록 — §5.14·§5.15)에 든다. 이 계약이 `PRICE_WIDE`에 들어도 그 축의 「세금이 없다」는 그대로다(§8 · §5.14 무효화 각주). **`createProduct` · `updateProduct`의 `affects`에도 든다**(b1 개정 — §9 ⑭) — 새 월지급 상품이 월수익 행을 만들고 수정이 행을 바꾼다. `updateProduct`는 `PRODUCT_WIDE`를 쓰고 `createProduct`는 축을 쓰지 않고 따로 적으므로(`routes/invalidation.ts`) 둘 다에 더한다 — `listSchedule`이 `createProduct`에 드는 것과 같은 근거다. `createRealizedProduct`에는 들지 않는다 — 기실현은 월수익 일정이 없어 이 목록에 행이 생기지 않는다(`listSchedule`이 들지 않는 것과 같다). **`EXCHANGE_RATE_WIDE`에는 들지 않는다**(b1 개정) — 위 행 타입이 원화 환산 값을 싣지 않는다.
 
-**왕복**은 b3의 코드 커밋이 재서 §4.0 왕복 표에 행으로 적는다(예상을 적지 않는다 — §5.0.1의 §5.12 각주와 같은 태도).
+**왕복**은 b3의 코드 커밋이 재서 §4.0 왕복 표에 행으로 적는다(예상을 적지 않는다 — §5.0.1의 §5.12 각주와 같은 태도). → **2다** *(v4.28 — 실측 `{els_products: 1, assets: 1}`, `tests/integration/coupon-views.test.ts`)*. 월지급 상품이 0건이면 1이다(`contracts.test.ts`의 예산 — 시세 로더가 빈 `in()`을 만들지 않는다).
 
 **조회 계약 10 → 11 (컷 b3).** 결속 원장이 같은 커밋에 움직인다 — `Queries` 묶음(`queries/context.ts`의 「10개」) · `tests/integration/`의 계약 수(`formats.test.ts`·`serialization.test.ts`·`contracts.test.ts`·`integrity-inputs.test.ts`) · `ROUTE_QUERIES[PATHS.schedule]` · `INVALIDATION`의 세 축(`_queryAxisIsExhaustive`가 어느 `affects`에도 없는 조회를 거부한다) · §8 SCR-301 행(표 행은 그 코드 커밋에 함께 — §8 말미 각주). **`tests/app/scheduleMarkers.test.ts`도 b3에서 넓힌다** — SCR-301 요소 마커가 `keyof ScheduleItem`을 전수로 보는데 ⑮⑯의 월수익 마커가 이 계약의 타입을 가리키게 된다(마커 자체도 b3 코드 커밋 — DOC-008 SCR-301).
 
@@ -2836,7 +2838,7 @@ type CronResult = {
 | SCR-204 등록·수정 | `getProduct`, `searchAssets` · 외부 조회(§4.10 — 등록·수정, v4.6) `searchKiwoomProducts`, `getKiwoomProductTerms`, `listKiwoomAssets` | `createProduct`, `updateProduct`, `createAsset`, `saveProviderSymbol`(불러오기의 자산 추가·연결 — v4.4) |
 | **SCR-205 기실현 등재** | **—** | **`createRealizedProduct`** (§5.11) |
 | **SCR-206 월수익 기록** *(화면은 P8 컷 b3 — 이 행은 b2, DOC-011 §9 ⑭ⓐ)* | `getProduct` (§4.3) *(b3-3 — ⑭ⓑ · DOC-008 SQ-21 ⓘ)* | `recordCouponPayments` (§5.14), `updateCouponPayment`, `deleteCouponPayments` (§5.15) |
-| SCR-301 일정 | `listSchedule` | — |
+| SCR-301 일정 | `listSchedule`, **`listMonthlyCouponSchedule`** (v4.28 — §4.12, 월수익 행) | — |
 | SCR-302 시세 | `listAssetPrices`, **`listExchangeRates`** (v4.13 — 환율 절) | `saveManualPrice`, `refreshPrices` (공급자 등재 — §5.8, P5a 컷 3 · *v4.13 — 종전 「공급자 미등재」는 그 컷 이후 낡았다*), **`createAsset`**, **`saveProviderSymbol`** (v3.6), **`saveExchangeRate`** (v4.13) |
 | SCR-401 세금 | `getTaxSummary` | `saveTaxProfile` |
 | SCR-402 전망 | `getForecast` | — |
@@ -2861,7 +2863,7 @@ type CronResult = {
 >
 > - **SCR-206 월수익 기록 행 신설** — 변경 계약 `recordCouponPayments`(§5.14) · `updateCouponPayment`(§5.15 — 행마다의 「수정」이 이 화면의 한 행 폼이다, `?edit=<id>`). ~~행 수가 13 → 14가 되고 DOC-008 화면 원장(15 → 16)과 SCR-206 라우트가 함께 선다(b3 — DOC-008).~~ → **행은 b2-3에 섰다** *(v4.21)* — 조회 칸 「—」(⑭ⓑ), 변경 칸 세 이름, 행 수 13 → 14. DOC-008 화면 원장(15 → 16)과 SCR-206 라우트는 b3이다.
 > - **SCR-202 상세 행** — 변경 계약에 `deleteCouponPayments`(§5.15 — 행마다의 「삭제」와 구획의 「월수익 기록 전부 지우기」). *(v4.21 — 이 행에는 화면(SCR-202 ⑦)과 함께 b3에 선다. b2는 세 이름을 SCR-206 행 하나에 세웠다 — 변경 칸 대조의 양방향은 한 행으로 충족된다)*
-> - **SCR-301 일정 행** — 조회 계약에 `listMonthlyCouponSchedule`(§4.12, b3)과 `ROUTE_QUERIES[PATHS.schedule]`.
+> - **SCR-301 일정 행** — 조회 계약에 `listMonthlyCouponSchedule`(§4.12, b3)과 `ROUTE_QUERIES[PATHS.schedule]`. *(v4.28 — 섰다. b3-6)*
 > - **나머지 화면은 필드로 한다** — SCR-101(§4.1) · SCR-201(§4.2) · SCR-202 ⑦(§4.3) · SCR-203(§5.4 V-29) · SCR-204(§5.1·§5.2) · SCR-205(§5.11) · SCR-401(§4.6) · SCR-402(§4.7)는 이미 배정된 계약의 v4.16 필드·규칙이다.
 > - **넣는 시점** *(b1 개정 — §9 ⑭ 부분 해결)* — **세 변경 이름은 b2**(계약이 서는 커밋 — 변경 칸 대조가 양방향이므로 `MUTATION_NAMES`가 17이 되는 그 커밋에 매트릭스에 서야 한다), **SCR-206 화면 행은 b3**(화면 · 라우트와 함께). `createProduct` · `updateProduct`의 `affects`에 `listMonthlyCouponSchedule`이 든다(§4.12). ⚠ **남은 몫 둘** *(v4.21 — 앞의 것은 v4.17이 닫았다: SCR-206 행을 b2에 세운다, ⑭ⓐ)* — b2~b3 동안 `recordCouponPayments` · `updateCouponPayment`가 어느 기존 행에 서는가(그 행을 b3이 SCR-206 행으로 옮긴다)는 b1 명세가 시점만 정하고 행을 정하지 않았다(§9 ⑭ — b2 전). SCR-206이 읽는 조회 계약(`getProduct`가 후보 — 원천징수는 서버가 채우므로 세율을 뷰에 싣지 않는다, DOC-008 SCR-206)은 화면 세부라 DOC-008 SQ-21 ⓘ가 들고 있다(b3 전 — b1 개정).
 
@@ -2955,7 +2957,7 @@ P8이 늘리는 계약면을 한 자리에 적는다. **명세는 컷 a1(달러)
 | 대상 | 지금 | P8 후 | 명세 | 표 행 · 결속 원장 |
 |---|---|---|---|---|
 | 변경 계약 (§5) | ~~13~~ ~~14~~ **17** *(v4.13 — a3 · v4.20 — b2)* | **17** — `saveExchangeRate` · `recordCouponPayments` · `updateCouponPayment` · `deleteCouponPayments` | a1 · b1(§5.14 · §5.15 — v4.16) | a3(`saveExchangeRate`) · b2(나머지 셋). `MUTATION_NAMES` 길이 단언(`tests/app/invalidation.test.ts` 「계약 17개가 모두 항목을 갖는다」 — v4.13, 줄 번호 대신 케이스 이름 · *v4.22 — 이름의 수를 b2-5에서 고쳤다*) · `INVALIDATION` · §8 |
-| 조회 계약 (§4) | ~~9~~ **10** *(v4.13 — a3)* | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1(§4.12 — v4.16) | a3 · b3. `ROUTE_QUERIES` · §8 |
+| 조회 계약 (§4) | ~~9~~ ~~10~~ **11** *(v4.13 — a3 · v4.28 — b3-6)* | **11** — `listExchangeRates` · `listMonthlyCouponSchedule` | a1 · b1(§4.12 — v4.16) | a3 · b3. `ROUTE_QUERIES` · §8 |
 | 검증 규칙 (§6) | ~~V-01~V-21~~ ~~V-01~V-24~~ **V-01~V-28** *(v4.11 — a2 · V-24ⓑ는 v4.13 · V-25~V-28은 v4.19 · v4.20 — b2. V-29는 b4)* | **V-01~V-29** — 신설 V-22 상품 통화(∈ {KRW, USD} · 빈칸 오류) · V-23 상품 통화 금액 자릿수 · V-24 환율 · V-25 MONTHLY ⇔ 월수익 조건 · V-26 월수익 일정 · V-27 기록 대상 · V-28 PAID·UNPAID 형태 · V-29 월지급 상환(세전 ≤ 투자원금 ∧ 과세 0). 개정 V-01(「정수」 → 상품 통화 보조단위) · V-08(~~월수익 비율 필드 추가 ·~~ `annualCouponRate` 하한 `x > 0`을 `MONTHLY`에서 `= 0`으로 — DOC-002 DQ-11. *v4.16 — 월수익 두 비율의 범위는 V-25·V-26이 정한다*) · V-20(`couponNo`) | a1(V-01′·V-22~24) · b1(V-08′·V-20′·V-25~29 — 앞의 둘은 대상 필드가 월수익 쪽이다. §6 말미 「P8 월지급 — 규칙 일곱」 — v4.16) | a2 · b2 · b4(V-29). `RULE_IDS`가 §6을 **순서까지** 파싱한다(`tests/db/docs-contract.test.ts`) · `CASES`·`RULE_TARGETS` 양방향(`tests/db/validate.test.ts` 「CASES가 RULE_IDS 전부를 덮는다」 · 「RULE_TARGETS가 RULE_IDS와 양방향으로 일치한다」 — v4.13, 줄 번호 대신 케이스 이름) |
 | 조회 규약 Q-07 (§4.0) | 금액은 정수 문자열 | 상품 통화 금액은 **보조단위 고정 자릿수**(KRW 0 · USD 2), 과세 축 금액은 **KRW 정수**, 환율은 시세와 같은 6자리 | a1 | a2(`moneyString` — KRW는 `amountString`과 같다) |
 | §3.2.1 제약 → `ErrorCode` | — | 새 제약·트리거 이름(예: `els_products_coupon_recorded_immutable` → `CONFLICT`) | a1 · b1(§3.2.1 「P8 월지급」 — v4.16) | 해당 마이그레이션의 코드 커밋(`BY_CONSTRAINT` · `RAISE_ONLY` · `NOT_NULL_FIELD`) |

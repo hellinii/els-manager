@@ -101,11 +101,14 @@ export {
 export {
   groupByMonth,
   groupByProduct,
+  mergeTimeline,
+  productsWithoutRounds,
   splitByPast,
   taxBasisOf,
   type MonthGroup,
   type ProductGroup,
   type ScheduleProductFacts,
+  type TimelineRow,
 } from './schedule'
 export { paginate, PRODUCTS_PER_PAGE, type Paged } from './page'
 export { selectableYears } from './tax'

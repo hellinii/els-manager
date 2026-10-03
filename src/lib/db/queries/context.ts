@@ -24,7 +24,7 @@ export type QueryContext = {
 }
 
 /**
- * 조회 계약 묶음 — 10개. §4.1~§4.9와 §4.11(`listExchangeRates` — P8 컷 a3)이다. §4.10(키움 불러오기)은 외부 조회라 여기 없다.
+ * 조회 계약 묶음 — 11개. §4.1~§4.9와 §4.11(`listExchangeRates` — P8 컷 a3) · §4.12(`listMonthlyCouponSchedule` — P8 컷 b3)이다. §4.10(키움 불러오기)은 외부 조회라 여기 없다.
  *
  * ## §4.7 `getForecast`가 여기 있는 이유 (P4b 컷 7)
  *

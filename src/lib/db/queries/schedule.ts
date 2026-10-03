@@ -1,10 +1,18 @@
 import { currentYear } from '../today'
 import type { QueryContext } from './context'
-import { loadAllTaxYears, loadLatestPrices, loadScheduleRows, resolveTaxYear } from './load'
-import { toScheduleItems, type ScheduleItem, type ScheduleTaxBasis } from './map'
+import { loadAllTaxYears, loadLatestPrices, loadProducts, loadScheduleRows, resolveTaxYear } from './load'
+import {
+  judge,
+  toMonthlyCouponScheduleItems,
+  toScheduleItems,
+  type MonthlyCouponScheduleItem,
+  type ScheduleItem,
+  type ScheduleTaxBasis,
+} from './map'
+import { assetIdsOf } from './products'
 import { toConstants } from './tax'
 
-/** §4.4 — 평가일정 */
+/** §4.4 — 평가일정 · §4.12 — 월수익 일정 (P8 컷 b3-6) */
 
 export type ListScheduleParams = {
   from?: string
@@ -92,5 +100,44 @@ export function makeScheduleQueries(ctx: QueryContext) {
     )
   }
 
-  return { listSchedule }
+  /**
+   * §4.12 — 월수익 일정 (P8 컷 b3-6). 인자는 §4.4와 같다.
+   *
+   * **루트는 상품이다**(v4.23). 부모 조건 셋(`ownerId` · `activeOnly` · 월지급식)은 루트 조건으로 질의에 내려가고
+   * 월수익 두 테이블 · 차수 · 상환은 거르지 않은 채 임베드된다 — 다음 행과 흐름 끝이 늘 전체 집합에서 나온다.
+   * 날짜 범위만 매퍼 뒤에 건다(Q-05의 대가 — 명세의 근거 셋).
+   *
+   * 왕복 2 · 물결 2 — 세율을 읽지 않는다(원화 과세를 싣지 않는다). ② 시세는 ①의 자산 id에 의존한다.
+   */
+  async function listMonthlyCouponSchedule(
+    params: ListScheduleParams = {},
+  ): Promise<MonthlyCouponScheduleItem[]> {
+    // ① 월지급식 상품 — 지급방식은 인자와 무관하게 건다(계약 밖 쓰기로 남은 일정 행은 q_k가 정의되지 않는다)
+    const rows = await loadProducts(ctx, {
+      ownerId: params.ownerId,
+      activeOnly: params.activeOnly,
+      couponPayout: 'MONTHLY',
+    })
+    // ② 다음 행의 조건 판정이 최신 시세를 쓴다(PRICE_WIDE)
+    const prices = await loadLatestPrices(ctx, assetIdsOf(rows))
+
+    const inRange = (date: string) =>
+      (params.from == null || date >= params.from) && (params.to == null || date <= params.to)
+
+    const result = rows.flatMap((row) =>
+      toMonthlyCouponScheduleItems(row, judge(row, prices, ctx.asOf), ctx.asOf).filter((item) =>
+        inRange(item.evaluationDate),
+      ),
+    )
+
+    // §4.4와 같은 열쇠 — 평가일 · 상품명 · 순번. 루트 질의에 순서가 없으므로 「질의 순서」에 기대지 않는다
+    return result.sort(
+      (a, b) =>
+        a.evaluationDate.localeCompare(b.evaluationDate) ||
+        a.productName.localeCompare(b.productName) ||
+        a.couponNo - b.couponNo,
+    )
+  }
+
+  return { listSchedule, listMonthlyCouponSchedule }
 }

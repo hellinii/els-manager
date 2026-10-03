@@ -48,7 +48,17 @@ import { PATHS } from '@/lib/routes/paths'
  * 감싼 수정 링크가 있으므로 **소유자에게만 한 단계 뒤에 나타난다.**
  */
 
-export function ScheduleRow({ item }: { item: ScheduleItem }) {
+export function ScheduleRow({
+  item,
+  showKind = false,
+}: {
+  item: ScheduleItem
+  /**
+   * 행이 자기 종류(「조기상환 평가일」)를 말하는가 — 「종류」를 그릴 때만이다(DOC-008 SCR-301 v2.33 ⓑ). 월수익 행이 없고
+   * 기본값인 화면은 이 행이 종전과 바이트 단위로 같다
+   */
+  showKind?: boolean
+}) {
   const display = deriveDisplay(item)
 
   return (
@@ -102,6 +112,7 @@ export function ScheduleRow({ item }: { item: ScheduleItem }) {
         {item.hasLizard && (
           <span className="ml-1.5 text-xs text-neutral-500">리자드</span>
         )}
+        {showKind && <span className="text-xs text-neutral-500 lg:block">조기상환 평가일</span>}
       </div>
 
       {/* ④ 배리어 + 현재 워스트오브 */}

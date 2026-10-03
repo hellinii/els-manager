@@ -20,7 +20,7 @@ import {
 } from './helpers/scenario'
 
 /**
- * 계약 10개의 정상 경로 + 왕복 수 계수
+ * 계약 11개의 정상 경로 + 왕복 수 계수
  *
  * 여기서 확인하는 것은 **DOC-011 §4의 서명대로 값이 나오는가**다. 계산의 정확성은
  * 순수 모듈 테스트(TC-01~22)가, 매핑 분기는 `tests/db/map.test.ts`가 본다.
@@ -789,6 +789,9 @@ describe('왕복 수 계수 — 실측', () => {
       getDashboard: await tables(() => s.asA.getDashboard({ scope: 'ALL' })),
       // §4.11 — 환율(통화별 limit(1)) + 상품(미상환 수). 이력을 반환하지 않으므로 행이 늘어도 1이다
       listExchangeRates: await tables(() => s.asA.listExchangeRates()),
+      // §4.12 (b3-6) — 이 시나리오에는 월지급 상품이 없다: 상품 한 번에서 끝나고 시세 로더가 나가지 않는다(빈 in()을
+      // 만들지 않는다 — `getProductNoUnderlying`과 같은 갈래). 월지급 상품이 있을 때의 2는 `coupon-views.test.ts`가 잰다
+      listMonthlyCouponSchedule: await tables(() => s.asA.listMonthlyCouponSchedule()),
     }
 
     /*
@@ -861,9 +864,11 @@ describe('왕복 수 계수 — 실측', () => {
     })
 
     expect(budget.listExchangeRates).toEqual({ exchange_rates: 1, els_products: 1 })
+    // 세율을 읽지 않는다 — 원화 과세를 싣지 않는다(§4.12). `tax_years`가 붙으면 그 전제가 깨졌다는 뜻이다
+    expect(budget.listMonthlyCouponSchedule).toEqual({ els_products: 1 })
 
-    // 계약 10개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다 → 11)
-    expect(Object.keys(budget)).toHaveLength(11)
+    // 계약 11개를 하나도 빠뜨리지 않았다 (getProduct는 두 경우를 잰다 → 12)
+    expect(Object.keys(budget)).toHaveLength(12)
   })
 
   it('DOC-011 §4.0의 왕복 수와 일치한다', async () => {

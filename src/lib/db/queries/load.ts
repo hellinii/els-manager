@@ -174,7 +174,13 @@ function fail(what: string, error: { message: string; code?: string }): never {
 
 export async function loadProducts(
   ctx: QueryContext,
-  filters: { ownerId?: string } = {},
+  filters: {
+    ownerId?: string
+    /** 미상환만 — 상환 부재는 루트 상품의 to-one 임베드 조건이다(§4.12 — `loadScheduleRows`의 `activeOnly`와 같은 뜻) */
+    activeOnly?: boolean
+    /** 쿠폰 지급방식 — §4.12는 인자와 무관하게 월지급식만 읽는다(DOC-011 §4.12 · 반박 검토 반영) */
+    couponPayout?: 'AT_REDEMPTION' | 'MONTHLY'
+  } = {},
 ): Promise<ProductRow[]> {
   let query = ctx.db
     .from('els_products')
@@ -184,6 +190,8 @@ export async function loadProducts(
 
   // Q-05 — 열 조건은 질의로 내린다. 파생값(status·kiStatus)은 조회 후에 적용한다.
   if (filters.ownerId != null) query = query.eq('owner_id', filters.ownerId)
+  if (filters.activeOnly === true) query = query.is('redemptions', null)
+  if (filters.couponPayout != null) query = query.eq('coupon_payout', filters.couponPayout)
 
   const { data, error } = await query.overrideTypes<ProductRow[], { merge: false }>()
   if (error != null) fail('상품 목록', error)

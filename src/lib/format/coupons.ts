@@ -35,7 +35,13 @@ export const UNNUMBERED_COUPON_LABEL = '순번 없음'
  * - 기록이 없으면 예상 금액(`expectedAmount` — 보조단위 절사값, SCR-206 기본값과 같은 값)이다
  * - **「상환 후 없음」은 금액을 적지 않는다** — 도래하지 않을 날짜의 반사실이다(SCR-301 상품별 카드 규약 4와 같다)
  */
-export function couponAmountShown(coupon: Pick<CouponObservationView, 'record' | 'state' | 'expectedAmount'>): string | null {
+export function couponAmountShown(coupon: {
+  // SCR-202 ⑦(§4.3 `CouponObservationView`)과 SCR-301(§4.12 `MonthlyCouponScheduleItem`)이 함께 쓴다 — 기록의 모양이 둘이라
+  // 읽는 필드만 요구한다
+  record: { grossAmount: string | null } | null
+  state: CouponObservationView['state']
+  expectedAmount: string
+}): string | null {
   if (coupon.record != null) return coupon.record.grossAmount
   if (coupon.state === 'ENDED') return null
   return coupon.expectedAmount

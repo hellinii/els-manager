@@ -4,10 +4,13 @@ import type { ScheduleItem } from '@/lib/db/queries/map'
 import {
   groupByMonth,
   groupByProduct,
+  mergeTimeline,
+  productsWithoutRounds,
   splitByPast,
   taxBasisOf,
   type ScheduleProductFacts,
 } from '@/lib/format'
+import { isScheduleKindShown, scheduleKindIncludes } from '@/lib/forms/query'
 
 /**
  * SCR-301의 구획과 월 그룹 — **순수 함수라 여기서 보인다** (P4 컷 7)
@@ -178,6 +181,7 @@ function round(
     productName: productId === PRODUCT_A ? '상품 A' : '상품 B',
     principal: '100000000',
     currency: 'KRW',
+    couponPayout: 'AT_REDEMPTION',
     annualCouponRate: '0.0800',
     totalRounds: 2,
     // v3.4의 셋도 **상품 단위 사실**이라 카드 머리가 읽는다(DOC-008 §5 ⑨⑩).
@@ -376,5 +380,69 @@ describe('세율 연도 고지', () => {
      * 남아야 고지가 거짓이 되지 않는다 — DOC-010 AQ-66의 잔여 ⓐ.
      */
     expect(taxBasisOf([withYear(2026), withYear(null), withYear(2027)])).toBe(2027)
+  })
+})
+
+describe('시간순 병합 — 차수 행 + 월수익 행 (P8 컷 b3-6 · DOC-008 SCR-301 v2.26)', () => {
+  const r = (evaluationDate: string, isPast = false) => ({ evaluationDate, isPast, label: `차수 ${evaluationDate}` })
+  const c = (evaluationDate: string, isPast = false) => ({ evaluationDate, isPast, label: `월수익 ${evaluationDate}` })
+  const labels = (rows: ReturnType<typeof mergeTimeline<ReturnType<typeof r>, ReturnType<typeof c>>>) =>
+    rows.map((row) => `${row.kind}:${row.item.label}`)
+
+  it('평가일 사전순으로 끼워 넣는다 — 같은 날은 조기상환 평가일 먼저', () => {
+    const rows = mergeTimeline(
+      [r('2026-11-15'), r('2027-05-17')],
+      [c('2026-10-15'), c('2026-11-15'), c('2026-12-15')],
+    )
+    expect(labels(rows)).toEqual([
+      'COUPON:월수익 2026-10-15',
+      'ROUND:차수 2026-11-15',
+      'COUPON:월수익 2026-11-15',
+      'COUPON:월수익 2026-12-15',
+      'ROUND:차수 2027-05-17',
+    ])
+  })
+
+  it('각 입력 안의 순서는 건드리지 않는다 — 재정렬이 아니라 병합이다', () => {
+    // 계약이 같은 날 두 상품을 상품명 순으로 준다 — 병합이 그 순서를 뒤집지 않는다
+    const rows = mergeTimeline([], [{ ...c('2026-11-15'), label: '나' }, { ...c('2026-11-15'), label: '가' }])
+    expect(rows.map((row) => row.item.label)).toEqual(['나', '가'])
+  })
+
+  it('isPast는 계약이 준 값을 옮긴다 — 날짜로 다시 판정하지 않는다', () => {
+    // 일부러 날짜와 어긋난 값을 준다 — 병합이 날짜로 구획을 다시 매기면 여기서 갈린다
+    const rows = mergeTimeline([r('2026-01-01', false)], [c('2030-01-01', true)])
+    expect(splitByPast(rows).past.map((row) => row.kind)).toEqual(['COUPON'])
+    expect(groupByMonth(rows).map((g) => g.key)).toEqual(['2026-01', '2030-01'])
+  })
+
+  it('한쪽이 비면 다른 쪽 그대로', () => {
+    expect(labels(mergeTimeline([r('2026-11-15')], []))).toEqual(['ROUND:차수 2026-11-15'])
+    expect(labels(mergeTimeline([], [c('2026-11-15')]))).toEqual(['COUPON:월수익 2026-11-15'])
+    expect(mergeTimeline([], [])).toEqual([])
+  })
+
+  it('「종류」가 어느 계약의 행을 그리는가', () => {
+    expect(scheduleKindIncludes('ALL')).toEqual({ rounds: true, coupons: true })
+    expect(scheduleKindIncludes('ROUND')).toEqual({ rounds: true, coupons: false })
+    expect(scheduleKindIncludes('COUPON')).toEqual({ rounds: false, coupons: true })
+  })
+})
+
+describe('시간순의 「종류」 · 상품별의 「n건」 줄 (P8 컷 b3-6 · DOC-008 v2.33 ⓐ ⓑ ⓕ)', () => {
+  it('★ 「종류」 — 시간순이고 (월수익 행이 있거나 이미 좁혔을 때)만. 상품별은 늘 그리지 않는다', () => {
+    expect(isScheduleKindShown('TIME', 0, 'ALL')).toBe(false) // 원화 · 상환 시 지급뿐 — 종전 화면 그대로
+    expect(isScheduleKindShown('TIME', 3, 'ALL')).toBe(true)
+    // 좁힌 채 월수익 행이 0이 되어도 남는다 — 되돌릴 칸이 사라지면 갇힌다
+    expect(isScheduleKindShown('TIME', 0, 'COUPON')).toBe(true)
+    expect(isScheduleKindShown('PRODUCT', 3, 'ALL')).toBe(false)
+  })
+
+  it('카드가 서지 못한 월지급 상품 — 월수익 행은 있고 차수 행이 없는 상품을 id로 센다', () => {
+    const rounds = [{ productId: 'a' }, { productId: 'a' }, { productId: 'b' }]
+    const coupons = [{ productId: 'a' }, { productId: 'c' }, { productId: 'c' }, { productId: 'd' }]
+    expect(productsWithoutRounds(rounds, coupons)).toBe(2)
+    expect(productsWithoutRounds(rounds, [])).toBe(0)
+    expect(productsWithoutRounds([], coupons)).toBe(3)
   })
 })

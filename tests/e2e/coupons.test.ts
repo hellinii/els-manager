@@ -4,6 +4,7 @@ import { today } from '@/lib/db/today'
 import { shiftDays } from '@/lib/domain'
 import { COUPON_PAYMENT_IDS_FIELD, rowName } from '@/lib/forms/coupons'
 import { MONTHLY_RATE_FIELD, couponCell } from '@/lib/forms/monthly'
+import { SCHEDULE_KEYS } from '@/lib/forms/query'
 import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'
@@ -11,6 +12,7 @@ import { queryRows } from '../integration/helpers/seed'
 
 import { actionIdOf, buttonField, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
+import { E2E_EMPTY } from './helpers/users'
 import { makeMonthly, monthsAround } from './helpers/monthly'
 import { registerProduct, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get, locationPath } from './helpers/server'
@@ -282,5 +284,99 @@ describe('SCR-201 ⑮ · SCR-101 ②④ (b3-5)', () => {
     expect(html).toContain('받은 월수익 +1,200,000원')
     // SCR-204 절의 새 월지급 상품 — 기록이 없고 평가가 끝난 달이 셋이다
     expect(html).toContain('월수익 미기록 · 3개월')
+  })
+})
+
+describe('SCR-301 월수익 — ⑮ 상품별 카드의 하위 목록 · ⑯ 시간순의 월수익 행 · 「종류」 (b3-6)', () => {
+  const TIME = `${PATHS.schedule}?${SCHEDULE_KEYS.view}=TIME`
+  /** React의 빈 주석을 지운다 — `{n}번째`가 `4<!-- -->번째`로 렌더된다(schedule.test.ts의 `visible`) */
+  const visible = (html: string) => html.replace(/<!--[\s\S]*?-->/g, '')
+  const page = async (path: string) => visible(await (await get(path, jar)).text())
+
+  /** 상품별 카드 — 상품 링크부터 다음 카드의 `<h2>` 앞까지(카드 안에 차수 · 월수익 `<li>`가 중첩되어 `<li>`로 자를 수 없다) */
+  function scheduleCardOf(html: string, productId: string): string {
+    const start = html.indexOf(`href="${PATHS.product(productId)}"`)
+    expect(start, `카드가 없다: ${productId}`).toBeGreaterThan(-1)
+    const next = html.indexOf('<h2', start)
+    return html.slice(start, next === -1 ? undefined : next)
+  }
+
+  /** 시간순의 그 상품 행 — `<li>` 하나가 한 행이다(중첩 없음) */
+  function timeRowsOf(html: string, productId: string): string[] {
+    return [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)]
+      .map((m) => m[0])
+      .filter((row) => row.includes(`href="${PATHS.product(productId)}"`))
+  }
+
+  it('★ 상품별 — 월지급 카드는 ⑧ 연쿠폰을 숨기고 다음 월수익 하나 + 「나머지 월수익 4건」을 단다, 상환 시 지급 카드는 그대로', async () => {
+    const html = await page(PATHS.schedule)
+    const card = scheduleCardOf(html, monthly.productId)
+    expect(card).not.toContain('연쿠폰')
+    expect(card).toMatch(/월수익 평가일 <span[^>]*>5건</)
+    // 다음 = isPast가 거짓인 첫 행 — 4번째(+20일)다. 표기는 SCR-202 ⑦과 같다
+    const fourth = monthsAround(asOf)[3]!
+    const nextAt = card.indexOf(`4번째 · ${fourth.evaluationDate}`)
+    const restAt = card.indexOf('나머지 월수익 4건')
+    expect(nextAt).toBeGreaterThan(-1)
+    // 다음 행은 접힘 «밖»(요약 앞)에 있다 — 나머지 넷은 `<details>` 안이다
+    expect(restAt).toBeGreaterThan(nextAt)
+
+    const plainCard = scheduleCardOf(html, plain.productId)
+    expect(plainCard).toContain('연쿠폰')
+    expect(plainCard).not.toContain('월수익 평가일')
+  })
+
+  it('★ 시간순 — 「종류」가 서고 행이 종류를 말한다 · 월수익만 · 조기상환만으로 좁힌다', async () => {
+    const all = await page(TIME)
+    expect(all).toContain(`name="${SCHEDULE_KEYS.kind}"`)
+    expect(all).toContain('차수 · 월수익')
+    const rows = timeRowsOf(all, monthly.productId)
+    expect(rows.filter((row) => row.includes('월수익 평가일'))).toHaveLength(5)
+    expect(rows.filter((row) => row.includes('조기상환 평가일'))).toHaveLength(3)
+
+    const coupons = timeRowsOf(await page(`${TIME}&${SCHEDULE_KEYS.kind}=COUPON`), monthly.productId)
+    expect(coupons).toHaveLength(5)
+    expect(coupons.every((row) => row.includes('번째'))).toBe(true)
+
+    const rounds = timeRowsOf(await page(`${TIME}&${SCHEDULE_KEYS.kind}=ROUND`), monthly.productId)
+    expect(rounds).toHaveLength(3)
+    expect(rounds.some((row) => row.includes('월수익 평가일'))).toBe(false)
+  })
+
+  it('★ 상품별 보기는 「종류」를 그리지도 적용하지도 않는다 — 주소의 kind=COUPON을 버린다(v2.33 ⓐ)', async () => {
+    const html = await page(`${PATHS.schedule}?${SCHEDULE_KEYS.kind}=COUPON`)
+    expect(html).not.toContain(`name="${SCHEDULE_KEYS.kind}"`)
+    // 좁혔다면 상환 시 지급 카드는 사라졌을 것이다
+    expect(scheduleCardOf(html, plain.productId)).toContain('연쿠폰')
+  })
+
+  it('월수익 행이 없는 사용자의 시간순에는 「종류」가 없다', async () => {
+    const empty = await authenticatedJar(E2E_EMPTY)
+    const html = await (await get(TIME, empty)).text()
+    expect(html).not.toContain(`name="${SCHEDULE_KEYS.kind}"`)
+  })
+
+  it('ⓕ 기간이 차수를 다 자른 월지급 상품 — 상품별에는 「n건」 줄만, 시간순에는 그 상품의 월수익 행', async () => {
+    // 발행 30일 전 — 차수가 전부 미래다. 월수익은 하나가 지났다(−10일)
+    const orphan = await registerProduct(jar, {
+      label: '월지급고아',
+      principal: '100,000,000',
+      issueDate: shiftDays(asOf, -30),
+    })
+    await makeMonthly(orphan.productId, [
+      { couponNo: 1, evaluationDate: shiftDays(asOf, -10), paymentDate: shiftDays(asOf, -7) },
+      { couponNo: 2, evaluationDate: shiftDays(asOf, 20), paymentDate: shiftDays(asOf, 23) },
+    ])
+    const past = `${PATHS.schedule}?${SCHEDULE_KEYS.range}=PAST`
+
+    const product = await page(past)
+    // 개수는 이 파일의 다른 월지급 상품의 첫 차수가 오늘 앞인지에 달린다 — 값은 순수 함수가 본다(`productsWithoutRounds`)
+    expect(product).toMatch(/이 기간에 차수가 없어 상품별 보기에 없는 월지급 상품 \d+건/)
+    expect(product).not.toContain(`href="${PATHS.product(orphan.productId)}"`)
+
+    const time = await page(`${past}&${SCHEDULE_KEYS.view}=TIME`)
+    const rows = timeRowsOf(time, orphan.productId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toContain('1번째')
   })
 })

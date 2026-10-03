@@ -7,6 +7,7 @@ import {
   OWNER_ALL,
   OWNER_MINE,
   SCHEDULE_KEYS,
+  SCHEDULE_KIND_DEFAULT,
   SCHEDULE_RANGE_DEFAULT,
   SCHEDULE_VIEW_DEFAULT,
   TAX_KEYS,
@@ -339,11 +340,12 @@ const SCHEDULE_DEFAULTS: ScheduleFilter = {
   owner: OWNER_MINE,
   range: SCHEDULE_RANGE_DEFAULT,
   activeOnly: false,
+  kind: SCHEDULE_KIND_DEFAULT,
 }
 
-/** 파서가 「본인」의 실체로 쓰는 값 — 상품 쪽 `VIEWER`와 같다 */
+/** 파서가 「본인」의 실체로 쓰는 값 — 상품 쪽 `VIEWER`와 같다. 보기는 같은 주소에서 읽는다(페이지와 같다) */
 function parseSchedule(values: Record<string, string | string[] | undefined>) {
-  return parseScheduleFilter(values, VIEWER)
+  return parseScheduleFilter(values, VIEWER, parseScheduleView(values))
 }
 
 describe('평가일정 필터 (SCR-301)', () => {
@@ -563,15 +565,19 @@ describe('평가일정 보기 (SCR-301)', () => {
       // 소유자 셋을 전부 태운다 — 「전체」가 왕복에서 살아남지 않으면 사용자가
       // 고른 값이 링크를 지나며 조용히 본인으로 되돌아간다 (v2.6).
       [{ ...SCHEDULE_DEFAULTS, owner: OWNER_ALL }, 'TIME'],
-      [{ owner: OWNER_ALL, range: 'PAST', activeOnly: true }, 'TIME'],
+      [{ owner: OWNER_ALL, range: 'PAST', activeOnly: true, kind: SCHEDULE_KIND_DEFAULT }, 'TIME'],
       [
         {
           owner: '11111111-2222-4333-8444-555555555555',
           range: 'UPCOMING',
           activeOnly: true,
+          kind: SCHEDULE_KIND_DEFAULT,
         },
         'PRODUCT',
       ],
+      // P8 컷 b3-6 — 「종류」는 시간순 주소에서 왕복한다
+      [{ ...SCHEDULE_DEFAULTS, kind: 'COUPON' }, 'TIME'],
+      [{ owner: OWNER_ALL, range: 'UPCOMING', activeOnly: false, kind: 'ROUND' }, 'TIME'],
     ]
 
     for (const [filter, view] of cases) {
@@ -581,6 +587,25 @@ describe('평가일정 보기 (SCR-301)', () => {
       expect(parseSchedule(parsed)).toEqual(filter)
       expect(parseScheduleView(parsed)).toBe(view)
     }
+  })
+
+  it('★ 「종류」는 시간순 보기에만 있다 — 상품별 보기는 주소의 값을 버리고 싣지도 않는다 (DOC-008 v2.33 ⓐ)', () => {
+    const coupon = { [SCHEDULE_KEYS.kind]: 'COUPON', [SCHEDULE_KEYS.owner]: OWNER_ALL }
+    // 상품별(기본 보기) — 손으로 적은 kind가 「좁혀짐」을 만들지 않는다
+    expect(parseSchedule(coupon).kind).toBe(SCHEDULE_KIND_DEFAULT)
+    expect(isScheduleNarrowed(parseSchedule(coupon))).toBe(false)
+    // 시간순 — 읽고, 좁힌다(소유자를 「전체」로 열어 둬야 이 단언이 판별한다 — 위 보기 케이스의 ★★)
+    const time = parseSchedule({ ...coupon, [SCHEDULE_KEYS.view]: 'TIME' })
+    expect(time.kind).toBe('COUPON')
+    expect(isScheduleNarrowed(time)).toBe(true)
+    expect(isScheduleMineOnly(parseSchedule({ [SCHEDULE_KEYS.kind]: 'ROUND', [SCHEDULE_KEYS.view]: 'TIME' }))).toBe(false)
+    // 계약 입력이 아니다 — 두 계약 중 어느 행을 그릴지 고를 뿐이다
+    expect(toScheduleParams(time, ASOF, VIEWER)).toEqual({})
+    // 상품별 주소에는 싣지 않는다 — 시간순 → 상품별 → 시간순이면 기본값으로 돌아온다
+    expect(scheduleQuery(time, 'PRODUCT')).toBe(`?${SCHEDULE_KEYS.owner}=${OWNER_ALL}`)
+    expect(scheduleQuery(time, 'TIME')).toContain('kind=COUPON')
+    // 조작된 값은 기본값
+    expect(parseSchedule({ [SCHEDULE_KEYS.kind]: 'BOTH', [SCHEDULE_KEYS.view]: 'TIME' }).kind).toBe(SCHEDULE_KIND_DEFAULT)
   })
 
   it('보기 키가 필터 키와 충돌하지 않는다', () => {

@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import type { ScheduleItem } from '@/lib/db/queries/map'
+import type { MonthlyCouponScheduleItem, ScheduleItem } from '@/lib/db/queries/map'
 import { groupByProduct, percent, taxBasisOf } from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -24,11 +24,21 @@ export function ProductScheduleList({
   items,
   /** 셋째 빈 상태가 화면 단위로 떠 있으면 카드가 같은 말을 반복하지 않는다 */
   noteMissingUpcoming,
+  coupons,
 }: {
   items: readonly ScheduleItem[]
   noteMissingUpcoming: boolean
+  /** §4.12 월수익 행 — 같은 필터. 카드마다 `productId`로 나눠 준다(P8 컷 b3-6) */
+  coupons: readonly MonthlyCouponScheduleItem[]
 }) {
   const groups = groupByProduct(items)
+  // 상품별로 나눈다 — 계약의 순서(평가일 · 상품명 · 순번)를 보존하므로 한 상품 안에서는 순번 오름차순이다
+  const couponsOf = new Map<string, MonthlyCouponScheduleItem[]>()
+  for (const coupon of coupons) {
+    const list = couponsOf.get(coupon.productId) ?? []
+    list.push(coupon)
+    couponsOf.set(coupon.productId, list)
+  }
   // 목록 전체의 세율 근거. 지금은 전 행이 같지만 최대값으로 접는다 — 계약이
   // 차수별로 세율을 가르는 날이 와도 문장이 거짓이 되지 않는다(AQ-66 잔여 ⓐ).
   const taxLawYear = taxBasisOf(items)
@@ -50,6 +60,7 @@ export function ProductScheduleList({
             key={group.productId}
             group={group}
             noteMissingUpcoming={noteMissingUpcoming}
+            coupons={couponsOf.get(group.productId) ?? NO_COUPONS}
           />
         ))}
       </ul>
@@ -76,3 +87,5 @@ export function ProductScheduleList({
     </div>
   )
 }
+
+const NO_COUPONS: readonly MonthlyCouponScheduleItem[] = []

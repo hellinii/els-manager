@@ -141,6 +141,7 @@ describe('뷰 타입에 브랜드가 새지 않는다', () => {
       isPast: false,
       principal: '100000000',
       currency: 'KRW',
+      couponPayout: 'AT_REDEMPTION',
       annualCouponRate: '0.0800',
       accountType: 'GENERAL',
       totalRounds: 2,

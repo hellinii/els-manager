@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { toProductDetailView } from '@/lib/db/queries/map'
+import { judge, toMonthlyCouponScheduleItems, toProductDetailView } from '@/lib/db/queries/map'
 import { NO_ESTIMATE_RATES } from '@/lib/domain'
 import { deriveDisplay } from '@/lib/format'
 
@@ -208,5 +208,28 @@ describe('달러 월지급 상품 — 금액은 상품 통화', () => {
   it('$10,000 · 연 24.24% → $202.00, 센트 고정 자릿수(Q-07)', () => {
     const v = view(monthlyProductRow({ currency: 'USD', principal: '10000.00', monthly_coupon_annual_rate: '0.2424' }))
     expect(v.coupons?.[0]?.expectedAmount).toBe('202.00')
+  })
+})
+
+describe('§4.12 월수익 일정 행 — 같은 매퍼 + 상품 식별 · isPast (b3-6)', () => {
+  const items = (row = monthlyProductRow(), asOf = '2027-01-20') =>
+    toMonthlyCouponScheduleItems(row, judge(row, PRICED, asOf), asOf)
+
+  it('행마다 상품 식별과 통화를 싣고 상태 · 금액은 §4.3과 같다', () => {
+    const rows = items()
+    expect(rows).toHaveLength(12)
+    expect(rows[0]).toMatchObject({ productName: monthlyProductRow().name, currency: 'KRW', couponNo: 1, expectedAmount: '600000' })
+    expect(rows.map((r) => r.state)).toEqual(view().coupons!.map((c) => c.state))
+  })
+
+  it('isPast — 평가일 < 기준일 · 당일은 경과가 아니다', () => {
+    // 3번째 달 평가일 = 2027-01-16
+    const rows = items(monthlyProductRow(), '2027-01-16')
+    expect(rows.slice(0, 3).map((r) => r.isPast)).toEqual([true, true, false])
+  })
+
+  it('행이 없는 둘 — 상환 시 지급 · 셋째 결함(억제)', () => {
+    expect(items(productRow())).toEqual([])
+    expect(items(monthlyProductRow({ monthly_coupon_schedules: [] }))).toEqual([])
   })
 })

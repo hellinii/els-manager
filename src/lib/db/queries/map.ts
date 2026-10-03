@@ -1368,8 +1368,13 @@ export type ScheduleItem = {
   status: 'ACTIVE' | 'REDEEMED'
   worstOf: string | null
   conditionResult: ConditionResult | null
-  /** 일정 0건 상품은 이 목록에 **행 자체가 생기지 않으므로** SCHEDULE_MISSING은 도달 불가다 */
-  integrityIssue: 'UNDERLYING_MISSING' | null
+  /**
+   * 일정 0건 상품은 이 목록에 **행 자체가 생기지 않으므로** SCHEDULE_MISSING은 도달 불가다.
+   *
+   * v4.16 (구현 b3) — 셋째 결함 `COUPON_SCHEDULE_MISSING`도 도달한다: 그 상품은 조기상환 차수가 있어 행을 갖는다(없는
+   * 것은 월수익 일정이다). 판정은 존재 탐침이다(DOC-011 §4.4 「좁은 이유」 v4.23). `SCHEDULE_MISSING`은 도달 불가 그대로다
+   */
+  integrityIssue: 'UNDERLYING_MISSING' | 'COUPON_SCHEDULE_MISSING' | null
   isPast: boolean
 
   /**
@@ -1385,6 +1390,11 @@ export type ScheduleItem = {
    * `groupByProduct`가 첫 항목에서 취하는 상품 단위 값의 하나다.
    */
   currency: ProductCurrency
+  /**
+   * 쿠폰 지급방식 (§4.4 v4.23 — 구현 b3-6). 차수마다 같은 값이다. 월지급식 카드는 ⑧(늘 0% — I-23)을 숨기고 월수익
+   * 하위 목록을 그린다 — 가르는 값은 이것이며 화면이 `annualCouponRate == 0`으로 추측하지 않는다
+   */
+  couponPayout: CouponPayout
   /** 연쿠폰율. `null` = 계약 조건 없음(D-07)이며 `proceeds`와 **같은 조건**으로 빈다 */
   annualCouponRate: string | null
   /**
@@ -1564,8 +1574,8 @@ export function toScheduleItems(
         j.next != null && j.next.round_no === s.round_no
           ? j.conditionResult
           : null,
-      integrityIssue:
-        j.integrityIssue === 'UNDERLYING_MISSING' ? 'UNDERLYING_MISSING' : null,
+      // 차수 행 단위라 `SCHEDULE_MISSING`은 도달 불가다(행이 없다) — 나머지 둘을 그대로 싣는다
+      integrityIssue: j.integrityIssue === 'SCHEDULE_MISSING' ? null : j.integrityIssue,
       isPast: isPast({ evaluationDate: s.evaluation_date, asOf }),
 
       /*
@@ -1576,6 +1586,7 @@ export function toScheduleItems(
        */
       principal: moneyString(dec(row.principal), row.currency),
       currency: row.currency,
+      couponPayout: row.coupon_payout,
       annualCouponRate: nullableRatio(row.annual_coupon_rate),
       accountType: row.account_type,
       totalRounds,
@@ -1733,4 +1744,62 @@ export function bracketLabel(params: {
     return `${koreanAmount(params.nextLowerBound)} 이하`
   }
   return `${koreanAmount(params.lowerBound)}~${koreanAmount(params.nextLowerBound)}`
+}
+
+// ---------------------------------------------------------------------------
+// §4.12 월수익 일정 — SCR-301의 월수익 행 (P8 컷 b3-6)
+// ---------------------------------------------------------------------------
+
+/**
+ * 월수익 일정 한 행 (DOC-011 §4.12 · b3 개정). 상태 · 기록 · 금액 · 다음 행 판정은 **§4.3 `coupons`와 같은 매퍼**에서
+ * 온다(`couponObservationsOf`) — 같은 상품의 같은 달에 두 화면이 다른 상태를 말할 수 없는 것이 규율이 아니라 구성이다.
+ * 이 계약이 더하는 것은 상품 식별과 `isPast`뿐이다. 원화 과세를 싣지 않는다 — 그래서 환율 축(`EXCHANGE_RATE_WIDE`)에 없다.
+ */
+export type MonthlyCouponScheduleItem = {
+  productId: string
+  productName: string
+  ownerName: string
+  /** `expectedAmount` · `record.grossAmount`의 통화 */
+  currency: ProductCurrency
+  couponNo: number
+  evaluationDate: string
+  paymentDate: string
+  couponBarrier: string
+  state: CouponState
+  expectedAmount: string
+  /** 그 달의 기록. `paymentDate`는 v4.28 — SCR-202 ⑦과 같은 표기(기록이 있으면 거래내역의 지급일)를 위해서다 */
+  record: { outcome: CouponOutcome; grossAmount: string | null; paymentDate: string | null } | null
+  conditionResult: CouponConditionResult | null
+  /** 월수익 평가일 < 기준일 — §4.4 차수의 `isPast`와 같은 규칙. SCR-301 시간순의 절이 이것으로만 가른다 */
+  isPast: boolean
+}
+
+/** 상품 하나 → 그 상품의 월수익 행 전부(순번 오름차순). 월수익이 없거나 억제되면 빈 배열이다 */
+export function toMonthlyCouponScheduleItems(
+  row: ProductRow,
+  j: Judgment,
+  asOf: string,
+): MonthlyCouponScheduleItem[] {
+  return (couponObservationsOf(row, j, asOf) ?? []).map((coupon) => ({
+    productId: row.id,
+    productName: row.name,
+    ownerName: ownerNameOf(row),
+    currency: row.currency,
+    couponNo: coupon.couponNo,
+    evaluationDate: coupon.evaluationDate,
+    paymentDate: coupon.paymentDate,
+    couponBarrier: coupon.couponBarrier,
+    state: coupon.state,
+    expectedAmount: coupon.expectedAmount,
+    record:
+      coupon.record == null
+        ? null
+        : {
+            outcome: coupon.record.outcome,
+            grossAmount: coupon.record.grossAmount,
+            paymentDate: coupon.record.paymentDate,
+          },
+    conditionResult: coupon.conditionResult,
+    isPast: isPast({ evaluationDate: coupon.evaluationDate, asOf }),
+  }))
 }

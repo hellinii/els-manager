@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import type { ScheduleItem, ScheduleProceeds } from '@/lib/db/queries/map'
+import type { MonthlyCouponScheduleItem, ScheduleItem, ScheduleProceeds } from '@/lib/db/queries/map'
 
 /**
  * SCR-301 항목 표시 ↔ `ScheduleItem` — 마커 전수 대조 (P8 컷 1 계기)
@@ -55,18 +55,33 @@ type Field = keyof ScheduleItem
  * 없고, 그 갈래의 `proceeds?: never`가 반대 방향(다른 필드에 하위 키)을 막는다.
  */
 type OtherField = Exclude<Field, 'proceeds'>
+/**
+ * P8 컷 b3-6 — ⑮⑯은 `ScheduleItem`이 아니라 §4.12 `MonthlyCouponScheduleItem`을 읽는다(합집합 타입을 쓰지 않는다 —
+ * DOC-011 §4.12). 그래서 출처 갈래가 셋이다: 차수 계약의 필드(`fields`) · 그 `proceeds` 하위 키 · 월수익 계약의 필드
+ * (`coupon`). 한 마커가 두 계약을 섞어 읽지 못하게 갈래끼리 `never`로 막는다.
+ */
+type CouponField = keyof MonthlyCouponScheduleItem
 type Source =
   | {
       where: string
       label: string
       fields: readonly [OtherField, ...OtherField[]]
       proceeds?: never
+      coupon?: never
     }
   | {
       where: string
       label: string
       fields: readonly ['proceeds']
       proceeds: keyof ScheduleProceeds
+      coupon?: never
+    }
+  | {
+      where: string
+      label: string
+      coupon: readonly [CouponField, ...CouponField[]]
+      fields?: never
+      proceeds?: never
     }
 
 /**
@@ -119,11 +134,35 @@ const ELEMENT_SOURCES = {
     fields: ['proceeds'],
     proceeds: 'expectedPnl',
   },
+  /*
+   * P8 컷 b3-6 — 월수익 두 마커. 한 행이 여러 값을 그리므로 필드가 여럿이다(⑨⑩과 같은 형태). `record`는 기록의 세전
+   * (금액 — 기록이 있으면 그것)과 지급일(⑮ — 기록이 있으면 거래내역의 지급일, DOC-008 v2.33 ⓖ)을 나른다
+   */
+  '⑮': {
+    where: '상품별 보기 · 월수익 하위 목록',
+    label: '월수익 순번·평가일·지급일·상태·예상 충족·금액',
+    coupon: ['couponNo', 'evaluationDate', 'paymentDate', 'state', 'conditionResult', 'expectedAmount', 'record'],
+  },
+  '⑯': {
+    where: '시간순 보기 · 월수익 행',
+    label: '월수익 평가일·상품명·월수익 순번·월수익 배리어·상태·예상 충족·금액',
+    coupon: [
+      'evaluationDate',
+      'productName',
+      'couponNo',
+      'couponBarrier',
+      'state',
+      'conditionResult',
+      'expectedAmount',
+      'record',
+    ],
+  },
 } as const satisfies Record<string, Source>
 
 type Entry = (typeof ELEMENT_SOURCES)[keyof typeof ELEMENT_SOURCES]
-type Mapped = Entry['fields'][number]
+type Mapped = Extract<Entry, { fields: readonly string[] }>['fields'][number]
 type MappedProceeds = Extract<Entry, { proceeds: string }>['proceeds']
+type MappedCoupon = Extract<Entry, { coupon: readonly string[] }>['coupon'][number]
 
 // ---------------------------------------------------------------------------
 // 마커 없는 필드 — 계약 → 대응표의 역방향
@@ -202,7 +241,39 @@ const UNMARKED = {
     anchor: '그 카드의 상품 통화로 적는다',
     reason: '상품별 카드의 금액 넷(⑦·⑫·⑬·⑭)의 단위 — 달러 카드는 머리글에서 단위를 떼고 값이 `$`를 단다',
   },
+  // P8 컷 b3-6 — 월지급식 카드의 ⑧(늘 0% — I-23)을 숨기는 축. 앵커는 SCR-301 「P8 월지급식」 각주의 그 결정 문장이다
+  couponPayout: {
+    kind: 'PROSE',
+    anchor: '가르는 값은 `ScheduleItem.couponPayout`이다',
+    reason: '월지급식 카드에서 ⑧을 숨긴다 — 월수익 행의 유무로 가르면 기간 필터가 그 행을 다 자를 때 0%가 되살아난다',
+  },
 } as const satisfies Record<Exclude<Field, Mapped>, Unmarked>
+
+/**
+ * ⑮⑯이 읽지 않는 `MonthlyCouponScheduleItem`의 필드 — `UNMARKED`와 같은 규약, 다른 계약 (P8 컷 b3-6).
+ * `Record<Exclude<keyof MonthlyCouponScheduleItem, MappedCoupon>, …>`이므로 §4.12에 필드가 늘면 여기서 깨진다.
+ */
+const UNMARKED_COUPON = {
+  productId: {
+    kind: 'NOT_DISPLAYED',
+    reason: '링크 대상(SCR-202)이자 상품별 카드에 월수익 행을 붙이는 키다',
+  },
+  ownerName: {
+    kind: 'UNREGISTERED',
+    reason:
+      '시간순의 월수익 행도 상품명 아래에 적는다 — `ScheduleItem.ownerName`과 같은 자리 · 같은 공백(항목 표시에 마커가 없다)',
+  },
+  currency: {
+    kind: 'PROSE',
+    anchor: '월수익 행의 금액은 그 행의 상품 통화로 적는다',
+    reason: '⑮⑯ 금액의 단위 — 값이 아니라 단위다',
+  },
+  isPast: {
+    kind: 'PROSE',
+    anchor: '하위 목록의 「다음」은 `isPast`가 거짓인 첫 행이다',
+    reason: '시간순의 절과 하위 목록의 「다음」을 가른다. 값으로 렌더되지 않는다',
+  },
+} as const satisfies Record<Exclude<keyof MonthlyCouponScheduleItem, MappedCoupon>, Unmarked>
 
 /** ⑫⑬⑭가 나눠 읽는 `proceeds`의 나머지 — 위와 같은 규약, 한 단계 아래 */
 const UNMARKED_PROCEEDS = {
@@ -337,6 +408,7 @@ describe('DOC-008 §5 SCR-301 항목 표시 ↔ `ScheduleItem`', () => {
     const missing = [
       ...Object.entries(UNMARKED),
       ...Object.entries(UNMARKED_PROCEEDS).map(([k, v]) => [`proceeds.${k}`, v] as const),
+      ...Object.entries(UNMARKED_COUPON).map(([k, v]) => [`coupon.${k}`, v] as const),
     ]
       .filter(([, v]) => v.kind === 'PROSE')
       .map(([field, v]) => [field, (v as { anchor: string }).anchor] as const)

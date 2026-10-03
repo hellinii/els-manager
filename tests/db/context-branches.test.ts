@@ -44,8 +44,8 @@ describe('queriesFor — 조회는 던진다 (Q-04)', () => {
   it('인증되면 계약 묶음을 주고 viewerId가 결속된다', () => {
     const queries = queriesFor(USER, CTX)
 
-    // §4.1~§4.9와 §4.11 열 개 — 전부다. §4.7 `getForecast`가 P4b 컷 7에서, §4.11
-    // `listExchangeRates`가 P8 컷 a3에서 들어왔다.
+    // §4.1~§4.9 · §4.11 · §4.12 열한 개 — 전부다. §4.7 `getForecast`가 P4b 컷 7에서, §4.11
+    // `listExchangeRates`가 P8 컷 a3에서, §4.12 `listMonthlyCouponSchedule`이 P8 컷 b3-6에서 들어왔다.
     expect(Object.keys(queries).sort()).toEqual([
       'getDashboard',
       'getForecast',
@@ -53,6 +53,7 @@ describe('queriesFor — 조회는 던진다 (Q-04)', () => {
       'getTaxSummary',
       'listAssetPrices',
       'listExchangeRates',
+      'listMonthlyCouponSchedule',
       'listProducts',
       'listSchedule',
       'listUserSummaries',
