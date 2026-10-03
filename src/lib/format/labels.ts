@@ -117,6 +117,8 @@ export const PRICE_SOURCE_LABELS: Record<
 export const INTEGRITY_ISSUE_LABELS: Record<IntegrityIssue, string> = {
   UNDERLYING_MISSING: '기초자산 없음 — 수정 필요',
   SCHEDULE_MISSING: '평가일정 없음 — 수정 필요',
+  // 셋째 결함(P8 컷 b3) — 고칠 곳이 월지급 블록이다. 「평가일정」과 다른 낱말이어야 한다(차수 일정이 아니다)
+  COUPON_SCHEDULE_MISSING: '월수익 일정 없음 — 수정 필요',
 }
 
 /**
@@ -134,6 +136,7 @@ export const ATTENTION_REASON_LABELS: Record<AttentionReason, string> = {
   PRICE_MISSING: '시세 없음',
   UNDERLYING_MISSING: '기초자산 없음 — 수정 필요',
   SCHEDULE_MISSING: '평가일정 없음 — 수정 필요',
+  COUPON_SCHEDULE_MISSING: '월수익 일정 없음 — 수정 필요',
 }
 
 /**

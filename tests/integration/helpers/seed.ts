@@ -253,18 +253,30 @@ export async function seedProduct(params: {
   note?: string | null
   /** 기본 `'KRW'`. 달러 픽스처는 **센트를 싣는다**(`principal = '10000.50'` — DOC-011 Q-07′) */
   currency?: 'KRW' | 'USD'
+  /**
+   * P8 컷 b3 — 월지급식 픽스처. 기본은 상환 시 지급(DB 기본값과 같다). `MONTHLY` FULL이면 연쿠폰율 0 · 월수익 연쿠폰율
+   * > 0이어야 한다(I-23 — `els_products_monthly_terms_check`)
+   */
+  couponPayout?: 'AT_REDEMPTION' | 'MONTHLY'
+  monthlyCouponAnnualRate?: string | null
+  /** 기본 `'0.0800'`. 월지급식은 `'0'`, 기실현은 `null`(I-18) */
+  annualCouponRate?: string | null
+  /** 기본 `'FULL'`. 기실현이면 발행일 · 연쿠폰율이 `null`이어야 한다(I-18) — 호출부가 함께 넘긴다 */
+  entryMode?: 'FULL' | 'REALIZED_ONLY'
+  /** `issueDate`에 `null`을 줄 수 있게 따로 둔다(기실현) */
+  issueDateNull?: boolean
 }): Promise<void> {
   await sql(
     `insert into public.els_products
        (id, owner_id, name, issue_date, principal, evaluation_period_months,
         annual_coupon_rate, ki_barrier, ki_observation, ki_touched_at, account_type,
-        issuer, note, currency)
-     values ($1, $2, $3, $4, $5, 6, 0.0800, $6, $7, $8, $9, $10, $11, $12)`,
+        issuer, note, currency, coupon_payout, monthly_coupon_annual_rate, entry_mode)
+     values ($1, $2, $3, $4, $5, 6, $13, $6, $7, $8, $9, $10, $11, $12, $14, $15, $16)`,
     [
       params.id,
       params.ownerId,
       `${FX_NAME_PREFIX} ${params.name}`,
-      params.issueDate ?? '2026-01-02',
+      params.issueDateNull === true ? null : (params.issueDate ?? '2026-01-02'),
       params.principal ?? '100000000',
       params.kiBarrier ?? null,
       params.kiObservation ?? null,
@@ -273,6 +285,62 @@ export async function seedProduct(params: {
       params.issuer ?? null,
       params.note ?? null,
       params.currency ?? 'KRW',
+      params.annualCouponRate === undefined ? '0.0800' : params.annualCouponRate,
+      params.couponPayout ?? 'AT_REDEMPTION',
+      params.monthlyCouponAnnualRate ?? null,
+      params.entryMode ?? 'FULL',
+    ],
+  )
+}
+
+/** 월수익 일정 한 행 (P8 컷 b3 · DOC-002 §4.13) — 부모는 월지급식이어야 의미가 있다 */
+export async function seedCouponSchedule(params: {
+  elsId: string
+  couponNo: number
+  evaluationDate: string
+  paymentDate: string
+  couponBarrier: string
+}): Promise<void> {
+  await sql(
+    `insert into public.monthly_coupon_schedules
+       (els_id, coupon_no, evaluation_date, payment_date, coupon_barrier)
+     values ($1, $2, $3, $4, $5)`,
+    [params.elsId, params.couponNo, params.evaluationDate, params.paymentDate, params.couponBarrier],
+  )
+}
+
+/**
+ * 월수익 지급 기록 한 행 (P8 컷 b3 · DOC-002 §4.14). 부모 트리거(월지급식 · 순번 · 상환 뒤 금지)와 자릿수 트리거를
+ * 그대로 지난다 — 픽스처가 계약이 만들 수 없는 행을 만들지 않게. `UNPAID`면 금액 · 지급일 · 과세 칸을 비운다(I-26)
+ */
+export async function seedCouponPayment(params: {
+  elsId: string
+  couponNo: number | null
+  outcome: 'PAID' | 'UNPAID'
+  paymentDate?: string | null
+  grossAmount?: string | null
+  taxableIncome?: string | null
+  withholdingTax?: string | null
+  exchangeRate?: string | null
+  isConfirmed?: boolean
+  note?: string | null
+}): Promise<void> {
+  await sql(
+    `insert into public.monthly_coupon_payments
+       (els_id, coupon_no, outcome, payment_date, gross_amount, taxable_income,
+        withholding_tax, exchange_rate, is_confirmed, note)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [
+      params.elsId,
+      params.couponNo,
+      params.outcome,
+      params.paymentDate ?? null,
+      params.grossAmount ?? null,
+      params.taxableIncome ?? null,
+      params.withholdingTax ?? null,
+      params.exchangeRate ?? null,
+      params.isConfirmed ?? true,
+      params.note ?? null,
     ],
   )
 }

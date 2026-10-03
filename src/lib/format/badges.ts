@@ -48,6 +48,7 @@ export const CONDITION_RESULT_GRADES: Record<ConditionResult, BadgeGrade> = {
 export const INTEGRITY_ISSUE_GRADES: Record<IntegrityIssue, BadgeGrade> = {
   UNDERLYING_MISSING: 'defect',
   SCHEDULE_MISSING: 'defect',
+  COUPON_SCHEDULE_MISSING: 'defect',
 }
 
 export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
@@ -59,6 +60,8 @@ export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
   PRICE_MISSING: 'caution',
   UNDERLYING_MISSING: 'defect',
   SCHEDULE_MISSING: 'defect',
+  // 셋째 결함도 데이터 수정이다(SCR-204) — 조치(attention)와 다른 등급이어야 ST-06의 구분이 색에 남는다
+  COUPON_SCHEDULE_MISSING: 'defect',
 }
 
 /** 시세 경과 — 정상값이 매주 경고가 되지 않게 5일 기준이다(§4.5). 관찰이다. */

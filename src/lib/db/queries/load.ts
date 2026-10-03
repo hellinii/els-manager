@@ -94,6 +94,14 @@ export type ProductCoreRow = SelectedRow<'els_products', typeof ELS_PRODUCT_COLU
   els_underlyings: UnderlyingRow[]
   redemption_schedules: ScheduleRow[]
   redemptions: RedemptionRow | null
+  /**
+   * 월수익 일정 **존재 탐침** — 한 행 · 한 열 (P8 컷 b3 · DOC-011 §4.4 「좁은 이유」 v4.23).
+   *
+   * 결함 `COUPON_SCHEDULE_MISSING`(월지급식인데 일정 0행)을 차수 루트에서도 판정하기 위해서다. 일정 **전부**를 차수
+   * 루트에 넣으면 차수 수만큼 복제되므로(AQ-77) 존재만 본다 — `loadScheduleRows`가 임베드에 `limit 1`을 건다.
+   * 상품 루트(`ProductRow`)도 같은 열을 싣는다 — `integrityIssueOf`가 두 경로에서 같은 필드를 읽게(한 판정).
+   */
+  coupon_schedule_probe: Array<{ coupon_no: number }>
 }
 
 /**
@@ -116,6 +124,9 @@ export type ProductRow = ProductCoreRow & {
   monthly_coupon_payments: CouponPaymentRow[]
 }
 
+/** 탐침의 별칭 — 임베드 `limit`의 `referencedTable` 경로가 이 이름을 쓴다 */
+const COUPON_SCHEDULE_PROBE = 'coupon_schedule_probe'
+
 const PRODUCT_CORE_SELECT = [
   selectList(ELS_PRODUCT_COLUMNS),
   embed('users', selectList(USER_COLUMNS)),
@@ -127,6 +138,10 @@ const PRODUCT_CORE_SELECT = [
   ),
   embed('redemption_schedules', selectList(SCHEDULE_COLUMNS)),
   embed('redemptions', selectList(REDEMPTION_COLUMNS)),
+  // 별칭으로 같은 관계를 한 번 더 임베드한다 — 상품 루트는 아래 `monthly_coupon_schedules` 전체를 따로 싣는다
+  embed(`${COUPON_SCHEDULE_PROBE}:monthly_coupon_schedules`, 'coupon_no', {
+    modifier: '!monthly_coupon_schedules_els_id_fkey',
+  }),
 ].join(',')
 
 /**
@@ -165,6 +180,7 @@ export async function loadProducts(
     .from('els_products')
     .select(PRODUCT_SELECT)
     .limit(TRUNCATION_PROBE_LIMIT)
+    .limit(1, { referencedTable: COUPON_SCHEDULE_PROBE })
 
   // Q-05 — 열 조건은 질의로 내린다. 파생값(status·kiStatus)은 조회 후에 적용한다.
   if (filters.ownerId != null) query = query.eq('owner_id', filters.ownerId)
@@ -184,6 +200,7 @@ export async function loadProduct(
     .from('els_products')
     .select(PRODUCT_SELECT)
     .eq('id', id)
+    .limit(1, { referencedTable: COUPON_SCHEDULE_PROBE })
     .maybeSingle()
     .overrideTypes<ProductRow, { merge: false }>()
 
@@ -283,6 +300,8 @@ export async function loadScheduleRows(
     )
     .order('evaluation_date', { ascending: true })
     .limit(TRUNCATION_PROBE_LIMIT)
+    // 존재 탐침은 한 행이면 된다 — 차수마다 복제되는 임베드다(AQ-77)
+    .limit(1, { referencedTable: `els_products.${COUPON_SCHEDULE_PROBE}` })
 
   // Q-05 — 네 값 모두 저장된 열의 조건이므로 질의로 내린다(§4.4)
   if (filters.from != null) query = query.gte('evaluation_date', filters.from)

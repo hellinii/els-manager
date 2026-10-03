@@ -650,6 +650,7 @@ describe('수정의 초기값 — 저장된 값이다', () => {
     exchangeRate: null,
     isConfirmed: stored.is_confirmed,
     realizedPnl: '4000000',
+    pnlBreakdown: null,
     note: stored.note,
   })
 
@@ -682,6 +683,7 @@ describe('수정의 초기값 — 저장된 값이다', () => {
       exchangeRate: null,
       isConfirmed: false,
       realizedPnl: '0',
+      pnlBreakdown: null,
       note: null,
     })
     expect(unconfirmed.isConfirmed).toBe('')

@@ -6,23 +6,33 @@ import {
 } from '@/lib/decimal'
 import {
   asActive,
+  couponAmount,
+  couponConditionOf,
+  couponFlowEndOf,
+  couponStateOf,
   dDay,
   estimateConversionOf,
   evaluateCondition,
   grossExpected,
+  isCouponRecordable,
   isPast,
   isRedeemed,
   kiStatus,
   MINOR_UNITS,
   moneyString,
+  nextCoupon,
   overdueEvaluations,
+  portfolioPnl,
   realizedPnl,
   taxableIncome,
   taxableIncomeKrw,
   underlyingRatio,
   worstOf,
   type ConditionResult,
+  type CouponConditionResult,
+  type CouponOutcome,
   type CouponPayout,
+  type CouponState,
   type EstimateRates,
   type ExchangeRate,
   type KiObservation,
@@ -43,8 +53,10 @@ import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 
 import { attributionOf, type Attribution } from './attribution'
 import type {
+  CouponPaymentRow,
   LatestPrice,
   ProductCoreRow,
+  ProductRow,
   ScheduleRow,
   UnderlyingRow,
 } from './load'
@@ -164,7 +176,7 @@ export function exchangeRateBasisOf(
 // 무결성 결함 — D1, DOC-002 I-07
 // ---------------------------------------------------------------------------
 
-export type IntegrityIssue = 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING'
+export type IntegrityIssue = 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING' | 'COUPON_SCHEDULE_MISSING'
 
 /**
  * 결함이 **파괴한 입력**. 억제 범위의 유일한 근거다 — DOC-011 §4.2 입력 기준.
@@ -173,7 +185,7 @@ export type IntegrityIssue = 'UNDERLYING_MISSING' | 'SCHEDULE_MISSING'
  * 것인가"가 결함마다 손으로 정하는 규율이 아니라, 결함을 등록할 때 자동으로
  * 따라오는 값이 된다.
  */
-export type DestroyedInput = 'PRICES' | 'ROUNDS'
+export type DestroyedInput = 'PRICES' | 'ROUNDS' | 'COUPONS'
 
 /**
  * **전수 사상이다.** 결함 종류를 늘리면 여기서 컴파일이 깨지므로, 새 결함이
@@ -184,6 +196,9 @@ const DESTROYED_BY: Record<IntegrityIssue, DestroyedInput> = {
   UNDERLYING_MISSING: 'PRICES',
   // 평가일정 0건 → 차수 입력이 없다. 시세는 온전하다.
   SCHEDULE_MISSING: 'ROUNDS',
+  // 월지급식인데 월수익 일정 0건 → 월수익 입력이 없다(P8 컷 b3 · DOC-011 §4.2 D1). 차수 · 시세는 온전하다 —
+  // 월수익 행과 그 표시(`coupons` · 월수익 요약)만 억제하고 차수 판정 · KI · 상환 쪽은 산다.
+  COUPON_SCHEDULE_MISSING: 'COUPONS',
 }
 
 export function destroyedInputOf(
@@ -248,12 +263,30 @@ export function integrityIssueOf(row: ProductCoreRow): IntegrityIssue | null {
 
   if (row.els_underlyings.length === 0) return 'UNDERLYING_MISSING'
   if (row.redemption_schedules.length === 0) return 'SCHEDULE_MISSING'
+  // 셋째 결함 — 기존 둘 다음이다(DOC-011 §4.2 D1 · 결함은 한 값만 싣는다). 기실현 월지급식은 일정 0행이 정의라
+  // 위 `isRealizedEntry`에서 먼저 빠진다(D-07). 판정은 존재 탐침을 읽는다 — 차수 루트와 상품 루트가 같은 필드다
+  if (row.coupon_payout === 'MONTHLY' && row.coupon_schedule_probe.length === 0) {
+    return 'COUPON_SCHEDULE_MISSING'
+  }
   return null
 }
 
 /** 기실현 등재인가 — **상환이 있어야 참이다.** 위 각주가 그 짝의 이유다 */
 export function isRealizedEntry(row: ProductCoreRow): boolean {
   return row.entry_mode === 'REALIZED_ONLY' && row.redemptions != null
+}
+
+/** 로그 문구 — 결함 · 파괴 입력의 전수 사상이다(종전 삼항은 결함이 셋째가 되자 거짓을 찍었다) */
+const INTEGRITY_ISSUE_LOG: Record<IntegrityIssue, { fact: string; rule: string }> = {
+  UNDERLYING_MISSING: { fact: '기초자산이 0건이다', rule: 'DOC-002 I-07' },
+  SCHEDULE_MISSING: { fact: '평가일정이 0건이다', rule: 'DOC-002 I-07' },
+  COUPON_SCHEDULE_MISSING: { fact: '월지급식인데 월수익 일정이 0건이다', rule: 'DOC-002 I-25' },
+}
+
+const DESTROYED_INPUT_LOG: Record<DestroyedInput, string> = {
+  PRICES: '시세',
+  ROUNDS: '차수',
+  COUPONS: '월수익',
 }
 
 /**
@@ -268,11 +301,10 @@ function reportIntegrityIssue(
 ): void {
   if (issue == null) return
 
-  const what =
-    issue === 'UNDERLYING_MISSING' ? '기초자산이 0건이다' : '평가일정이 0건이다'
+  const what = INTEGRITY_ISSUE_LOG[issue]
   console.error(
-    `[무결성] 상품 ${row.id}에 ${what} (DOC-002 I-07). ` +
-      `${DESTROYED_BY[issue] === 'PRICES' ? '시세' : '차수'} 입력이 없으므로 ` +
+    `[무결성] 상품 ${row.id}에 ${what.fact} (${what.rule}). ` +
+      `${DESTROYED_INPUT_LOG[DESTROYED_BY[issue]]} 입력이 없으므로 ` +
       '그 입력을 쓰는 판정을 생략하고 integrityIssue로 표시한다.',
   )
 }
@@ -702,9 +734,48 @@ export type RedemptionView = {
   /** 적용 환율(참고) — 소수 6자리. **어떤 계산에도 쓰지 않는다**(§4.3). 원화 상품은 늘 `null` */
   exchangeRate: string | null
   isConfirmed: boolean
-  /** 상품 통화 */
+  /** 상품 통화. 월지급 상품은 Σ PAID 월수익을 포함한다(포트폴리오 손익 — DOC-011 §4.3 v4.16) */
   realizedPnl: string
+  /**
+   * 구성 — 월지급 상품에만(DOC-011 §4.3 v4.24 · 민서 결정(2026-10-03) ②). `redemption + coupons = realizedPnl`.
+   * 화면의 구성 한 줄이 금액 산술을 하지 않게 계약이 낸다. 상환 시 지급 상품은 `null`이다(그 상세는 바이트 동일)
+   */
+  pnlBreakdown: { redemption: string; coupons: string } | null
   note: string | null
+}
+
+/** 월수익 지급 기록 하나 — `coupons[].record`와 `unnumberedCouponRecords[]`가 같은 모양이다 (DOC-011 §4.3) */
+export type CouponRecordView = {
+  id: string
+  outcome: CouponOutcome
+  /** 기록의 월수익 지급일(거래내역). UNPAID면 null (I-26). 일정의 지급일과 다를 수 있다 */
+  paymentDate: string | null
+  /** 상품 통화. UNPAID면 null */
+  grossAmount: string | null
+  /** 원화(과세 축). UNPAID면 null */
+  taxableIncome: string | null
+  withholdingTax: string | null
+  /** 적용 환율(참고) — 6자리. 계산에 쓰지 않는다 */
+  exchangeRate: string | null
+  isConfirmed: boolean
+  note: string | null
+}
+
+/** 월수익 일정 한 행과 그 달의 기록 · 상태 (DOC-011 §4.3 — §4.12가 같은 매퍼를 쓴다, b3 개정) */
+export type CouponObservationView = {
+  couponNo: number
+  evaluationDate: string
+  /** 일정의 월수익 지급일 */
+  paymentDate: string
+  couponBarrier: string
+  state: CouponState
+  record: CouponRecordView | null
+  /** 상품 통화 — q_k(보조단위 절사값). F · SCR-206 기본값과 같은 값 */
+  expectedAmount: string
+  /** 다음 한 행에만 값(DOC-007 §3.5 — 표시 전용) */
+  conditionResult: CouponConditionResult | null
+  /** V-27의 기록 대상인가 — 기록 계약과 한 술어(`isCouponRecordable`) */
+  recordable: boolean
 }
 
 export type ProductDetailView = {
@@ -729,6 +800,8 @@ export type ProductDetailView = {
      * 저장값을 되돌려 보낼 수 없다(V-25 필수 · 기본값 없음). 월수익 필드(`monthlyCouponAnnualRate` · `coupons`)는 b3다
      */
     couponPayout: CouponPayout
+    /** 월수익 연쿠폰율(4자리) — 상환 시 지급 · 기실현은 null (I-23). 수정 폼의 초기값이다 (§4.3 · b3) */
+    monthlyCouponAnnualRate: string | null
     evaluationPeriodMonths: number
     totalRounds: number
     /**
@@ -802,6 +875,13 @@ export type ProductDetailView = {
     attributionYear: number
   } | null
   redemption: RedemptionView | null
+  /**
+   * 월수익 일정 행마다 하나, 순번 오름차순 (b3). null = 상환 시 지급, 또는 결함 `COUPON_SCHEDULE_MISSING`의 억제.
+   * 기실현 월지급은 [] — 일정 행이 없다
+   */
+  coupons: CouponObservationView[] | null
+  /** 순번 없는 월수익 지급 기록(기실현 월지급의 PAID), 지급일 순. 그 밖은 [] (b3) */
+  unnumberedCouponRecords: CouponRecordView[]
 }
 
 /**
@@ -831,7 +911,7 @@ function expectedGrossOf(
 }
 
 export function toProductDetailView(
-  row: ProductCoreRow,
+  row: ProductRow,
   prices: Map<string, LatestPrice>,
   asOf: string,
   viewerId: string,
@@ -867,6 +947,7 @@ export function toProductDetailView(
       principal: moneyString(dec(row.principal), row.currency),
       currency: row.currency,
       couponPayout: row.coupon_payout,
+      monthlyCouponAnnualRate: nullableRatio(row.monthly_coupon_annual_rate),
       evaluationPeriodMonths: row.evaluation_period_months,
       // 정본은 **행 수**다. max(round_no)가 아니다 — 연속성(V-04)은 계약 계층에만
       // 있어 DB는 1,2,99를 허용하므로 두 값이 갈린다(DOC-002 §4.6).
@@ -949,16 +1030,158 @@ export function toProductDetailView(
                 ? null
                 : priceString(dec(row.redemptions.exchange_rate)),
             isConfirmed: row.redemptions.is_confirmed,
-            realizedPnl: moneyString(
-              realizedPnl({
-                grossAmount: row.redemptions.gross_amount,
-                principal: row.principal,
-              }),
-              row.currency,
-            ),
+            ...redemptionPnlOf(row, row.redemptions.gross_amount),
             note: row.redemptions.note,
           },
+
+    coupons: couponObservationsOf(row, j, asOf),
+    unnumberedCouponRecords: row.monthly_coupon_payments
+      .filter((payment) => payment.coupon_no == null)
+      .sort((a, b) => (a.payment_date ?? '').localeCompare(b.payment_date ?? ''))
+      .map((payment) => couponRecordViewOf(payment, row.currency)),
   }
+}
+
+// ---------------------------------------------------------------------------
+// §4.3 월수익 — 상세 · §4.12가 같은 매퍼를 쓴다 (P8 컷 b3)
+// ---------------------------------------------------------------------------
+
+/** 지급(`PAID`) 월수익의 세전 합 — 상품 통화. 순번 없는 기실현 기록을 포함한다(포트폴리오 손익 — DOC-007 §7.7) */
+function paidCouponGrossOf(row: ProductRow): DecimalValue {
+  return row.monthly_coupon_payments
+    .filter((payment) => payment.outcome === 'PAID' && payment.gross_amount != null)
+    .reduce<DecimalValue>((acc, payment) => acc.plus(dec(payment.gross_amount as string)), dec('0'))
+}
+
+/**
+ * 상환의 실현손익과 구성 — 포트폴리오 손익(DOC-011 §4.3 v4.16 · v4.24).
+ *
+ * 상환 시 지급 상품은 월수익 기록이 없으므로 `portfolioPnl`이 `realizedPnl`과 같은 값을 내고(합이 0) 구성은 `null`이다
+ * — 그 상세의 응답 문자열은 종전과 같다(`pnlBreakdown: null` 키 하나만 는다).
+ */
+function redemptionPnlOf(
+  row: ProductRow,
+  grossAmount: string,
+): Pick<RedemptionView, 'realizedPnl' | 'pnlBreakdown'> {
+  if (row.coupon_payout !== 'MONTHLY') {
+    return {
+      realizedPnl: moneyString(realizedPnl({ grossAmount, principal: row.principal }), row.currency),
+      pnlBreakdown: null,
+    }
+  }
+  const coupons = paidCouponGrossOf(row)
+  return {
+    realizedPnl: moneyString(
+      portfolioPnl({ principal: row.principal, redemptionGross: grossAmount, couponGrossTotal: coupons }),
+      row.currency,
+    ),
+    pnlBreakdown: {
+      redemption: moneyString(realizedPnl({ grossAmount, principal: row.principal }), row.currency),
+      coupons: moneyString(coupons, row.currency),
+    },
+  }
+}
+
+export function couponRecordViewOf(
+  payment: CouponPaymentRow,
+  currency: ProductCurrency,
+): CouponRecordView {
+  return {
+    id: payment.id,
+    outcome: payment.outcome,
+    paymentDate: payment.payment_date,
+    grossAmount: payment.gross_amount == null ? null : moneyString(dec(payment.gross_amount), currency),
+    taxableIncome: payment.taxable_income == null ? null : amountString(dec(payment.taxable_income)),
+    withholdingTax: payment.withholding_tax == null ? null : amountString(dec(payment.withholding_tax)),
+    // 환율은 시세와 같은 6자리다(Q-07) — 금액으로 접으면 1385.2가 1385가 된다
+    exchangeRate: payment.exchange_rate == null ? null : priceString(dec(payment.exchange_rate)),
+    isConfirmed: payment.is_confirmed,
+    note: payment.note,
+  }
+}
+
+/**
+ * 월수익 일정 행마다의 상태 · 기록 · 금액 · 다음 행 판정 (DOC-011 §4.3 `coupons` · §4.12 — 같은 매퍼, b3 개정).
+ *
+ * - `null` — 상환 시 지급, 또는 결함 `COUPON_SCHEDULE_MISSING`의 억제(파괴 입력 `COUPONS` — §4.2 D1)
+ * - `[]` — 기실현 월지급(일정이 정의상 없다). 순번 없는 기록은 `unnumberedCouponRecords`다
+ * - 흐름 끝은 `judge()`가 이미 고른 적용 차수 · 상환에서 온다 — 차수를 여기서 다시 고르지 않는다(§4.3과 §4.6이
+ *   같은 상품에 다른 적용 차수를 말하지 않게)
+ * - 조건 판정은 **보유중 상품의 다음 한 행**에만 — 상환 완료는 E-05, 시세 입력이 파괴된 결함은 판정하지 않는다
+ *   (차수의 `conditionResult`와 같은 억제). 시세가 없으면(E-01) `UNKNOWN`이다
+ */
+export function couponObservationsOf(
+  row: ProductRow,
+  j: Judgment,
+  asOf: string,
+): CouponObservationView[] | null {
+  if (row.coupon_payout !== 'MONTHLY') return null
+  if (j.destroyed === 'COUPONS') return null
+  if (row.monthly_coupon_schedules.length === 0) return []
+
+  // 월지급식 FULL은 월수익 연쿠폰율이 있다(I-23 CHECK). 없는데 일정이 있으면 계약 밖 쓰기다 — 금액을 지어내지 않고
+  // 그 상품의 월수익만 비운다(남의 상품 하나가 모든 사용자의 화면을 죽이지 않게 — AQ-92와 같은 부류)
+  if (row.monthly_coupon_annual_rate == null) {
+    console.error(`[무결성] 상품 ${row.id}에 월수익 일정이 있는데 월수익 연쿠폰율이 없다 (DOC-002 I-23).`)
+    return null
+  }
+
+  const amount = moneyString(
+    couponAmount({
+      principal: row.principal,
+      annualRate: row.monthly_coupon_annual_rate,
+      currency: row.currency,
+    }),
+    row.currency,
+  )
+  const redemptionDate = row.redemptions?.redemption_date ?? null
+  const flowEnd = couponFlowEndOf({
+    redemptionDate,
+    appliedRoundEvaluationDate:
+      j.attribution.kind === 'ESTIMATED' ? j.attribution.round.evaluation_date : null,
+  })
+  const records = new Map(
+    row.monthly_coupon_payments
+      .filter((payment) => payment.coupon_no != null)
+      .map((payment) => [payment.coupon_no as number, payment]),
+  )
+  const schedules = [...row.monthly_coupon_schedules].sort((a, b) => a.coupon_no - b.coupon_no)
+  const judged = j.status === 'ACTIVE' && j.destroyed !== 'PRICES'
+  const next = judged
+    ? nextCoupon({
+        coupons: schedules.map((s) => ({ couponNo: s.coupon_no, evaluationDate: s.evaluation_date })),
+        asOf,
+      })
+    : null
+
+  return schedules.map((s) => {
+    const payment = records.get(s.coupon_no) ?? null
+    return {
+      couponNo: s.coupon_no,
+      evaluationDate: s.evaluation_date,
+      paymentDate: s.payment_date,
+      couponBarrier: ratioString(dec(s.coupon_barrier)),
+      state: couponStateOf({
+        evaluationDate: s.evaluation_date,
+        paymentDate: s.payment_date,
+        recordOutcome: payment?.outcome ?? null,
+        flowEnd,
+        asOf,
+      }),
+      record: payment == null ? null : couponRecordViewOf(payment, row.currency),
+      expectedAmount: amount,
+      conditionResult:
+        next != null && next.couponNo === s.coupon_no
+          ? couponConditionOf({ worstOf: j.worstOf, barrier: s.coupon_barrier })
+          : null,
+      recordable: isCouponRecordable({
+        evaluationDate: s.evaluation_date,
+        asOf,
+        redemptionDate,
+        recorded: payment != null,
+      }),
+    }
+  })
 }
 
 /**
@@ -1325,6 +1548,7 @@ export type AttentionReason =
   | 'PRICE_MISSING'
   | 'UNDERLYING_MISSING'
   | 'SCHEDULE_MISSING'
+  | 'COUPON_SCHEDULE_MISSING'
 
 /**
  * 한 상품이 만드는 조치 사유. 여러 개일 수 있다.

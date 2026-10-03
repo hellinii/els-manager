@@ -16,7 +16,7 @@ export const ASSET_1 = '00000000-0000-4000-8000-0000000000c1'
 export const ASSET_2 = '00000000-0000-4000-8000-0000000000c2'
 
 export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
-  return {
+  const merged: Omit<ProductRow, 'coupon_schedule_probe'> = {
     id: 'product-1',
     owner_id: OWNER,
     name: '테스트 상품',
@@ -50,6 +50,14 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
     monthly_coupon_schedules: [],
     monthly_coupon_payments: [],
     ...overrides,
+  }
+  return {
+    ...merged,
+    // 존재 탐침은 실제 로더처럼 일정의 첫 행 하나다(`limit 1`). 따로 주면 그것을 쓴다 — 탐침과 일정이 갈리는 행(차수
+    // 루트처럼 일정 전체를 싣지 않는 경로)을 흉내낼 때
+    coupon_schedule_probe:
+      overrides.coupon_schedule_probe ??
+      merged.monthly_coupon_schedules.slice(0, 1).map((s) => ({ coupon_no: s.coupon_no })),
   }
 }
 

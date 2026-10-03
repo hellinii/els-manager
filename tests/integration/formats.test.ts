@@ -42,7 +42,7 @@ import { collect, type Coverage, type Spec } from './helpers/formats'
 const ACCOUNT_TYPES = ['GENERAL', 'TAX_FREE'] as const
 const CONDITION_RESULTS = ['EARLY', 'LIZARD', 'CARRY_OVER'] as const
 const KI_STATUSES = ['NO_KI', 'SAFE', 'WARNING', 'BELOW', 'TOUCHED'] as const
-const INTEGRITY_ISSUES = ['UNDERLYING_MISSING', 'SCHEDULE_MISSING'] as const
+const INTEGRITY_ISSUES = ['UNDERLYING_MISSING', 'SCHEDULE_MISSING', 'COUPON_SCHEDULE_MISSING'] as const
 const PRICE_SOURCES = ['AUTO', 'MANUAL'] as const
 const REDEMPTION_TYPES = [
   'EARLY',
@@ -59,6 +59,7 @@ const ATTENTION_REASONS = [
   'PRICE_MISSING',
   'UNDERLYING_MISSING',
   'SCHEDULE_MISSING',
+  'COUPON_SCHEDULE_MISSING',
 ] as const
 const STATUSES = ['ACTIVE', 'REDEEMED'] as const
 /** DOC-002 §4.6 — 기실현 등재의 판별 열 (P6 컷 5) */
@@ -200,8 +201,12 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'product.issueDate': 'DATE',
   'product.principal': 'MONEY',
   'product.currency': CURRENCIES,
-  // P8 컷 b2 — 수정 폼의 초기값(§4.3). 월수익 필드는 b3다
+  // P8 컷 b2 — 수정 폼의 초기값(§4.3)
   'product.couponPayout': COUPON_PAYOUTS,
+  // P8 컷 b3 — 월수익 필드는 이 파일의 픽스처(전부 상환 시 지급)에서 `null`로만 온다. 비-null 분기와 하위 경로는
+  // `coupon-views.test.ts`가 같은 계기로 본다(월지급 픽스처를 여기 세우면 이 파일의 값 단언이 그 인질이 된다)
+  'product.monthlyCouponAnnualRate': 'RATIO',
+  coupons: 'NULL_OBJECT',
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
   // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면
@@ -254,6 +259,8 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   'redemption.exchangeRate': 'PRICE',
   'redemption.isConfirmed': 'BOOL',
   'redemption.realizedPnl': 'MONEY',
+  // P8 컷 b3 — 상환 시 지급 상품은 늘 null(구성은 월지급 상품에만 — `coupon-views.test.ts`)
+  'redemption.pnlBreakdown': 'NULL_OBJECT',
   'redemption.note': 'TEXT',
 }
 
@@ -681,7 +688,9 @@ beforeAll(async () => {
         { label: '형식달러상환', value: detailUsdRedeemed },
         { label: '형식달러보유', value: detailUsdActive },
         { label: '형식달러보유@환율', value: detailUsdLater },
-      ]),
+      ],
+      // 이 파일의 픽스처는 전부 상환 시 지급이다 — 비-null 분기는 `coupon-views.test.ts`가 관측한다
+      ['product.monthlyCouponAnnualRate']),
     },
     {
       contract: '§4.4 listSchedule',

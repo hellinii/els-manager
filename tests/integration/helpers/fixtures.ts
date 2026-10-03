@@ -88,6 +88,20 @@ export const FX = {
    */
   productRateUsdB: '00000000-0000-4000-8000-000000000312',
   productRateUsdBRedeemed: '00000000-0000-4000-8000-000000000313',
+
+  /**
+   * `coupon-views.test.ts` (P8 컷 b3) — 월지급식 여섯: 원화 · 달러 × 보유중 · 상환 · 기실현. `MONEY` 경로마다 두 통화를
+   * 관측하고(③′) 기록의 비-null · null 분기(지급 · 미지급)와 구성(`pnlBreakdown`) · 순번 없는 기록을 채운다.
+   * A 소유지만 **그 파일에서만 선다** — `formats.test.ts`의 값 단언(`excludedForeignCount = 2` 등)을 인질로 잡지 않는다
+   */
+  productMonthlyKrw: '00000000-0000-4000-8000-000000000314',
+  productMonthlyUsd: '00000000-0000-4000-8000-000000000315',
+  productMonthlyKrwRedeemed: '00000000-0000-4000-8000-000000000316',
+  productMonthlyUsdRedeemed: '00000000-0000-4000-8000-000000000317',
+  productMonthlyKrwRealized: '00000000-0000-4000-8000-000000000318',
+  productMonthlyUsdRealized: '00000000-0000-4000-8000-000000000319',
+  /** 같은 파일 — 월지급식인데 월수익 일정 0행(셋째 결함 `COUPON_SCHEDULE_MISSING`) */
+  productMonthlyBroken: '00000000-0000-4000-8000-000000000320',
 } as const
 
 /**
