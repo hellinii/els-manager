@@ -65,6 +65,7 @@ export const RULE_TARGETS: Record<RuleId, string> = {
     '월수익 기록 대상 — 부모 MONTHLY · FULL은 일정의 순번 · 평가일 ≤ 기준일 · 미기록 · 상환일 이하(양방향 — 상환일 ≥ 기록된 달의 평가일) · 기실현은 순번 없는 PAID · 60건 (I-27)',
   'V-28':
     'PAID/UNPAID 형태 — PAID: 지급일 ≤ 기준일 · ≥ 그 달 평가일 · 세전 > 0 · 과세 · 지급일 중복 없음 / UNPAID: 금액 · 지급일 · 환율 없음 (I-26)',
+  'V-29': '월지급식 상환 — grossAmount ≤ principal ∧ taxableIncome = 0 (§5.4 · §5.5 · §5.11, DB 겹 redemptions_monthly_principal_only)',
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +421,31 @@ export function V12_maturityLossZero(
   if (input.redemptionType !== 'MATURITY_LOSS') return
   if (!dec(input.taxableIncome).eq(0)) {
     p.add('V-12', 'taxableIncome', '만기상환(손실)의 과세 금융소득은 0이어야 한다.')
+  }
+}
+
+/**
+ * V-29 — 월지급식 상품의 상환은 **원금만**이다: 실수령액 ≤ 투자원금 ∧ 과세 금융소득 0 (DOC-011 §5.4 · P8 컷 b4).
+ *
+ * 수익은 전부 월수익이고(연쿠폰율 0 — V-08′) 같은 날 나오는 그 달 월수익은 §5.14로 따로 적는다(DOC-001 U6). 합치면 그
+ * 달이 월수익 사건이 아니라 상환으로 셈해지고, 무기록 달로 남은 그 달이 추정에 한 번 더 든다(검산 B-3 — 1차 조기상환
+ * 세전 100,600,000을 거부한다). V-12처럼 **읽는 필드만** 요구한다 — §5.4 · §5.5 · §5.11이 같은 함수를 부른다.
+ * `grossAmount`가 `null`이면(V-23에서 이미 걸렸다) 그 비교를 하지 않는다 — 한 칸의 오류를 두 번 말하지 않는다.
+ */
+export function V29_monthlyRedemptionPrincipalOnly(
+  p: Problems,
+  input: { grossAmount: string | null; taxableIncome: string },
+  principal: string,
+): void {
+  if (input.grossAmount != null && dec(input.grossAmount).gt(dec(principal))) {
+    p.add(
+      'V-29',
+      'grossAmount',
+      '월지급식 상품의 상환은 투자원금 이하다 — 같은 날의 그 달 월수익은 월수익 기록으로 따로 적는다.',
+    )
+  }
+  if (!dec(input.taxableIncome).eq(0)) {
+    p.add('V-29', 'taxableIncome', '월지급식 상품의 상환은 과세 금융소득이 0이다 — 수익은 월수익으로 적는다.')
   }
 }
 

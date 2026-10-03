@@ -67,6 +67,8 @@ export const RULE_IDS = [
   // 기록 계약(§5.14 · §5.15)과 함께 섰다 — V-27(기록 대상 · 상환 쪽 양방향) · V-28(지급 · 미지급의 형태)
   'V-27',
   'V-28',
+  // P8 컷 b4 — 월지급식 상환은 원금만(§5.4 · §5.5 · §5.11). DB 겹 `redemptions_monthly_principal_only`는 b2에 먼저 섰다
+  'V-29',
 ] as const
 
 export type RuleId = (typeof RULE_IDS)[number]

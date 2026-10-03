@@ -11,7 +11,11 @@ import {
 import { toTaxConstants } from '../taxConstants'
 import { parseRedemptionInput } from '../validate/inputs'
 import { Problems, checkProductAmount, isUuid } from '../validate/primitives'
-import { V10_redemptionAfterIssue, V14_lizardRoundDefined } from '../validate/rules'
+import {
+  V10_redemptionAfterIssue,
+  V14_lizardRoundDefined,
+  V29_monthlyRedemptionPrincipalOnly,
+} from '../validate/rules'
 import {
   requireAffected,
   requireOwnedProduct,
@@ -230,6 +234,11 @@ function validateAgainstProduct(
       'redemptionDate',
       `상환일이 기록된 달의 월수익 평가일보다 앞설 수 없다 — ${couponMonthLabel(latest.couponNo, latest.evaluationDate)}의 기록이 있다.`,
     )
+  }
+
+  // V-29 (P8 컷 b4) — 월지급식 상품의 상환은 원금만이다. 지급방식은 사전 조회의 부모에서 온다(왕복 불변 — §5.4)
+  if (product.coupon_payout === 'MONTHLY') {
+    V29_monthlyRedemptionPrincipalOnly(p, { grossAmount, taxableIncome: input.taxableIncome }, product.principal)
   }
 
   // V-10은 **비교 대상이 있을 때만** 검사한다. 기실현 등재는 발행일을 입력받지

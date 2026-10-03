@@ -44,6 +44,7 @@ import {
 } from './primitives'
 import {
   V12_maturityLossZero,
+  V29_monthlyRedemptionPrincipalOnly,
   V21_knownProvider,
   validateProductCrossFields,
   validateRedemptionCrossFields,
@@ -731,6 +732,8 @@ export function parseRealizedProductInput(
 
   // V-12는 부른다 — 절대 규칙 #8이며 유형과 과표만 보면 판정된다(차수가 필요 없다).
   V12_maturityLossZero(p, input)
+  // V-29 (P8 컷 b4) — 월지급식 기실현의 상환은 한 줄이고 원금만이다. 수익은 등재 뒤 §5.14의 순번 없는 기록이다
+  if (input.couponPayout === 'MONTHLY') V29_monthlyRedemptionPrincipalOnly(p, input, input.principal)
   return p.isEmpty ? input : null
 }
 

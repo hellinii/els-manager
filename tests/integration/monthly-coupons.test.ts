@@ -416,7 +416,7 @@ describe('§5.4 — 상환 쪽 V-27 · V-29의 DB 겹', () => {
     await cleanup(id)
   })
 
-  it('월지급식 상환에 과세가 실리면 DB가 거부하고 두 칸에 붙는다 — V-29 계약은 b4, 그 사이의 응답', async () => {
+  it('월지급식 상환에 과세가 실리면 두 칸에 붙는다 — b4부터 계약(V-29)이 먼저 답한다(DB 겹은 tests/rls · 아래 ④)', async () => {
     const id = await freshMonthly()
     const error = errorOf(
       await a.write.createRedemption(id, {
@@ -431,6 +431,8 @@ describe('§5.4 — 상환 쪽 V-27 · V-29의 DB 겹', () => {
     )
     expect(error.code).toBe('VALIDATION_FAILED')
     expect(Object.keys(error.fields ?? {}).sort()).toEqual(['grossAmount', 'taxableIncome'])
+    // 계약의 문구다 — DB 사상이었다면 트리거 라벨의 문구였다(b2~b4의 응답). 칸은 같다(§5.4 각주)
+    expect(error.fields!.grossAmount).toContain('투자원금 이하')
     await cleanup(id)
   })
 })

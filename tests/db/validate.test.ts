@@ -872,6 +872,25 @@ const CASES: Case[] = [
     },
   },
   {
+    /*
+     * P8 컷 b4 — 검산 B-3의 모양: 1차 조기상환 세전 = 투자원금 + 그 달 월수익. 월수익을 상환에 합치면 그 달이 월수익
+     * 사건이 아니라 상환으로 셈해진다. 상환 쪽(§5.4 · §5.5)은 `validateAgainstProduct`가 같은 함수를 부른다
+     */
+    rule: 'V-29',
+    what: '월지급식 기실현의 상환 세전이 투자원금을 넘는다 — 같은 날 월수익을 합쳤다',
+    run: () => {
+      const p = new Problems()
+      parseRealizedProductInput(p, {
+        ...validRealized(),
+        couponPayout: 'MONTHLY',
+        principal: '100000000',
+        grossAmount: '100600000',
+        taxableIncome: '0',
+      })
+      return p
+    },
+  },
+  {
     rule: 'V-21',
     what: '코드가 모르는 공급자 — 형식은 맞고 소속이 틀렸다',
     run: () => {
@@ -1598,5 +1617,32 @@ describe('V-23 통과 금액은 보조단위로 접어 싣는다 — 기실현�
   it('달러 — `10000.500` · `10400.520`이 소수 두 자리가 된다', () => {
     const { input } = realized({ currency: 'USD', principal: '10000.500', grossAmount: '10400.520' })
     expect(input).toMatchObject({ principal: '10000.50', grossAmount: '10400.52' })
+  })
+})
+
+describe('V-29 — 월지급식 상환은 원금만 (§5.11 · P8 컷 b4)', () => {
+  const fieldsOf = (overrides: Record<string, unknown>) => {
+    const p = new Problems()
+    parseRealizedProductInput(p, { ...validRealized(), couponPayout: 'MONTHLY', principal: '100000000', ...overrides })
+    return p.toError().fields ?? {}
+  }
+
+  it('세전 ≤ 원금 · 과세 0이면 통과 — 만기 손실(세전 < 원금)도 같다', () => {
+    expect(fieldsOf({ grossAmount: '100000000', taxableIncome: '0' })).toEqual({})
+    expect(fieldsOf({ redemptionType: 'MATURITY_LOSS', grossAmount: '62000000', taxableIncome: '0' })).toEqual({})
+  })
+
+  it('★ 과세 > 0은 그 칸 · 세전 > 원금은 그 칸 — 둘 다면 두 칸', () => {
+    expect(Object.keys(fieldsOf({ grossAmount: '100000000', taxableIncome: '600000' }))).toEqual(['taxableIncome'])
+    expect(Object.keys(fieldsOf({ grossAmount: '100600000', taxableIncome: '600000' })).sort()).toEqual([
+      'grossAmount',
+      'taxableIncome',
+    ])
+  })
+
+  it('상환 시 지급은 걸리지 않는다 — 종전 그대로', () => {
+    const p = new Problems()
+    parseRealizedProductInput(p, { ...validRealized(), principal: '100000000', grossAmount: '104000000', taxableIncome: '4000000' })
+    expect(p.rules()).not.toContain('V-29')
   })
 })
