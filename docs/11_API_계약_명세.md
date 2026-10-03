@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.26 |
+| 버전 | 4.27 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.27 | 2026-10-03 | 민서 | **P8 컷 b3-5 선행 — §4.2 `couponProgress.nextDDay` 한 필드(문서 전용).** DOC-008 SCR-201 ⑮의 「다음 D-12」를 그리려면 D-Day가 필요한데 b1 명세는 날짜(`nextEvaluationDate`)만 실었다 — 화면이 기준일과 그 날짜를 셈하면 같은 뷰의 `nextEvaluation.dDay`를 계약이 주는 판단(화면은 날짜를 셈하지 않는다 — 경계 「당일 = D-0」의 해석이 계약과 갈리지 않게)과 어긋난다. 날짜와 함께 빈다. 구현은 b3-5 코드 커밋 |
 | 4.26 | 2026-10-03 | 민서 | **P8 컷 b3-4 — §4.0 컷별 도달 b2 항목의 b2~b3 공백에 「닫혔다」(문서 전용).** 「b2~b3 동안 저장값이 월지급식인 상품의 수정 저장은 V-25로 거부된다」는 SCR-204 월지급 블록(율 · 일정의 칸 · `productValuesOf`의 초기값 · `parseProductForm`)이 서면서 끝났다. 계약은 바뀌지 않았다 |
 | 4.25 | 2026-10-03 | 민서 | **P8 컷 b3-3 — §8 매트릭스 SCR-206 행의 조회 칸 「—」 → `getProduct`(코드와 같은 커밋).** §9 ⑭ⓑ의 답(v4.23)을 표에 옮겼다 — `ROUTE_QUERIES['/products/[id]/coupons']`와 DOC-008 §4의 새 행이 같은 커밋이라 `tests/app/invalidation.test.ts`의 화면-계약 대조가 이 행을 처음으로 대조한다(b2~b3의 「대조 밖」 공백이 닫혔다). `getProduct`를 읽는 라우트가 넷이 되어 그 계약을 낡게 하는 모든 변경의 낡는 라우트에 `/products/[id]/coupons`가 더해졌다(같은 파일의 `STALE_ROUTES` 열두 줄 — 합성 `affects × ROUTE_QUERIES`가 낸 값과 대조) |
 | 4.24 | 2026-10-03 | 민서 | **P8 컷 b3-2 선행 — §4.3 `redemption.pnlBreakdown` 한 필드(문서 전용).** 민서 결정(2026-10-03) ② — 상환된 월지급 상품의 실현손익 아래 구성 한 줄(DOC-008 SCR-202 ⑥) — 을 v4.23(b3-0)이 화면 쪽에만 적고 **그 값을 나를 계약 필드를 빠뜨렸다.** 화면이 `grossAmount − principal`과 Σ PAID를 직접 셈하면 금액 산술이 화면에 생긴다(화면은 산술을 하지 않는다). 월지급 상품에만 값(`{ redemption, coupons }` — 합 = `realizedPnl`, 상품 통화)이고 그 밖은 `null`이라 상환 시 지급 상품의 응답은 이 키 하나(`null`)만 늘어난다. 구현은 b3-2 코드 커밋 |
@@ -743,6 +744,7 @@ type ProductListItem = {
     recorded: number                    // 기록 수(PAID + UNPAID)
     total: number                       // 월수익 일정 행 수 — 분모
     nextEvaluationDate: string | null   // 다음 월수익 평가일 — 「다음 D-12」. 기준일 당일 포함. 상환 완료이거나 남은 평가일이 없으면 null
+    nextDDay: number | null             // v4.27 (b3-5 선행) — 그 날까지의 D-Day. nextEvaluationDate와 함께 빈다. 화면은 날짜를 셈하지 않는다(위 `nextEvaluation.dDay`와 같은 판단)
   } | null
 
   /**
