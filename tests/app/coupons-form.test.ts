@@ -82,10 +82,18 @@ describe('기본값 — DOC-007 §4.7 표', () => {
     })
   })
 
-  it('비과세 계좌는 과세 0 · 달러는 과세 빈칸(U1)', () => {
+  it('비과세 계좌는 과세 0 · 달러 일반계좌는 과세 빈칸(U1)', () => {
     expect(couponRowsOf(detail(monthlyProductRow({ account_type: 'TAX_FREE' })))[0]?.defaults.taxableIncome).toBe('0')
     const usd = detail(monthlyProductRow({ currency: 'USD', principal: '10000.00', monthly_coupon_annual_rate: '0.2424' }))
     expect(couponRowsOf(usd)[0]?.defaults).toMatchObject({ grossAmount: '202.00', taxableIncome: '' })
+  })
+
+  it('★ 달러 비과세도 0 — 비과세가 통화보다 먼저다(DOC-007 §4.8 · DOC-008 SCR-206 v2.41 — P8.5)', () => {
+    // 종전에는 빈칸 + 「≈ 세전 × 환율」 힌트였다 — 그대로 적으면 원천징수가 계산되어 기록과 세금(비과세 = 0)이 갈렸다
+    const usdTaxFree = detail(
+      monthlyProductRow({ currency: 'USD', principal: '10000.00', monthly_coupon_annual_rate: '0.2424', account_type: 'TAX_FREE' }),
+    )
+    expect(couponRowsOf(usdTaxFree)[0]?.defaults).toMatchObject({ grossAmount: '202.00', taxableIncome: '0' })
   })
 
   it('폼 값은 rows[r].… 이름 · 순번 · 행 수를 싣는다', () => {
@@ -166,6 +174,16 @@ describe('오류의 자리 — entries[i] → rows[rowOf[i]] · 색인 없는 �
       paymentDate: '같은 지급일의 기록이 이미 있다',
       'entries[9].grossAmount': '사라진 행',
     })
+  })
+
+  it('★ 순번 오류(V-27 — 이미 기록됨 · 평가 전 · 상환일 뒤)는 그 행의 결과 칸에 — 숨은 칸이라 이름 그대로는 붙일 자리가 없다(P8.5)', () => {
+    const result = toRowErrors(
+      { ok: false, error: { code: 'VALIDATION_FAILED', message: '입력값을 확인한다.', fields: { 'entries[0].couponNo': '이미 기록된 달이다' } } },
+      [3],
+    )
+    expect(result.ok ? null : result.error.fields).toEqual({ 'rows[3].outcome': '이미 기록된 달이다' })
+    // 그 이름은 폼의 칸 이름 원장에 있다 — 상단 요약(내부 키)으로 빠지지 않는다
+    expect(couponFieldNames(4)).toContain('rows[3].outcome')
   })
 })
 

@@ -2,6 +2,8 @@
 
 import { useActionState, useState } from 'react'
 
+import { useHydrated } from '@/components/form/useHydrated'
+
 import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
@@ -155,8 +157,11 @@ export function RedemptionForm({
       : null
 
   const monthly = couponPayout === 'MONTHLY'
-  // 만기손실(V-12)과 월지급식(V-29)이 같은 고정이다 — 둘 다 과세 0을 요구한다
-  const locked = taxableIncomeLocked(type) || monthly
+  // 만기손실(V-12)과 월지급식(V-29)이 같은 고정이다 — 둘 다 과세 0을 요구한다. **출처가 다르다**: 월지급식은 저장된 상품의
+  // 사실(서버가 안다)이라 늘 그리고, 만기손실은 상환 유형 선택(화면 상태)이라 JS가 있을 때만 그린다 — JS 없이 그린 고정은
+  // 유형을 바꿔도 풀리지 않아 이익 상환의 과세 0이 조용히 저장됐다(P8.5 · DOC-008 SCR-203 v2.41)
+  const hydrated = useHydrated()
+  const locked = (hydrated && taxableIncomeLocked(type)) || monthly
   const foreign = currency !== 'KRW'
 
   /*

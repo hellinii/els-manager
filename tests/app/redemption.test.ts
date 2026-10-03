@@ -172,6 +172,37 @@ describe('차수 선택지', () => {
     }
   })
 
+  it('★ 달러 비과세도 과세 금융소득 0으로 채운다 — 비과세가 통화보다 먼저다(DOC-008 SCR-203 v2.41 — P8.5)', () => {
+    const view = toProductDetailView(
+      productRow({
+        account_type: 'TAX_FREE',
+        currency: 'USD',
+        principal: '10000.00',
+        redemption_schedules: [schedule({ round_no: 1, evaluation_date: '2026-07-02', barrier: '0.9000' })],
+      }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+      OWNER,
+      NO_ESTIMATE_RATES,
+    )
+    const [first] = roundOptionsOf(view)
+    expect(first?.early?.taxableIncome).toBe('0')
+    // 달러 일반계좌는 종전대로 빈칸이다(U1 — 과세표준의 환율은 거래내역만 안다)
+    const general = toProductDetailView(
+      productRow({
+        account_type: 'GENERAL',
+        currency: 'USD',
+        principal: '10000.00',
+        redemption_schedules: [schedule({ round_no: 1, evaluation_date: '2026-07-02', barrier: '0.9000' })],
+      }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+      OWNER,
+      NO_ESTIMATE_RATES,
+    )
+    expect(roundOptionsOf(general)[0]?.early?.taxableIncome).toBe('')
+  })
+
   it('비과세 계좌는 전 차수·전 가정의 과세 금융소득이 0이다 — DOC-007 §4.3', () => {
     const view = toProductDetailView(
       productRow({

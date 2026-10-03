@@ -64,7 +64,12 @@ export function CouponSection({ view }: { view: ProductDetailView }) {
             </Link>
           )}
           {ids.length > 0 && (
-            <CouponDeleteForm productId={product.id} ids={ids} summary="월수익 기록 전부 지우기" />
+            <CouponDeleteForm
+              productId={product.id}
+              ids={ids}
+              summary="월수익 기록 전부 지우기"
+              restoresEstimate={product.entryMode !== 'REALIZED_ONLY'}
+            />
           )}
         </div>
       </OwnerOnly>
@@ -144,6 +149,8 @@ function UnnumberedRow({ record, view }: { record: CouponRecordView; view: Produ
 }
 
 function RecordActions({ record, view }: { record: CouponRecordView; view: ProductDetailView }) {
+  // 일정이 있는 상품의 기록만 지우면 추정으로 돌아간다 — 기실현의 순번 없는 기록은 그대로 사라진다(DOC-008 v2.41)
+  const restoresEstimate = view.product.entryMode !== 'REALIZED_ONLY'
   return (
     <OwnerOnly isOwner={view.product.isOwner}>
       <div className="flex flex-wrap items-start gap-2">
@@ -153,7 +160,7 @@ function RecordActions({ record, view }: { record: CouponRecordView; view: Produ
         >
           수정
         </Link>
-        <CouponDeleteForm productId={view.product.id} ids={[record.id]} summary="삭제" />
+        <CouponDeleteForm productId={view.product.id} ids={[record.id]} summary="삭제" restoresEstimate={restoresEstimate} />
       </div>
     </OwnerOnly>
   )

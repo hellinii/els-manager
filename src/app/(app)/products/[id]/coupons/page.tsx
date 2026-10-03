@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation'
 import { CouponRecordForm } from '@/components/products/CouponRecordForm'
 import { AccessDenied } from '@/components/system/AccessDenied'
 import { getQueries } from '@/lib/db/server'
-import { couponMonthLabel, money, UNNUMBERED_COUPON_LABEL, ymd } from '@/lib/format'
+import { couponMonthLabel, money, ymd } from '@/lib/format'
 import { couponEditValuesOf, couponFormValuesOf, couponRowsOf, findCouponRecord } from '@/lib/forms/coupons'
 import { isUuid } from '@/lib/forms/query'
 import { COUPON_SECTION } from '@/lib/routes/paths'
@@ -59,7 +59,9 @@ export default async function CouponRecordPage({
   const { product } = view
   const editParam = (await searchParams)[COUPON_SECTION.editParam]
   const editId = typeof editParam === 'string' ? editParam : null
-  const basis = view.projection?.exchangeRateBasis ?? null
+  // 과세 칸 힌트의 추정 환율 — 잔여 월수익의 근거다. `projection`의 것은 월지급 상품에서 늘 없다(연쿠폰율 0이라 상환 추정이
+  // 환산되지 않는다 — DOC-008 SCR-206 v2.41). 기록할 수 있는 달은 흐름 끝 안의 추정 사건이라 일반계좌 · 환율 있음이면 채워진다
+  const basis = view.remainingCoupons?.exchangeRateBasis ?? null
 
   return (
     <section className="flex flex-col gap-5">
@@ -156,8 +158,8 @@ function EditOne({ view, editId, basis }: { view: View; editId: string; basis: B
   // 이 상품의 기록이 아닌 id — 주소가 틀렸다. 남의 상품의 기록 id를 붙여도 여기서 멈춘다(계약이 마지막 겹)
   if (found == null) notFound()
 
-  const label =
-    found.coupon == null ? UNNUMBERED_COUPON_LABEL : couponMonthLabel(found.coupon.couponNo, found.coupon.evaluationDate)
+  // 순번 없는 기록(기실현)은 머리가 `null`이다 — 폼이 「순번 없음」으로 그리고 선택지를 지급 하나로 좁힌다(I-27)
+  const label = found.coupon == null ? null : couponMonthLabel(found.coupon.couponNo, found.coupon.evaluationDate)
 
   return (
     <CouponRecordForm

@@ -179,4 +179,24 @@ describe('SCR-205 기실현 등재', () => {
     // 입력값 보존 — 상품명이 그대로 돌아온다
     expect(body).toContain(failName)
   })
+
+  it('★ 「월지급식」으로 실패한 제출이 돌아와도 서버 HTML(= JS 없음)은 과세 칸을 고정하지 않는다 (DOC-008 SCR-205 v2.41 — P8.5)', async () => {
+    /*
+     * 종전에는 돌아온 값(`couponPayout = MONTHLY`)으로 다시 그린 폼이 과세 칸을 `readOnly`의 `0`으로 굳혔고, JS가 없으면 지급방식을
+     * 「상환 시 지급」으로 되돌려도 풀 상태가 없어 이익 상환의 과세 0이 오류 없이 저장됐다. 이제 그 고정은 JS가 있을 때만 선다 —
+     * JS가 없으면 V-29 · V-12가 저장에서 거부한다
+     */
+    const html = await pageHtml()
+    const res = await submitAction(PATHS.productRealizedNew, jar, [
+      ...formFieldsFor(html, actionId),
+      ['name', `${NAME}-월지급실패`],
+      ...Object.entries({ ...ROW, couponPayout: 'MONTHLY', principal: '0' }), // V-01 위반으로 돌아온다
+    ])
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toMatch(/<option value="MONTHLY" selected/)
+    const taxable = /<input[^>]*name="taxableIncome"[^>]*>/.exec(body)?.[0] ?? ''
+    expect(taxable).not.toBe('')
+    expect(taxable).not.toMatch(/readOnly|readonly/)
+  })
 })

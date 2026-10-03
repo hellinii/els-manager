@@ -204,8 +204,11 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
     expect(form).toContain(`name="${MONTHLY_RATE_FIELD}"`)
     expect(form).toContain('value="7.2"')
     expect(form).toContain(`name="${couponCell(4, 'evaluationDate')}"`)
-    // 연쿠폰율은 0으로 고정된 칸이다(V-08′)
-    expect(/<input[^>]*name="annualCouponRate"[^>]*>/.exec(form)?.[0]).toMatch(/readOnly|readonly/)
+    // 연쿠폰율은 0이다(V-08′). **서버 HTML(= JS 없음)에서는 고정을 그리지 않는다**(DOC-008 v2.41 — P8.5): 고정은 화면의 지급방식
+    // 선택을 따르므로 JS가 있을 때만 서고, JS가 없으면 전이가 월지급식 제출의 연쿠폰율을 0으로 둔다(아래 저장이 그것을 지난다)
+    const rate = /<input[^>]*name="annualCouponRate"[^>]*>/.exec(form)?.[0] ?? ''
+    expect(rate).toMatch(/value="0"/)
+    expect(rate).not.toMatch(/readOnly|readonly/)
     // 기록이 없으므로 잠금이 없다 — 선택 상자가 그대로이고 산식 버튼이 있다
     expect(form).toContain('<select')
     expect(form).toContain('value="APPLY_COUPON_DATES"')

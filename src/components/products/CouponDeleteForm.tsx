@@ -24,12 +24,18 @@ export function CouponDeleteForm({
   productId,
   ids,
   summary,
+  restoresEstimate,
 }: {
   productId: string
   /** 지울 기록 id — 행이면 하나, 「전부 지우기」면 전부(1..60) */
   ids: readonly string[]
   /** 접힌 머리 — 「삭제」 또는 「월수익 기록 전부 지우기」 */
   summary: string
+  /**
+   * 지우면 그 달이 추정(지급 가정)으로 돌아가는가 — 일정이 있는 달이면 참, 순번 없는 기록(기실현)이면 거짓이다(일정이 없어
+   * 추정으로 돌아갈 달이 없고 그 금융소득이 사라진다). 확인 문구가 결과를 반대로 말하지 않게 한다(DOC-008 SCR-206 v2.41)
+   */
+  restoresEstimate: boolean
 }) {
   const [state, formAction] = useActionState(deleteCouponPaymentsAction, initialFormState())
   const all = ids.length > 1
@@ -41,9 +47,13 @@ export function CouponDeleteForm({
         <summary className="cursor-pointer text-xs font-medium text-red-800">{summary}</summary>
         <p className="mt-2 text-xs text-neutral-700">
           <strong className="font-medium">이 해의 금융소득이 바뀐다.</strong>{' '}
-          {all
-            ? `월수익 지급 기록 ${ids.length}건이 사라지고 그 달들이 다시 추정(지급 가정)으로 돌아간다.`
-            : '그 달이 다시 추정(지급 가정)으로 돌아간다.'}
+          {restoresEstimate
+            ? all
+              ? `월수익 지급 기록 ${ids.length}건이 사라지고 그 달들이 다시 추정(지급 가정)으로 돌아간다.`
+              : '그 달이 다시 추정(지급 가정)으로 돌아간다.'
+            : all
+              ? `월수익 지급 기록 ${ids.length}건과 그 금융소득이 사라진다 — 추정으로 돌아갈 달이 없다(월수익 일정이 없는 기실현 상품).`
+              : '그 금융소득이 사라진다 — 추정으로 돌아갈 달이 없다(월수익 일정이 없는 기실현 상품).'}
         </p>
         <form action={formAction} className="mt-2 pb-1">
           <input type="hidden" name={PRODUCT_ID_FIELD} value={productId} />

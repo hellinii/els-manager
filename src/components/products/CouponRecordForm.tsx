@@ -86,7 +86,9 @@ export function CouponRecordForm({
   const rows: RowHead[] = growable
     ? Array.from({ length: rowCount }, () => ({ label: null, scheduledPaymentDate: null }))
     : [...heads]
-  const outcomes = growable ? (['PAID'] as const) : (['PAID', 'UNPAID'] as const)
+  // 순번 없는 행(기실현 — 빈 행 추가 · 그 기록의 수정)은 지급뿐이다(I-27 — 순번 없는 미지급은 늘 거부된다. DOC-008 v2.41)
+  const paidOnly = growable || rows.every((head) => head.label == null)
+  const outcomes = paidOnly ? (['PAID'] as const) : (['PAID', 'UNPAID'] as const)
 
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>
@@ -109,7 +111,15 @@ export function CouponRecordForm({
               hint={editId != null ? undefined : '빈칸이면 이 행을 건너뛴다'}
             >
               {(props) => (
-                <select {...props} defaultValue={values[rowName(r, 'outcome')] ?? ''} className={INPUT_CLASS}>
+                <select
+                  {...props}
+                  // `key`가 `defaultValue`와 같은 식이다 — AQ-64. 같은 폼에 머무는 제출(「빈 행 추가」 · 검증 실패) 뒤 자동
+                  // 폼 초기화가 비제어 `<select>`를 마운트 때의 값으로 되돌려, 앞 행에 고른 「지급」이 「선택 안 함」으로
+                  // 보이고 그대로 저장하면 그 행이 조용히 빠졌다(P8.5 반박 검토 — DOC-008 v2.41)
+                  key={values[rowName(r, 'outcome')] ?? ''}
+                  defaultValue={values[rowName(r, 'outcome')] ?? ''}
+                  className={INPUT_CLASS}
+                >
                   {editId == null && <option value="">선택 안 함</option>}
                   {outcomes.map((outcome) => (
                     <option key={outcome} value={outcome}>

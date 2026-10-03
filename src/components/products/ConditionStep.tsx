@@ -1,6 +1,9 @@
 'use client'
 
+import { useState } from 'react'
+
 import { Field, INPUT_CLASS, hintWith } from '@/components/form/Field'
+import { useHydrated } from '@/components/form/useHydrated'
 import { LockedChoice } from '@/components/products/LockedChoice'
 import { COUPON_PAYOUT_LABELS, KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
@@ -71,6 +74,14 @@ export function ConditionStep({
 }) {
   const { values, fieldErrors } = state
   const monthly = isMonthlyValues(values)
+  /*
+   * 연쿠폰율 고정은 **화면의 「쿠폰 지급」 선택**을 따른다(P8.5 · DOC-008 v2.41). 종전에는 서버 값(`monthly`)에서만 와서 「월지급식
+   * → 상환 시 지급」으로 골라도 칸이 0으로 굳어 율을 적을 수 없었다. JS가 없으면 고정을 그리지 않는다 — 전이가 월지급식 제출의
+   * 연쿠폰율을 0으로 두므로 그 제출은 그대로 맞다. 월지급 블록을 펼칠지는 종전대로 서버 값이다(아래)
+   */
+  const [payout, setPayout] = useState(values.couponPayout ?? '')
+  const hydrated = useHydrated()
+  const rateLocked = hydrated && payout === 'MONTHLY'
   const rounds = roundCountOf(values)
   // 산식을 계산할 수 있는가 — 차수표 위 안내에만 쓴다(칸별 판정은 힌트가 한다)
   const computable = previewDatesOf(values).length > 0
@@ -114,6 +125,7 @@ export function ConditionStep({
               {...props}
               key={values.couponPayout ?? ''}
               defaultValue={values.couponPayout ?? ''}
+              onChange={(event) => setPayout(event.target.value)}
               className={INPUT_CLASS}
             >
               <option value="">선택</option>
@@ -167,7 +179,7 @@ export function ConditionStep({
           label="연쿠폰율 (%)"
           error={fieldErrors.annualCouponRate}
           hint={
-            monthly
+            rateLocked
               ? '월지급식은 0 — 수익은 월수익 연쿠폰율'
               : hintWith('연 환산', fieldNotes, 'annualCouponRate')
           }
@@ -178,11 +190,11 @@ export function ConditionStep({
               type="text"
               inputMode="decimal"
               // 월지급식이면 0으로 고정한다 — 전이가 값을 0으로 두고 칸은 고칠 수 없다(DOC-011 V-08′ · DOC-008 v2.29 (4))
-              key={monthly ? 'monthly' : 'open'}
-              defaultValue={monthly ? '0' : (values.annualCouponRate ?? '')}
-              readOnly={monthly}
+              key={rateLocked ? 'monthly' : 'open'}
+              defaultValue={rateLocked ? '0' : (values.annualCouponRate ?? '')}
+              readOnly={rateLocked}
               placeholder="예: 8"
-              className={`${INPUT_CLASS}${monthly ? ' bg-neutral-100 text-neutral-600' : ''}`}
+              className={`${INPUT_CLASS}${rateLocked ? ' bg-neutral-100 text-neutral-600' : ''}`}
             />
           )}
         </Field>

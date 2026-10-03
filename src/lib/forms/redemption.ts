@@ -211,7 +211,9 @@ function amountsOf(
   if (gross == null) return null
   // 달러 상품 — 과세 금융소득은 거래내역의 원화 값이다(U1). 첫 렌더에도 차수를 고칠 때의
   // 다시 채우기에도 채우지 않는다(DOC-008 SCR-203 「P8 달러 ELS」). 실수령액은 상품 통화로 채운다
-  if (currency !== 'KRW') return { grossAmount: gross, taxableIncome: '' }
+  // **비과세는 예외다** — 통화와 무관하게 0을 안다(DOC-007 §4.8 「TAX_FREE는 x보다 먼저」 · DOC-008 SCR-203 v2.41). 그래서 달러
+  // 비과세는 아래 `taxableIncome`(TAX_FREE → 0이 맨 앞)으로 간다 — 세전 · 원금의 통화를 쓰기 전에 0이 나온다
+  if (currency !== 'KRW' && accountType !== 'TAX_FREE') return { grossAmount: gross, taxableIncome: '' }
   return {
     grossAmount: gross,
     taxableIncome: amountString(

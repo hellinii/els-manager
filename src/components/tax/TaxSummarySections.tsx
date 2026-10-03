@@ -58,6 +58,11 @@ export function IncomeSection({ view }: { view: TaxSummaryView }) {
         <p className="text-xs tabular-nums text-neutral-500">
           ELS 과세 금융소득 중 확정 {won(income.confirmedElsTaxableIncome)} · 추정{' '}
           {won(income.estimatedElsTaxableIncome)}
+          {/*
+            환율이 없어 빠진 추정이 있으면 그 사실을 잇는다(DOC-008 v2.41 — P8.5). 달러 월지급 상품의 추정이 전부 빠지면
+            「추정 0원」이 계산한 0으로 읽혔다(ST-07). 문구는 기여 행의 일부 빠짐과 같은 상수다
+          */}
+          {income.unconvertedCount > 0 && <span className="text-amber-800"> — {PARTIAL_RATE_MISSING_NOTE}</span>}
         </p>
       )}
 

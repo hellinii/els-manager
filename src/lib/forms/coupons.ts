@@ -101,7 +101,8 @@ export function couponDefaultsOf(
     outcome: '',
     paymentDate: coupon.paymentDate,
     grossAmount: coupon.expectedAmount,
-    taxableIncome: currency !== 'KRW' ? '' : accountType === 'TAX_FREE' ? '0' : coupon.expectedAmount,
+    // 비과세가 통화보다 먼저다 — 달러 비과세도 환율 없이 0을 안다(DOC-007 §4.8 · DOC-008 v2.41). 달러 일반계좌만 비운다(U1)
+    taxableIncome: accountType === 'TAX_FREE' ? '0' : currency !== 'KRW' ? '' : coupon.expectedAmount,
     withholdingTax: '',
     exchangeRate: '',
     isConfirmed: '',
@@ -209,10 +210,15 @@ export function toRowErrors<T>(result: ActionResult<T>, rowOf: readonly number[]
   for (const [key, message] of Object.entries(result.error.fields)) {
     const parsed = parseFieldPath(key)
     const row = parsed?.field === 'entries' && parsed.index != null ? rowOf[parsed.index] : undefined
-    fields[row == null || parsed?.sub == null ? key : `rows[${row}].${parsed.sub}`] = message
+    // `couponNo`는 숨은 칸이라 그 이름으로는 붙일 자리가 없다 — 그 행의 결과 칸에 붙인다(V-27 · DOC-008 v2.41)
+    const sub = parsed?.sub === COUPON_NO_FIELD ? 'outcome' : parsed?.sub
+    fields[row == null || sub == null ? key : `rows[${row}].${sub}`] = message
   }
   return { ...result, error: { ...result.error, fields } }
 }
+
+/** 결과를 고른 행이 없는 제출 — 계약을 부르지 않고 이 문구다(DOC-008 SCR-206 v2.41) */
+export const EMPTY_RECORD_MESSAGE = '기록할 행이 없다 — 결과를 고른 행만 저장한다.'
 
 /** §5.15 수정 폼의 초기값 — 저장된 기록 그대로다(추정이 아니다). 행 번호 0 */
 export function couponEditValuesOf(record: CouponRecordView): Record<string, string> {

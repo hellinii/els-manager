@@ -11,6 +11,7 @@ import {
   COUPON_PAYMENT_ID_FIELD,
   COUPON_ROW_COUNT_FIELD,
   couponFieldNames,
+  EMPTY_RECORD_MESSAGE,
   parseCouponEditForm,
   parseCouponRecordForm,
   toRowErrors,
@@ -54,6 +55,16 @@ export async function recordCouponPaymentsAction(
   }
 
   const { entries, rowOf } = parseCouponRecordForm(form, rowCount)
+  if (entries.length === 0) {
+    // 결과를 고른 행이 없다 — 계약의 배열 오류(「entries 월수익 기록은 한 번에 1~60건이다」)를 내부 키째로 보이지 않는다
+    // (DOC-008 v2.41 — P8.5). 계약을 부르지 않는다
+    return {
+      ...initialFormState(values),
+      status: 'ERROR',
+      code: 'VALIDATION_FAILED',
+      message: EMPTY_RECORD_MESSAGE,
+    }
+  }
   const result = await recordCouponPayments(productId, { entries })
 
   if (result.ok) redirect(COUPON_SECTION.detailHref(productId))

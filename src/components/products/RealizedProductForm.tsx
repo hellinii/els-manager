@@ -2,6 +2,8 @@
 
 import { useActionState, useState } from 'react'
 
+import { useHydrated } from '@/components/form/useHydrated'
+
 import { Field, INPUT_CLASS } from '@/components/form/Field'
 import { FormMessage } from '@/components/form/FormMessage'
 import { SubmitButton } from '@/components/form/SubmitButton'
@@ -69,7 +71,10 @@ export function RealizedProductForm({
   const [payout, setPayout] = useState(values.couponPayout ?? '')
   const monthly = payout === 'MONTHLY'
 
-  const locked = taxableIncomeLocked(type) || monthly
+  // 두 고정 다 이 폼의 선택(상환 유형 · 쿠폰 지급방식)에서 온다 — JS가 있을 때만 그린다. JS 없이 서버가 그린 고정은 선택을
+  // 되돌려도 풀리지 않아 이익 상환의 과세 0이 조용히 저장됐다(P8.5 · DOC-008 v2.41). JS가 없으면 V-12 · V-29가 저장에서 막는다
+  const hydrated = useHydrated()
+  const locked = hydrated && (taxableIncomeLocked(type) || monthly)
   const year = attributionYearOf(date)
   // 통화를 고르기 전에는 계산하지 않는다 — 단위를 모르면 자릿수도 모른다
   const pnl = currency === 'KRW' || currency === 'USD' ? realizedPnlOf(gross, principal, currency) : null
@@ -280,7 +285,7 @@ export function RealizedProductForm({
             label="과세 금융소득 (원)"
             error={fieldErrors.taxableIncome}
             hint={
-              monthly
+              hydrated && monthly
                 ? '월지급식 상환은 원금만이다 — 과세 금융소득은 0이고 수익은 월수익으로 적는다'
                 : locked
                   ? '만기상환(손실)이므로 0이다 — ELS 손실은 다른 금융소득과 통산되지 않는다'
