@@ -20,8 +20,8 @@ export async function seedProduct(params: {
   const result = await asOwner<{ id: string }>(
     `insert into public.els_products
        (owner_id, name, issue_date, principal, currency, evaluation_period_months,
-        annual_coupon_rate, ki_barrier, ki_observation, account_type)
-     values ($1, $2, '2026-01-02', 100000000, 'KRW', 6, 0.08, 0.50, 'CLOSING', 'GENERAL')
+        annual_coupon_rate, ki_barrier, ki_observation, account_type, coupon_payout)
+     values ($1, $2, '2026-01-02', 100000000, 'KRW', 6, 0.08, 0.50, 'CLOSING', 'GENERAL', 'AT_REDEMPTION')
      returning id`,
     [params.ownerId ?? USER_A, params.name ?? 'A상품'],
   )
@@ -42,8 +42,8 @@ export async function seedRealizedProduct(params: {
 }): Promise<SeededProduct> {
   const result = await asOwner<{ id: string }>(
     `insert into public.els_products
-       (owner_id, name, principal, currency, account_type, entry_mode)
-     values ($1, $2, 19390000, 'KRW', 'GENERAL', 'REALIZED_ONLY')
+       (owner_id, name, principal, currency, account_type, entry_mode, coupon_payout)
+     values ($1, $2, 19390000, 'KRW', 'GENERAL', 'REALIZED_ONLY', 'AT_REDEMPTION')
      returning id`,
     [params.ownerId ?? USER_A, params.name ?? '기실현 상품'],
   )

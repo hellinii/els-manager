@@ -107,14 +107,29 @@ describe('I-23 — 쿠폰 지급방식과 두 율의 짝', () => {
     )
   })
 
-  it('기존 행은 전부 AT_REDEMPTION · 월수익 연쿠폰율 NULL로 백필된다 — 열 기본값(W4 expand)', async () => {
-    const product = await seedProduct({ ownerId: USER_A })
-    const row = await asOwner<{ coupon_payout: string; monthly: string | null }>(
-      `select coupon_payout::text, monthly_coupon_annual_rate::text as monthly
-         from public.els_products where id = $1`,
-      [product.id],
+  /*
+   * ~~기존 행은 전부 AT_REDEMPTION · 월수익 연쿠폰율 NULL로 백필된다 — 열 기본값(W4 expand)~~ → M-b2c(P8 컷 b4)가 기본값을
+   * 뗐다. W4의 백필은 운영 감사(DOC-013 §10.2.1 W4 ④ — `coupon_payout` 전부 AT_REDEMPTION)가 실측했고, 이 파일은 이제
+   * 「기본값이 없다」를 본다 — 통화의 M-a2c 단언(`currency.test.ts`)과 같은 자리
+   */
+  it('★ 열 기본값이 없다 — 카탈로그 (M-b2c)', async () => {
+    const row = await asOwner<{ has_default: boolean; not_null: boolean }>(
+      `select a.atthasdef as has_default, a.attnotnull as not_null
+         from pg_attribute a
+        where a.attrelid = 'public.els_products'::regclass and a.attname = 'coupon_payout'`,
     )
-    expect(row.rows[0]).toEqual({ coupon_payout: 'AT_REDEMPTION', monthly: null })
+    expect(row.rows[0]).toEqual({ has_default: false, not_null: true })
+  })
+
+  it('직접 INSERT도 23502다 — 기본값이 없다 (M-b2c)', async () => {
+    await expect(
+      actingAs(USER_A).query(
+        `insert into public.els_products
+           (owner_id, name, issue_date, principal, currency, evaluation_period_months, annual_coupon_rate, account_type)
+         values ($1, '지급방식 없음', '2026-01-02', 100000000, 'KRW', 6, 0.08, 'GENERAL')`,
+        [USER_A],
+      ),
+    ).rejects.toMatchObject({ code: '23502', column: 'coupon_payout' })
   })
 })
 
@@ -719,6 +734,8 @@ function productPayload(assetId: string, overrides: Payload = {}): Payload {
     kiBarrier: null,
     kiObservation: null,
     accountType: 'GENERAL',
+    // M-b2c(P8 컷 b4) 뒤로 필수다 — 월지급식은 아래 `MONTHLY_TERMS`가 덮는다
+    couponPayout: 'AT_REDEMPTION',
     note: null,
     underlyings: [{ assetId, basePrice: '100.000000', sequence: 1 }],
     schedules: [{ roundNo: 1, evaluationDate: '2027-04-16', barrier: '0.90' }],
@@ -760,15 +777,19 @@ async function scheduleRows(elsId: string) {
   return rows.rows
 }
 
-describe('쓰기 함수 — 지급방식 (W4 expand의 coalesce)', () => {
-  it('지급방식을 싣지 않은 생성은 상환 시 지급이다 — 배포 중인 구 코드의 경로', async () => {
-    const asset = await seedAsset({ name: 'expand 생성' })
-    const id = await create(productPayload(asset.id))
-    const row = await asOwner<{ coupon_payout: string }>(
-      'select coupon_payout::text from public.els_products where id = $1',
-      [id],
-    )
-    expect(row.rows[0].coupon_payout).toBe('AT_REDEMPTION')
+/*
+ * ~~지급방식 (W4 expand의 coalesce)~~ → **M-b2c 뒤의 영구 단언 (P8 컷 b4 · DOC-002 §4.6 ★ · 통화의 SB-12 거울)**. 쓰기 함수가
+ * a2 · a3 · b2 · b4에서 네 번 교체되므로, 뒤의 교체가 `coalesce`가 남은 옛 본문에서 출발하면 기본값이 조용히 되살아난다 —
+ * 아래 셋이 그 회귀를 잡는다. 열이 `coupon_payout`인지까지 본다(다른 열의 널 위반이 대신 초록을 만들지 않게)
+ */
+describe('쓰기 함수 — 지급방식 누락 → 23502 (M-b2c)', () => {
+  const expectPayoutNotNull = (run: () => Promise<unknown>) =>
+    expect(run()).rejects.toMatchObject({ code: '23502', column: 'coupon_payout' })
+
+  it('지급방식 없는 create_els_product는 23502다', async () => {
+    const asset = await seedAsset({ name: 'contract 생성' })
+    const { couponPayout: _dropped, ...withoutPayout } = productPayload(asset.id)
+    await expectPayoutNotNull(() => create(withoutPayout))
   })
 
   it('월지급식 생성은 지급방식 · 율 · 월수익 일정을 함께 저장한다', async () => {
@@ -783,11 +804,12 @@ describe('쓰기 함수 — 지급방식 (W4 expand의 coalesce)', () => {
     expect((await scheduleRows(id)).map((r) => r.coupon_no)).toEqual([1, 2])
   })
 
-  it('★ 지급방식을 싣지 않은 수정은 «저장값»을 지킨다 — AT_REDEMPTION으로 떨어지지 않는다', async () => {
-    const asset = await seedAsset({ name: 'expand 수정' })
+  it('★ 지급방식 없는 update_els_product는 23502다 — 저장값으로 받치던 coalesce가 되살아나면 여기가 빨갛다', async () => {
+    const asset = await seedAsset({ name: 'contract 수정' })
     const id = await create(productPayload(asset.id, MONTHLY_TERMS))
-    const { couponPayout: _dropped, ...withoutPayout } = MONTHLY_TERMS
-    await update(id, productPayload(asset.id, withoutPayout))
+    const { couponPayout: _dropped, ...withoutPayout } = productPayload(asset.id, MONTHLY_TERMS)
+    await expectPayoutNotNull(() => update(id, withoutPayout))
+    // 저장된 지급방식이 그대로다 — 거부는 트랜잭션 단위다
     const row = await asOwner<{ coupon_payout: string }>(
       'select coupon_payout::text from public.els_products where id = $1',
       [id],
@@ -965,16 +987,12 @@ describe('쓰기 함수 — 기실현 등재', () => {
     )
   })
 
-  it('지급방식을 싣지 않으면 상환 시 지급이다 — W4 expand', async () => {
-    const created = await actingAs(USER_A).query<{ id: string }>(
-      'select public.create_realized_els_product($1::jsonb) as id',
-      [JSON.stringify(realizedPayload({ grossAmount: '103600000', taxableIncome: '3600000' }))],
-    )
-    const row = await asOwner<{ coupon_payout: string }>(
-      'select coupon_payout::text from public.els_products where id = $1',
-      [created.rows[0].id],
-    )
-    expect(row.rows[0].coupon_payout).toBe('AT_REDEMPTION')
+  it('지급방식 없는 create_realized_els_product는 23502다 — M-b2c (종전: 상환 시 지급으로 받쳤다)', async () => {
+    await expect(
+      actingAs(USER_A).query('select public.create_realized_els_product($1::jsonb) as id', [
+        JSON.stringify(realizedPayload({ grossAmount: '103600000', taxableIncome: '3600000' })),
+      ]),
+    ).rejects.toMatchObject({ code: '23502', column: 'coupon_payout' })
   })
 })
 
@@ -1231,8 +1249,8 @@ describe('AQ-93 — 교차 테이블 트리거는 부모 상품 행 잠금으로
     const product = await owner.query<{ id: string }>(
       `insert into public.els_products
          (owner_id, name, issue_date, principal, currency, evaluation_period_months,
-          annual_coupon_rate, account_type)
-       values ($1, '${AQ93}', '2026-10-16', 10000, 'USD', 6, 0.08, 'GENERAL')
+          annual_coupon_rate, account_type, coupon_payout)
+       values ($1, '${AQ93}', '2026-10-16', 10000, 'USD', 6, 0.08, 'GENERAL', 'AT_REDEMPTION')
        returning id`,
       [USER_A],
     )

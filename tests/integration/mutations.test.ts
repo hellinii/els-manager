@@ -287,6 +287,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
       kiBarrier: null,
       kiObservation: null,
       accountType: 'GENERAL',
+      // M-b2c(P8 컷 b4) 뒤 필수다 — 같은 이유다(실측: 빼면 여섯이 23502로 빨갛다)
+      couponPayout: 'AT_REDEMPTION',
       note: null,
       underlyings: [{ assetId, basePrice: '100', sequence: 1 }],
       schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' }],
@@ -380,6 +382,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
         kiBarrier: null,
         kiObservation: null,
         accountType: 'GENERAL',
+        // M-b2c(P8 컷 b4) 뒤 필수다 — 빼면 기대한 오류 대신 23502가 먼저 난다
+        couponPayout: 'AT_REDEMPTION',
         note: null,
         underlyings: [
           { assetId: assetId2, basePrice: '1', sequence: 1 },
@@ -428,6 +432,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
         kiBarrier: null,
         kiObservation: null,
         accountType: 'GENERAL',
+        // M-b2c(P8 컷 b4) 뒤 필수다 — 빼면 기대한 오류 대신 23502가 먼저 난다
+        couponPayout: 'AT_REDEMPTION',
         note: null,
         underlyings: [],
         schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9' }],
@@ -471,6 +477,8 @@ describe('★ 원자성 — 함수가 실패하면 상품 행이 남지 않는�
           principal: '10000000',
           // M-a2c(W2) 뒤 필수다 — 생성 타입이 그것을 요구한다(열 기본값이 없다)
           currency: 'KRW',
+          // M-b2c(P8 컷 b4) 뒤 필수다 — 같은 이유로 생성 타입이 요구한다
+          coupon_payout: 'AT_REDEMPTION',
           evaluation_period_months: 6,
           annual_coupon_rate: '0.08',
           account_type: 'GENERAL',

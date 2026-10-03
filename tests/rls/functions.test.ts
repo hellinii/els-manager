@@ -209,6 +209,8 @@ describe('쓰기 함수 — RLS가 함수 안에서도 강제된다', () => {
       evaluationPeriodMonths: 6,
       annualCouponRate: '0.0800',
       accountType: 'GENERAL',
+      // M-b2c(P8 컷 b4) 뒤로 필수다 — 기본값도 coalesce도 없다
+      couponPayout: 'AT_REDEMPTION',
       underlyings: [{ assetId: null, basePrice: '100.000000', sequence: 1 }],
       schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' }],
       ...overrides,
@@ -342,6 +344,7 @@ describe('update_els_product', () => {
           kiBarrier: '0.5000',
           kiObservation: 'CLOSING',
           accountType: 'GENERAL',
+          couponPayout: 'AT_REDEMPTION',
           underlyings: [{ assetId: asset.id, basePrice: '100.000000', sequence: 1 }],
           schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' }],
         }),
@@ -361,6 +364,7 @@ describe('update_els_product', () => {
       kiBarrier: '0.5000',
       kiObservation: 'CLOSING',
       accountType: 'GENERAL',
+      couponPayout: 'AT_REDEMPTION',
       underlyings: [{ assetId, basePrice: '110.000000', sequence: 1 }],
       schedules: [
         { roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' },

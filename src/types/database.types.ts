@@ -181,7 +181,7 @@ export type Database = {
         Insert: {
           account_type: Database["public"]["Enums"]["account_type"]
           annual_coupon_rate?: number | null
-          coupon_payout?: Database["public"]["Enums"]["coupon_payout"]
+          coupon_payout: Database["public"]["Enums"]["coupon_payout"]
           created_at?: string
           currency: Database["public"]["Enums"]["product_currency"]
           entry_mode?: Database["public"]["Enums"]["product_entry_mode"]

@@ -20,8 +20,8 @@ import { expectConstraintViolation } from './helpers/expect'
 
 const insertProduct = `insert into public.els_products
     (owner_id, name, issue_date, principal, currency, evaluation_period_months,
-     annual_coupon_rate, account_type)
-  values ($1, '통화시험', '2026-01-02', $2, $3, 6, 0.08, 'GENERAL')
+     annual_coupon_rate, account_type, coupon_payout)
+  values ($1, '통화시험', '2026-01-02', $2, $3, 6, 0.08, 'GENERAL', 'AT_REDEMPTION')
   returning id`
 
 async function productIn(currency: 'KRW' | 'USD', principal = '100000000'): Promise<string> {
@@ -159,7 +159,8 @@ describe('I-22 — 적용 환율 (redemptions_exchange_rate_check)', () => {
 })
 
 describe('통화 누락 → 23502 — M-a2c 뒤의 영구 단언 (DOC-002 §4.6 ★ · SB-12)', () => {
-  // W1의 구 코드 payload와 같은 모양 — currency 키가 없다
+  // W1의 구 코드 payload와 같은 모양 — currency 키가 없다. **지급방식은 싣는다**(M-b2c — P8 컷 b4 뒤로 그것도 필수다):
+  // 둘 다 빠지면 다른 열의 널 위반이 먼저 날 수 있어 이 단언이 통화를 가르지 못한다(실측 — update가 그랬다)
   async function legacyPayload(): Promise<Record<string, unknown>> {
     const asset = await seedAsset({})
     return {
@@ -169,6 +170,7 @@ describe('통화 누락 → 23502 — M-a2c 뒤의 영구 단언 (DOC-002 §4.6 
       evaluationPeriodMonths: 6,
       annualCouponRate: '0.0800',
       accountType: 'GENERAL',
+      couponPayout: 'AT_REDEMPTION',
       underlyings: [{ assetId: asset.id, basePrice: '100.000000', sequence: 1 }],
       schedules: [{ roundNo: 1, evaluationDate: '2026-07-02', barrier: '0.9000' }],
     }
@@ -226,6 +228,7 @@ describe('통화 누락 → 23502 — M-a2c 뒤의 영구 단언 (DOC-002 §4.6 
           name: '구코드 기실현',
           principal: '19390000',
           accountType: 'GENERAL',
+          couponPayout: 'AT_REDEMPTION',
           redemptionType: 'EARLY',
           redemptionDate: '2025-06-02',
           grossAmount: '20000000',
@@ -241,8 +244,8 @@ describe('통화 누락 → 23502 — M-a2c 뒤의 영구 단언 (DOC-002 §4.6 
       actingAs(USER_A).query(
         `insert into public.els_products
            (owner_id, name, issue_date, principal, evaluation_period_months,
-            annual_coupon_rate, account_type)
-         values ($1, '통화 없음', '2026-01-02', 100000000, 6, 0.08, 'GENERAL')`,
+            annual_coupon_rate, account_type, coupon_payout)
+         values ($1, '통화 없음', '2026-01-02', 100000000, 6, 0.08, 'GENERAL', 'AT_REDEMPTION')`,
         [USER_A],
       ),
     )

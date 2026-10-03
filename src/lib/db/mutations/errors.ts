@@ -525,6 +525,8 @@ export const MAPPED_CONSTRAINTS = Object.keys(BY_CONSTRAINT)
 const NOT_NULL_FIELD: Record<string, string> = {
   name: 'name',
   currency: 'currency',
+  // P8 컷 b4 — M-b2c가 기본값을 뗀 뒤에만 도달한다(DOC-011 §3.2.1). 통화의 `currency`와 같은 자리다
+  coupon_payout: 'couponPayout',
   asset_type: 'assetType',
   issue_date: 'issueDate',
   principal: 'principal',

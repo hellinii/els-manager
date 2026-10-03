@@ -228,6 +228,19 @@ describe('널 위반만 열 이름을 필드로 바꿀 수 있다', () => {
     expect(mapped.fields).toEqual({ currency: '필수 입력값이 비어 있다.' })
   })
 
+  it('★ coupon_payout → couponPayout — M-b2c(P8 컷 b4) 뒤에만 도달한다(통화의 거울 · DOC-011 §3.2.1)', () => {
+    // DB 쪽 단언(tests/rls/monthly-coupons.test.ts 「지급방식 누락 → 23502」)과 짝이다 — 거기는 열이 그것임을, 여기는 칸을 본다
+    const mapped = mapDbError(
+      {
+        code: '23502',
+        message: 'null value in column "coupon_payout" of relation "els_products" violates not-null constraint',
+      },
+      '상품 등록',
+    )
+    expect(mapped.code).toBe('VALIDATION_FAILED')
+    expect(mapped.fields).toEqual({ couponPayout: '필수 입력값이 비어 있다.' })
+  })
+
   it('사상에 없는 열은 필드 없이 내고 신호를 남긴다', () => {
     const mapped = mapDbError(
       {
