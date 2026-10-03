@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 /**
  * 키움 상품 조건 원천 실응답 픽스처 — **손으로 쓰지 않고 실제로 받아 온 것이다** (2026-09-24 KST 12:14~12:20 ·
- * EM2047 둘은 2026-10-02 KST 02:22 — P8 컷 a4)
+ * EM2047 둘은 2026-10-02 KST 02:22 — P8 컷 a4 · EM2014 둘은 2026-10-03 KST 18:21 — P8 컷 b5)
  *
  * 전부 쿠키 없는 `POST` · `application/x-www-form-urlencoded`다(`curl -X POST --data …`).
  *
@@ -25,6 +25,7 @@ import { join } from 'node:path'
  * | EM2046 | 리자드 2배(33.24 = 2 × 16.62) |
  * | E03060 | **파싱은 `ok`**, 대조가 `BLOCKING`(표 85/85 ↔ 사다리 88/88) · 만기 `rowspan=1` |
  * | EM2048 | 달러·월지급 · 수익률 전부 0 · `월지급배리어 50` · 목록 사다리 `KI` ↔ 팝업 `KI25` |
+ * | EM2014 | **원화 · 월지급식** — 전진 검사 일곱을 지나 채워지는 첫 월지급식(P8 컷 b5 · ADR-009 §8). 사다리 `월지급배리어 50, 3년/6개월 (85-85-80-75-70-65) KI20` · 헤드라인 「최대 연 23.64%」(= 1.97% × 12) · 수익률 전부 0 · 기초자산 KOSPI200 · 마이크론(지수 + 해외 티커 MU) · 만기 사흘 평균 |
  * | EM2047 | **달러 · 월지급 아님** — 불러오기가 채우는 첫 달러 상품(P8 컷 a4). 팝업 증인 `USD_` · `달러청약`, 배너는 `100dollar-ELS.jpg`(EM2048은 `dollar-ELS.png` — ADR-009 ⑲) · 해외 티커 TSLA·MU · 만기 사흘 평균 |
  * | E04262 | `PRE_ISSUANCE` — 기준가 0, 차수 없음, 만기는 날짜만 |
  * | E99999 | `EMPTY` — 없는 코드도 200 |
@@ -56,6 +57,7 @@ export const POPUP_CODES = [
   'E00795',
   'EM1039',
   'EM2047',
+  'EM2014',
 ] as const
 export type PopupCode = (typeof POPUP_CODES)[number]
 
@@ -122,6 +124,18 @@ export const SEARCH_FIXTURES = {
     respCode: '100000',
     bytes: 5108,
     sha256: '52b687e6995190da0ab58c0c16f595544f9f23424230dc69d7e298d79040a4bf',
+  },
+  /**
+   * `100000` — 1건(EM2014, 2026-10-03 수집 — P8 컷 b5). **원화 · 월지급식** — `crnc_code` `KRW` · `rdmp_unit`
+   * `10000` · `mm_pay_frml_yn` `Y` · 사다리 `월지급배리어 50, 3년/6개월 (85-85-80-75-70-65) KI20`
+   */
+  q2014: {
+    file: 'search-100000-2014.json',
+    query: '2014회',
+    body: 'salFundNm=2014%ED%9A%8C&searchStartDt=&searchEndDt=&elsTp=1&prncaPayTp=&rpyYn=&ordTp=&sortTp=&contGubn=&nextData=',
+    respCode: '100000',
+    bytes: 5112,
+    sha256: '51bff1384320baf73546912ff4ae43cb3fcea5b4bee5eb82ebef50ed179593cb',
   },
   /** `505065` — `g1`이 없다. E03060은 「3060**호**」라 「3060회」로는 안 나온다 */
   q3060: {

@@ -29,9 +29,12 @@ import {
   currencyChangedBy,
   hasImportGaps,
   importOverStored,
+  recordedMonthChangedBy,
+  recordedMonthRefusal,
   refusedByCouponRecords,
   storedChangesOf,
 } from './importMerge'
+import type { CouponLock } from './monthly'
 import type { ImportQuery, ImportTarget } from './query'
 
 /**
@@ -113,10 +116,12 @@ export function importPanelOf(input: {
   /** 폼의 출발점 — 등록은 `productDefaults()`, 수정은 `productValuesOf(view)`(저장값) */
   defaults: Record<string, string>
   /**
-   * 그 상품에 월수익 지급 기록이 있다 — X-07 뒷절반(P8 컷 b4). **필수다** — 선택으로 두면 잊은 호출부가 기록 있는 상품의
-   * 불러오기를 채우고, 그 폼의 저장은 늘 CONFLICT다. 등록 화면은 늘 `false`다(상품이 아직 없다)
+   * 그 상품의 월수익 지급 기록 — `couponLockOf(view)`(`null` = 기록 없음). X-07 뒷절반(P8 컷 b4 — 있으면 통화 · 지급방식이
+   * 다른 불러오기를 거부)과 X-09(P8 컷 b5 — 기록된 달의 날짜가 바뀌는 불러오기를 거부)가 이것을 본다. **필수다** — 선택으로
+   * 두면 잊은 호출부가 기록 있는 상품의 불러오기를 채우고, 그 폼의 저장은 늘 CONFLICT다. 등록 화면은 늘 `null`이다
+   * (상품이 아직 없다)
    */
-  couponRecorded: boolean
+  couponLock: CouponLock | null
 }): ImportPanel {
   const { query, code } = input.query
   const editing = input.target.kind === 'EDIT'
@@ -209,13 +214,25 @@ export function importPanelOf(input: {
 
   // X-07 뒷절반 (P8 컷 b4) — 기록 있는 상품의 통화 · 지급방식을 바꾸는 불러오기는 거부한다. 앞절반(투자원금을 비운다)보다
   // 먼저다 — 그 채움은 저장될 수 없다
-  if (editing && refusedByCouponRecords(input.couponRecorded, input.defaults, fill.values)) {
+  if (editing && refusedByCouponRecords(input.couponLock != null, input.defaults, fill.values)) {
     return {
       ...base,
       state: importPanelStateOf({ query, code, search: null, fill: { kind: 'REFUSED' } }),
       productName: product.name,
       prospectusUrl,
       reasons: [COUPON_RECORDED_REFUSAL],
+      notes,
+    }
+  }
+  // X-09 (P8 컷 b5) — 기록된 달의 날짜 · 순번이 바뀌는 불러오기도 같은 근거로 거부한다. X-07 뒷절반 뒤 · 앞절반 앞이다
+  const recordedChange = editing ? recordedMonthChangedBy(input.couponLock, input.defaults, fill.values) : null
+  if (recordedChange != null) {
+    return {
+      ...base,
+      state: importPanelStateOf({ query, code, search: null, fill: { kind: 'REFUSED' } }),
+      productName: product.name,
+      prospectusUrl,
+      reasons: [recordedMonthRefusal(recordedChange)],
       notes,
     }
   }
@@ -228,7 +245,8 @@ export function importPanelOf(input: {
     // 메우면 불러옴이고(PARTIAL → FILLED), X-07이 투자원금을 비우면 일부 채움이다(FILLED → PARTIAL).
     // 종전에는 올리기만 했다 — 노낙인 · 자산 전부 풀림 상품은 채움부터 FILLED라 X-07 렌더가 「불러옴」인 채
     // 「투자원금 … 저장값 그대로다」를 말했다(반박 검토, P8 컷 a4)
-    kind = hasImportGaps(initialValues) ? 'PARTIAL' : 'FILLED'
+    // 월수익 일정이 산식이면 빈칸이 아니어도 확인할 곳이다(ADR-009 §8.6) — 합친 값만 보면 그 사실을 잃는다
+    kind = hasImportGaps(initialValues) || fill.couponSchedule === 'FORMULA' ? 'PARTIAL' : 'FILLED'
     if (initialValues.kiObservation !== '') fieldNotes.kiObservation = KEPT_OBSERVATION_NOTE
     // 노낙인 상품이 저장값을 비웠다(V-16) — 구획의 문구는 관찰방식을 말하지 않으므로 칸이 말한다
     else if ((input.defaults.kiObservation ?? '') !== '') fieldNotes.kiObservation = CLEARED_OBSERVATION_NOTE

@@ -100,8 +100,9 @@ export default async function ProductEditPage({
     listed,
     options: assets,
     defaults: productValuesOf(view),
-    // X-07 뒷절반 (P8 컷 b4) — 기록 있는 상품은 통화 · 지급방식이 다른 불러오기를 거부한다. 잠금과 같은 판정이다
-    couponRecorded: couponLockOf(view) != null,
+    // X-07 뒷절반 (P8 컷 b4) · X-09 (b5) — 기록 있는 상품은 통화 · 지급방식이 다르거나 기록된 달의 날짜가 바뀌는 불러오기를
+    // 거부한다. 수정 화면의 잠금과 같은 판정이다
+    couponLock: couponLockOf(view),
   })
 
   return (

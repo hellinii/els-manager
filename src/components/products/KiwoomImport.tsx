@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
 import { ImportAssetForm } from '@/components/products/ImportAssetForm'
-import { PRODUCT_CURRENCY_LABELS } from '@/lib/format'
+import { COUPON_PAYOUT_LABELS, PRODUCT_CURRENCY_LABELS } from '@/lib/format'
 import type { ImportAssetState } from '@/lib/forms/import'
 import {
   IMPORT_AUTHORITY_NOTE,
@@ -119,7 +119,7 @@ export function KiwoomImport({
 
       {panel.state === 'CANDIDATES' && (
         <ul className="flex flex-col divide-y divide-neutral-100 rounded-md border border-neutral-200">
-          {panel.candidates.map(({ candidate, exact, refusal, currency }) => (
+          {panel.candidates.map(({ candidate, exact, refusal, currency, monthly }) => (
             <li key={candidate.productCode} className="flex flex-col gap-1 px-3 py-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={exact ? 'font-medium' : ''}>{candidate.name}</span>
@@ -128,6 +128,12 @@ export function KiwoomImport({
                 {currency === 'USD' && (
                   <span className="rounded border border-neutral-300 px-1.5 text-xs text-neutral-700">
                     {PRODUCT_CURRENCY_LABELS.USD}
+                  </span>
+                )}
+                {/* 월지급식 후보 — 같은 자리 · 같은 모양(DOC-008 SCR-204 「P8 월지급식 — 불러오기」). 낱말은 §6.1 `couponPayout` */}
+                {monthly && (
+                  <span className="rounded border border-neutral-300 px-1.5 text-xs text-neutral-700">
+                    {COUPON_PAYOUT_LABELS.MONTHLY}
                   </span>
                 )}
                 {candidate.redeemed && <span className="text-xs text-neutral-500">상환</span>}

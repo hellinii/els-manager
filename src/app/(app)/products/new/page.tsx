@@ -82,8 +82,8 @@ export default async function ProductNewPage({
     listed,
     options: assets,
     defaults: productDefaults(),
-    // 등록 화면에는 상품이 아직 없다 — 기록도 없다(X-07 뒷절반은 수정 화면의 규칙)
-    couponRecorded: false,
+    // 등록 화면에는 상품이 아직 없다 — 기록도 없다(X-07 뒷절반 · X-09는 수정 화면의 규칙)
+    couponLock: null,
   })
 
   return (

@@ -47,11 +47,11 @@ describe('후보 목록', () => {
     )
   })
 
-  it('월지급식은 목록에서 사유를 말한다 — EM2048 (컷 b5까지)', () => {
-    const [row] = candidateRowsOf('2048', candidates(SEARCH_FIXTURES.q2048))
-    expect(row!.refusal).toBe('월지급식 — 이 모델이 아직 표현하지 못한다')
-    // 통화는 확정된다 — 사유는 월지급식 하나다
-    expect(row!.currency).toBe('USD')
+  it('★ 월지급식은 사유가 아니다 — EM2048 · EM2014는 링크와 「월지급식」 배지를 갖는다 (P8 컷 b5 · ADR-009 §8.7)', () => {
+    const [usd] = candidateRowsOf('2048', candidates(SEARCH_FIXTURES.q2048))
+    expect([usd!.refusal, usd!.currency, usd!.monthly]).toEqual([null, 'USD', true])
+    const [krw] = candidateRowsOf('2014', candidates(SEARCH_FIXTURES.q2014))
+    expect([krw!.candidate.productCode, krw!.refusal, krw!.currency, krw!.monthly]).toEqual(['EM2014', null, 'KRW', true])
   })
 
   it('보통 상품은 사유가 없다 — E04000 · 원화로 확정', () => {
@@ -61,24 +61,17 @@ describe('후보 목록', () => {
     expect(row!.currency).toBe('KRW')
   })
 
-  it('★ 달러는 사유가 아니다 — EM2047은 링크(사유 없음)와 달러를 갖는다 (P8 컷 a4)', () => {
+  it('★ 달러는 사유가 아니다 — EM2047은 링크(사유 없음)와 달러를 갖는다 (P8 컷 a4) · 월지급식 배지는 없다', () => {
     const [row] = candidateRowsOf('2047', candidates(SEARCH_FIXTURES.q2047))
-    expect([row!.candidate.productCode, row!.refusal, row!.currency]).toEqual(['EM2047', null, 'USD'])
+    expect([row!.candidate.productCode, row!.refusal, row!.currency, row!.monthly]).toEqual(['EM2047', null, 'USD', false])
   })
 
-  it('★ 목록 40행 — 달러 9 중 월지급 아닌 6이 링크를 갖고, 월지급식 5가 사유를 갖는다', () => {
+  it('★ 목록 40행 — 전부 링크를 갖고(사유 0), 월지급식 다섯이 배지를 갖는다 (P8 컷 b5 — 종전에는 그 다섯이 사유였다)', () => {
     const rows = candidateRowsOf('100조', candidates(SEARCH_FIXTURES.q100jo))
-    const usd = rows.filter((r) => r.currency === 'USD')
-    expect(usd).toHaveLength(9)
-    expect(usd.filter((r) => r.refusal == null).map((r) => r.candidate.productCode)).toEqual([
-      'EM2047',
-      'EM2039',
-      'EM2031',
-      'EM2022',
-      'EM2015',
-      'EM2006',
-    ])
-    expect(rows.filter((r) => r.refusal != null).map((r) => r.candidate.productCode)).toEqual([
+    expect(rows.filter((r) => r.currency === 'USD')).toHaveLength(9)
+    expect(rows.filter((r) => r.refusal != null)).toEqual([])
+    // ADR-009 §8.1의 표본 다섯이 이 목록의 월지급식 전부다
+    expect(rows.filter((r) => r.monthly).map((r) => r.candidate.productCode)).toEqual([
       'EM2048',
       'EM2040',
       'EM2032',

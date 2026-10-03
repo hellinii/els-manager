@@ -189,7 +189,13 @@ export function ConditionStep({
       </div>
 
       {/* b4 — 늘 그린다. 월지급식이 아니면 닫힌 채 온다(JS 없이 고른 뒤 같은 렌더에서 칸을 채운다 — DOC-008 SCR-204) */}
-      <MonthlyBlock values={values} fieldErrors={fieldErrors} couponLock={couponLock ?? null} open={monthly} />
+      <MonthlyBlock
+        values={values}
+        fieldErrors={fieldErrors}
+        fieldNotes={fieldNotes}
+        couponLock={couponLock ?? null}
+        open={monthly}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
@@ -470,11 +476,14 @@ function RoundTable({
 function MonthlyBlock({
   values,
   fieldErrors,
+  fieldNotes,
   couponLock,
   open,
 }: {
   values: Record<string, string>
   fieldErrors: Record<string, string>
+  /** 불러오기의 칸 안내(P8 컷 b5) — 월수익 연쿠폰율이 헤드라인에서 왔다 · 수정 화면의 저장값 */
+  fieldNotes?: Readonly<Record<string, string>>
   couponLock: CouponLock | null
   /** 지금 값이 월지급식이면 펼쳐 온다. 칸에 오류가 있어도 펼친다 — 접힌 칸의 오류는 보이지 않는다 */
   open: boolean
@@ -496,7 +505,7 @@ function MonthlyBlock({
           name={MONTHLY_RATE_FIELD}
           label="월수익 연쿠폰율 (%)"
           error={fieldErrors[MONTHLY_RATE_FIELD]}
-          hint="투자설명서의 「연 24.24%」 — 월 비율이 아니다"
+          hint={hintWith('투자설명서의 「연 24.24%」 — 월 비율이 아니다', fieldNotes, MONTHLY_RATE_FIELD)}
         >
           {(props) => (
             <input

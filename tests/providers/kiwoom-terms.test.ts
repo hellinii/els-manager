@@ -10,7 +10,7 @@ import { parseLadder, parseTenor } from '@/lib/providers/kiwoom/ladder'
 import { parseSearchBody } from '@/lib/providers/kiwoom/search-parse'
 import { createKiwoomProductSource } from '@/lib/providers/kiwoom/terms'
 import { productCurrencyOf, REDEMPTION_UNIT_CURRENCY } from '@/lib/providers/kiwoom/currency'
-import { crossCheckTerms } from '@/lib/providers/kiwoom/terms-check'
+import { crossCheckTerms, isMonthlyTerms, monthlyPctOf } from '@/lib/providers/kiwoom/terms-check'
 import {
   DISPLAY_SCALE,
   SEARCH_FORM_DEFAULTS,
@@ -271,15 +271,15 @@ describe('팝업 — EM2048 (달러·월지급)', () => {
     expect(p.ladder).toMatchObject({ monthly: true, monthlyBarrierPct: '50', dollar: true, kiPct: '25' })
   })
 
-  it('★ 값이 서로 맞아도 거부한다 — 월지급식이 BLOCKING이다 (DOC-008 SCR-204) · 달러는 사유가 아니다 (P8 컷 a4)', () => {
+  it('★ 전진 검사 일곱을 전부 지난다 — BLOCKING 0건 (ADR-009 §8.3 · P8 컷 b5) · 달러는 사유가 아니다 (P8 컷 a4)', () => {
     /*
-     * 음성 대조의 반대편이다. 이 상품은 불일치가 **하나도 없다**(수익률 대조는 월지급식이라 건너뛴다).
-     * 불일치만 셌다면 BLOCKING 0건으로 폼이 채워졌을 것이다. 목록 없이도 사다리의 `월지급`이 증인이다.
-     * 달러(`달러청약` · `USD_`)는 컷 a4부터 거부 사유가 아니라 채울 값이다 — 월지급식 거부는 b5까지 남는다.
+     * 컷 b5 전에는 이 상품이 `MONTHLY_PAY` 하나로 거부됐다 — 불일치가 하나도 없는데 불러와서는 안 되는 상품이었다.
+     * b5부터 월지급식은 거부가 아니라 검사다: 수익률 전부 0 · 24.24 ÷ 12 = 2.02 · 월지급 배리어 50 하나 ·
+     * KI25 < 50 ≤ 65 · 변형 낱말 없음 · 리자드 없음 · (목록이 없으므로) 증인 충돌 없음. 각 검사의 음성 대조는 아래
+     * 「월지급식 — 전진 검사」 describe가 하나씩 한다 — 여기 초록만으로는 검사가 돌았는지 모른다.
      */
-    expect(crossCheckTerms(withListing(p))).toEqual([
-      { kind: 'MONTHLY_PAY', severity: 'BLOCKING', expected: null, actual: null },
-    ])
+    expect(isMonthlyTerms(withListing(p))).toBe(true)
+    expect(crossCheckTerms(withListing(p))).toEqual([])
     expect(productCurrencyOf({ popup: p, listing: null })).toMatchObject({ kind: 'DECIDED', currency: 'USD' })
   })
 
@@ -291,15 +291,116 @@ describe('팝업 — EM2048 (달러·월지급)', () => {
     expect(listing.currency).toBe('USD')
     expect(listing.redemptionUnit).toBe('100')
     const d = crossCheckTerms(withListing(p, listing))
-    expect(d.filter((x) => x.severity === 'BLOCKING')).toEqual([
-      { kind: 'MONTHLY_PAY', severity: 'BLOCKING', expected: null, actual: null },
-    ])
+    // 두 증인(팝업 사다리 · 목록 `mm_pay_frml_yn`)이 같다 — 충돌 없음
+    expect(d.filter((x) => x.severity === 'BLOCKING')).toEqual([])
     expect(d.filter((x) => x.kind === 'LISTING_LADDER_TEXT').map((x) => x.severity)).toEqual(['NOTE'])
   })
 
   it('맨 `KI`를 사다리로 쓰면 KI_PCT_UNKNOWN이다 — 비율 없는 KI를 건너뛰지 않는다', () => {
     const t = withListing({ ...p, ladder: parseLadder('달러청약, 월지급배리어 50, 3년/6개월\r\n(85-85-80-75-70-65) KI') })
-    expect(blocking(t).map((d) => d.kind)).toEqual(['MONTHLY_PAY', 'KI_PCT_UNKNOWN'])
+    // KI 비율을 모르면 월지급 배리어의 순서 검사(KI < C)는 같은 사실을 두 번 말하지 않는다
+    expect(blocking(t).map((d) => d.kind)).toEqual(['KI_PCT_UNKNOWN'])
+  })
+})
+
+describe('팝업 — EM2014 (원화 · 월지급식 — P8 컷 b5)', () => {
+  const p = parsed('EM2014')
+  const listing = () =>
+    (parseSearchBody(searchJson(SEARCH_FIXTURES.q2014)) as { candidates: KiwoomProductCandidate[] }).candidates[0]!
+
+  it('지수 + 해외 티커 · 수익률 전부 0 · 사다리 월지급 50 · KI20 · 헤드라인 23.64', () => {
+    expect(p.status).toBe('ISSUED')
+    expect(p.rounds.map((r) => r.evaluationDate)).toEqual(['2027-02-12', '2027-08-13', '2028-02-11', '2028-08-11', '2029-02-09'])
+    expect(p.maturity!.evaluationDates.at(-1)).toBe('2029-08-13')
+    expect([...p.rounds.map((r) => r.cumulativeYieldPct), p.maturity!.cumulativeYieldPct].every((y) => y === '0')).toBe(true)
+    expect(p.ladder).toMatchObject({ monthly: true, monthlyBarrierPct: '50', dollar: false, kiPct: '20' })
+    expect(p.header.headlineAnnualPct).toBe('23.64')
+  })
+
+  it('★ 목록 행과 함께 — 원화로 확정 · 증인 둘이 월지급 · BLOCKING 0건', () => {
+    const l = listing()
+    expect([l.productCode, l.currency, l.redemptionUnit, l.monthlyPay]).toEqual(['EM2014', 'KRW', '10000', true])
+    const t = withListing(p, l)
+    expect(isMonthlyTerms(t)).toBe(true)
+    expect(blocking(t)).toEqual([])
+    expect(productCurrencyOf({ popup: p, listing: l })).toMatchObject({ kind: 'DECIDED', currency: 'KRW' })
+  })
+})
+
+/*
+ * 월지급식의 전진 검사 일곱 — 음성 대조 (DOC-010 ADR-009 §8.3 · P8 컷 b5). 실상품(EM2048 · EM2014)은 일곱을 전부
+ * 지나므로(위 두 describe) 초록만으로는 검사가 돌았는지 모른다. 실상품 하나에서 한 칸만 바꿔 그 검사 하나만 빨개지는지 본다.
+ */
+describe('월지급식 — 전진 검사 (음성 대조)', () => {
+  const p = parsed('EM2048')
+  const kinds = (t: KiwoomProductTerms) => blocking(t).map((d) => d.kind)
+  const ladderOf = (text: string) => ({ ...p, header: { ...p.header, ladderText: text }, ladder: parseLadder(text) })
+
+  it('① 차수 수익률이 0이 아니면 MONTHLY_YIELD_NONZERO — 그 차수를 적는다', () => {
+    const rounds = p.rounds.map((r, i) => (i === 1 ? { ...r, cumulativeYieldPct: '12.12' } : r))
+    expect(blocking(withListing({ ...p, rounds }))).toEqual([
+      { kind: 'MONTHLY_YIELD_NONZERO', severity: 'BLOCKING', round: '2', expected: '0', actual: '12.12' },
+    ])
+  })
+
+  it('② 헤드라인 ÷ 12가 소수 둘째 자리에서 끝나지 않으면 · 헤드라인이 없으면 MONTHLY_HEADLINE', () => {
+    expect(monthlyPctOf('24.24')).toBe('2.02')
+    expect(monthlyPctOf('23.64')).toBe('1.97')
+    expect(monthlyPctOf('24.25')).toBeNull()
+    expect(kinds(withListing({ ...p, header: { ...p.header, headlineAnnualPct: '24.25' } }))).toEqual(['MONTHLY_HEADLINE'])
+    expect(kinds(withListing({ ...p, header: { ...p.header, headlineAnnualPct: null } }))).toEqual(['MONTHLY_HEADLINE'])
+  })
+
+  it('③ 월지급 배리어가 없거나 둘이면 MONTHLY_BARRIER_UNKNOWN', () => {
+    expect(kinds(withListing(ladderOf('달러청약, 월지급, 3년/6개월 (85-85-80-75-70-65) KI25')))).toEqual([
+      'MONTHLY_BARRIER_UNKNOWN',
+    ])
+    expect(
+      kinds(withListing(ladderOf('달러청약, 월지급배리어 50, 월지급배리어 60, 3년/6개월 (85-85-80-75-70-65) KI25'))),
+    ).toEqual(['MONTHLY_BARRIER_UNKNOWN'])
+  })
+
+  it('④ KI < C ≤ min B가 아니면 MONTHLY_BARRIER_ORDER — C가 만기 배리어보다 높다 · KI가 C 이상이다', () => {
+    expect(kinds(withListing(ladderOf('달러청약, 월지급배리어 70, 3년/6개월 (85-85-80-75-70-65) KI25')))).toEqual([
+      'MONTHLY_BARRIER_ORDER',
+    ])
+    expect(kinds(withListing(ladderOf('달러청약, 월지급배리어 25, 3년/6개월 (85-85-80-75-70-65) KI25')))).toEqual([
+      'MONTHLY_BARRIER_ORDER',
+    ])
+    // 경계 — C = min B는 통과한다(≤)
+    expect(kinds(withListing(ladderOf('달러청약, 월지급배리어 65, 3년/6개월 (85-85-80-75-70-65) KI25')))).toEqual([])
+  })
+
+  it('⑤ 변형의 낱말이 상품명 · 사다리에 있으면 MONTHLY_VARIANT — 자리와 낱말을 싣는다', () => {
+    expect(blocking(withListing({ ...p, name: `${p.name} 메모리형` }))).toEqual([
+      { kind: 'MONTHLY_VARIANT', severity: 'BLOCKING', expected: 'NAME', actual: '메모리' },
+    ])
+    expect(kinds(withListing(ladderOf('달러청약, 월지급배리어 50(누적), 3년/6개월 (85-85-80-75-70-65) KI25')))).toEqual([
+      'MONTHLY_VARIANT',
+    ])
+  })
+
+  it('★ ⑤의 범위는 팝업 머리뿐이다 — 기초자산 이름(마이크론)이나 다른 구획에 「메모리」가 있어도 걸리지 않는다 (ADR-009 ㉑)', () => {
+    const assets = p.assets.map((a, i) => (i === 1 ? { ...a, name: '메모리 반도체 지수' } : a))
+    expect(kinds(withListing({ ...p, assets }))).not.toContain('MONTHLY_VARIANT')
+  })
+
+  it('⑥ 리자드가 함께 있으면 MONTHLY_LIZARD (V-25 — v2)', () => {
+    expect(kinds(withListing(ladderOf('리자드1배, 달러청약, 월지급배리어 50, 3년/6개월 (85-85-80-75-70-65) KI25')))).toContain(
+      'MONTHLY_LIZARD',
+    )
+  })
+
+  it('⑦ 두 증인이 다르면 MONTHLY_WITNESS_CONFLICT — 팝업은 월지급인데 목록이 아니라고 한다', () => {
+    const listing = (parseSearchBody(searchJson(SEARCH_FIXTURES.q2048)) as { candidates: KiwoomProductCandidate[] })
+      .candidates[0]!
+    expect(blocking(withListing(p, { ...listing, monthlyPay: false }))).toEqual([
+      { kind: 'MONTHLY_WITNESS_CONFLICT', severity: 'BLOCKING', expected: 'Y', actual: 'N' },
+    ])
+  })
+
+  it('월지급식이면 누적 수익률 대조를 하지 않는다 — 0 대 헤드라인을 CUMULATIVE_YIELD로 쌓지 않는다', () => {
+    expect(crossCheckTerms(withListing(p)).map((d) => d.kind)).not.toContain('CUMULATIVE_YIELD')
   })
 })
 
@@ -740,11 +841,13 @@ describe('대조 — 앞 방향 · 절사 (거꾸로 나누면 맞는 상품이 
     expect(crossCheckTerms(t).map((d) => d.kind)).not.toContain('KI_NOT_BELOW_LIZARD')
   })
 
-  it('월지급식은 목록 하나만 말해도 거부다 — 팝업 사다리에 낱말이 없어도', () => {
+  it('★ 목록만 월지급을 말하면 증인 충돌이다 — 그 하나만 낸다(전진 검사를 쌓지 않는다 · ADR-009 §8.2)', () => {
     const listing = (parseSearchBody(searchJson(SEARCH_FIXTURES.q4000)) as { candidates: KiwoomProductCandidate[] })
       .candidates[0]!
     expect(listing.currency).toBe('KRW')
-    expect(blocking(withListing(base, { ...listing, monthlyPay: true })).map((d) => d.kind)).toEqual(['MONTHLY_PAY'])
+    expect(blocking(withListing(base, { ...listing, monthlyPay: true }))).toEqual([
+      { kind: 'MONTHLY_WITNESS_CONFLICT', severity: 'BLOCKING', expected: 'N', actual: 'Y' },
+    ])
   })
 
   it('★ 상품 통화 — 증인이 서로 다르면 CURRENCY_CONFLICT · 원화·달러 밖이면 CURRENCY_UNSUPPORTED (ADR-009 §7)', () => {

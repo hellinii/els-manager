@@ -1,8 +1,9 @@
 import { dec } from '@/lib/decimal'
-import { KI_OBSERVATION_LABELS, PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
+import { COUPON_PAYOUT_LABELS, KI_OBSERVATION_LABELS, PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
 
 import { productDefaults } from './defaults'
 import { path } from './fieldPath'
+import { COUPON_SCHEDULES_FIELD, couponCell, MONTHLY_RATE_FIELD, type CouponLock } from './monthly'
 
 /**
  * 수정 화면의 불러오기 — **저장값 위에 불러온 값** (DOC-008 §5 SCR-204 v2.12 · SQ-10)
@@ -36,12 +37,11 @@ export const IMPORT_KEEPS_STORED = [
   'note',
   'kiObservation',
   /*
-   * 쿠폰 지급방식 (P8 컷 b2) — 등록 화면의 불러오기는 「상환 시 지급」으로 채우지만(b2-5 — `importFillOf` 머리 각주)
-   * 수정 화면은 **덮지 않는다**: 저장값이 월지급식인 상품(b4부터)을 상환 시 지급으로 조용히 뒤집지 않는다(지급방식이
-   * 다른 불러오기는 DOC-011 X-07 뒷절반 — b4). 여기서 빠지면 불러온 값이 이기고, 불러온 값이 없던 b2-2~b2-4에는
-   * 바닥의 `couponPayout: ''`가 이겨 저장이 V-25로 막혔다(a2~a3의 상품 통화와 같은 함정이다 — 위 각주)
+   * ~~쿠폰 지급방식~~ (P8 컷 b2 ~ b4) — **b5에서 뺐다**(DOC-010 ADR-009 §8.7). b2-5~b4는 불러오기가 월지급식을 판정하지
+   * 못해 늘 「상환 시 지급」을 실었으므로, 저장값이 월지급식인 상품을 조용히 뒤집지 않으려고 저장값을 남겼다. b5부터는
+   * `isMonthlyTerms`가 판정하므로 원천에 있는 칸이다 — 「원천에 있는 것은 불러온 값」(SQ-10). 기록이 있고 다르면
+   * X-07 뒷절반이 먼저 거부한다(`refusedByCouponRecords`)
    */
-  'couponPayout',
 ] as const
 
 /**
@@ -66,6 +66,10 @@ export function importOverStored(
   const storedCurrency = stored.currency ?? ''
   const importedCurrency = imported.currency ?? ''
   kept.currency = importedCurrency === '' ? storedCurrency : importedCurrency
+  // 쿠폰 지급방식 — 원천에 있는 칸이다(P8 컷 b5). 채움은 늘 싣지만(판정이 정한다) 없으면 통화처럼 저장값으로 떨어진다 —
+  // 바닥의 빈 값이 이기면 저장이 V-25로 막힌다(b2-2~b2-4의 함정)
+  const importedPayout = imported.couponPayout ?? ''
+  kept.couponPayout = importedPayout === '' ? (stored.couponPayout ?? '') : importedPayout
   if (currencyChangedBy(stored, imported)) kept.principal = ''
   return { ...productDefaults(), ...imported, ...kept }
 }
@@ -85,9 +89,8 @@ export function currencyChangedBy(
 /**
  * 불러온 쿠폰 지급방식이 저장값과 다른가 — X-07 뒷절반의 둘째 조건 (P8 컷 b4).
  *
- * 등록 화면의 채움은 「상환 시 지급」을 싣는다(`importFillOf` — 불러올 수 있는 상품이 전부 상환 시 지급이다, 월지급식 후보는
- * b5까지 사유만 보인다). 그래서 저장값이 월지급식인 상품에서는 지금도 참이 된다 — 수정 화면은 그 칸을 덮지 않지만
- * (`IMPORT_KEEPS_STORED`) 불러온 상품의 지급방식이 다르다는 사실은 그대로다
+ * 채움의 지급방식은 판정(`isMonthlyTerms` — P8 컷 b5)이 정한다. 기록이 없으면 그 값이 저장값을 덮고(`importOverStored` —
+ * b5부터 원천에 있는 칸), 기록이 있으면 다를 때 거부한다
  */
 export function payoutChangedBy(
   stored: Readonly<Record<string, string>>,
@@ -111,6 +114,46 @@ export function refusedByCouponRecords(
   imported: Readonly<Record<string, string>>,
 ): boolean {
   return couponRecorded && (currencyChangedBy(stored, imported) || payoutChangedBy(stored, imported))
+}
+
+/**
+ * X-09 — 월수익 지급 기록이 있는 달의 월수익 평가일 · 지급일 · 순번이 불러온 일정에서 바뀌는가 (DOC-011 §9 X-09 · P8 컷 b5).
+ *
+ * 기록된 달의 셋은 동결이라(DQ-14 — 트리거 · §5.2 사전 검사) 바뀐 폼은 `CONFLICT`로만 끝나고, 수정 화면은 그 칸을
+ * `readOnly`로 그리므로(`couponLock`) 불러온 값을 사용자가 되돌릴 길도 없다 — X-07 뒷절반과 같은 근거로 채우지 않는다.
+ * 행의 색인은 순번 − 1이다(V-26 — 1..K 연속). 월수익 배리어는 보지 않는다(동결이 아니다). 불러온 채움이 상환 시
+ * 지급이면 X-07 뒷절반이 먼저 거부하므로 여기 오지 않는다. **어긋난 첫 달 하나**를 돌려준다 — 사유가 그 달을 적는다
+ */
+export type RecordedMonthChange = {
+  couponNo: number
+  field: 'evaluationDate' | 'paymentDate'
+  stored: string
+  imported: string
+}
+
+export function recordedMonthChangedBy(
+  lock: CouponLock | null,
+  stored: Readonly<Record<string, string>>,
+  imported: Readonly<Record<string, string>>,
+): RecordedMonthChange | null {
+  if (lock == null) return null
+  for (const couponNo of [...lock.recordedCouponNos].sort((a, b) => a - b)) {
+    for (const field of ['evaluationDate', 'paymentDate'] as const) {
+      const cell = couponCell(couponNo - 1, field)
+      const before = stored[cell] ?? ''
+      const after = imported[cell] ?? ''
+      if (before !== after) return { couponNo, field, stored: before, imported: after }
+    }
+  }
+  return null
+}
+
+export function recordedMonthRefusal(change: RecordedMonthChange): string {
+  const label = change.field === 'evaluationDate' ? '월수익 평가일' : '월수익 지급일'
+  return (
+    '월수익 지급 기록이 있는 달의 날짜가 불러온 값과 다르다 — 불러오지 않았다' +
+    `(${change.couponNo}번째 ${label} · 저장 ${change.stored || '없음'} · 불러옴 ${change.imported || '없음'}).`
+  )
 }
 
 /**
@@ -170,7 +213,13 @@ const SCALARS: ReadonlyArray<{ name: string; label: string; hinted: boolean }> =
   { name: 'annualCouponRate', label: '연쿠폰율', hinted: true },
   { name: 'kiBarrier', label: 'KI 배리어', hinted: true },
   { name: 'kiObservation', label: '관찰방식', hinted: true },
+  // P8 컷 b5 — 쿠폰 지급방식은 b5부터 원천에 있는 칸이다(ADR-009 §8.7). 월수익 연쿠폰율은 월지급 블록의 칸이다
+  { name: 'couponPayout', label: '쿠폰 지급방식', hinted: true },
+  { name: MONTHLY_RATE_FIELD, label: '월수익 연쿠폰율', hinted: true },
 ]
+
+/** 월수익 일정의 칸 — 순번마다 하나라도 다르면 그 달을 센다(DOC-008 SCR-204 「P8 월지급식 — 불러오기」) */
+const COUPON_SUBS = ['evaluationDate', 'paymentDate', 'couponBarrier'] as const
 
 /**
  * 차수 칸 — 한 차수에서 하나라도 다르면 그 차수를 센다. 리자드는 셋이 한 조건이다.
@@ -226,6 +275,16 @@ export function storedChangesOf(
   }
   if (priced > 0) parts.push(`기준가격(${priced}종)`)
 
+  // 월수익 일정 — 두 쪽 중 긴 쪽까지 센다(차수와 같다). 한쪽에만 있는 달은 다르다
+  const months = Math.max(rowCount(stored, COUPON_SCHEDULES_FIELD, 'evaluationDate'), rowCount(merged, COUPON_SCHEDULES_FIELD, 'evaluationDate'))
+  let monthsDiffer = 0
+  for (let index = 0; index < months; index += 1) {
+    if (COUPON_SUBS.some((sub) => !sameValue(stored[couponCell(index, sub)] ?? '', merged[couponCell(index, sub)] ?? ''))) {
+      monthsDiffer += 1
+    }
+  }
+  if (monthsDiffer > 0) parts.push(`월수익 일정(${monthsDiffer}개월)`)
+
   return {
     summary:
       parts.length === 0
@@ -248,6 +307,7 @@ function display(name: string, value: string): string {
   if (value === '') return '없음'
   if (name === 'kiObservation') return KI_OBSERVATION_LABELS[value as keyof typeof KI_OBSERVATION_LABELS] ?? value
   if (name === 'currency') return PRODUCT_CURRENCY_LABELS[value as keyof typeof PRODUCT_CURRENCY_LABELS] ?? value
+  if (name === 'couponPayout') return COUPON_PAYOUT_LABELS[value as keyof typeof COUPON_PAYOUT_LABELS] ?? value
   return value
 }
 

@@ -228,11 +228,28 @@ export type TermsDiscrepancyKind =
   | 'TENOR'
   /** 누적 수익률 ≠ 연 수익률 × 경과 개월 / 12 (표시 절사) */
   | 'CUMULATIVE_YIELD'
-  /**
-   * 월지급식 — **거부**(DOC-005 §월지급식 · DOC-008 SCR-204). 차수별 수익률이 전부 0이라(⑨)
-   * 누적 수익률 대조도 하지 않는다 — 쿠폰이 투자설명서에만 있다
+  /*
+   * 월지급식의 전진 검사 일곱 — 전부 **거부**(DOC-010 ADR-009 §8.3 · P8 컷 b5). 종전 `MONTHLY_PAY`(월지급식이면
+   * 거부)를 대신한다. 월지급식이면 누적 수익률 대조(`CUMULATIVE_YIELD`)를 하지 않고 첫 검사가 그 표를 본다
    */
-  | 'MONTHLY_PAY'
+  /** 월지급식인데 차수 · 만기 수익률이 0이 아니다(⑨ — 상환은 원금만, V-29). `expected` `'0'` · `actual` 그 값 */
+  | 'MONTHLY_YIELD_NONZERO'
+  /** 헤드라인이 없거나 ÷ 12가 소수 둘째 자리에서 끝나지 않는다. `actual` = 헤드라인(없으면 헤드라인 문장) */
+  | 'MONTHLY_HEADLINE'
+  /** 월지급 배리어가 없거나 둘 이상이다(`ladder.monthlyBarrierPct = null`). `actual` = 사다리 문장 */
+  | 'MONTHLY_BARRIER_UNKNOWN'
+  /** KI < C ≤ min B가 아니다(노낙인이면 C ≤ min B). `expected` = 사다리 문장 · `actual` = C */
+  | 'MONTHLY_BARRIER_ORDER'
+  /**
+   * 변형의 낱말(`MONTHLY_VARIANT_WORDS`)이 있다 — 기본형만 받는다(DOC-001 S-14). `expected` = 자리(`'NAME'` ·
+   * `'HEADLINE'` · `'LADDER'`), `actual` = 찾은 낱말. **범위가 그 셋뿐이다** — 투자설명서 전체에 걸면 마이크론의
+   * 사업 설명(「메모리 반도체」)이 걸린다(ADR-009 ㉑)
+   */
+  | 'MONTHLY_VARIANT'
+  /** 월지급식 + 리자드 — v2(DOC-011 V-25) */
+  | 'MONTHLY_LIZARD'
+  /** 팝업 사다리의 `월지급`과 목록 행의 `mm_pay_frml_yn`이 다르다. `expected` = 팝업 · `actual` = 목록(`'Y'`/`'N'`) */
+  | 'MONTHLY_WITNESS_CONFLICT'
   /**
    * 상품 통화의 증인이 서로 다른 통화를 말한다 — **거부**(DOC-010 ADR-009 §7 · `currency.ts`).
    * 다수결을 하지 않는다. `expected`는 `null`, `actual`은 말해진 통화들을 증인 순서대로 `·`로 이은 것이다.

@@ -1,5 +1,5 @@
 import { dec, truncateToUnit } from '@/lib/decimal'
-import { dDay, generateEvaluationDates } from '@/lib/domain'
+import { dDay, generateEvaluationDates, shiftBusinessDays } from '@/lib/domain'
 import type { CouponPayout } from '@/lib/domain/coupon'
 import { PRODUCT_CURRENCY_LABELS } from '@/lib/format/labels'
 import {
@@ -8,7 +8,7 @@ import {
   type ProductCurrencyVerdict,
 } from '@/lib/providers/kiwoom/currency'
 import { parseTenor } from '@/lib/providers/kiwoom/ladder'
-import { crossCheckTerms } from '@/lib/providers/kiwoom/terms-check'
+import { crossCheckTerms, isMonthlyTerms } from '@/lib/providers/kiwoom/terms-check'
 import type {
   KiwoomProductTerms,
   KiwoomRound,
@@ -17,6 +17,13 @@ import type {
 
 import { path } from './fieldPath'
 import type { AssetResolution } from './importAssets'
+import {
+  COUPON_BARRIERS_FIELD,
+  COUPON_PAYMENT_BUSINESS_DAYS,
+  couponCell,
+  couponFormulaOf,
+  MONTHLY_RATE_FIELD,
+} from './monthly'
 import { EVALUATION_DATE_BASIS_FIELD } from './schedules'
 
 /**
@@ -49,11 +56,18 @@ import { EVALUATION_DATE_BASIS_FIELD } from './schedules'
  * **증인 없음이면 빈칸**이다 — 원화로 두지 않는다(민서 결정 2026-09-29). 빈칸은 「일부 채움」이고 그 칸이
  * 「투자설명서로 고른다」를 말한다. 충돌 · 지원 밖은 어댑터의 `BLOCKING`이라 여기 오기 전에 거부된다.
  *
- * ## 쿠폰 지급방식은 「상환 시 지급」이다 (P8 컷 b2-5 · DOC-008 v2.25)
+ * ## 쿠폰 지급방식은 판정이 정한다 (P8 컷 b2-5 · b5 — DOC-010 ADR-009 §8)
  *
- * 추정이 아니라 거부 규칙의 귀결이다 — 월지급식 후보는 `REFUSED`이므로(컷 b5까지) 여기까지 온 상품은 전부 상환 시
- * 지급이다. 채우지 않으면 등록 화면에 필수 칸(V-25 — 기본값 없음) 하나가 비고, 「불러옴」의 안내(「투자원금 · 계좌유형을
- * 적는다」)가 그 칸을 빼고 말한다(b2 반박 검토). 수정 화면은 `IMPORT_KEEPS_STORED`가 저장값을 남긴다.
+ * 월지급식이면 「월지급식」, 아니면 「상환 시 지급」이다 — 판정은 `isMonthlyTerms` 하나이고(대조와 같은 함수) 이 층은
+ * 다시 판정하지 않는다. 「상환 시 지급」은 추정이 아니다 — 누적 수익률이 헤드라인과 선형으로 맞아야(`CUMULATIVE_YIELD`)
+ * 여기까지 온다. 채우지 않으면 등록 화면에 필수 칸(V-25 — 기본값 없음) 하나가 빈다(b2 반박 검토).
+ *
+ * ## 월지급식의 월수익 일정 — 이 컷은 산식 폴백만이다 (P8 컷 b5-1 · ADR-009 §8.6)
+ *
+ * 투자설명서를 읽는 주 경로는 컷 b5′다. 여기서는 **앱 산식**(`couponFormulaOf` — 월지급 블록의 「평가일 산식으로
+ * 채우기」와 같은 산식)으로 채우고 조기상환 · 만기와 겹치는 달(주기 × r번째 · K번째)만 안내 화면의 실제 날짜로
+ * 바꾼다(RD-20 실측 — 겹침 3/3). 폴백이 앱 산식인 이유: 월지급 블록의 「산식」 표식이 앱 산식과의 비교라서 확인할
+ * 행(산식)과 원천의 행(겹치는 달)이 화면에서 갈린다. 결과는 「일부 채움」이다 — 월수익 일정이 산식이다.
  *
  * ## 던지지 않는다
  *
@@ -80,6 +94,12 @@ export type ImportFill =
       notes: ImportNote[]
       /** 앱 자산과 잇지 못한 기초자산의 **팝업 표 이름** — 형제 폼이 하나씩 받는다 */
       unresolved: string[]
+      /**
+       * 월수익 일정의 출처(ADR-009 §8.6) — 상환 시 지급이면 `null`. `'FORMULA'`(산식 폴백)는 빈칸이 아닌데도 사람이 확인할
+       * 곳이라 「일부 채움」이다 — 수정 화면이 합친 값으로 상태를 다시 판정할 때(`hasImportGaps`는 빈칸만 본다) 이 사실을
+       * 잃지 않으려고 싣는다
+       */
+      couponSchedule: 'PROSPECTUS' | 'FORMULA' | null
     }
 
 export const IMPORT_ISSUER = '키움증권'
@@ -169,6 +189,21 @@ function fill(
     for (const problem of dateProblems(terms.header.issueDate, period, dates)) reasons.push(problem)
   }
 
+  /* ---------- 월지급식 — 월수익 일정 K행 (산식 폴백 · ADR-009 §8.6). 전진 검사는 어댑터가 했다 */
+  const monthly = isMonthlyTerms(terms)
+  const coupons =
+    monthly && period != null && reasons.length === 0
+      ? couponFormulaOf({
+          issueDate: terms.header.issueDate,
+          evaluationPeriodMonths: String(period),
+          totalRounds: String(totalRounds),
+        })
+      : null
+  if (monthly && period != null && reasons.length === 0 && coupons == null) {
+    // V-26 — 1..60행. 산식이 없으면(K > 60) 저장할 수 없는 상품이다
+    reasons.push(`월수익 일정이 ${period * totalRounds}개월이다 — 60개월을 넘는 월지급식은 등록할 수 없다.`)
+  }
+
   if (reasons.length > 0) return { kind: 'REFUSED', reasons, notes }
   // 여기부터는 거부가 없다 — 어댑터의 대응표가 아래 넷의 부재를 BLOCKING으로 막았다
   const maturity = terms.maturity!
@@ -181,11 +216,12 @@ function fill(
     issueDate: terms.header.issueDate,
     // 증인 없음이면 빈칸 — 원화로 두지 않는다(ADR-009 §7). V-22가 선택을 요구한다
     currency: currency.kind === 'DECIDED' ? currency.currency : '',
-    // 월지급식은 위에서 거부됐다 — 여기 온 상품은 전부 상환 시 지급이다(머리 각주)
-    couponPayout: 'AT_REDEMPTION' satisfies CouponPayout,
+    // 판정이 정한다(머리 각주) — 상환 시 지급은 누적 수익률의 선형성이 증언했다
+    couponPayout: (monthly ? 'MONTHLY' : 'AT_REDEMPTION') satisfies CouponPayout,
     evaluationPeriodMonths: String(period),
     totalRounds: String(totalRounds),
-    annualCouponRate: pct(headline),
+    // 월지급식의 수익은 월수익 연쿠폰율이다 — 연쿠폰율은 0(I-23 · V-25). 헤드라인은 월 지급률의 12배다(ADR-009 §8.1)
+    annualCouponRate: monthly ? '0' : pct(headline),
     kiBarrier: ladder.noKi ? '' : pct(ladder.kiPct!),
     // 관찰방식은 안내 화면에 없다 — 지어내지 않는다(DOC-008 SQ-09). V-16이 선택을 요구한다
     kiObservation: '',
@@ -195,6 +231,24 @@ function fill(
   }
 
   const barriers = [...early.map((r) => r.barrierPct), maturity.barrierPct]
+
+  if (monthly) {
+    // 전진 검사(`MONTHLY_BARRIER_UNKNOWN` · `MONTHLY_HEADLINE`)가 둘의 부재를 막았다
+    const couponBarrier = pct(ladder.monthlyBarrierPct!)
+    values[MONTHLY_RATE_FIELD] = pct(headline)
+    values[COUPON_BARRIERS_FIELD] = couponBarrier
+    // 겹치는 달 — r차 조기상환은 (주기 × r)번째, 만기는 K번째다(RD-20 실측 · 순번은 1부터)
+    const anchors = new Map<number, string>(early.map((r, index) => [period! * (index + 1), r.evaluationDate]))
+    anchors.set(coupons!.length, maturityDate)
+    coupons!.forEach((row, index) => {
+      const anchor = anchors.get(index + 1)
+      const evaluationDate = anchor ?? row.evaluationDate
+      values[couponCell(index, 'evaluationDate')] = evaluationDate
+      values[couponCell(index, 'paymentDate')] =
+        anchor == null ? row.paymentDate : shiftBusinessDays(evaluationDate, COUPON_PAYMENT_BUSINESS_DAYS)
+      values[couponCell(index, 'couponBarrier')] = couponBarrier
+    })
+  }
 
   for (let index = 0; index < totalRounds; index += 1) {
     const at = (sub: string) => path('schedules', index, sub)
@@ -236,6 +290,11 @@ function fill(
   } else if (currency.currency === 'USD') {
     // 투자원금은 원천에 없고 사용자가 적는 칸이다 — 단위를 구획이 말한다(DOC-008 SCR-204 「P8 달러 ELS」)
     notes.push({ field: null, text: '달러 상품이다 — 투자원금은 달러로 적는다(센트까지).' })
+  }
+  if (monthly) {
+    notes.push({ field: null, text: COUPON_FORMULA_NOTE })
+    notes.push({ field: MONTHLY_RATE_FIELD, text: MONTHLY_RATE_HEADLINE_NOTE })
+    notes.push({ field: null, text: couponPaymentNote(COUPON_PAYMENT_BUSINESS_DAYS) })
   }
   if (!ladder.noKi) {
     notes.push({
@@ -280,9 +339,27 @@ function fill(
   }
 
   // KI 상품은 관찰방식이 비므로 늘 PARTIAL이다 — 「무엇이 비었는지」를 화면이 말해야 한다.
-  // 상품 통화의 증인이 없어도 빈칸이 남는다(여기 오는 비확정은 `NO_WITNESS`뿐이다 — 나머지는 거부됐다)
-  const partial = unresolved.length > 0 || !ladder.noKi || duplicate || currency.kind !== 'DECIDED'
-  return { kind: partial ? 'PARTIAL' : 'FILLED', values, notes, unresolved }
+  // 상품 통화의 증인이 없어도 빈칸이 남는다(여기 오는 비확정은 `NO_WITNESS`뿐이다 — 나머지는 거부됐다).
+  // 월수익 일정이 산식이면 빈칸은 아니지만 확인할 곳이다(ADR-009 §8.6)
+  const couponSchedule = monthly ? 'FORMULA' : null
+  const partial =
+    unresolved.length > 0 || !ladder.noKi || duplicate || currency.kind !== 'DECIDED' || couponSchedule === 'FORMULA'
+  return { kind: partial ? 'PARTIAL' : 'FILLED', values, notes, unresolved, couponSchedule }
+}
+
+/**
+ * 월수익 일정이 산식이다 — 투자설명서를 읽지 못한 렌더(DOC-008 SCR-204 「P8 월지급식 — 불러오기」). 「산식」 표식이
+ * 붙은 행이 확인할 행이다 — 겹치는 달은 안내 화면의 실제 날짜라 표식이 없다
+ */
+export const COUPON_FORMULA_NOTE =
+  '투자설명서를 읽지 못했다 — 월수익 평가일은 산식 날짜다(조기상환 · 만기와 겹치는 달만 실제 날짜). 「산식」 표식이 붙은 행을 투자설명서로 확인한다.'
+
+/** 월수익 연쿠폰율이 헤드라인에서 왔다 — 그 칸의 힌트(같은 각주) */
+export const MONTHLY_RATE_HEADLINE_NOTE = '안내 화면의 연 수익률이다 — 투자설명서의 월수익 지급금액으로 확인한다'
+
+/** 지급일은 두 경로 다 계산값이다 — 투자설명서도 규칙만 준다(RD-03 ⓐ) */
+export function couponPaymentNote(businessDays: number): string {
+  return `월수익 지급일은 평가일 + ${businessDays}영업일로 계산했다 — 휴장일은 모른다.`
 }
 
 /** 상품 통화의 증인이 없다 — 등록 화면의 그 칸 힌트(DOC-008 SCR-204). 수정 화면은 저장값을 남기므로 다른 문구다 */
@@ -435,8 +512,21 @@ function reasonOf(d: TermsDiscrepancy, currency: ProductCurrencyVerdict): string
       return `발행일이 다르다 — 안내 화면 ${d.expected} · 목록 ${d.actual}.`
     case 'LISTING_MATURITY_DATE':
       return `만기일이 다르다 — 안내 화면 ${d.expected} · 목록 ${d.actual}.`
-    case 'MONTHLY_PAY':
-      return '월지급식이다 — 이 모델은 매월 쿠폰을 표현하지 못한다(DOC-002 §8).'
+    case 'MONTHLY_YIELD_NONZERO':
+      return '월지급식인데 조기상환 · 만기 수익률이 0이 아니다 — 상환 쿠폰이 함께 있는 상품은 등록할 수 없다.'
+    case 'MONTHLY_HEADLINE':
+      return '연 수익률(헤드라인)을 12로 나눈 월 지급률이 소수 둘째 자리에서 끝나지 않는다 — 투자설명서로 확인한다.'
+    case 'MONTHLY_BARRIER_UNKNOWN':
+      return '월지급 배리어를 읽을 수 없다.'
+    case 'MONTHLY_BARRIER_ORDER':
+      return `월지급 배리어가 KI 배리어보다 높고 조기상환 배리어 이하가 아니다 — 사다리 ${d.expected ?? '없음'}.`
+    case 'MONTHLY_VARIANT':
+      // 찾은 낱말을 원천에서 인용한다 — 변형의 이름을 만들지 않는다(DOC-008 SCR-204 · DOC-005 GQ-06)
+      return `기본형 월지급식만 등록한다 — ${VARIANT_PLACES[d.expected as keyof typeof VARIANT_PLACES] ?? '안내 화면'}에 「${d.actual ?? ''}」이 있다. 다른 변형은 v2다.`
+    case 'MONTHLY_LIZARD':
+      return '월지급식 + 리자드는 등록할 수 없다 — v2다.'
+    case 'MONTHLY_WITNESS_CONFLICT':
+      return `월지급 여부의 표기가 서로 다르다 — 안내 화면 ${yesNoText(d.expected)} · 목록 ${yesNoText(d.actual)}. 투자설명서로 확인한다.`
     case 'CURRENCY_CONFLICT':
       return `상품 통화의 표기가 서로 다르다 — ${currency.claims.map(claimText).join(' · ')}. 투자설명서로 확인한다.`
     case 'CURRENCY_UNSUPPORTED':
@@ -451,6 +541,13 @@ function reasonOf(d: TermsDiscrepancy, currency: ProductCurrencyVerdict): string
     default:
       return `안내 화면의 값이 서로 맞지 않는다 (${d.kind}).`
   }
+}
+
+/** `MONTHLY_VARIANT`의 자리 → 사람의 말. 낱말 목록은 어댑터의 것이다(`MONTHLY_VARIANT_WORDS` — `terms-check.ts`) */
+const VARIANT_PLACES = { NAME: '상품명', HEADLINE: '연 수익률 문구', LADDER: '상환조건' } as const
+
+function yesNoText(value: string | null): string {
+  return value === 'Y' ? '월지급' : value === 'N' ? '월지급 아님' : '없음'
 }
 
 /** 증인 하나 → 사람의 말. 「어디의 무엇이 무엇을 말했나」 — 충돌 사유가 어느 표기를 볼지 알려 준다 */

@@ -31,14 +31,16 @@ import type {
  *
  * 위 약속이 참이려면 그 화면의 거부 사유 중 **페이지만으로 판정되는 것이 전부** 여기 있어야
  * 한다. 불일치만 세면 월지급식 상품(EM2048)이 `BLOCKING` 0건으로 지나간다 — 형식은
- * 정상이고 값도 서로 맞는데 **불러와서는 안 되는** 상품이다. 그래서 적격성도 같은 목록에 싣는다.
+ * 정상이고 값도 서로 맞는데 **불러와서는 안 되는** 상품이었다(컷 b5 전). 그래서 적격성도 같은 목록에 싣는다 —
+ * 컷 b5부터 월지급식은 거부가 아니라 **전진 검사 일곱**이다(DOC-010 ADR-009 §8.3).
  * **달러는 P8 컷 a4부터 적격이다** — 상품 통화는 거부 사유가 아니라 채울 값이고, 거부는 증인이
  * 충돌하거나 원화·달러 밖일 때뿐이다(DOC-010 ADR-009 §7).
  *
  * | SCR-204 거부 사유 | 자리 |
  * |---|---|
  * | 빈 안내 화면 · ELS 아님 · 날짜 이상(증가·발행일·지급일) | 파서의 실패(`EMPTY`·`MALFORMED`·`BAD_DATE`) — `ok`가 아니다 |
- * | 월지급식 · 만기 구획 없음 · K ≥ L(리자드) | `MONTHLY_PAY` · `MATURITY_ABSENT` · `KI_NOT_BELOW_LIZARD` |
+ * | 만기 구획 없음 · K ≥ L(리자드) | `MATURITY_ABSENT` · `KI_NOT_BELOW_LIZARD` |
+ * | 월지급식의 전진 검사 실패 *(P8 컷 b5)* | `MONTHLY_YIELD_NONZERO` · `MONTHLY_HEADLINE` · `MONTHLY_BARRIER_UNKNOWN` · `MONTHLY_BARRIER_ORDER` · `MONTHLY_VARIANT` · `MONTHLY_LIZARD` · `MONTHLY_WITNESS_CONFLICT` |
  * | 상품 통화 — 증인 충돌 · 원화·달러 밖 *(P8 컷 a4)* | `CURRENCY_CONFLICT` · `CURRENCY_UNSUPPORTED` — 판정은 `currency.ts` |
  * | 사다리를 못 읽음 · 표 ≠ 사다리 | `LADDER_STEPS_ABSENT` · `LADDER_STEP_COUNT` · `LADDER_BARRIER` · `LIZARD_POSITION` |
  * | 가격 ≠ 기준가 × 배리어 · KI 비율 불일치 | `BARRIER_PRICE` · `KI_PRICE` · `KI_PCT_UNKNOWN` · `KI_CONFLICT` |
@@ -117,10 +119,65 @@ export function crossCheckTerms(terms: KiwoomProductTerms): TermsDiscrepancy[] {
     }
   }
 
-  /* ---------------- 적격성 — 월지급식 (EM2048: 사다리 `월지급`, 목록 `Y`). 전진 검사는 컷 b5다 */
+  /* ---------------- 월지급식 — 판정과 전진 검사 (DOC-010 ADR-009 §8.2 · §8.3 — P8 컷 b5) */
   const listing = terms.listing
-  const monthly = ladder.monthly || listing?.monthlyPay === true
-  if (monthly) add('MONTHLY_PAY', 'BLOCKING', null, null)
+  const monthly = isMonthlyTerms(terms)
+  // 증인 둘이 다르면 거부한다 — 다수결을 하지 않는다(§7의 통화와 같다). 목록 행이 없으면(최선 노력) 팝업 하나다
+  // 충돌이면 전진 검사를 쌓지 않는다 — 어느 증인이 옳은지 모르는 채 월지급식의 검사를 돌리면 사유가 여럿으로 읽힌다
+  if (listing != null && ladder.monthly !== listing.monthlyPay) {
+    add('MONTHLY_WITNESS_CONFLICT', 'BLOCKING', yesNo(ladder.monthly), yesNo(listing.monthlyPay))
+  } else if (monthly) {
+    checkMonthly()
+  }
+
+  function checkMonthly() {
+    // ① 상환은 원금만이다(⑨ · V-29) — 수익률이 있는 차수 · 만기가 하나라도 있으면 상환 쿠폰이 함께 있는 상품이다
+    const yields = [
+      ...terms.rounds.map((r) => ({ label: r.label, pct: r.cumulativeYieldPct })),
+      ...(terms.maturity == null ? [] : [{ label: 'MATURITY', pct: terms.maturity.cumulativeYieldPct }]),
+    ]
+    for (const y of yields) {
+      if (!dec(y.pct).isZero()) add('MONTHLY_YIELD_NONZERO', 'BLOCKING', '0', y.pct, { round: y.label })
+    }
+    // ② 헤드라인 = 월 지급률 × 12 — 월 지급률은 퍼센트 소수 둘째 자리로 적힌다(「1.97%」 — 실측 3/3)
+    const headline = terms.header.headlineAnnualPct
+    if (headline == null || !monthlyPctOf(headline)) {
+      add('MONTHLY_HEADLINE', 'BLOCKING', null, headline ?? terms.header.headlineText)
+    }
+    // ③ · ④ 월지급 배리어 C — 하나여야 하고 KI < C ≤ min B
+    const coupon = ladder.monthlyBarrierPct
+    if (coupon == null) {
+      add('MONTHLY_BARRIER_UNKNOWN', 'BLOCKING', null, terms.header.ladderText)
+    } else {
+      // 발행 뒤에는 표가 정본이다(사다리와는 위에서 대조했다). 청약 중에는 표가 없으므로 계단이다
+      const barriers = issued
+        ? [...distinct.map((r) => r.barrierPct), ...(terms.maturity == null ? [] : [terms.maturity.barrierPct])]
+        : (steps?.map((step) => step.barrierPct) ?? [])
+      const minBarrier = barriers.reduce<string | null>(
+        (low, pct) => (low == null || dec(pct).lt(dec(low)) ? pct : low),
+        null,
+      )
+      // KI 비율을 모르면 KI_PCT_UNKNOWN이 이미 막았다 — 여기서 같은 사실을 두 번 말하지 않는다
+      const kiBelow = ladder.noKi || ladder.kiPct == null || dec(ladder.kiPct).lt(dec(coupon))
+      const underBarrier = minBarrier == null || dec(coupon).lte(dec(minBarrier))
+      if (!kiBelow || !underBarrier) add('MONTHLY_BARRIER_ORDER', 'BLOCKING', terms.header.ladderText, coupon)
+    }
+    // ⑤ 기본형만 — 범위는 팝업 머리의 세 자리뿐이다(ADR-009 ㉑ · 투자설명서의 구간은 컷 b5′)
+    const places = [
+      ['NAME', terms.name],
+      ['HEADLINE', terms.header.headlineText ?? ''],
+      ['LADDER', terms.header.ladderText],
+    ] as const
+    for (const [place, text] of places) {
+      for (const word of MONTHLY_VARIANT_WORDS) {
+        if (text.includes(word)) add('MONTHLY_VARIANT', 'BLOCKING', place, word)
+      }
+    }
+    // ⑥ 월지급식 + 리자드는 v2다(V-25) — 사다리의 낱말 · 계단의 `(Lxx)` · 표의 `n-2` 행 중 하나라도
+    if (ladder.lizard || terms.rounds.some((r) => r.variant === 2) || steps?.some((step) => step.lizardPct != null)) {
+      add('MONTHLY_LIZARD', 'BLOCKING', null, null)
+    }
+  }
 
   /* ---------------- 상품 통화 — 판정은 `productCurrencyOf` 하나다(ADR-009 §7). 증인 없음은 거부가 아니다 */
   const currency = productCurrencyOf({ popup: terms, listing })
@@ -194,8 +251,8 @@ export function crossCheckTerms(terms: KiwoomProductTerms): TermsDiscrepancy[] {
     add('TENOR', 'BLOCKING', String(period * periodsTotal), String(tenor))
   }
 
-  // ⑨ 월지급식은 차수별 수익률이 전부 0이다 — 쿠폰은 투자설명서에만 있다. 이미 `MONTHLY_PAY`로
-  // 거부했으므로 0 대 헤드라인의 불일치를 쌓지 않는다(사유가 하나로 읽혀야 한다)
+  // ⑨ 월지급식은 차수별 수익률이 전부 0이다 — 쿠폰은 투자설명서에만 있다. 위 전진 검사 ①이 그 표를 보므로
+  // 0 대 헤드라인의 불일치를 쌓지 않는다(헤드라인은 월 지급률의 12배이지 상환 쿠폰이 아니다)
   if (!monthly) {
     const headline = terms.header.headlineAnnualPct
     if (headline == null) add('HEADLINE_UNKNOWN', 'BLOCKING', null, terms.header.headlineText)
@@ -252,6 +309,33 @@ export function crossCheckTerms(terms: KiwoomProductTerms): TermsDiscrepancy[] {
   }
 
   return out
+}
+
+/**
+ * 월지급식인가 — 증인 둘(팝업 사다리의 `월지급` · 목록 행의 `mm_pay_frml_yn`) 중 하나라도 말하면 (ADR-009 §8.2).
+ *
+ * **대조와 채움이 같은 함수를 부른다** — `importFill.ts`가 다시 판정하면 한쪽만 고쳐지는 날이 온다(`productCurrencyOf`와
+ * 같은 판단). 둘이 다르면 위 대조가 `MONTHLY_WITNESS_CONFLICT`로 거부하므로 채움에 닿는 상품에서는 둘이 같다.
+ * 「월지급 표기가 없음」은 상환 시 지급의 증언이 아니다 — 그 증언은 누적 수익률의 선형성(`CUMULATIVE_YIELD`가 통과)이다
+ */
+export function isMonthlyTerms(terms: Pick<KiwoomProductTerms, 'ladder' | 'listing'>): boolean {
+  return terms.ladder.monthly || terms.listing?.monthlyPay === true
+}
+
+/** 변형의 낱말 — 기본형만 받는다(DOC-001 S-14 · ADR-009 §8.3). 이름을 만들지 않고 원천의 낱말을 찾는다 */
+export const MONTHLY_VARIANT_WORDS = ['누적', '메모리', '지급중단'] as const
+
+/**
+ * 헤드라인 → 월 지급률(퍼센트) — 소수 둘째 자리에서 끝날 때만. 끝나지 않으면 `null`이다(헤드라인이 월 지급률의 12배가
+ * 아니다). 채움(`importFill.ts`)이 월수익 연쿠폰율의 출처를 판정할 때도 이 함수다
+ */
+export function monthlyPctOf(headlinePct: string): string | null {
+  const monthly = dec(headlinePct).div(12)
+  return truncateToUnit(monthly, PCT_UNIT).eq(monthly) ? monthly.toString() : null
+}
+
+function yesNo(value: boolean): 'Y' | 'N' {
+  return value ? 'Y' : 'N'
 }
 
 /** 표시 스케일 한 단위 — `10^−scale`을 **문자열로** 만든다(`10 ** n`은 number 연산이다) */

@@ -4,7 +4,12 @@ import type { AssetOption } from '@/lib/db/queries/prices'
 import { productDefaults } from '@/lib/forms/defaults'
 import { importPanelOf } from '@/lib/forms/importPanel'
 import { formKeyAfter } from '@/lib/forms/importKey'
-import { CURRENCY_UNKNOWN_NOTE } from '@/lib/forms/importFill'
+import {
+  COUPON_FORMULA_NOTE,
+  couponPaymentNote,
+  CURRENCY_UNKNOWN_NOTE,
+  MONTHLY_RATE_HEADLINE_NOTE,
+} from '@/lib/forms/importFill'
 import {
   CLEARED_OBSERVATION_NOTE,
   COUPON_RECORDED_REFUSAL,
@@ -91,7 +96,7 @@ const panel = (input: Partial<Parameters<typeof importPanelOf>[0]>) =>
     listed: null,
     options: [],
     defaults: productDefaults(),
-    couponRecorded: false,
+    couponLock: null,
     ...input,
   })
 
@@ -480,7 +485,7 @@ describe('상품 통화 — 증인 · X-07 (P8 컷 a4 · DOC-010 ADR-009 §7 · 
       listed: TSLA_MU,
       options: OPTIONS,
       defaults: stored,
-      couponRecorded: true,
+      couponLock: { recordedCouponNos: [] },
     })
     expect(p.state).toBe('REFUSED')
     expect(p.reasons).toEqual([COUPON_RECORDED_REFUSAL])
@@ -498,7 +503,7 @@ describe('상품 통화 — 증인 · X-07 (P8 컷 a4 · DOC-010 ADR-009 §7 · 
       listed: TSLA_MU,
       options: OPTIONS,
       defaults: monthly,
-      couponRecorded: true,
+      couponLock: { recordedCouponNos: [] },
     })
     expect([p.state, p.reasons]).toEqual(['REFUSED', [COUPON_RECORDED_REFUSAL]])
     // 같은 통화 · 같은 지급방식이면 기록이 있어도 거부하지 않는다
@@ -509,7 +514,7 @@ describe('상품 통화 — 증인 · X-07 (P8 컷 a4 · DOC-010 ADR-009 §7 · 
       listed: TSLA_MU,
       options: OPTIONS,
       defaults: storedAs('USD', '10000.50'),
-      couponRecorded: true,
+      couponLock: { recordedCouponNos: [] },
     })
     expect(same.state).toBe('FILLED')
   })
@@ -772,5 +777,89 @@ describe('폼 키 — 직전 키는 같은 상품 코드의 불러온 폼일 때
     const ok = panel({ query: E04000, terms: okTerms('E04000'), listed: LISTED, options: [SAMSUNG] })
     expect(formKeyAfter('E04000:stale', ok)).toBe(ok.formKey)
     expect(formKeyAfter('blank', panel({}))).toBe('blank')
+  })
+})
+
+describe('월지급식 불러오기 — 등록 · 수정 · X-09 (P8 컷 b5 · DOC-010 ADR-009 §8 · DOC-011 X-09)', () => {
+  const EM2048 = { query: '2048', code: 'EM2048' }
+  const EDIT: ImportTarget = { kind: 'EDIT', productId: '00000000-0000-4000-8000-00000000e004' }
+  const PLTR_MU: LookupOutcome<ListedAsset[]> = {
+    ok: true,
+    data: [
+      { underlyingType: '3', stkCode: 'PLTR', name: '팔란티어 테크' },
+      { underlyingType: '3', stkCode: 'MU', name: '마이크론 테크놀로지' },
+    ],
+  }
+  const usdOption = (id: string, name: string, symbol: string): AssetOption => ({
+    id,
+    name,
+    market: null,
+    currency: 'USD',
+    assetType: 'STOCK',
+    hasPriceProvider: true,
+    providerSymbols: [{ provider: 'KIWOOM_ES040', symbol }],
+  })
+  const OPTIONS = [
+    usdOption('00000000-0000-4000-8000-0000000000f1', '팔란티어', '3:PLTR'),
+    usdOption('00000000-0000-4000-8000-0000000000f2', '마이크론', '3:MU'),
+  ]
+  const terms = () => okTermsWithListing('EM2048', SEARCH_FIXTURES.q2048)
+  const registered = () => panel({ query: EM2048, terms: terms(), listed: PLTR_MU, options: OPTIONS })
+  /** 등록 화면에서 불러온 EM2048에 사용자가 적은 셋 — 저장값의 재료 */
+  const stored = (): Record<string, string> => ({
+    ...registered().initialValues,
+    principal: '10000.00',
+    accountType: 'GENERAL',
+    kiObservation: 'CLOSING',
+  })
+  const editOf = (defaults: Record<string, string>, couponLock: { recordedCouponNos: number[] } | null = null) =>
+    panel({ target: EDIT, query: EM2048, terms: terms(), listed: PLTR_MU, options: OPTIONS, defaults, couponLock })
+
+  it('★ 등록 — 월지급식으로 채우고 일부 채움이다 · 안내 셋(산식 · 연율 힌트 · 지급일)', () => {
+    const p = registered()
+    expect(p.state).toBe('PARTIAL')
+    expect([p.initialValues.couponPayout, p.initialValues.monthlyCouponAnnualRate]).toEqual(['MONTHLY', '24.24'])
+    expect(p.unresolved).toEqual([])
+    expect(p.notes).toEqual(expect.arrayContaining([COUPON_FORMULA_NOTE, couponPaymentNote(3)]))
+    expect(p.fieldNotes.monthlyCouponAnnualRate).toBe(MONTHLY_RATE_HEADLINE_NOTE)
+  })
+
+  it('★ 수정 — 같은 상품을 다시 불러오면 「저장값과 같다」인데도 일부 채움이다(월수익 일정이 산식 — 합친 값의 빈칸만 보면 잃는다)', () => {
+    const p = editOf(stored())
+    expect(p.notes[0]).toBe('저장값과 같다 — 불러온 값이 바꾸는 칸이 없다.')
+    // 빈 곳이 없다 — 자산 풀림 · 관찰방식 저장값 · 투자원금 같은 통화
+    expect(p.unresolved).toEqual([])
+    expect(p.initialValues.kiObservation).toBe('CLOSING')
+    expect(p.state).toBe('PARTIAL')
+  })
+
+  it('★ 수정 — 상환 시 지급으로 저장된 상품에 월지급식을 불러오면 지급방식이 불러온 값이다 · 요약이 셋을 말한다', () => {
+    const asRedemption = Object.fromEntries(
+      Object.entries(stored()).filter(([k]) => !k.startsWith('couponSchedules') && k !== 'couponBarriers'),
+    )
+    const before = { ...asRedemption, couponPayout: 'AT_REDEMPTION', monthlyCouponAnnualRate: '', annualCouponRate: '24.24' }
+    const p = editOf(before)
+    expect(p.initialValues.couponPayout).toBe('MONTHLY')
+    expect(p.notes[0]).toContain('쿠폰 지급방식')
+    expect(p.notes[0]).toContain('월수익 연쿠폰율')
+    expect(p.notes[0]).toContain('월수익 일정(36개월)')
+    expect(p.fieldNotes.couponPayout).toBe('저장값 상환 시 지급')
+  })
+
+  it('★ X-09 — 기록된 달의 지급일을 사용자가 고쳐 두었으면 그 불러오기를 거부한다 · 폼은 저장값 그대로', () => {
+    // 5번째 달의 지급일을 휴장일로 하루 미뤄 기록했다 — 불러오기는 평가일 + 3영업일로 다시 낸다
+    const before = { ...stored(), 'couponSchedules[4].paymentDate': '2027-02-23' }
+    const imported = registered().initialValues['couponSchedules[4].paymentDate']
+    expect(imported).not.toBe('2027-02-23')
+    const p = editOf(before, { recordedCouponNos: [1, 2, 3, 4, 5] })
+    expect(p.state).toBe('REFUSED')
+    expect(p.reasons).toEqual([
+      `월수익 지급 기록이 있는 달의 날짜가 불러온 값과 다르다 — 불러오지 않았다(5번째 월수익 지급일 · 저장 2027-02-23 · 불러옴 ${imported}).`,
+    ])
+    expect(p.initialValues).toEqual(before)
+    // 기록된 달이 같으면 거부하지 않는다 — 기록 없는 달(6번째부터)이 달라도 된다
+    expect(editOf({ ...stored(), 'couponSchedules[9].paymentDate': '2027-07-23' }, { recordedCouponNos: [1, 2, 3, 4, 5] }).state).toBe(
+      'PARTIAL',
+    )
   })
 })

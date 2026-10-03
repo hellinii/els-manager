@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AssetOption } from '@/lib/db/queries/prices'
-import { CURRENCY_UNKNOWN_NOTE, importFillOf, lizardCouponPct, type ImportFill } from '@/lib/forms/importFill'
+import {
+  COUPON_FORMULA_NOTE,
+  CURRENCY_UNKNOWN_NOTE,
+  couponPaymentNote,
+  importFillOf,
+  lizardCouponPct,
+  MONTHLY_RATE_HEADLINE_NOTE,
+  type ImportFill,
+} from '@/lib/forms/importFill'
+import { couponFormulaOf, isFormulaCouponRow } from '@/lib/forms/monthly'
+import { parseProductInput } from '@/lib/db/validate/inputs'
+import { Problems } from '@/lib/db/validate/primitives'
 import { resolveImportAssets } from '@/lib/forms/importAssets'
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { productDefaults } from '@/lib/forms/defaults'
@@ -155,14 +166,6 @@ describe('거부 — 폼을 비운다', () => {
     expect('values' in fill).toBe(false)
   })
 
-  it('EM2048 — 월지급식(컷 b5까지). 달러는 사유가 아니다(P8 컷 a4)', () => {
-    const fill = importFillOf(termsOf('EM2048'), {})
-    expect(fill.kind).toBe('REFUSED')
-    if (fill.kind === 'REFUSED') {
-      expect(fill.reasons).toEqual(['월지급식이다 — 이 모델은 매월 쿠폰을 표현하지 못한다(DOC-002 §8).'])
-    }
-  })
-
   it('E00795 — 사다리 없음 · 만기 구획 없음 · KI 비율 없음', () => {
     const fill = importFillOf(termsOf('E00795'), {})
     expect(fill.kind).toBe('REFUSED')
@@ -259,10 +262,13 @@ describe('상품 통화 — 증인이 있을 때만 채운다 (P8 컷 a4 · DOC-
   })
 })
 
-describe('쿠폰 지급방식 — 「상환 시 지급」으로 채운다 (P8 컷 b2-5 · DOC-008 v2.25)', () => {
-  it('★ 채워지는 상품은 전부 상환 시 지급이다 — 월지급식 후보는 거부된다', () => {
+describe('쿠폰 지급방식 — 판정이 정한다 (P8 컷 b2-5 · b5 — DOC-008 v2.25 · ADR-009 §8)', () => {
+  it('★ 상환 시 지급 상품은 「상환 시 지급」 — 월수익 칸을 싣지 않는다(종전 채움 그대로)', () => {
     for (const terms of [termsWithListing('E04000', SEARCH_FIXTURES.q4000), termsOf('E04000'), termsOf('EM2047')]) {
-      expect(filled(importFillOf(terms, {})).values.couponPayout).toBe('AT_REDEMPTION')
+      const fill = filled(importFillOf(terms, {}))
+      expect(fill.values.couponPayout).toBe('AT_REDEMPTION')
+      expect(fill.couponSchedule).toBeNull()
+      expect(Object.keys(fill.values).filter((k) => k.startsWith('couponSchedules') || k === 'monthlyCouponAnnualRate')).toEqual([])
     }
   })
 
@@ -361,6 +367,95 @@ describe('불변식', () => {
       lizardRequiresNoKi: true,
     })
     expect(input.principal).toBe('19390000')
+  })
+})
+
+describe('월지급식 — 산식 폴백으로 채운다 (P8 컷 b5-1 · DOC-010 ADR-009 §8.6)', () => {
+  const coupon = (v: Record<string, string>, sub: string) =>
+    Array.from({ length: 36 }, (_, i) => v[`couponSchedules[${i}].${sub}`])
+
+  it('★ EM2048 — 지급방식 · 연쿠폰율 0 · 월수익 연쿠폰율 = 헤드라인 · 월수익 배리어 · 36행', () => {
+    const fill = filled(importFillOf(termsWithListing('EM2048', SEARCH_FIXTURES.q2048), {}))
+    const v = fill.values
+    expect([fill.kind, fill.couponSchedule]).toEqual(['PARTIAL', 'FORMULA'])
+    expect([v.couponPayout, v.annualCouponRate, v.monthlyCouponAnnualRate, v.couponBarriers]).toEqual([
+      'MONTHLY',
+      '0',
+      '24.24',
+      '50',
+    ])
+    expect(coupon(v, 'couponBarrier').every((b) => b === '50')).toBe(true)
+    expect(v['couponSchedules[36].evaluationDate']).toBeUndefined()
+  })
+
+  it('★ 겹치는 달은 안내 화면의 실제 날짜 · 나머지는 앱 산식 — 「산식」 표식이 갈라 붙는다', () => {
+    const v = filled(importFillOf(termsWithListing('EM2048', SEARCH_FIXTURES.q2048), {})).values
+    const dates = coupon(v, 'evaluationDate')
+    // 6 · 12 · 18 · 24 · 30번째 = 조기상환 평가일(팝업 표), 36번째 = 만기 사흘 평균의 마지막 날
+    expect([5, 11, 17, 23, 29, 35].map((i) => dates[i])).toEqual([
+      '2027-03-17',
+      '2027-09-17',
+      '2028-03-17',
+      '2028-09-15',
+      '2029-03-16',
+      '2029-09-17',
+    ])
+    // 나머지는 월지급 블록의 「평가일 산식으로 채우기」와 같은 산식이다 — 그래야 그 행에만 「산식」 표식이 붙는다
+    const formula = couponFormulaOf({ issueDate: v.issueDate!, evaluationPeriodMonths: '6', totalRounds: '6' })!
+    const marks = dates.map((_, i) => isFormulaCouponRow(v, i, formula))
+    // 겹치는 달 중 산식과 다른 둘(24 · 30번째 — 2028-09-15 · 2029-03-16)에는 표식이 없다. 나머지 넷은 우연히 산식과 같아
+    // 표식이 붙는다 — 표식은 「산식과 같다」는 사실이지 출처가 아니다(DOC-008 v2.38)
+    expect([marks[23], marks[29]]).toEqual([false, false])
+    dates.forEach((date, i) => {
+      if ([5, 11, 17, 23, 29, 35].includes(i)) return
+      expect(date).toBe(formula[i]!.evaluationDate)
+      expect(marks[i]).toBe(true)
+    })
+    // 겹치는 달의 지급일은 그 실제 평가일 + 3영업일로 다시 낸다(산식 행의 지급일을 그대로 두지 않는다)
+    expect(v['couponSchedules[5].paymentDate']).toBe('2027-03-22')
+  })
+
+  it('안내 — 산식 · 월수익 연쿠폰율 힌트 · 지급일 계산 (DOC-008 SCR-204 「P8 월지급식 — 불러오기」)', () => {
+    const fill = filled(importFillOf(termsWithListing('EM2048', SEARCH_FIXTURES.q2048), {}))
+    expect(fill.notes).toEqual(
+      expect.arrayContaining([
+        { field: null, text: COUPON_FORMULA_NOTE },
+        { field: 'monthlyCouponAnnualRate', text: MONTHLY_RATE_HEADLINE_NOTE },
+        { field: null, text: couponPaymentNote(3) },
+      ]),
+    )
+  })
+
+  it('★ EM2014 — 원화 월지급식(지수 + 해외 티커) · 원화로 확정 · 헤드라인 23.64 · 36번째 = 2029-08-13', () => {
+    const fill = filled(importFillOf(termsWithListing('EM2014', SEARCH_FIXTURES.q2014), {}))
+    const v = fill.values
+    expect([v.currency, v.couponPayout, v.monthlyCouponAnnualRate, v.couponBarriers]).toEqual(['KRW', 'MONTHLY', '23.64', '50'])
+    expect(v['couponSchedules[35].evaluationDate']).toBe('2029-08-13')
+    expect(v['couponSchedules[5].evaluationDate']).toBe('2027-02-12')
+  })
+
+  it('★ 왕복 — 불러온 월지급식 + 사용자 입력이 저장 제출을 지나 계약 입력이 되고 V-25 · V-26을 지난다', () => {
+    const v = filled(importFillOf(termsWithListing('EM2014', SEARCH_FIXTURES.q2014), {})).values
+    const next = transition(
+      formOfValues({
+        ...productDefaults(),
+        ...v,
+        principal: '100,000,000',
+        accountType: 'GENERAL',
+        kiObservation: 'CLOSING',
+        'underlyings[0].assetId': '00000000-0000-4000-8000-0000000000b1',
+        'underlyings[1].assetId': '00000000-0000-4000-8000-0000000000b2',
+        [INTENT_FIELD]: 'SUBMIT',
+      }),
+    )
+    expect(next.saveHeld).toBe(false)
+    const input = parseProductForm(formOfValues(next.values))
+    expect([input.couponPayout, input.annualCouponRate, input.monthlyCouponAnnualRate]).toEqual(['MONTHLY', '0.0000', '0.2364'])
+    expect(input.couponSchedules).toHaveLength(36)
+    expect(input.couponSchedules?.[35]).toMatchObject({ couponNo: 36, evaluationDate: '2029-08-13', couponBarrier: '0.5000' })
+    const problems = new Problems()
+    parseProductInput(problems, input)
+    expect(problems.fields()).toEqual({})
   })
 })
 
