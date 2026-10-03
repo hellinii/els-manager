@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { extractWithUnpdf, readProspectus } from '@/lib/providers/kiwoom/prospectus'
 import { parseProspectusText, type ProspectusTerms } from '@/lib/providers/kiwoom/prospectus-parse'
@@ -223,6 +223,10 @@ const searchResponse = (code: 'EM2048' | 'EM2014') => () =>
   new Response(JSON.stringify(searchJson(code === 'EM2048' ? SEARCH_FIXTURES.q2048 : SEARCH_FIXTURES.q2014)), { status: 200 })
 
 describe('어댑터 — 팝업 사다리가 월지급일 때만 · 목록 행과 나란히 · 실패는 값이다', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('★ EM2048 — 투자설명서를 GET으로 받는다(쿠키 없음 · redirect manual · no-store) · READ', async () => {
     const { fetchImpl, calls } = router({
       fndElsDetailPopup: () => new Response(popupHtml('EM2048'), { status: 200 }),
@@ -285,6 +289,7 @@ describe('어댑터 — 팝업 사다리가 월지급일 때만 · 목록 행과
   })
 
   it('★ 투자설명서가 실패해도 조건 조회는 성공한다 — UNREAD(FETCH_FAILED)이고 BLOCKING이 아니다', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { fetchImpl } = router({
       fndElsDetailPopup: () => new Response(popupHtml('EM2048'), { status: 200 }),
       getEndElsMainJson: searchResponse('EM2048'),
@@ -294,6 +299,44 @@ describe('어댑터 — 팝업 사다리가 월지급일 때만 · 목록 행과
     if (!out.ok) return
     expect(out.data.prospectus).toMatchObject({ kind: 'UNREAD', reason: 'FETCH_FAILED' })
     expect(blocking(out.data)).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  /*
+   * DOC-011 X-08 v4.37 — 화면 문구는 사유와 무관하게 하나라 운영에서 AQ-95를 가를 수단이 이 줄뿐이다(DOC-013 W5 ⓒ). 형식이
+   * 고정이어야 함수 로그에서 찾을 수 있다 — 접두 · 상품 코드 · 사유 · 세부
+   */
+  describe('못 읽은 사유를 서버 로그에 한 줄 남긴다 — [prospectus] <code> <reason> <detail> (X-08 v4.37)', () => {
+    it('★ UNREAD — 한 줄이고 상품 코드 · 사유 · 세부를 싣는다', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const { fetchImpl } = router({
+        fndElsDetailPopup: () => new Response(popupHtml('EM2048'), { status: 200 }),
+        getEndElsMainJson: searchResponse('EM2048'),
+        'BEM2048.pdf': () => new Response('<html>점검 중</html>', { status: 200 }),
+      })
+      await createKiwoomProductSource({ fetchImpl }).getKiwoomProductTerms('EM2048')
+      expect(warn.mock.calls).toEqual([[expect.stringMatching(/^\[prospectus\] EM2048 NOT_PDF 본문이 %PDF-로 시작하지 않는다 \(\d+B\)$/)]])
+    })
+
+    it('READ · 부르지 않은 상품(prospectus = null)은 아무것도 남기지 않는다', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const read = router({
+        fndElsDetailPopup: () => new Response(popupHtml('EM2048'), { status: 200 }),
+        getEndElsMainJson: searchResponse('EM2048'),
+        'BEM2048.pdf': pdfResponse,
+      })
+      const out = await createKiwoomProductSource({
+        fetchImpl: read.fetchImpl,
+        extractPdfText: async () => prospectusText('EM2048'),
+      }).getKiwoomProductTerms('EM2048')
+      expect(out.ok && out.data.prospectus?.kind).toBe('READ')
+      const atRedemption = router({
+        fndElsDetailPopup: () => new Response(popupHtml('E04000'), { status: 200 }),
+        getEndElsMainJson: () => new Response(JSON.stringify(searchJson(SEARCH_FIXTURES.q4000)), { status: 200 }),
+      })
+      await createKiwoomProductSource({ fetchImpl: atRedemption.fetchImpl }).getKiwoomProductTerms('E04000')
+      expect(warn).not.toHaveBeenCalled()
+    })
   })
 })
 
@@ -355,6 +398,38 @@ describe('readProspectus — 「못 읽음」의 사유 전부 (던지지 않는
     ).toMatchObject({ reason: 'EXTRACT_FAILED', detail: expect.stringContaining('Cannot find module') })
     expect(await run(fetching(pdfResponse), async () => '투자설명서 본문')).toMatchObject({ reason: 'TABLE_NOT_FOUND' })
     expect(await run(fetching(pdfResponse), async () => prospectusText('EM2014'))).toMatchObject({ kind: 'READ', declaredCount: 36 })
+  })
+
+  /*
+   * 추출도 렌더 예산 안이다(X-08 v4.37). 두 대조 모두 **예산을 지키지 않으면 READ가 된다** — 추출이 정상 텍스트를 내므로
+   * 판정이 데드라인을 읽지 않으면 빨간불이다(음성 대조가 갈린다)
+   */
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('★ 내려받기가 예산을 다 썼으면 추출하지 않는다 — FETCH_FAILED', async () => {
+    let extracted = false
+    const slowFetch = (async () => {
+      await sleep(60)
+      return pdfResponse()
+    }) as unknown as typeof fetch
+    const extractPdfText = async () => {
+      extracted = true
+      return prospectusText('EM2014')
+    }
+    const out = await readProspectus({ fetchImpl: slowFetch, timeoutMs: 8_000, extractPdfText }, [DOC], Date.now() + 20)
+    expect(out).toMatchObject({ kind: 'UNREAD', reason: 'FETCH_FAILED', detail: expect.stringContaining('추출하지 않았다') })
+    expect(extracted).toBe(false)
+  })
+
+  it('★ 추출은 남은 예산과 경주한다 — 넘으면 EXTRACT_FAILED이고 추출을 기다리지 않는다', async () => {
+    const started = Date.now()
+    const extractPdfText = async () => {
+      await sleep(400)
+      return prospectusText('EM2014')
+    }
+    const out = await readProspectus({ fetchImpl: fetching(pdfResponse), timeoutMs: 8_000, extractPdfText }, [DOC], Date.now() + 80)
+    expect(out).toMatchObject({ kind: 'UNREAD', reason: 'EXTRACT_FAILED', detail: expect.stringContaining('렌더 예산 초과') })
+    expect(Date.now() - started).toBeLessThan(300)
   })
 })
 

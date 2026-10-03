@@ -157,6 +157,15 @@ export function createKiwoomProductSource(deps: KiwoomProductSourceDeps): Kiwoom
         ? readProspectus({ fetchImpl: deps.fetchImpl, timeoutMs, extractPdfText: deps.extractPdfText }, parsed.documents, deadline)
         : Promise.resolve(null),
     ])
+    /*
+     * **못 읽은 사유를 한 줄 남긴다**(DOC-011 X-08 v4.37 · ADR-009 §8.4). 화면은 사유와 무관하게 한 문장(「투자설명서를 읽지
+     * 못했다」)이라 운영에서 AQ-95를 가를 수단이 이것뿐이다 — `FETCH_FAILED`면 이그레스 · 시간, `NOT_PDF`면 WAF,
+     * `EXTRACT_FAILED`면 번들 · 메모리로 처방이 다르다. `detail`은 HTTP 상태 · 오류 문구 · 바이트 수뿐이고 비밀이 없다.
+     * Hobby의 함수 로그 보존이 1시간이므로 불러온 직후에 본다(DOC-013 W5 ⓒ)
+     */
+    if (prospectus?.kind === 'UNREAD') {
+      console.warn(`[prospectus] ${code} ${prospectus.reason} ${prospectus.detail}`)
+    }
     const listing = listed.ok ? (listed.data.find((c) => c.productCode === code) ?? null) : null
     const terms: KiwoomProductTerms = {
       ...parsed,

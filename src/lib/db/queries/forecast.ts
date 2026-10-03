@@ -177,6 +177,9 @@ function itemOf(
     // 분기로 가고 `excludedForeignCount`가 센다. 확정 원화 과세는 환율과 무관하게 여기 있다
     taxableIncome: event?.taxableIncomeKrw ?? ZERO,
     couponEstimate: event?.kind === 'COUPON' && event.isEstimated,
+    // **사건의 종류로** 명시한다(DOC-007 v1.10) — 아래 셋째 분기(추정 환율 없는 외화)가 원금을 0으로 두므로 기본값
+    // (`principal ≠ 0`)에 맡기면 그 항목이 `hasEstimates` 둘째 절에서 빠진다. 원금 항목(사건 없음)과 상환은 돌려준다
+    returnsPrincipal: event == null || event.kind === 'REDEMPTION',
   }
   const gross = event?.gross ?? ZERO
   // 사건이 없으면 원금은 그대로 남는다(잔여 원금) — 사건이 있으면 그 사건이 돌려주는 원금이다.

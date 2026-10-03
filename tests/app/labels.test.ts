@@ -182,6 +182,79 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
     expect(usesOf('caution')).toContain('`contributionBasis.ESTIMATED` · `MIXED`')
   })
 
+  /*
+   * **값별 대조** (DOC-005 v1.18 — P8.5 반박 검토). 위 「등급 토큰 집합」은 **새 토큰**만 잡는다 — `couponState.UNRECORDED`가
+   * `attention`에서 `caution`으로 바뀌어도 집합은 같아 초록이었다(값별 대조는 `contributionBasis` 하나뿐이었다). 그래서
+   * 「쓰는 곳」 칸을 `축.값 → 등급`으로 읽어 코드와 값마다 맞춘다.
+   *
+   * 칸의 읽기 규칙: `축.값`은 그 값 · 바로 뒤의 점 없는 대문자 토큰(`BEYOND_ASSUMPTION`)은 앞 토큰의 축을 잇는다 · 점 없는
+   * 소문자 토큰(`accountType`)은 축 전체다. 백틱 밖의 낱말(「상환 실적」 · 「시세 오래됨」)은 열거형이 아니라 이 대조 밖이다.
+   */
+  function documentedValueGrades(): { values: Map<string, string>; wholeAxes: Map<string, string> } {
+    const values = new Map<string, string>()
+    const wholeAxes = new Map<string, string>()
+    for (const [gradeCell, , uses] of tableAfterHeader(DOC_005, '| 등급 | 의미 | 쓰는 곳 |')) {
+      const grade = bare(gradeCell ?? '')
+      let axis: string | null = null
+      for (const [, token] of (uses ?? '').matchAll(/`([A-Za-z_.]+)`/g)) {
+        const dotted = /^([a-z][A-Za-z]*)\.([A-Z_]+)$/.exec(token!)
+        const key = dotted != null ? `${(axis = dotted[1]!)}.${dotted[2]}` : /^[A-Z_]+$/.test(token!) ? `${axis}.${token}` : null
+        if (key == null) {
+          wholeAxes.set(token!, grade)
+          axis = null
+          continue
+        }
+        expect(axis, `${grade} 칸의 ${token}가 이을 축이 없다`).not.toBeNull()
+        expect(values.has(key), `${key}가 §6.3에 둘 이상이다`).toBe(false)
+        values.set(key, grade)
+      }
+    }
+    return { values, wholeAxes }
+  }
+
+  const GRADE_RECORDS: Record<string, Record<string, BadgeGrade>> = {
+    status: STATUS_GRADES,
+    kiStatus: KI_STATUS_GRADES,
+    conditionResult: CONDITION_RESULT_GRADES,
+    integrityIssue: INTEGRITY_ISSUE_GRADES,
+    attentionReason: ATTENTION_REASON_GRADES,
+    couponState: COUPON_STATE_GRADES,
+    couponConditionResult: COUPON_CONDITION_RESULT_GRADES,
+    contributionBasis: CONTRIBUTION_BASIS_GRADES,
+  }
+
+  it('★ 「쓰는 곳」의 값마다 코드의 등급이 같다 — 집합이 아니라 값별이다 (DOC-005 v1.18)', () => {
+    const { values, wholeAxes } = documentedValueGrades()
+    expect(values.size, '§6.3에서 값을 읽었다').toBeGreaterThanOrEqual(20)
+    for (const [key, grade] of values) {
+      const [axis, value] = key.split('.') as [string, string]
+      expect(GRADE_RECORDS, `${axis}에 대응하는 등급 표가 없다`).toHaveProperty(axis)
+      expect(GRADE_RECORDS[axis]![value], key).toBe(grade)
+    }
+    // 축 전체 — 결함은 셋 다 defect. 등급 표가 없는 축(배지가 늘 중립인 둘)은 이 목록으로 고정한다 — 새 축이 조용히 빠지지 않게
+    for (const [axis, grade] of wholeAxes) {
+      if (axis in GRADE_RECORDS) {
+        expect(Object.values(GRADE_RECORDS[axis]!).every((g) => g === grade), `${axis} 전체가 ${grade}`).toBe(true)
+      }
+    }
+    expect([...wholeAxes.keys()].filter((axis) => !(axis in GRADE_RECORDS)).sort()).toEqual(['accountType', 'priceSource'])
+    expect(wholeAxes.get('integrityIssue')).toBe('defect')
+    expect(Object.keys(INTEGRITY_ISSUE_GRADES)).toHaveLength(3)
+  })
+
+  it('★ 월수익 축 · 기여 근거는 값이 전부 「쓰는 곳」에 있다 — 양방향 (DOC-005 v1.18)', () => {
+    const { values } = documentedValueGrades()
+    for (const axis of ['couponState', 'couponConditionResult', 'contributionBasis']) {
+      const documented = Object.fromEntries(
+        [...values].filter(([key]) => key.startsWith(`${axis}.`)).map(([key, grade]) => [key.slice(axis.length + 1), grade]),
+      )
+      expect(documented, axis).toEqual(GRADE_RECORDS[axis])
+    }
+    // 조치 사유 중 월수익 축 — 「월수익 미기록」은 사용자 조치다(「평가일 경과」와 같은 부류)
+    expect(values.get('attentionReason.COUPON_UNRECORDED')).toBe('attention')
+    expect(ATTENTION_REASON_GRADES.COUPON_UNRECORDED).toBe('attention')
+  })
+
   it('결함은 조치와 다른 등급이다 — ST-06', () => {
     /*
      * 유도하는 화면이 다르다: `attention`은 SCR-202(사용자 확인), `defect`는
@@ -193,11 +266,17 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
     expect(INTEGRITY_ISSUE_GRADES.UNDERLYING_MISSING).not.toBe(
       ATTENTION_REASON_GRADES.KI_BELOW,
     )
+    // 셋째 결함(P8 컷 b3-2) — 고칠 곳이 월지급 블록(SCR-204)이다. 같은 축의 조치 「월수익 미기록」(SCR-206에서 옮겨 적는다)과
+    // 색이 갈려야 한다 — DOC-005 v1.18이 이 단언의 빠짐을 찾았다
+    expect(INTEGRITY_ISSUE_GRADES.COUPON_SCHEDULE_MISSING).toBe('defect')
+    expect(ATTENTION_REASON_GRADES.COUPON_SCHEDULE_MISSING).toBe('defect')
+    expect(ATTENTION_REASON_GRADES.COUPON_SCHEDULE_MISSING).not.toBe(ATTENTION_REASON_GRADES.COUPON_UNRECORDED)
   })
 
-  it('두 결함 사유는 조치 목록에서도 defect다', () => {
+  it('세 결함 사유는 조치 목록에서도 defect다', () => {
     expect(ATTENTION_REASON_GRADES.UNDERLYING_MISSING).toBe('defect')
     expect(ATTENTION_REASON_GRADES.SCHEDULE_MISSING).toBe('defect')
+    expect(ATTENTION_REASON_GRADES.COUPON_SCHEDULE_MISSING).toBe('defect')
   })
 
   it('노낙인은 안전이 아니라 중립이다', () => {

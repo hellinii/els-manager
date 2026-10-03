@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, relative, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
@@ -972,9 +972,12 @@ function tableAfterHeader(file: string, header: string): string[][] {
   return rows
 }
 
-/** 셀에서 백틱으로 감싼 식별자만 뽑는다 — 각주·강조·괄호 설명을 버린다. */
+/**
+ * 셀에서 백틱으로 감싼 식별자만 뽑는다 — 각주·강조·괄호 설명을 버린다. **취소선(`~~…~~`) 안은 버린다** — 문서의 정정 관례가
+ * 옛 값을 지우지 않고 긋는 것이므로 그 안의 이름은 철회된 배정이다(SCR-206 행의 `deleteCouponPayments` — v4.37)
+ */
 function identifiers(cell: string): string[] {
-  return [...cell.matchAll(/`([A-Za-z][A-Za-z0-9_]*)`/g)].map((m) => m[1]!)
+  return [...cell.replace(/~~[\s\S]*?~~/g, ' ').matchAll(/`([A-Za-z][A-Za-z0-9_]*)`/g)].map((m) => m[1]!)
 }
 
 /**
@@ -996,8 +999,8 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
   const rows = tableAfterHeader(DOC_011, '| 화면 | 조회 계약 | 변경 계약 |')
 
   it('매트릭스를 찾았다', () => {
-    // SCR-001·101·201·202·203·204·**205**·**206**·301·302·401·402·501·502 — SCR-206은 P8 컷 b2(화면은 b3,
-    // 변경 칸만 — DOC-011 §9 ⑭ⓐ). DOC-008 §4 화면 표에는 b3까지 행이 없어 화면-계약 대조가 그 행을 건너뛴다
+    // SCR-001·101·201·202·203·204·**205**·**206**·301·302·401·402·501·502 — SCR-206 행은 P8 컷 b2에 섰고(변경 칸만 —
+    // DOC-011 §9 ⑭ⓐ) 화면 · 라우트는 b3에 섰다(DOC-008 §4 16행). 그 뒤로 화면-계약 대조가 그 행도 본다
     expect(rows.length).toBe(14)
   })
 
@@ -1010,6 +1013,57 @@ describe('DOC-011 §8 추적 매트릭스 ↔ 맵', () => {
     documented.delete('signOut')
 
     expect([...documented].sort()).toEqual([...MUTATION_NAMES].sort())
+  })
+
+  it('★ 화면의 라우트가 부르는 변경 계약과 그 행의 변경 칸이 **행 단위로** 같다 — 페이지의 import 그래프를 걷는다 (P8.5)', () => {
+    /*
+     * 위 대조는 변경 칸의 **합집합** ↔ `MUTATION_NAMES`다. 이름이 엉뚱한 행에 있어도 합집합은 같다 — b3-3이 SCR-202 ⑦(월수익
+     * 기록 삭제)을 세우고도 `deleteCouponPayments`를 SCR-206 행에 남겼는데 이 파일 전체가 초록이었다(P8.5 반박 검토 ·
+     * DOC-011 v4.37). 조회 칸은 이미 행 단위로 대조된다(아래 「화면이 읽는 계약」) — 변경 칸만 비어 있었다.
+     *
+     * 좌변은 **페이지에서 닿는 서버 액션**이 부르는 §5 계약이다. 페이지가 액션을 직접 들여오지 않고 컴포넌트가 들여오므로
+     * (`CouponDeleteForm` → `products/[id]/actions`) 같은 디렉터리의 `actions.ts`로는 모자라고(SCR-205는 `../actions`다)
+     * import 그래프를 걷는다. 단위는 **들여온 액션 하나**다 — 파일 단위로 세면 SCR-204가 시세 화면의 다섯을 다 부르는 것으로
+     * 나온다(`ProductForm` → `AssetForm` → `createAssetAction` 하나만 쓴다 — 실측). §5 밖(`signIn` · `signOut` —
+     * `lib/auth/session.ts`)은 양쪽에서 뺀다.
+     */
+    const pages = pageFiles()
+    const routesOfScreen = screenRoutes()
+    const reached = new Set<string>()
+
+    for (const [screen, , mutations] of rows.map(([s0, q, m]) => [s0 ?? '', q ?? '', m ?? ''])) {
+      const id = /SCR-\d+/.exec(screen)?.[0]
+      if (id == null || id in UNBUILT_SCREENS) continue
+      const routes = routesOfScreen[id]
+      if (routes == null) continue
+
+      const fromCode = new Set<string>()
+      for (const route of routes) {
+        const page = pages[route]
+        expect(page, `${id}의 라우트 ${route}에 page.tsx가 없다`).toBeDefined()
+        for (const [file, names] of actionsReachedFrom(page!)) {
+          const calls = actionCalls(file)
+          for (const name of names) {
+            expect(calls, `${relative(process.cwd(), file)}에 ${name}이 없다`).toHaveProperty(name)
+            reached.add(`${file}#${name}`)
+            for (const mutation of calls[name]!) fromCode.add(mutation)
+          }
+        }
+      }
+      const fromDoc = new Set(identifiers(mutations).filter((m) => MUTATION_NAMES.includes(m as MutationName)))
+      expect([...fromCode].sort(), `${id}가 부르는 변경 계약`).toEqual([...fromDoc].sort())
+    }
+
+    // 계약을 부르는 액션이 전부 어느 화면에서 닿는다 — 닿지 않는 액션의 계약은 위 대조가 보지 않는다
+    const all = sourceFiles(APP)
+      .filter((f) => f.endsWith('/actions.ts') && f !== ROOT_ACTIONS)
+      .flatMap((file) =>
+        Object.entries(actionCalls(file))
+          .filter(([, calls]) => calls.length > 0)
+          .map(([name]) => `${file}#${name}`),
+      )
+    expect(all.length, '스캐너가 계약을 부르는 액션을 찾았다').toBeGreaterThanOrEqual(17)
+    expect(all.filter((key) => !reached.has(key)).map((key) => relative(process.cwd(), key))).toEqual([])
   })
 
   it('문서가 배정한 조회 계약이 전부 실재하거나 미구현으로 등재되어 있다', () => {
@@ -1193,7 +1247,7 @@ function screenRoutes(): Record<string, string[]> {
     DOC_008,
     '| ID | 화면명 | 경로 | 권한 | 관련 요구사항 | 주요 엔티티 |',
   )
-  // P6 컷 5에서 SCR-205(기실현 등재)가 더해져 14 → 15
+  // P6 컷 5에서 SCR-205(기실현 등재)가 더해져 14 → 15, P8 컷 b3에서 SCR-206(월수익 기록)이 더해져 15 → 16
   expect(rows.length, 'DOC-008 §4 화면 목록이 비어 있다').toBe(16)
 
   const map: Record<string, string[]> = {}
@@ -1202,6 +1256,106 @@ function screenRoutes(): Record<string, string[]> {
     if (routes.length > 0) map[bare(id ?? '')] = routes
   }
   return map
+}
+
+/** 라우트 → 그 `page.tsx`. 라우트 그룹(`(app)`)은 경로에 들지 않는다 */
+function pageFiles(dir: string = APP, prefix = ''): Record<string, string> {
+  const pages: Record<string, string> = {}
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name === 'page.tsx') pages[prefix === '' ? '/' : prefix] = join(dir, entry.name)
+    if (!entry.isDirectory()) continue
+    const segment = /^\(.+\)$/.test(entry.name) ? '' : `/${entry.name}`
+    Object.assign(pages, pageFiles(join(dir, entry.name), `${prefix}${segment}`))
+  }
+  return pages
+}
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const full = join(dir, name)
+    if (statSync(full).isDirectory()) return sourceFiles(full)
+    return /\.tsx?$/.test(name) ? [full] : []
+  })
+}
+
+const SRC = join(process.cwd(), 'src')
+const ROOT_ACTIONS = join(APP, 'actions.ts')
+
+/** `from '…'` 지정자 → `src/` 안의 파일. 패키지 · 못 찾은 경로는 `null` */
+function resolveImport(from: string, specifier: string): string | null {
+  const base = specifier.startsWith('@/')
+    ? join(SRC, specifier.slice(2))
+    : specifier.startsWith('.')
+      ? resolve(dirname(from), specifier)
+      : null
+  if (base == null) return null
+  for (const candidate of [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return null
+}
+
+const IMPORT_FROM = /\b(?:import|export)\s+(type\s+)?([\s\S]*?)\s*from\s+'([^']+)'/g
+
+/** `{ a, b as c, type D }` → 값으로 들여온 원래 이름들(`a` · `b`) */
+function namedValueImports(clause: string): string[] {
+  return (/\{([\s\S]*)\}/.exec(clause)?.[1]?.split(',') ?? [])
+    .map((part) => part.trim())
+    .filter((part) => part !== '' && !part.startsWith('type '))
+    .map((part) => part.split(/\s+as\s+/)[0]!.trim())
+}
+
+/**
+ * 페이지에서 닿는 서버 액션 — 액션 파일(`…/actions.ts`) → 들여온 액션 이름들. 액션 파일 안으로는 걷지 않는다(그 파일이 들여오는
+ * 계약은 `actionCalls`가 읽는다). 루트 어댑터(`src/app/actions.ts`)는 화면이 직접 들여오지 않는다 — 들여오면 이 대조 밖이므로
+ * 빨간불이다. 타입만 들여오는 import는 실행 경로가 아니므로 따라가지 않는다
+ */
+function actionsReachedFrom(page: string): Map<string, Set<string>> {
+  const seen = new Set<string>()
+  const found = new Map<string, Set<string>>()
+  const stack = [page]
+  while (stack.length > 0) {
+    const file = stack.pop()!
+    if (seen.has(file)) continue
+    seen.add(file)
+    for (const [, typeOnly, clause, specifier] of readFileSync(file, 'utf8').matchAll(IMPORT_FROM)) {
+      if (typeOnly != null) continue
+      const target = resolveImport(file, specifier!)
+      if (target == null) continue
+      expect(target, `${relative(process.cwd(), file)}가 루트 어댑터를 직접 들여온다`).not.toBe(ROOT_ACTIONS)
+      if (target.endsWith('/actions.ts')) {
+        if (!found.has(target)) found.set(target, new Set())
+        for (const name of namedValueImports(clause!)) found.get(target)!.add(name)
+        continue
+      }
+      stack.push(target)
+    }
+  }
+  return found
+}
+
+/**
+ * 액션 파일의 내보낸 액션 → 그 본문이 부르는 §5 계약. 최상위 함수마다 자르고, 그 조각에 나오는 `@/app/actions`의 이름을 센다.
+ * **내보내지 않는 함수(도우미)가 계약을 부르면 빨간불이다** — 그 계약이 어느 액션의 것인지 이 자르기로는 모른다
+ */
+function actionCalls(file: string): Record<string, MutationName[]> {
+  const source = readFileSync(file, 'utf8')
+  const imported = [...source.matchAll(IMPORT_FROM)]
+    .filter(([, typeOnly, , specifier]) => typeOnly == null && specifier === '@/app/actions')
+    .flatMap(([, , clause]) => namedValueImports(clause!))
+    .filter((name): name is MutationName => MUTATION_NAMES.includes(name as MutationName))
+  const heads = [...source.matchAll(/^(export\s+)?(?:async\s+)?function\s+(\w+)/gm)]
+  const calls: Record<string, MutationName[]> = {}
+  heads.forEach((head, i) => {
+    const body = source.slice(head.index, heads[i + 1]?.index ?? source.length)
+    const used = imported.filter((name) => new RegExp(`\\b${name}\\b`).test(body))
+    if (head[1] == null) {
+      expect(used, `${relative(process.cwd(), file)}의 도우미 ${head[2]}가 계약을 부른다`).toEqual([])
+      return
+    }
+    calls[head[2]!] = used
+  })
+  return calls
 }
 
 function bare(cell: string): string {

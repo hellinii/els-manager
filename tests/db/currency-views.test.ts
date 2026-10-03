@@ -13,8 +13,9 @@ import { computeOwnTax, contributionOf } from '@/lib/db/queries/tax'
 import { TAX_CONSTANT_KEY_MAP } from '@/lib/db/taxConstants'
 import { dec } from '@/lib/decimal'
 import { NO_ESTIMATE_RATES, type EstimateRates } from '@/lib/domain'
+import { forecastYears, type ForecastYearInput } from '@/lib/tax'
 import { BRACKETS_2026, CONSTANTS_2026 } from '../fixtures/tax-2026'
-import { OWNER, priceMap, productRow, redemption, schedule, taxBasis } from './helpers/rows'
+import { monthlyProductRow, OWNER, priceMap, productRow, redemption, schedule, taxBasis } from './helpers/rows'
 
 /**
  * 컷 b0 — 항목 사상이 `forecastItemsOf`(사건마다 항목 하나)가 됐다. 이 컷에서는 사건이 상품당 최대 하나라
@@ -363,6 +364,52 @@ describe('§4.7 전망 항목 — 원화 합에서 빼고 센다', () => {
   it('원화 항목은 종전 그대로다', () => {
     const item = forecastItemOf(productRow(), ASOF, WITH_RATE)
     expect(item).toMatchObject({ principal: '100000000', excludedForeign: false })
+  })
+
+  /*
+   * DOC-007 v1.10 — `hasEstimates` 둘째 절의 「원금을 돌려준다」는 **사건의 종류**다. 환율 없는 달러 항목은 원금을 0으로
+   * 두지만(원화 합에서 뺀다) 그 원금은 0이 아니라 모르는 값이다. 2026 행에 귀속된 항목이 없고 그 상품이 연도 말에 미상환으로
+   * 남으므로, 그 행을 참으로 만드는 것은 둘째 절뿐이다 — 판정이 환산한 원금을 읽으면 이 단언이 빨간불이다(반박 검토가 찾은
+   * 배포된 W2 동작의 변화)
+   */
+  it('★ 환율 없는 달러 미상환 상품도 원금을 돌려주는 항목이다 — 그 앞 행의 hasEstimates가 참이다 (DOC-007 v1.10)', () => {
+    // 기준일이 1차 뒤라 적용 차수가 2차(2027-01-04)다 — 2026에는 귀속되는 항목이 없다
+    const asOf = '2026-08-01'
+    const item = forecastItemOf(usdActive(), asOf, NO_ESTIMATE_RATES)
+    expect(item).toMatchObject({ attributionYear: 2027, excludedForeign: true, isEstimated: true, returnsPrincipal: true })
+    expect(dec(item.principal).isZero()).toBe(true)
+
+    const year = (y: number): ForecastYearInput => ({
+      year: y,
+      taxLawYear: 2026,
+      brackets: BRACKETS_2026,
+      constants: CONSTANTS_2026,
+      otherIncomeBase: '0',
+      otherFinancialIncome: '0',
+      subscriberType: 'REGIONAL',
+      profileYear: null,
+    })
+    const rows = forecastYears({ ownerId: OWNER, items: [item], years: [year(2026), year(2027)] })
+    expect(rows.map((r) => [r.year, r.hasEstimates])).toEqual([
+      [2026, true],
+      [2027, true],
+    ])
+  })
+
+  it('원금 항목(사건 없음)과 상환 항목은 돌려주고, 월수익 항목은 돌려주지 않는다 — 종류로 명시한다', () => {
+    // 차수가 없으면 사건이 없다 — 원금 항목 하나(귀속연도 `null`)
+    expect(forecastItemOf(productRow({ redemption_schedules: [] }), ASOF, NO_ESTIMATE_RATES)).toMatchObject({
+      attributionYear: null,
+      returnsPrincipal: true,
+    })
+    expect(forecastItemOf(productRow(), ASOF, NO_ESTIMATE_RATES).returnsPrincipal).toBe(true)
+
+    // 월지급식 — 추정 상환 하나 + 흐름 끝(1차 2027-04-16)까지의 추정 월수익 여섯
+    const items = forecastItemsOf(monthlyProductRow(), ASOF, NO_ESTIMATE_RATES)
+    const coupons = items.filter((item) => item.couponEstimate)
+    expect(coupons).toHaveLength(6)
+    expect(coupons.every((item) => item.returnsPrincipal === false)).toBe(true)
+    expect(items.filter((item) => item.returnsPrincipal)).toHaveLength(1)
   })
 })
 

@@ -135,4 +135,19 @@ describe('RD-19 ⓑ — hasEstimates의 둘째 절은 원금을 돌려주는 항
     const rows = forecastYears({ ownerId: 'o', items, years: [year(2026), year(2027)] })
     expect(rows.map((r) => r.hasEstimates)).toEqual([true, true])
   })
+
+  /*
+   * v1.10 — 판정은 사건의 종류(`returnsPrincipal`)이고 원금 값이 아니다. 원금 0 · 종류 명시가 둘째 절을 가른다 —
+   * 같은 항목이 플래그만 달라 행 값이 갈리지 않으면 이 대조는 판정이 플래그를 읽는다는 것을 증명하지 못한다
+   */
+  it('★ 원금 0이어도 원금을 돌려주는 항목이면 둘째 절에 걸린다 — 판정은 종류다 (DOC-007 v1.10)', () => {
+    const unknownPrincipal = { principal: '0', attributionYear: 2027, gross: '0', taxableIncome: '0', isEstimated: true }
+    const first = (item: ForecastItem) =>
+      forecastYears({ ownerId: 'o', items: [item], years: [year(2026), year(2027)] })[0]!.hasEstimates
+    expect(first({ ...unknownPrincipal, returnsPrincipal: true })).toBe(true)
+    expect(first({ ...unknownPrincipal, returnsPrincipal: false })).toBe(false)
+    // 생략하면 `principal ≠ 0` — 종전 입력의 의미
+    expect(first(unknownPrincipal)).toBe(false)
+    expect(first({ ...unknownPrincipal, principal: '1' })).toBe(true)
+  })
 })

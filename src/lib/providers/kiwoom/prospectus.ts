@@ -10,7 +10,8 @@ import type { KiwoomDocument, ProspectusOutcome } from './terms-types'
  *
  * ## 실패는 값이다 — 「못 읽음」
  *
- * 무엇이 실패해도 `{ kind: 'UNREAD' }`를 돌려주고 던지지 않는다. 조건 조회(`getKiwoomProductTerms`)는 투자설명서 한 파일의
+ * 무엇이 실패해도 `{ kind: 'UNREAD' }`를 돌려주고 던지지 않는다. 사유를 로그에 남기는 것은 상품 코드를 아는 호출부다
+ * (`terms.ts` — `[prospectus] <code> <reason> <detail>`). 조건 조회(`getKiwoomProductTerms`)는 투자설명서 한 파일의
  * 사정으로 실패하지 않는다 — 채움이 산식 폴백으로 접힌다(DOC-011 X-08 ①). 특히 **추출이 던지는 경우**(번들 · 메모리 ·
  * 콜드 스타트 — Vercel 함수 안의 실행은 로컬에서 잴 수 없다, DOC-010 AQ-95)가 「덜 채운 값」으로 끝나야 한다.
  *
@@ -71,9 +72,16 @@ export async function readProspectus(
 
   if (!startsWithPdfMagic(bytes)) return unread('NOT_PDF', `본문이 %PDF-로 시작하지 않는다 (${bytes.byteLength}B)`)
 
+  /*
+   * **추출도 렌더 예산 안이다**(DOC-011 X-08 v4.37 · ADR-009 §8.4). 종전에는 데드라인을 내려받기 전에만 보아 추출(첫 호출
+   * 150~340ms — 콜드 스타트면 더)이 예산 뒤에 붙었다. 내려받기가 예산을 다 썼으면 추출하지 않고, 추출은 남은 예산과 경주한다
+   */
+  const budget = deadline - Date.now()
+  if (budget <= 0) return unread('FETCH_FAILED', `전체 데드라인 초과 — 내려받은 뒤(${bytes.byteLength}B) 추출하지 않았다`)
+
   let text: string
   try {
-    text = await (deps.extractPdfText ?? extractWithUnpdf)(bytes)
+    text = await withinBudget((deps.extractPdfText ?? extractWithUnpdf)(bytes), budget)
   } catch (error) {
     return unread('EXTRACT_FAILED', message(error))
   }
@@ -93,6 +101,23 @@ export async function extractWithUnpdf(bytes: Uint8Array): Promise<string> {
   } finally {
     // 문서를 놓는다 — PDF.js에서 해제는 적재 작업(`loadingTask`)의 몫이다. 요청마다 문서가 메모리에 남지 않게
     await pdf.loadingTask.destroy().catch(() => undefined)
+  }
+}
+
+/**
+ * 남은 예산과 경주한다 — 넘으면 던진다. pdf.js의 추출은 중간에 멈출 수 없으므로 진 쪽은 뒤에서 끝나고 버려진다(그 문서의
+ * 해제는 `extractWithUnpdf`의 `finally`가 한다). 버려진 쪽의 거절은 삼킨다 — 처리되지 않은 거절이 프로세스 경고가 되지 않게
+ */
+async function withinBudget<T>(work: Promise<T>, budgetMs: number): Promise<T> {
+  work.catch(() => undefined)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`렌더 예산 초과 — 추출이 남은 ${budgetMs}ms 안에 끝나지 않았다`)), budgetMs)
+  })
+  try {
+    return await Promise.race([work, expired])
+  } finally {
+    clearTimeout(timer)
   }
 }
 

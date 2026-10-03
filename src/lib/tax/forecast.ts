@@ -73,6 +73,12 @@ export type ForecastItem = {
   taxableIncome: DecimalInput
   /** 적용 차수 가정에 의존하는가 (미상환 추정) */
   isEstimated: boolean
+  /**
+   * 원금을 돌려주는 항목인가 — **사건의 종류다**(상환 · 원금 항목은 참, 월수익은 거짓 — DOC-007 v1.10 · §7.5 각주).
+   * `hasEstimates`의 둘째 절이 읽는다. 생략하면 `principal ≠ 0`이다 — 원화만 있던 종전 입력의 의미이고, 환산한
+   * 원금이 0인 항목(추정 환율 없는 외화 — 원금을 **모른다**)을 넘기는 호출부는 명시한다
+   */
+  returnsPrincipal?: boolean
 }
 
 /** 한 연도에 적용할 세법·프로필. 연도마다 다를 수 있으므로 행별로 받는다 */
@@ -115,6 +121,11 @@ export type ForecastYear = {
 /** `redeemedBy(item, Y)` — §7.5. **두 항이 이 함수 하나를 읽는다.** */
 function redeemedBy(item: ForecastItem, year: number): boolean {
   return item.attributionYear != null && item.attributionYear <= year
+}
+
+/** 원금을 돌려주는 항목인가 — 명시가 없으면 `principal ≠ 0`(종전 입력의 의미 — `ForecastItem.returnsPrincipal`) */
+function returnsPrincipal(item: ForecastItem): boolean {
+  return item.returnsPrincipal ?? !dec(item.principal).isZero()
 }
 
 function sum(values: readonly DecimalValue[]): DecimalValue {
@@ -210,13 +221,13 @@ export function forecastYears(params: {
       // 그 해에 상환이 가정된 항목이 있거나, 연도 말에 미상환 항목이 남아 있으면
       // 이 행의 값이 적용 차수 가정에 의존한다.
       //
-      // 둘째 절은 **원금을 돌려주는 항목만** 본다(DOC-007 v1.7 · RD-19 ⓑ). 그 절의 근거가 남은 원금이고, 원금 0인
-      // 항목(월수익 사건 — §7.6)은 이 행의 어느 값에도 들지 않는다. 그 해에 귀속되는 추정 월수익은 첫 절이 잡는다
+      // 둘째 절은 **원금을 돌려주는 항목만** 본다(DOC-007 v1.7 · RD-19 ⓑ). 그 절의 근거가 남은 원금이고, 원금을
+      // 돌려주지 않는 항목(월수익 사건 — §7.6)은 이 행의 어느 값에도 들지 않는다. 그 해에 귀속되는 추정 월수익은 첫
+      // 절이 잡는다. 판정은 **사건의 종류**다(v1.10) — 환산한 원금의 값으로 가르면 추정 환율 없는 외화 상품(원금 0으로
+      // 둔 항목)이 빠져 그 행이 기대는 가정이 표식에서 사라진다
       hasEstimates:
         attributed.some((item) => item.isEstimated) ||
-        remaining.some(
-          (item) => !dec(item.principal).isZero() && (item.isEstimated || item.attributionYear == null),
-        ),
+        remaining.some((item) => returnsPrincipal(item) && (item.isEstimated || item.attributionYear == null)),
     })
   }
 
