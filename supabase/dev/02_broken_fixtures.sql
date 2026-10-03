@@ -10,8 +10,8 @@
 -- ---------------------------------------------------------------------------
 -- ★ 왜 별 파일인가
 --
---   이 두 행은 **정상 데이터가 아니다.** 표본 포트폴리오에 섞으면 「목록에 12건」
---   같은 눈대중이 14건이 되고, 결함이 데이터의 일부처럼 보인다. 결함을 보려고
+--   이 ~~두~~ 세 행은 **정상 데이터가 아니다.** 표본 포트폴리오에 섞으면 「목록에 17건」
+--   같은 눈대중이 20건이 되고, 결함이 데이터의 일부처럼 보인다. (셋째는 P8 컷 b3-7) 결함을 보려고
 --   적용하는 파일과 화면을 보려고 적용하는 파일을 가른다.
 --
 -- ---------------------------------------------------------------------------
@@ -39,6 +39,11 @@
 --   |---|---|---|---|
 --   | `UNDERLYING_MISSING` | 시세 | `worstOf`·`kiStatus`·`conditionResult` | `nextEvaluation`·`projection` |
 --   | `SCHEDULE_MISSING` | 차수 | `nextEvaluation`·`conditionResult`·`projection` | `worstOf`·`kiStatus` |
+--   | `COUPON_SCHEDULE_MISSING` | 월수익(`'COUPONS'`) | 월수익 사건과 그 표시(SCR-202 ⑦ · ⑮ · SCR-201 ⑮) | 차수 판정 전부 · 평가일정의 차수 행 |
+--
+--   셋째(P8 컷 b3-7)는 월지급식인데 월수익 일정이 0행이다 — 같은 구멍(`monthly_coupon_schedules_delete_owner`)으로
+--   만든다. 기록이 없어야 지워진다(기록 → 일정 복합 FK가 RESTRICT다). SCR-301에서는 그 상품의 차수 행이 결함을
+--   말하고 월수익 행은 없다(억제 — DOC-011 §4.2 D1).
 --
 --   두 카드가 「시세 없음」이 아니라 **서로 다른 문구**로 나와야 하고
 --   (「기초자산 없음 — 수정 필요」/「평가일정 없음 — 수정 필요」) 뱃지 등급이
@@ -91,6 +96,7 @@ begin
     'kiBarrier',              '0.5000',
     'kiObservation',          'CLOSING',
     'accountType',            'GENERAL',
+    'couponPayout',           'AT_REDEMPTION',
     'note',                   '기초자산 행을 지운 상태다 — 계약으로는 만들 수 없다(I-07).',
     'underlyings', jsonb_build_array(
       jsonb_build_object('assetId', v_asset, 'basePrice', '350.000000', 'sequence', 1)),
@@ -124,6 +130,7 @@ begin
     'kiBarrier',              '0.5000',
     'kiObservation',          'CLOSING',
     'accountType',            'GENERAL',
+    'couponPayout',           'AT_REDEMPTION',
     'note',                   '평가일정 행을 지운 상태다. 시세는 온전하므로 워스트오브·KI가 산다.',
     'underlyings', jsonb_build_array(
       jsonb_build_object('assetId', v_asset, 'basePrice', '350.000000', 'sequence', 1)),
@@ -139,12 +146,49 @@ begin
   if exists (select 1 from public.redemption_schedules where els_id = v_id) then
     raise exception '평가일정 행이 지워지지 않았다 — 전제가 바뀐 것이다.';
   end if;
+
+  -- ── ③ COUPON_SCHEDULE_MISSING (P8 컷 b3-7) ─────────────────────────────
+  v_id := public.create_els_product(jsonb_build_object(
+    'name',                    '[DEV] 결함 · 월수익 일정 없음',
+    'issuer',                  '개발용',
+    'issueDate',               to_char((current_date - interval '2 months')::date, 'YYYY-MM-DD'),
+    'principal',               '20000000',
+    'currency',                'KRW',
+    'evaluationPeriodMonths',  6,
+    'annualCouponRate',        '0',
+    'kiBarrier',               '0.5000',
+    'kiObservation',           'CLOSING',
+    'accountType',             'GENERAL',
+    'couponPayout',            'MONTHLY',
+    'monthlyCouponAnnualRate', '0.0720',
+    'note',                    '월수익 일정 행을 지운 상태다. 차수 판정은 산다 — 결함은 월수익만 억제한다.',
+    'underlyings', jsonb_build_array(
+      jsonb_build_object('assetId', v_asset, 'basePrice', '350.000000', 'sequence', 1)),
+    'schedules', jsonb_build_array(
+      jsonb_build_object('roundNo', 1,
+        'evaluationDate', to_char((current_date + interval '4 months')::date, 'YYYY-MM-DD'),
+        'barrier', '0.9000',
+        'lizardBarrier', null, 'lizardCouponRate', null, 'lizardRequiresNoKi', null)),
+    'couponSchedules', jsonb_build_array(
+      jsonb_build_object('couponNo', 1,
+        'evaluationDate', to_char((current_date + interval '1 month')::date, 'YYYY-MM-DD'),
+        'paymentDate',    to_char((current_date + interval '1 month')::date + 3, 'YYYY-MM-DD'),
+        'couponBarrier',  '0.6000'))
+  ));
+
+  delete from public.monthly_coupon_schedules where els_id = v_id;
+
+  if exists (select 1 from public.monthly_coupon_schedules where els_id = v_id) then
+    raise exception '월수익 일정 행이 지워지지 않았다 — 전제가 바뀐 것이다.';
+  end if;
 end $$;
 
 select
   p.name as 상품,
   (select count(*) from public.els_underlyings     x where x.els_id = p.id) as 기초자산,
-  (select count(*) from public.redemption_schedules s where s.els_id = p.id) as 차수
+  (select count(*) from public.redemption_schedules s where s.els_id = p.id) as 차수,
+  p.coupon_payout,
+  (select count(*) from public.monthly_coupon_schedules m where m.els_id = p.id) as 월수익
 from public.els_products p
 where p.name like '[DEV] 결함%'
 order by p.name;

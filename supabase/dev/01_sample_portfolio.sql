@@ -1,5 +1,5 @@
 -- ============================================================================
--- 표본 포트폴리오 — 로컬 개발 전용 (P4 컷 2·3)
+-- 표본 포트폴리오 — 로컬 개발 전용 (P4 컷 2·3 · P8 컷 a2 달러 둘 · P8 컷 b3-7 월지급 셋)
 --
 --   docker exec -i supabase_db_els-manager psql -U postgres -d postgres \
 --     -f - < supabase/dev/01_sample_portfolio.sql
@@ -108,7 +108,7 @@ insert into public.asset_prices (asset_id, as_of_date, price, source, provider) 
   ('00000000-0000-4000-8000-0000000004a7', current_date - 9, 39500.000000, 'MANUAL', null);
 
 -- ---------------------------------------------------------------------------
--- 2. 상품 14건 — `create_els_product`를 한 루프에서 부른다
+-- 2. 상품 14건 — `create_els_product`를 한 루프에서 부른다 (월지급 셋은 §2b — 합 17건)
 --
 -- 명세를 VALUES 목록으로 두고 **한 번만** 순회한다. 소유자도 그 목록의 열이다 —
 -- 소유자별로 루프를 나누면 차수 배열을 만드는 30줄이 두 벌이 되고, 실제로 그렇게
@@ -321,9 +321,91 @@ begin
       'kiBarrier',              spec.ki_barrier,
       'kiObservation',          spec.ki_obs,
       'accountType',            spec.account_type,
+      -- 쿠폰 지급방식 — 계약에는 기본값이 없다(V-25). 쓰기 함수가 확장 웨이브(W4) 동안 coalesce로 받치지만 M-b2c가
+      -- 그것을 뗀다 — 표본은 늘 싣는다(통화와 같은 규율)
+      'couponPayout',           'AT_REDEMPTION',
       'note',                   spec.note,
       'underlyings',            spec.underlyings::jsonb,
       'schedules',              v_schedules
+    ));
+
+    if v_id is null then
+      raise exception '% 생성이 실패했다', spec.name;
+    end if;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 2b. 월지급식 셋 (P8 컷 b3-7) — 같은 `create_els_product`에 월수익 조건과 일정을 싣는다
+--
+-- | # | 상품 | 통화 | 월수익 | 상태가 덮는 것 |
+-- |---|---|---|---|---|
+-- | ⑮ | 키움 월지급 원화 15호 | KRW | 연 7.2% → 월 600,000원 · 36달 | 지급 · 미지급 · 미기록 · 예정 · 조기상환 가정 밖 · 다음 행 「예상 지급」 |
+-- | ⑯ | 키움 월지급 달러 16호 | USD | 연 24.24% → 월 $202.01 · 36달 | 달러 지급(적용 환율 · 원화 과세) · 미기록 · 예정 |
+-- | ⑰ | 월지급 조기상환 17호 | KRW | 연 6% → 월 250,000원 · 12달 | 상환된 상품 — 지급 여섯 · 「상환 후 없음」 여섯 · 실현손익 구성(SCR-202 ⑥) |
+--
+-- 월수익 평가일은 `발행일 + k개월`이다(차수와 같은 산식 — 6번째 달마다 조기상환 평가일과 같은 날이다. DOC-007 RD-20).
+-- 지급일은 `+3일`(I-24 지급일 ≥ 평가일). 화면의 산식(`+k개월 −1일` · `+3영업일`)과 다르다 — 표본은 V-26을 구조로
+-- 만족시키는 것이 목적이다(순번 = 1..K 연속 · 평가일 증가). 연쿠폰율은 0이다(I-23 — 월지급식 FULL).
+--
+-- AQ-77(DOC-010)의 실측 표본이다 — 상품 루트 응답과 §4.12의 두 형태(상품 루트 · 월수익 루트 + 부모 전체)를 이 상품들로 잰다.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  spec   record;
+  v_id   uuid;
+  v_issue date;
+begin
+  for spec in
+    select *
+      from (values
+        ('[DEV] 키움 월지급 원화 15호', 5, '100000000', 6, 6, '0.0720', '0.6000', '0.9000', '0.0500',
+         '[{"assetId":"00000000-0000-4000-8000-0000000004a1","basePrice":"350.000000","sequence":1}]', 'KRW',
+         '월지급식 — 수익은 월수익이고 조기상환은 원금만이다.'),
+        ('[DEV] 키움 월지급 달러 16호', 3, '10000.50', 6, 6, '0.2424', '0.6500', '0.9000', '0.0500',
+         '[{"assetId":"00000000-0000-4000-8000-0000000004a2","basePrice":"5000.000000","sequence":1}]', 'USD',
+         '달러 월지급식 — 월수익은 달러, 과세는 지급일 환율의 원화다.'),
+        ('[DEV] 월지급 조기상환 17호', 8, '50000000', 6, 2, '0.0600', '0.6000', '0.8500', '0.0000',
+         '[{"assetId":"00000000-0000-4000-8000-0000000004a3","basePrice":"50000.000000","sequence":1}]', 'KRW',
+         null)
+      ) as t(name, issue_off, principal, period, rounds, monthly_rate, coupon_barrier, b0, step,
+             underlyings, currency, note)
+  loop
+    v_issue := (current_date - (spec.issue_off || ' months')::interval)::date;
+
+    v_id := public.create_els_product(jsonb_build_object(
+      'name',                    spec.name,
+      'issuer',                  '키움증권',
+      'issueDate',               to_char(v_issue, 'YYYY-MM-DD'),
+      'principal',               spec.principal,
+      'currency',                spec.currency,
+      'evaluationPeriodMonths',  spec.period,
+      'annualCouponRate',        '0',
+      'kiBarrier',               '0.5000',
+      'kiObservation',           'CLOSING',
+      'accountType',             'GENERAL',
+      'couponPayout',            'MONTHLY',
+      'monthlyCouponAnnualRate', spec.monthly_rate,
+      'note',                    spec.note,
+      'underlyings',             spec.underlyings::jsonb,
+      -- 월지급식 + 리자드는 v2다(V-25) — 리자드 열을 두지 않는다
+      'schedules', (
+        select jsonb_agg(jsonb_build_object(
+                 'roundNo', n,
+                 'evaluationDate',
+                   to_char((v_issue + (n * spec.period || ' months')::interval)::date, 'YYYY-MM-DD'),
+                 'barrier', ((spec.b0::numeric - spec.step::numeric * (n - 1))::numeric(6,4))::text,
+                 'lizardBarrier', null, 'lizardCouponRate', null, 'lizardRequiresNoKi', null)
+               order by n)
+          from generate_series(1, spec.rounds) as n),
+      'couponSchedules', (
+        select jsonb_agg(jsonb_build_object(
+                 'couponNo', k,
+                 'evaluationDate', to_char((v_issue + (k || ' months')::interval)::date, 'YYYY-MM-DD'),
+                 'paymentDate',    to_char((v_issue + (k || ' months')::interval)::date + 3, 'YYYY-MM-DD'),
+                 'couponBarrier',  spec.coupon_barrier)
+               order by k)
+          from generate_series(1, spec.period * spec.rounds) as k)
     ));
 
     if v_id is null then
@@ -365,7 +447,7 @@ end $$;
 --   ★ **컷 6부터 네 상태(④⑦⑧⑫)를 앱으로 만들 수 있다.** `tests/e2e/redeem.test.ts`의
 --   해당 절이 그것을 실측한다(KI 터치 확정·해제, EARLY + 차수, 만기손실의 음수
 --   실현손익, 미확정 만기이익). 이 파일이 남는 이유는 「유일한 경로」가 아니라
---   **한 명령으로 14상태를 재현하는 편의**이며, 그 대가가 위 우회다.
+--   **한 명령으로 ~~14~~ 17상태를 재현하는 편의**이며, 그 대가가 위 우회다(P8 컷 b3-7 — 월지급 셋).
 -- ---------------------------------------------------------------------------
 set local "request.jwt.claims" =
   '{"sub":"00000000-0000-4000-8000-000000000401","role":"authenticated"}';
@@ -413,6 +495,59 @@ select p.id, 'EARLY', 1,
   from public.els_products p
  where p.name = '[DEV] 키움 달러 조기상환 14호';
 
+-- ---------------------------------------------------------------------------
+-- 3b. 월수익 지급 기록 · 월지급 상품의 상환 (P8 컷 b3-7)
+--
+-- 상환과 같은 이유로 계약을 우회한다(AQ-33 — §5.14는 PostgREST `.insert()`라 psql에서 부를 함수가 없다). DB가 막는
+-- 것은 그대로 걸린다: 부모가 월지급식 FULL이고 그 순번이 일정에 있다(`check_coupon_payment_parent`), 지급 · 미지급의
+-- 모양(I-26), 상환 뒤 달 기록 금지(`*_after_redemption`) · 기록된 달보다 앞선 상환 금지(`*_before_coupon_payment`),
+-- 월지급 상환은 원금만(`*_principal_only` — V-29). 걸리지 않는 것은 계약의 원천징수 기본값(§5.14)이다 — 아래 값은
+-- 손으로 검산했다(과세 금융소득 × 15.4%, 원 단위 절사).
+-- ---------------------------------------------------------------------------
+
+-- ⑮ 원화 — 1 · 2번째 지급(600,000 → 원천징수 92,400) · 3번째 미지급 · 4번째는 미기록으로 둔다(지급일이 지났다)
+insert into public.monthly_coupon_payments
+  (els_id, coupon_no, outcome, payment_date, gross_amount, taxable_income, withholding_tax, is_confirmed, note)
+select p.id, m.coupon_no, m.outcome,
+       case when m.outcome = 'PAID' then s.payment_date end,
+       m.gross, m.taxable, m.withholding, true, m.note
+  from public.els_products p
+  join (values
+         (1, 'PAID'::public.coupon_outcome,   600000::numeric, 600000::numeric, 92400::numeric, null::text),
+         (2, 'PAID'::public.coupon_outcome,   600000, 600000, 92400, null),
+         (3, 'UNPAID'::public.coupon_outcome, null,   null,   null,  '워스트오브가 월수익 배리어 아래였다.')
+       ) as m(coupon_no, outcome, gross, taxable, withholding, note) on true
+  join public.monthly_coupon_schedules s on s.els_id = p.id and s.coupon_no = m.coupon_no
+ where p.name = '[DEV] 키움 월지급 원화 15호';
+
+-- ⑯ 달러 — 1번째 지급 $202.01(= 10,000.50 × 24.24% / 12 = 202.0101 → 센트 미만 절사). 과세는 거래내역의 원화:
+--    202.01 × 1,385.20 = 279,824.25 → 279,824원, × 15.4% = 43,092.89 → 43,092원. 2번째는 미기록
+insert into public.monthly_coupon_payments
+  (els_id, coupon_no, outcome, payment_date, gross_amount, taxable_income, withholding_tax, exchange_rate, is_confirmed)
+select p.id, 1, 'PAID', s.payment_date, 202.01, 279824, 43092, 1385.200000, true
+  from public.els_products p
+  join public.monthly_coupon_schedules s on s.els_id = p.id and s.coupon_no = 1
+ where p.name = '[DEV] 키움 월지급 달러 16호';
+
+-- ⑰ 상환 — 1~6번째 지급(250,000 → 38,500) 뒤 1차(= 6번째 달과 같은 날)에 조기상환 · 원금만(V-29).
+--    실현손익 = (50,000,000 + 1,500,000) − 50,000,000 = +1,500,000(구성: 상환 0 · 받은 월수익 +1,500,000)
+insert into public.monthly_coupon_payments
+  (els_id, coupon_no, outcome, payment_date, gross_amount, taxable_income, withholding_tax, is_confirmed)
+select p.id, s.coupon_no, 'PAID', s.payment_date, 250000, 250000, 38500, true
+  from public.els_products p
+  join public.monthly_coupon_schedules s on s.els_id = p.id and s.coupon_no <= 6
+ where p.name = '[DEV] 월지급 조기상환 17호';
+
+insert into public.redemptions
+  (els_id, redemption_type, round_no, redemption_date,
+   gross_amount, taxable_income, withholding_tax, is_confirmed, note)
+select p.id, 'EARLY', 1,
+       (select s.evaluation_date from public.redemption_schedules s
+         where s.els_id = p.id and s.round_no = 1),
+       50000000, 0, 0, true, '월지급식 조기상환 — 원금만 받는다(수익은 월수익으로 받았다).'
+  from public.els_products p
+ where p.name = '[DEV] 월지급 조기상환 17호';
+
 set local "request.jwt.claims" =
   '{"sub":"00000000-0000-4000-8000-000000000402","role":"authenticated"}';
 
@@ -431,9 +566,10 @@ select p.id, 'MATURITY_GAIN', null,
 -- ---------------------------------------------------------------------------
 -- 4. 결과 확인 — 커밋 전에 사람이 읽는다
 --
--- 14행이 아니거나 소유자가 한 명이면 위의 전제 확인 중 하나가 헛돌았다는 뜻이다.
--- 통화 열이 ⑬⑭에서만 `USD`여야 한다 — 전부 `KRW`면 `currency`가 페이로드에서 빠졌고 함수의
--- 확장 웨이브 coalesce가 조용히 원화로 채웠다는 뜻이다.
+-- 17행이 아니거나 소유자가 한 명이면 위의 전제 확인 중 하나가 헛돌았다는 뜻이다.
+-- 통화 열이 ⑬⑭⑯에서만 `USD`여야 한다 — 전부 `KRW`면 `currency`가 페이로드에서 빠졌고 함수의
+-- 확장 웨이브 coalesce가 조용히 원화로 채웠다는 뜻이다. 지급방식은 ⑮⑯⑰만 `MONTHLY`이고 그 셋만 월수익 일정이
+-- 있다(36 · 36 · 12) — `MONTHLY`인데 0이면 셋째 결함이다(그것은 02 파일의 몫이다).
 -- ---------------------------------------------------------------------------
 select
   u.display_name                                          as 소유자,
@@ -442,6 +578,9 @@ select
   (select count(*) from public.els_underlyings      x where x.els_id = p.id) as 기초자산,
   (select count(*) from public.redemption_schedules s where s.els_id = p.id) as 차수,
   p.currency,
+  p.coupon_payout,
+  (select count(*) from public.monthly_coupon_schedules m where m.els_id = p.id) as 월수익,
+  (select count(*) from public.monthly_coupon_payments  m where m.els_id = p.id) as 기록,
   p.principal,
   p.ki_barrier,
   p.ki_touched_at
