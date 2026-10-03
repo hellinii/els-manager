@@ -1,4 +1,4 @@
-import { attributionYear, couponAttributionYear } from '@/lib/domain'
+import { attributionYear, couponAttributionYear, isCouponBeforeRedemption } from '@/lib/domain'
 import { separateTaxationWithholding } from '@/lib/tax'
 
 import {
@@ -221,7 +221,10 @@ function validateAgainstProduct(
   // V-27 양방향 (P8 컷 b2 — DOC-011 §5.4 · §5.5) — 상환일 ≥ 기록된 달(지급 · 미지급)들의 월수익 평가일 최댓값.
   // 상환 뒤에 평가되는 월수익은 없다 — 기록 쪽(§5.14)과 같은 사실을 반대에서 본다. DB 겹 `redemptions_before_coupon_payment`
   const latest = latestRecordedMonth(product)
-  if (latest != null && input.redemptionDate < latest.evaluationDate) {
+  if (
+    latest != null &&
+    !isCouponBeforeRedemption({ evaluationDate: latest.evaluationDate, redemptionDate: input.redemptionDate })
+  ) {
     p.add(
       'V-27',
       'redemptionDate',

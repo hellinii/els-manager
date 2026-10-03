@@ -67,9 +67,23 @@ export {
 } from './proceeds'
 
 export {
+  COUPON_CONDITION_RESULTS,
   COUPON_OUTCOMES,
   COUPON_PAYOUT_ORDER,
+  COUPON_STATES,
+  couponAmount,
+  couponConditionOf,
+  couponFlowEndOf,
+  couponStateOf,
+  isCouponBeforeRedemption,
+  isCouponEvaluated,
+  isCouponRecordable,
+  isWithinCouponFlow,
   MAX_COUPON_SCHEDULES,
+  nextCoupon,
+  type CouponConditionResult,
+  type CouponFlowEnd,
   type CouponOutcome,
   type CouponPayout,
+  type CouponState,
 } from './coupon'

@@ -1,4 +1,4 @@
-import { MAX_COUPON_SCHEDULES } from '@/lib/domain/coupon'
+import { isCouponBeforeRedemption, isCouponEvaluated, MAX_COUPON_SCHEDULES } from '@/lib/domain/coupon'
 
 import { loadCouponPaymentRef, type ProductRow } from '../queries/load'
 import {
@@ -74,11 +74,11 @@ export function checkAgainstProduct(
         if (evaluationDate == null) {
           p.add('V-27', `${at}couponNo`, `이 상품의 월수익 일정에 없는 순번이다 — ${entry.couponNo}번째.`)
         } else {
-          if (evaluationDate > asOf) {
+          if (!isCouponEvaluated({ evaluationDate, asOf })) {
             p.add('V-27', `${at}couponNo`, `아직 평가되지 않은 달이다 — ${label}.`)
           }
           // 비교 키는 그 달의 월수익 평가일이다(지급일이 아니다 — DOC-007 RD-18). 결과를 가리지 않는다
-          if (redemptionDate != null && evaluationDate > redemptionDate) {
+          if (!isCouponBeforeRedemption({ evaluationDate, redemptionDate })) {
             p.add('V-27', `${at}couponNo`, `상환일(${redemptionDate}) 뒤에 평가되는 달이다 — ${label}.`)
           }
           // V-28 — 지급일 ≥ 그 달 평가일(FULL만 — 기실현은 평가일이 없다)
