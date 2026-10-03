@@ -6,6 +6,7 @@ import { COUPON_PAYOUT_LABELS, KI_OBSERVATION_LABELS } from '@/lib/format'
 import { path } from '@/lib/forms/fieldPath'
 import {
   COUPON_BARRIERS_FIELD,
+  COUPON_SCHEDULES_FIELD,
   MONTHLY_RATE_FIELD,
   couponCell,
   couponFormulaOf,
@@ -187,9 +188,8 @@ export function ConditionStep({
         </Field>
       </div>
 
-      {monthly && (
-        <MonthlyBlock values={values} fieldErrors={fieldErrors} couponLock={couponLock ?? null} />
-      )}
+      {/* b4 — 늘 그린다. 월지급식이 아니면 닫힌 채 온다(JS 없이 고른 뒤 같은 렌더에서 칸을 채운다 — DOC-008 SCR-204) */}
+      <MonthlyBlock values={values} fieldErrors={fieldErrors} couponLock={couponLock ?? null} open={monthly} />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
@@ -460,8 +460,9 @@ function RoundTable({
  * 월지급 블록 — 월수익 연쿠폰율 · 월수익 배리어 일괄 채우기 · 평가일 산식으로 채우기 · 행마다 평가일 · 지급일 · 배리어
  * (P8 컷 b3-4, DOC-008 SCR-204 「P8 월지급식」 · v2.29).
  *
- * **b3에서는 지급방식 값이 월지급식인 렌더에만 선다**(부모의 `monthly`) — 「월지급식」 선택지가 b4이므로 지금 이 블록에
- * 닿는 것은 저장값이 월지급식인 상품의 수정 화면뿐이다. b4가 늘 그린다(닫힌 채).
+ * ~~**b3에서는 지급방식 값이 월지급식인 렌더에만 선다**~~ → **b4부터 늘 그린다 — 월지급식이 아니면 닫힌 채**(DOC-008
+ * SCR-204 v2.29). JS가 없으므로 「쿠폰 지급」에서 월지급식을 고른 그 렌더에서 칸을 채울 수 있어야 한다 — 블록이 제출 뒤에야
+ * 나타나면 한 번 더 제출해야 저장할 수 있다. 상환 시 지급으로 저장하면 파서가 이 칸들을 싣지 않는다.
  *
  * 일정은 옮기지 않는다 — 발행일 · 주기 · 총 차수를 바꿔도 칸은 그대로이고 버튼이 다시 채운다(보류 규칙). 「산식」 표식은
  * 지금의 산식과 칸을 비교한다 — 어긋나면 사라진다(v2.29 (2)).
@@ -470,17 +471,23 @@ function MonthlyBlock({
   values,
   fieldErrors,
   couponLock,
+  open,
 }: {
   values: Record<string, string>
   fieldErrors: Record<string, string>
   couponLock: CouponLock | null
+  /** 지금 값이 월지급식이면 펼쳐 온다. 칸에 오류가 있어도 펼친다 — 접힌 칸의 오류는 보이지 않는다 */
+  open: boolean
 }) {
   const rows = couponRowCountOf(values)
   const formula = couponFormulaOf(values)
   const recorded = new Set(couponLock?.recordedCouponNos ?? [])
 
   return (
-    <details open className="rounded-lg border border-neutral-200 p-4">
+    <details
+      open={open || Object.keys(fieldErrors).some((name) => monthlyErrorName(name))}
+      className="rounded-lg border border-neutral-200 p-4"
+    >
       <summary className="cursor-pointer text-sm font-semibold">월지급 — 월수익 연쿠폰율 · 월수익 일정</summary>
       <p className="mt-2 text-xs text-neutral-600">기본형만 등록한다 — 다른 변형은 v2</p>
 
@@ -613,4 +620,9 @@ function MonthlyBlock({
       )}
     </details>
   )
+}
+
+/** 월지급 블록의 칸인가 — 그 칸의 오류가 있으면 블록을 펼친다(접힌 `<details>` 안의 오류는 보이지 않는다) */
+function monthlyErrorName(name: string): boolean {
+  return name === MONTHLY_RATE_FIELD || name === COUPON_BARRIERS_FIELD || name.startsWith(`${COUPON_SCHEDULES_FIELD}`)
 }

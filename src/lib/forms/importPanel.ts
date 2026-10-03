@@ -21,6 +21,7 @@ import { resolveImportAssets, type AssetResolution } from './importAssets'
 import { importFillOf, type ImportNote } from './importFill'
 import {
   CLEARED_OBSERVATION_NOTE,
+  COUPON_RECORDED_REFUSAL,
   CURRENCY_CHANGED_NOTE,
   EDIT_REDEEMED_NOTE,
   KEPT_CURRENCY_NOTE,
@@ -28,6 +29,7 @@ import {
   currencyChangedBy,
   hasImportGaps,
   importOverStored,
+  refusedByCouponRecords,
   storedChangesOf,
 } from './importMerge'
 import type { ImportQuery, ImportTarget } from './query'
@@ -110,6 +112,11 @@ export function importPanelOf(input: {
   options: readonly AssetOption[]
   /** 폼의 출발점 — 등록은 `productDefaults()`, 수정은 `productValuesOf(view)`(저장값) */
   defaults: Record<string, string>
+  /**
+   * 그 상품에 월수익 지급 기록이 있다 — X-07 뒷절반(P8 컷 b4). **필수다** — 선택으로 두면 잊은 호출부가 기록 있는 상품의
+   * 불러오기를 채우고, 그 폼의 저장은 늘 CONFLICT다. 등록 화면은 늘 `false`다(상품이 아직 없다)
+   */
+  couponRecorded: boolean
 }): ImportPanel {
   const { query, code } = input.query
   const editing = input.target.kind === 'EDIT'
@@ -198,6 +205,19 @@ export function importPanelOf(input: {
   for (const note of fill.notes) {
     if (note.field == null) notes.push(textOf(note))
     else fieldNotes[note.field] = note.text
+  }
+
+  // X-07 뒷절반 (P8 컷 b4) — 기록 있는 상품의 통화 · 지급방식을 바꾸는 불러오기는 거부한다. 앞절반(투자원금을 비운다)보다
+  // 먼저다 — 그 채움은 저장될 수 없다
+  if (editing && refusedByCouponRecords(input.couponRecorded, input.defaults, fill.values)) {
+    return {
+      ...base,
+      state: importPanelStateOf({ query, code, search: null, fill: { kind: 'REFUSED' } }),
+      productName: product.name,
+      prospectusUrl,
+      reasons: [COUPON_RECORDED_REFUSAL],
+      notes,
+    }
   }
 
   let initialValues: Record<string, string>

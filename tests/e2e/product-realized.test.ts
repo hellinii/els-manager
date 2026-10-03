@@ -127,16 +127,16 @@ describe('SCR-205 기실현 등재', () => {
     }
   })
 
-  it('★ 「쿠폰 지급」에 「월지급식」이 없고 「선택」에서 시작한다 — b4까지 고를 수 없다 (SB-13 · DOC-008 SCR-205)', async () => {
+  it('★ 「쿠폰 지급」은 「선택」에서 시작하고 b4부터 「월지급식」을 고를 수 있다 (SB-13 · DOC-008 SCR-205)', async () => {
     // SCR-204의 같은 단언(product-new.test.ts)의 짝이다 — 기실현 폼은 선택지를 따로 그린다(RealizedProductForm.tsx)
     const payoutSelect = /<select[^>]*name="couponPayout"[^>]*>[\s\S]*?<\/select>/.exec(
       formHtmlFor(await pageHtml(), actionId),
     )?.[0]
     expect(payoutSelect, '「쿠폰 지급」 선택 상자가 없다').toBeDefined()
     expect(payoutSelect).toContain('value="AT_REDEMPTION"')
-    expect(payoutSelect).not.toContain('value="MONTHLY"')
-    // 기본값이 없다(V-25) — 상환 시 지급이 미리 골라져 있지 않다
-    expect(payoutSelect).not.toMatch(/value="AT_REDEMPTION"[^>]*selected/)
+    expect(payoutSelect).toContain('value="MONTHLY"')
+    // 기본값이 없다(V-25) — 어느 쪽도 미리 골라져 있지 않다
+    expect(payoutSelect).not.toMatch(/value="(AT_REDEMPTION|MONTHLY)"[^>]*selected/)
   })
 
   it('저장이 상세로 리다이렉트하고 그 화면이 기실현임을 말한다', async () => {

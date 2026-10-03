@@ -176,16 +176,17 @@ export function currencyOptionsOf(current: string | undefined): ProductCurrency[
 // ---------------------------------------------------------------------------
 
 /**
- * 폼이 고르게 하는 쿠폰 지급방식 — **「상환 시 지급」 하나다** (컷 b2 · b3).
+ * 폼이 고르게 하는 쿠폰 지급방식 — ~~**「상환 시 지급」 하나다** (컷 b2 · b3)~~ → **둘 다다 (컷 b4)**.
  *
  * DOC-008 SCR-204: 「「월지급식」은 b4에서 연다」 — 세금 · 전망이 월수익을 사건으로 읽는 것이 b4이므로, 그 전에
  * 고르게 하면 월수익이 화면에는 있고 세금에는 없는 상품이 저장된다(상품 통화의 「달러는 모든 금액 표시가 통화를
- * 아는 커밋에서」와 같은 판단). 계약은 b2부터 월지급식을 받는다(통합 테스트 · 개발 표본).
+ * 아는 커밋에서」와 같은 판단). b4-2가 그 조건을 채웠다(소득 사건에 월수익). 같은 W5 묶음 안에서 M-b2c가 이 코드보다
+ * 먼저 운영에 나간다(DOC-013 §10.2.1 — AQ-78 둘째 조건).
  *
  * 기본값은 없다(U7) — 「선택」에서 시작하고 고르지 않으면 V-25가 그 칸에 붙는다. 칸을 숨기고 상환 시 지급을
  * 몰래 실으면 그것이 곧 기본값이다(DOC-011 §5.1).
  */
-export const SELECTABLE_COUPON_PAYOUTS: readonly CouponPayout[] = ['AT_REDEMPTION']
+export const SELECTABLE_COUPON_PAYOUTS: readonly CouponPayout[] = ['AT_REDEMPTION', 'MONTHLY']
 
 /**
  * 선택지 — 저장값이 위 목록 밖이면(계약 경유로 저장된 월지급 상품) **그 값을 더한다**(`currencyOptionsOf`와 같다).
@@ -266,11 +267,12 @@ export type RowCounts = {
   /** 차수표의 행 수. `totalRounds` 입력에서 나오며 0은 「아직 정하지 않았다」다 */
   rounds: number
   /**
-   * 월지급 블록이 폼의 이름인가 (P8 컷 b3-4). **b3에서는 지급방식 값이 월지급식인 렌더만이다**(DOC-008 v2.29 —
-   * 선택지가 b4이므로 그 값은 저장값뿐이고, 상환 시 지급 상품의 폼에 칸을 두면 기존 폼이 바뀐다)
+   * 지금 값이 월지급식인가 — 월지급 블록의 펼침 · 연쿠폰율 0 고정이 이것을 읽는다. ~~월지급 블록이 폼의 이름인가(b3 —
+   * 월지급식 렌더만)~~ → **b4부터 블록의 이름은 늘 폼에 있다**(DOC-008 SCR-204 「b4가 선택지를 열면서 늘 그린다(닫힌 채)」 —
+   * JS 없이 월지급식을 고른 뒤 같은 렌더에서 칸을 채워야 한다). 상환 시 지급이면 파서가 그 칸을 싣지 않는다
    */
   monthly: boolean
-  /** 월수익 일정의 행 수 — 값에서 파생(`couponRowCountOf`). 월지급식이 아니면 0 */
+  /** 월수익 일정의 행 수 — 값에서 파생(`couponRowCountOf`). 지급방식과 무관하다(행은 값이 있는 동안 그려진다) */
   couponRows: number
 }
 
@@ -281,7 +283,7 @@ export function rowCountsOf(values: Record<string, string>): RowCounts {
     underlyings: rowCountOf(values, 'underlyings'),
     rounds: roundCountOf(values),
     monthly,
-    couponRows: monthly ? couponRowCountOf(values) : 0,
+    couponRows: couponRowCountOf(values),
   }
 }
 
@@ -315,7 +317,8 @@ export function productFieldNames(counts: RowCounts): string[] {
     ...rowNames('underlyings', counts.underlyings, UNDERLYING_SUBS),
     ...CONDITION_NAMES,
     ...rowNames('schedules', counts.rounds, SCHEDULE_SUBS),
-    ...(counts.monthly ? monthlyFieldNames(counts.couponRows) : []),
+    // 월지급 블록은 늘 그려진다(b4) — 이름도 늘 있다. 상환 시 지급이면 파서가 싣지 않는다(`parse.ts`)
+    ...monthlyFieldNames(counts.couponRows),
   ]
 }
 

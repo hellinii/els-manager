@@ -100,13 +100,14 @@ describe('상품 통화 선택지 — DOC-008 SCR-204 (P8 컷 a2)', () => {
 })
 
 describe('쿠폰 지급방식 선택지 — DOC-008 SCR-204 · SCR-205 (P8 컷 b2)', () => {
-  it('★ 등록 화면은 「상환 시 지급」 하나다 — 「월지급식」은 b4에서 연다(SB-13)', () => {
+  it('★ b4부터 「월지급식」을 고를 수 있다 — 세금 · 전망이 월수익을 사건으로 읽은 뒤다(SB-13)', () => {
     /*
-     * 세금 · 전망이 월수익을 사건으로 읽는 것이 b4이므로 그 전에 고르게 하면 월수익이 화면에는 있고 세금에는 없는
-     * 상품이 운영에 저장된다. 계약은 b2부터 월지급식을 받으므로(통합 테스트 · 개발 표본) **이 선택지가 유일한 문이다**
+     * ~~등록 화면은 「상환 시 지급」 하나다~~ — b3까지는 그랬다: 세금 · 전망이 월수익을 사건으로 읽는 것이 b4이므로 그 전에
+     * 고르게 하면 월수익이 화면에는 있고 세금에는 없는 상품이 저장된다. b4-2가 그 조건을 채웠다(소득 사건에 월수익).
+     * 순서는 선언 순서(`COUPON_PAYOUT_ORDER`)다
      */
-    expect(couponPayoutOptionsOf(undefined)).toEqual(['AT_REDEMPTION'])
-    expect(couponPayoutOptionsOf('')).toEqual(['AT_REDEMPTION'])
+    expect(couponPayoutOptionsOf(undefined)).toEqual(['AT_REDEMPTION', 'MONTHLY'])
+    expect(couponPayoutOptionsOf('')).toEqual(['AT_REDEMPTION', 'MONTHLY'])
   })
 
   it('저장값이 월지급식이면 그 값을 더한다 — 「선택」으로 떨어지면 지급방식이 뒤집힌다', () => {
@@ -114,7 +115,7 @@ describe('쿠폰 지급방식 선택지 — DOC-008 SCR-204 · SCR-205 (P8 컷 b
   })
 
   it('모르는 값은 선택지를 늘리지 않는다 — 열거 밖은 V-25가 말한다', () => {
-    expect(couponPayoutOptionsOf('QUARTERLY')).toEqual(['AT_REDEMPTION'])
+    expect(couponPayoutOptionsOf('QUARTERLY')).toEqual(['AT_REDEMPTION', 'MONTHLY'])
   })
 })
 

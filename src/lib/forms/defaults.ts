@@ -62,5 +62,9 @@ export function productDefaults(): Record<string, string> {
     evaluationDateBasis: '',
     'underlyings[0].assetId': '',
     'underlyings[0].basePrice': '',
+    // 월지급 블록 (P8 컷 b4) — 늘 그려지므로 두 칸은 늘 이름이다(`productFieldNames`). 일정 행은 「평가일 산식으로 채우기」가
+    // 만든다 — 행 수는 값에서 파생한다(히든 계수기 없음)
+    monthlyCouponAnnualRate: '',
+    couponBarriers: '',
   }
 }

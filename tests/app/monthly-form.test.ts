@@ -116,11 +116,14 @@ describe('전이 · 이름 · 파서', () => {
     expect(transition(formOf({ ...BASE, couponPayout: 'AT_REDEMPTION', annualCouponRate: '8' })).values.annualCouponRate).toBe('8')
   })
 
-  it('「평가일 산식으로 채우기」 의도가 행을 만들고, 월지급 이름은 월지급식 렌더에만 있다', () => {
+  it('「평가일 산식으로 채우기」 의도가 행을 만들고, 월지급 이름은 늘 있다(b4 — 블록이 늘 그려진다)', () => {
     const next = transition(formOf({ ...BASE, [INTENT_FIELD]: 'APPLY_COUPON_DATES' }))
     expect(next.counts).toMatchObject({ monthly: true, couponRows: 12 })
     expect(next.values[couponCell(11, 'paymentDate')]).not.toBe('')
-    expect(productFieldNames(rowCountsOf({ couponPayout: 'AT_REDEMPTION' }))).not.toContain(MONTHLY_RATE_FIELD)
+    // ~~월지급식 렌더에만~~ → b4: 상환 시 지급 렌더에도 칸이 있다(닫힌 블록) — JS 없이 월지급식을 고른 렌더에서 채운다
+    const plain = rowCountsOf({ couponPayout: 'AT_REDEMPTION' })
+    expect(plain).toMatchObject({ monthly: false, couponRows: 0 })
+    expect(productFieldNames(plain)).toContain(MONTHLY_RATE_FIELD)
     expect(productFieldNames(next.counts)).toContain(couponCell(11, 'couponBarrier'))
   })
 
@@ -158,9 +161,13 @@ describe('수정 초기값 — getProduct에서', () => {
     })
   })
 
-  it('상환 시 지급 상품의 초기값에는 월지급 칸이 없다 — 기존 수정 폼이 그대로', () => {
+  it('상환 시 지급 상품의 초기값 — 월지급 칸은 빈 값이고 행이 없다(b4 — 칸은 늘 있다) · 그대로 저장해도 싣지 않는다', () => {
     const view = toProductDetailView(productRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES)
-    expect(productValuesOf(view)).not.toHaveProperty(MONTHLY_RATE_FIELD)
+    const values = productValuesOf(view)
+    expect(values[MONTHLY_RATE_FIELD]).toBe('')
+    expect(values[couponCell(0, 'evaluationDate')]).toBeUndefined()
+    const input = parseProductForm(formOfValues(values))
+    expect([input.monthlyCouponAnnualRate, input.couponSchedules]).toEqual([undefined, undefined])
   })
 
   it('잠금 — 기록이 있으면 기록된 순번, 없으면 null', () => {

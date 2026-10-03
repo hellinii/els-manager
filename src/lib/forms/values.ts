@@ -96,10 +96,11 @@ export function productValuesOf(view: ProductDetailView): Record<string, string>
    * (월지급식에 율 · 일정이 필수다), 일정이 빠진 저장은 입력에 없는 순번을 지운다(§5.2) — 기록된 달이면 `CONFLICT`다.
    * `coupons`가 `null`인 월지급 상품(셋째 결함 — 일정 0행)은 빈 블록이다: 고칠 곳이 그 블록이다.
    */
+  // b4 — 블록은 늘 그려지므로 두 칸은 늘 이름이다(상환 시 지급이면 빈 값 — 파서가 싣지 않는다)
+  values[MONTHLY_RATE_FIELD] =
+    product.monthlyCouponAnnualRate == null ? '' : ratioToPercent(product.monthlyCouponAnnualRate)
+  values[COUPON_BARRIERS_FIELD] = ''
   if (product.couponPayout === 'MONTHLY') {
-    values[MONTHLY_RATE_FIELD] =
-      product.monthlyCouponAnnualRate == null ? '' : ratioToPercent(product.monthlyCouponAnnualRate)
-    values[COUPON_BARRIERS_FIELD] = ''
     ;[...(view.coupons ?? [])]
       .sort((a, b) => a.couponNo - b.couponNo)
       .forEach((coupon, index) => {

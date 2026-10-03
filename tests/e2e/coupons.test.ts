@@ -232,11 +232,38 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
     expect(form).not.toContain('value="APPLY_COUPON_DATES"')
   })
 
-  it('★ 상환 시 지급 상품의 등록 · 수정 폼에는 월지급 블록이 없다 — 기존 폼이 그대로(b3)', async () => {
-    const created = await (await get(PATHS.productNew, jar)).text()
-    expect(created).not.toContain(`name="${MONTHLY_RATE_FIELD}"`)
-    const edit = await (await get(PATHS.productEdit(plain.productId), jar)).text()
-    expect(edit).not.toContain(`name="${MONTHLY_RATE_FIELD}"`)
+  it('★ b4 — 상환 시 지급 상품의 폼에도 월지급 블록이 닫힌 채 있고 「월지급식」을 고를 수 있다(JS 없이 같은 렌더에서 채운다)', async () => {
+    for (const path of [PATHS.productNew, PATHS.productEdit(plain.productId)]) {
+      const html = await (await get(path, jar)).text()
+      expect(html, path).toContain(`name="${MONTHLY_RATE_FIELD}"`)
+      // 닫힌 채 — `<details>`에 open이 없다(월지급식이 아니다)
+      const details = /<details[^>]*>\s*<summary[^>]*>월지급 — /.exec(html)?.[0] ?? ''
+      expect(details, path).not.toBe('')
+      expect(details, path).not.toMatch(/\bopen\b/)
+      expect(html, path).toMatch(/<option value="MONTHLY">월지급식<\/option>/)
+    }
+  })
+
+  it('★ 등록 화면에서 월지급식을 골라 그 렌더의 블록으로 저장한다 — 율 · 일정(18행 = 6개월 × 3차) · 연쿠폰율 0 · 상세 ⑦', async () => {
+    const created = await registerProduct(jar, {
+      label: '월지급폼',
+      principal: '100,000,000',
+      monthly: { annualRate: '7.2', barrier: '60' },
+    })
+    const { rows } = await queryRows<{ payout: string; annual: string; monthly: string; months: number }>(
+      `select p.coupon_payout::text as payout, p.annual_coupon_rate::text as annual,
+              p.monthly_coupon_annual_rate::text as monthly,
+              (select count(*)::int from public.monthly_coupon_schedules s where s.els_id = p.id) as months
+         from public.els_products p where p.id = $1::uuid`,
+      [created.productId],
+    )
+    expect(rows[0]).toEqual({ payout: 'MONTHLY', annual: '0.0000', monthly: '0.0720', months: 18 })
+    expect(await detailHtml(created.productId)).toContain(`id="${COUPON_SECTION.id}"`)
+  })
+
+  it('SCR-205 기실현 등재에도 「월지급식」 선택지가 있다', async () => {
+    const html = await (await get(PATHS.productRealizedNew, jar)).text()
+    expect(html).toMatch(/<option value="MONTHLY">월지급식<\/option>/)
   })
 })
 

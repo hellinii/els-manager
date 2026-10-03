@@ -135,6 +135,12 @@ export async function registerProduct(
      * 고른다 — 이 헬퍼가 사용자처럼 고른다). 달러면 `principal`도 달러로 준다(센트까지)
      */
     currency?: 'KRW' | 'USD'
+    /**
+     * 월지급식으로 등록한다 — **P8 컷 b4가 필요해졌다**(「월지급식」 선택지가 열렸다). 화면 그대로 간다: 「쿠폰 지급」에서
+     * 고르고 **같은 렌더의** 월지급 블록(늘 그려진다 — 닫힌 채)에 율 · 일괄 배리어를 적고 「평가일 산식으로 채우기」를 누른
+     * 뒤 저장한다(JS 없음). 리자드를 붙이지 않는다(V-25 — 월지급 + 리자드는 v2). 율 · 배리어는 퍼센트다
+     */
+    monthly?: { annualRate: string; barrier: string }
   } = {},
 ): Promise<RegisteredProduct> {
   const stamp = String(Date.now()).slice(-6)
@@ -170,24 +176,36 @@ export async function registerProduct(
     'underlyings[0].assetId': assetId,
     'underlyings[0].basePrice': BASE_PRICE,
     // 쿠폰 지급 — 기본값이 없다(U7 · V-25 · P8 컷 b2). 화면이 「선택」에서 시작하므로 사용자처럼 고른다
-    couponPayout: 'AT_REDEMPTION',
+    couponPayout: options.monthly == null ? 'AT_REDEMPTION' : 'MONTHLY',
     evaluationPeriodMonths: '6',
     totalRounds: '',
-    annualCouponRate: '8',
+    // 월지급식은 0이다(V-08′) — 전이도 0으로 두지만 사용자가 칸에 적는 값도 0이다(readOnly)
+    annualCouponRate: options.monthly == null ? '8' : '0',
+    ...(options.monthly == null
+      ? {}
+      : { monthlyCouponAnnualRate: options.monthly.annualRate, couponBarriers: options.monthly.barrier }),
     kiBarrier: '50',
     kiObservation: 'CLOSING',
     barriers: barriers.join('-'),
   })
 
-  // ② 2차에 리자드를 붙이고 저장한다. 성공은 **상세로 가는 리다이렉트**다(§7.1)
+  // ①′ 월지급식 — 「평가일 산식으로 채우기」가 월수익 일정 행을 만든다(새 행의 배리어는 일괄 칸의 값)
+  const ready =
+    options.monthly == null ? applied : await submit(jar, applied, actionId, 'APPLY_COUPON_DATES', {})
+
+  // ② 2차에 리자드를 붙이고 저장한다(월지급식은 붙이지 않는다). 성공은 **상세로 가는 리다이렉트**다(§7.1)
   const saved = await submitAction(PATHS.productNew, jar, [
-    ...formValuesFor(applied, actionId),
-    ...Object.entries({
-      'schedules[1].lizardBarrier': '60',
-      'schedules[1].lizardCouponRate': '3',
-      'schedules[1].lizardRequiresNoKi': 'on',
-    }),
-    buttonField(formHtmlFor(applied, actionId), 'SUBMIT'),
+    ...formValuesFor(ready, actionId),
+    ...Object.entries(
+      options.monthly == null
+        ? {
+            'schedules[1].lizardBarrier': '60',
+            'schedules[1].lizardCouponRate': '3',
+            'schedules[1].lizardRequiresNoKi': 'on',
+          }
+        : {},
+    ),
+    buttonField(formHtmlFor(ready, actionId), 'SUBMIT'),
   ])
 
   if (saved.status !== 303 && saved.status !== 302) {

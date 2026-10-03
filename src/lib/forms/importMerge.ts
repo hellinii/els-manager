@@ -83,6 +83,37 @@ export function currencyChangedBy(
 }
 
 /**
+ * 불러온 쿠폰 지급방식이 저장값과 다른가 — X-07 뒷절반의 둘째 조건 (P8 컷 b4).
+ *
+ * 등록 화면의 채움은 「상환 시 지급」을 싣는다(`importFillOf` — 불러올 수 있는 상품이 전부 상환 시 지급이다, 월지급식 후보는
+ * b5까지 사유만 보인다). 그래서 저장값이 월지급식인 상품에서는 지금도 참이 된다 — 수정 화면은 그 칸을 덮지 않지만
+ * (`IMPORT_KEEPS_STORED`) 불러온 상품의 지급방식이 다르다는 사실은 그대로다
+ */
+export function payoutChangedBy(
+  stored: Readonly<Record<string, string>>,
+  imported: Readonly<Record<string, string>>,
+): boolean {
+  const importedPayout = imported.couponPayout ?? ''
+  return importedPayout !== '' && importedPayout !== (stored.couponPayout ?? '')
+}
+
+/**
+ * X-07 뒷절반 — 월수익 지급 기록이 있는 상품은 상품 통화 · 쿠폰 지급방식이 다른 불러오기를 거부한다(DOC-011 §9 X-07
+ * v4.29). 기록이 있으면 그 둘은 저장이 `els_products_coupon_recorded_immutable`(CONFLICT)로 거부하므로 결과를 쓸 수 없는
+ * 폼을 채우지 않는다(X-01과 같은 근거). 앞절반(투자원금을 비운다)보다 먼저 판정한다
+ */
+export const COUPON_RECORDED_REFUSAL =
+  '월수익 지급 기록이 있어 상품 통화 · 쿠폰 지급방식을 바꿀 수 없다 — 불러오지 않았다.'
+
+export function refusedByCouponRecords(
+  couponRecorded: boolean,
+  stored: Readonly<Record<string, string>>,
+  imported: Readonly<Record<string, string>>,
+): boolean {
+  return couponRecorded && (currencyChangedBy(stored, imported) || payoutChangedBy(stored, imported))
+}
+
+/**
  * 불러온 폼에 사람이 채울 곳이 남았는가 — 수정 화면의 「일부 채움」 판정 (DOC-008 SCR-204 상태 표)
  *
  * 값으로 판정한다: 비어 있는 기초자산(미해결·중복) · KI 상품의 빈 관찰방식 · 빈 상품 통화 · 빈 투자원금.

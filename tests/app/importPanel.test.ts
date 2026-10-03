@@ -7,6 +7,7 @@ import { formKeyAfter } from '@/lib/forms/importKey'
 import { CURRENCY_UNKNOWN_NOTE } from '@/lib/forms/importFill'
 import {
   CLEARED_OBSERVATION_NOTE,
+  COUPON_RECORDED_REFUSAL,
   CURRENCY_CHANGED_NOTE,
   EDIT_REDEEMED_NOTE,
   KEPT_CURRENCY_NOTE,
@@ -90,6 +91,7 @@ const panel = (input: Partial<Parameters<typeof importPanelOf>[0]>) =>
     listed: null,
     options: [],
     defaults: productDefaults(),
+    couponRecorded: false,
     ...input,
   })
 
@@ -463,6 +465,53 @@ describe('상품 통화 — 증인 · X-07 (P8 컷 a4 · DOC-010 ADR-009 §7 · 
     expect(p.fieldNotes.principal).toBe('저장값 10000000')
     // 그 상태의 문구가 「투자원금 … 저장값 그대로」라고 단정하지 않는다(DOC-008 v2.20)
     expect(importPanelMessageOf(p.state, 'EDIT')).not.toMatch(/투자원금·계좌유형·비고는 저장값 그대로/)
+  })
+
+  /*
+   * X-07 뒷절반 (P8 컷 b4 · DOC-011 §9 X-07 v4.29) — 기록 있는 상품은 통화 · 지급방식이 다른 불러오기를 거부한다.
+   * 앞절반(투자원금을 비운다)보다 먼저다 — 그 채움은 저장될 수 없다(els_products_coupon_recorded_immutable)
+   */
+  it('★ X-07 뒷절반 — 기록 있는 원화 상품에 달러를 불러오면 거부한다 · 폼은 저장값 그대로', () => {
+    const stored = storedAs('KRW', '10000000')
+    const p = panel({
+      target: EDIT,
+      query: EM2047,
+      terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047),
+      listed: TSLA_MU,
+      options: OPTIONS,
+      defaults: stored,
+      couponRecorded: true,
+    })
+    expect(p.state).toBe('REFUSED')
+    expect(p.reasons).toEqual([COUPON_RECORDED_REFUSAL])
+    expect(p.initialValues).toEqual(stored)
+    // 기록이 없으면 앞절반 그대로다 — 비우고 일부 채움
+    expect(editOf(stored).state).toBe('PARTIAL')
+  })
+
+  it('★ X-07 뒷절반 — 기록 있는 월지급 상품에 상환 시 지급 상품을 불러오면 거부한다(채움은 상환 시 지급을 싣는다)', () => {
+    const monthly = { ...storedAs('USD', '10000.50'), couponPayout: 'MONTHLY' }
+    const p = panel({
+      target: EDIT,
+      query: EM2047,
+      terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047),
+      listed: TSLA_MU,
+      options: OPTIONS,
+      defaults: monthly,
+      couponRecorded: true,
+    })
+    expect([p.state, p.reasons]).toEqual(['REFUSED', [COUPON_RECORDED_REFUSAL]])
+    // 같은 통화 · 같은 지급방식이면 기록이 있어도 거부하지 않는다
+    const same = panel({
+      target: EDIT,
+      query: EM2047,
+      terms: okTermsWithListing('EM2047', SEARCH_FIXTURES.q2047),
+      listed: TSLA_MU,
+      options: OPTIONS,
+      defaults: storedAs('USD', '10000.50'),
+      couponRecorded: true,
+    })
+    expect(same.state).toBe('FILLED')
   })
 
   it('★ 같은 통화면 아무것도 비우지 않는다 — 불러옴이고 투자원금은 저장값이다', () => {

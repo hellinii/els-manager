@@ -420,13 +420,14 @@ describe('SCR-204 단일 페이지 폼', () => {
     expect(rendered).toContain('id="currency-error"')
     // P8 컷 b2 — 「쿠폰 지급」도 같다(V-25). 상환 시 지급으로 채우지 않는다
     expect(rendered).toContain('id="couponPayout-error"')
-    // ★ 「월지급식」은 b4까지 고를 수 없다(SB-13 — DOC-008 SCR-204). 선택 상자에 그 값이 없어야 한다
+    // ★ ~~「월지급식」은 b4까지 고를 수 없다~~ → b4부터 고를 수 있다(SB-13 — DOC-008 SCR-204). 그래도 기본값은 없다
     const payoutSelect = /<select[^>]*name="couponPayout"[^>]*>[\s\S]*?<\/select>/.exec(
       formHtmlFor(rendered, actionId),
     )?.[0]
     expect(payoutSelect, '「쿠폰 지급」 선택 상자가 없다').toBeDefined()
     expect(payoutSelect).toContain('value="AT_REDEMPTION"')
-    expect(payoutSelect).not.toContain('value="MONTHLY"')
+    expect(payoutSelect).toContain('value="MONTHLY"')
+    expect(payoutSelect).not.toMatch(/value="(AT_REDEMPTION|MONTHLY)"[^>]*selected/)
     // 입력값 보존 — 다른 구획의 값도 그대로다(W-03의 존재 이유)
     expect(formHtmlFor(rendered, actionId)).toContain('value="90"')
   })
