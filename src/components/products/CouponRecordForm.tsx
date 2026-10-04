@@ -55,6 +55,7 @@ export function CouponRecordForm({
   productId,
   currency,
   taxableHintBasis,
+  taxFree,
   editId,
   submitLabel,
 }: {
@@ -70,6 +71,11 @@ export function CouponRecordForm({
   currency: ProductCurrency
   /** 달러 과세 힌트의 추정 환율 — `remainingCoupons.exchangeRateBasis`(DOC-008 v2.41 — 월지급 상품은 `projection`이 늘 없다). 없으면 숫자 없는 힌트 */
   taxableHintBasis: ExchangeRateBasisText | null
+  /**
+   * 비과세 계좌 — 과세 칸은 통화와 무관하게 0으로 채워지므로(DOC-008 v2.41) 힌트도 같은 순서다: 달러 환산 산식을
+   * 말하지 않고 원화 상품과 같은 힌트다(DOC-008 v2.42 SCR-206)
+   */
+  taxFree: boolean
   /** §5.15 수정이면 그 기록 id — 한 행 폼이다 */
   editId?: string
   submitLabel: string
@@ -168,7 +174,7 @@ export function CouponRecordForm({
               name={rowName(r, 'taxableIncome')}
               label="과세 금융소득 (원)"
               error={fieldErrors[rowName(r, 'taxableIncome')]}
-              hint={foreign ? couponTaxableHint(taxableHintBasis) : '증권사 거래내역의 「과표」'}
+              hint={foreign && !taxFree ? couponTaxableHint(taxableHintBasis) : '증권사 거래내역의 「과표」'}
             >
               {(props) => (
                 <input

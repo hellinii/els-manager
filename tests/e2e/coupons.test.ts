@@ -10,7 +10,7 @@ import { MONTHLY_COUPON_ASSUMPTION, MONTHLY_COUPON_ESTIMATE_NOTE } from '@/lib/f
 import { COUPON_SECTION, EXCHANGE_RATE_SECTION, PATHS } from '@/lib/routes/paths'
 
 import { ITG_USER_B } from '../integration/helpers/fixtures'
-import { queryRows } from '../integration/helpers/seed'
+import { queryRows, sql } from '../integration/helpers/seed'
 
 import { actionIdOf, buttonField, formFieldsFor, formHtmlFor, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
@@ -176,7 +176,7 @@ describe('SCR-206 — 제출', () => {
     const fields = formFieldsFor(html, actionId).filter(([name]) => name !== COUPON_PAYMENT_IDS_FIELD)
     const res = await submitAction(path, jar, [...fields, [COUPON_PAYMENT_IDS_FIELD, id]])
     expect(res.status).toBe(200)
-    expect(await res.text()).toContain('월수익 기록을 지웠다.')
+    expect(await res.text()).toContain('월수익 지급 기록을 지웠다.')
     expect(Object.keys(await recordIdsOf(monthly.productId))).toEqual(['1'])
   })
 
@@ -236,7 +236,7 @@ describe('SCR-204 월지급 블록 (b3-4)', () => {
     const res = await submitAction(editPath, jar, [...formValuesFor(html, actionId), buttonField(formHtmlFor(html, actionId), 'SUBMIT')])
     expect(res.status).toBe(200)
     expect((await res.text()).replace(/<!--[\s\S]*?-->/g, '')).toContain(
-      '월수익 일정이 만기까지 이어지지 않는다 — 18개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+      '월수익 일정이 만기까지 이어지지 않는다 — 18개월이어야 한다(평가주기 × 총 차수). 산식으로 채우기를 누른다.',
     )
   })
 
@@ -520,3 +520,61 @@ describe('달러 월지급 · 환율 없음 — ST-07이 무기록 달러 월수
     expect(html).toContain(exchangeRateMissingLead({ kind: 'COUNT', count: 1 }))
   })
 })
+
+/*
+ * P8.5-7 — 월지급식에서만 바뀐 문장 둘 (DOC-008 v2.42 SCR-202 ⑤ · SCR-206)
+ *
+ * ⓐ 상환된 월지급 상품의 ⑤는 「상환은 완료되어 …」다 — 바로 아래 잔여 월수익(추정)과 모순되지 않게 «상환»으로 좁힌다.
+ *    종전 「상환이 완료되어 추정하지 않는다」는 같은 구획에서 「…가정한 추정값이다」와 나란히 섰다(대조 S3).
+ * ⓑ 달러 · 비과세 월수익 기록의 과세 칸 힌트는 원화 상품과 같다 — 칸이 통화보다 먼저 0으로 채워지므로(v2.41) 환산 산식을
+ *    말하지 않는다(대조 S4).
+ *
+ * 상환은 SQL로 넣는다(`makeMonthly`와 같은 지름길 — 월지급 상환은 원금만 · 과세 0이라 트리거 `redemptions_check_coupon_terms`를
+ * 지난다). **스스로 정리한다** — 상환이 있으면 삭제 계약이 거부하므로 SQL로 걷는다. 남기면 전용 사용자의 집계를 값으로 단언하는
+ * 테스트가 흔들린다(AQ-34).
+ */
+describe('P8.5-7 — 상환된 월지급 상품의 ⑤ 문장 · 달러 비과세 기록 힌트 (DOC-008 v2.42)', () => {
+  let product: RegisteredProduct | null = null
+
+  beforeAll(async () => {
+    product = await registerProduct(jar, {
+      label: '월지급상환',
+      currency: 'USD',
+      principal: '10,000.00',
+      accountType: 'TAX_FREE',
+    })
+    // 평가일 −70 · −40 · −10 · +20 · +50일 — 상환일(−5일) 앞의 세 달이 흐름 안 · 무기록이라 잔여 월수익(추정)으로 남는다
+    await makeMonthly(product.productId, monthsAround(asOf))
+    await sql(
+      `insert into public.redemptions
+         (els_id, redemption_type, round_no, redemption_date, gross_amount, taxable_income, withholding_tax, is_confirmed)
+       values ($1::uuid, 'EARLY', 1, $2::date, 10000.00, 0, 0, true)`,
+      [product.productId, shiftDays(asOf, -5)],
+    )
+  })
+
+  afterAll(async () => {
+    if (product == null) return
+    await sql('delete from public.monthly_coupon_payments where els_id = $1::uuid', [product.productId])
+    await sql('delete from public.redemptions where els_id = $1::uuid', [product.productId])
+    await sql('delete from public.els_products where id = $1::uuid', [product.productId])
+  })
+
+  it('ⓐ ⑤는 «상환»으로 좁힌 문장이고 잔여 월수익과 함께 선다 — 종전 문장은 없다', async () => {
+    const html = await detailHtml(product!.productId)
+    expect(html).toContain('상환은 완료되어 추정하지 않는다 — 아래 상환 실적이 확정값이다(E-05).')
+    expect(html).not.toContain('상환이 완료되어 추정하지 않는다')
+    // 모순이 실제로 있던 구성인지부터 — 잔여 월수익이 같은 구획에 있다
+    expect(html).toContain('잔여 월수익')
+  })
+
+  it('ⓑ 달러 · 비과세 기록 폼의 과세 칸 힌트는 원화와 같다 — 환산 산식을 말하지 않는다', async () => {
+    const html = await (await get(PATHS.productCoupons(product!.productId), jar)).text()
+    const form = formHtmlFor(html, actionIdOf('recordCouponPaymentsAction'))
+    // 기록할 달이 실제로 그려졌는지부터 — 행이 없으면 아래 둘이 공허하다
+    expect(form).toContain(rowName(0, 'taxableIncome'))
+    expect(form).toContain('증권사 거래내역의 「과표」')
+    expect(form).not.toContain('≈ 세전 × 지급일 환율')
+  })
+})
+

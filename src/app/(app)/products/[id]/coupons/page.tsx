@@ -146,6 +146,7 @@ function RecordMany({ view, basis }: { view: View; basis: Basis }) {
         productId={product.id}
         currency={product.currency}
         taxableHintBasis={basis}
+        taxFree={product.accountType === 'TAX_FREE'}
         submitLabel="월수익 기록 저장"
       />
     </>
@@ -170,6 +171,7 @@ function EditOne({ view, editId, basis }: { view: View; editId: string; basis: B
       productId={view.product.id}
       currency={view.product.currency}
       taxableHintBasis={basis}
+      taxFree={view.product.accountType === 'TAX_FREE'}
       editId={found.record.id}
       submitLabel="수정 저장"
     />

@@ -4,7 +4,7 @@
 # 않으며 그 이유와 잔여가 §3.3에 등재되어 있다.**
 #
 # 이 워크플로가 «가능한» 것 자체가 ADR-003의 배당금이다 — 「`npm run test`는 DB에
-# 접근하지 않는다」를 지킨 덕에 러너에 Docker를 세우지 않고 845건이 돈다.
+# 접근하지 않는다」를 지킨 덕에 러너에 Docker를 세우지 않고 1975건(79파일 — 2026-10-04 · 컷 7 시점 845건)이 돈다.
 name: CI
 
 on:
@@ -35,7 +35,7 @@ jobs:
       # 실측 2026-07-31: setup-node 최신 v7.0.0(ESM 이전 + cache 출력 추가).
       - uses: actions/setup-node@v7
         with:
-          # `package.json`의 `engines`가 없으므로 여기가 유일한 선언 자리다.
+          # `package.json`의 `engines`(node >= 22 — unpdf도 요구한다)와 같은 주 버전이다. 러너의 실제 버전은 여기서 정한다.
           # 로컬은 Node 22(`.nvmrc`가 없다 — 그 사실을 §3.3에 적었다).
           node-version: '22'
           cache: npm
@@ -48,5 +48,5 @@ jobs:
 
       - run: npm run typecheck
 
-      # 845건. 인프라 스위트 셋은 여기 없다 — §3.3의 등재된 잔여다.
+      # 1975건(2026-10-04 · 컷 7 시점 845건). 인프라 스위트 셋은 여기 없다 — §3.3의 등재된 잔여다.
       - run: npm run test

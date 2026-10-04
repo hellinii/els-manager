@@ -337,7 +337,7 @@ export const BY_CONSTRAINT: Record<string, ConstraintRule> = {
   monthly_coupon_payments_els_id_payment_date_key: {
     rule: 'I-26 / V-28',
     fields: ['paymentDate'],
-    message: '같은 지급일의 월수익 기록이 이미 있다.',
+    message: '같은 지급일의 월수익 지급 기록이 이미 있다.',
   },
   monthly_coupon_payments_outcome_check: {
     rule: 'I-26 / V-28',

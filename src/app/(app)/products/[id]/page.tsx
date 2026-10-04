@@ -414,11 +414,18 @@ function Projection({
   product: ProductDetailView['product']
 }) {
   if (projection == null) {
+    // 월지급식은 «상환»으로 좁힌다 — 바로 아래 잔여 월수익(추정)이 남을 수 있어서 「추정하지 않는다」가 모순이 된다
+    // (DOC-008 v2.42 SCR-202 ⑤). 상환 시 지급 상품의 문장은 바이트 단위로 그대로다
+    const monthly = product.couponPayout === 'MONTHLY'
     return (
       <p className="text-sm text-neutral-700">
         {product.status === 'REDEEMED'
-          ? '상환이 완료되어 추정하지 않는다 — 아래 상환 실적이 확정값이다(E-05).'
-          : '적용 차수가 없어 추정할 수 없다 — 전 차수가 경과했거나 평가일정이 0건이다(§9.2).'}
+          ? monthly
+            ? '상환은 완료되어 추정하지 않는다 — 아래 상환 실적이 확정값이다(E-05).'
+            : '상환이 완료되어 추정하지 않는다 — 아래 상환 실적이 확정값이다(E-05).'
+          : monthly
+            ? '적용 차수가 없어 상환은 추정할 수 없다 — 전 차수가 경과했거나 평가일정이 0건이다(§9.2).'
+            : '적용 차수가 없어 추정할 수 없다 — 전 차수가 경과했거나 평가일정이 0건이다(§9.2).'}
       </p>
     )
   }

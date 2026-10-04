@@ -939,7 +939,7 @@ describe('월지급식 정상 입력 — 어느 규칙에도 걸리지 않는다
   it('행 수 규칙의 문구 — 짧으면 「만기까지 이어지지 않는다 · 12개월」, 만기까지 61개월이면 「60개월을 넘는」', () => {
     const short = parse(product({ ...monthlyTerms(), couponSchedules: monthlyTerms().couponSchedules.slice(0, 11) }))
     expect(short.fields().couponSchedules).toBe(
-      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 산식으로 채우기를 누른다.',
     )
     const p = new Problems()
     V26_couponSchedules(p, monthlyTerms().couponSchedules, {

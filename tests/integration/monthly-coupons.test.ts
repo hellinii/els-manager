@@ -351,7 +351,7 @@ describe('§5.2 · §5.3 — 기록이 상품을 고정한다 (DOC-002 DQ-14)', 
     )
     expect([tailOnly.code, tailOnly.fields?.couponSchedules]).toEqual([
       'VALIDATION_FAILED',
-      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.',
+      '월수익 일정이 만기까지 이어지지 않는다 — 12개월이어야 한다(평가주기 × 총 차수). 산식으로 채우기를 누른다.',
     ])
     const error = errorOf(
       await a.write.updateProduct(

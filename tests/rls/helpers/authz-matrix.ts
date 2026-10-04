@@ -86,7 +86,7 @@ const ALL_DML: readonly DmlPrivilege[] = ['DELETE', 'INSERT', 'SELECT', 'UPDATE'
  *
  * `service_role`은 `rolbypassrls = t`이므로(실측) **정책은 이 롤에 아무런
  * 방어도 제공하지 않는다.** 권한 층이 유일한 방어선이며, 그래서 이 행이 비어
- * 있다는 사실이 정책 32개보다 중요하다.
+ * 있다는 사실이 정책 48개(쓰일 당시 32)보다 중요하다.
  */
 export const TABLE_PRIVILEGES = {
   /**

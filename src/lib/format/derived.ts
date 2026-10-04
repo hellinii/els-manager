@@ -8,7 +8,7 @@ import { INTEGRITY_ISSUE_GRADES, type BadgeGrade } from './badges'
  *
  * | 순위 | 원인 | 조건 | 표시 |
  * |---|---|---|---|
- * | 1 | 무결성 결함 (I-07) | `integrityIssue ≠ null` | "기초자산 없음 — 수정 필요" |
+ * | 1 | 무결성 결함 (I-07) | `integrityIssue ≠ null` | 결함마다 — 「기초자산 없음 · 평가일정 없음 · 월수익 일정 없음 — 수정 필요」 (셋째도 1순위 — 민서 결정 2026-10-04 · DOC-011 §4.2 v4.38) |
  * | 2 | E-05 상환 완료 | `status = 'REDEEMED'` | 판정 생략 — 표시값은 상환 실적 |
  * | 3 | E-01 시세 없음 | `ACTIVE` 이고 `worstOf = null` | "시세 없음" |
  *

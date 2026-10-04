@@ -151,6 +151,6 @@ export async function deleteCouponPaymentsAction(
     result,
     valuesOf(form),
     [],
-    ids.length === 1 ? '월수익 기록을 지웠다.' : `월수익 기록 ${ids.length}건을 지웠다.`,
+    ids.length === 1 ? '월수익 지급 기록을 지웠다.' : `월수익 지급 기록 ${ids.length}건을 지웠다.`,
   )
 }

@@ -109,7 +109,7 @@ export function checkAgainstProduct(
       }
       // 같은 지급일 — DB의 UNIQUE(els_id, payment_date)는 경합에서만 닿게 한다(행 키 없는 CONFLICT가 된다)
       if (paidDates.has(entry.paymentDate) || seenDates.has(entry.paymentDate)) {
-        p.add('V-28', `${at}paymentDate`, '같은 지급일의 월수익 기록이 이미 있다.')
+        p.add('V-28', `${at}paymentDate`, '같은 지급일의 월수익 지급 기록이 이미 있다.')
       }
       seenDates.add(entry.paymentDate)
     }
@@ -218,7 +218,7 @@ async function requireOwnedCouponPayment(
   const ref = await guardSystemAsync(() => loadCouponPaymentRef(ctx, id), `${what} 사전 조회`)
   if (!ref.ok) return { ok: false, error: ref.error }
   if (ref.value == null) {
-    return { ok: false, error: { code: 'NOT_FOUND', message: '대상 월수익 기록을 찾을 수 없다.' } }
+    return { ok: false, error: { code: 'NOT_FOUND', message: '대상 월수익 지급 기록을 찾을 수 없다.' } }
   }
   const access = await requireOwnedProduct(ctx, ref.value.elsId, what)
   if (!access.ok) return { ok: false, error: access.error }
@@ -364,7 +364,7 @@ export function makeCouponMutations(ctx: MutationContext) {
 
     const owned = new Set(access.value.monthly_coupon_payments.map((payment) => payment.id))
     if (!ids.every((id) => owned.has(id))) {
-      return failWith({ code: 'NOT_FOUND', message: '이 상품의 월수익 기록이 아닌 것이 섞여 있다.' })
+      return failWith({ code: 'NOT_FOUND', message: '이 상품의 월수익 지급 기록이 아닌 것이 섞여 있다.' })
     }
 
     const { data, error } = await ctx.db

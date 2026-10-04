@@ -741,7 +741,8 @@ describe('SCR-204 수정 모드 (컷 5)', () => {
     const res = await get(PATHS.productEdit(seeded.productId), otherJar)
 
     // 상태 코드는 200이다 — `forbidden()`을 쓰지 않기로 한 결정의 관측 가능한 형태다
-    // (`experimental.authInterrupts` 없이는 403을 낼 수 없고, 그 속성은 측정 불가다).
+    // (`experimental.authInterrupts` 없이는 403을 낼 수 없다. 상태 코드는 이 단언처럼 «측정은 된다» — 403의 값이
+    // 3인 폐쇄형에서 작아 켜지 않았다 · DOC-010 AQ-81 b3 개정).
     expect(res.status).toBe(200)
     const html = await res.text()
     expect(html).toContain('권한이 없다')

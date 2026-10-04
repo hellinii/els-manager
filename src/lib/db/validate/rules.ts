@@ -340,7 +340,7 @@ export function V26_couponSchedules(
       p.add(
         'V-26',
         'couponSchedules',
-        `월수익 일정이 만기까지 이어지지 않는다 — ${expected}개월이어야 한다(평가주기 × 총 차수). 평가일 산식으로 채우기를 누른다.`,
+        `월수익 일정이 만기까지 이어지지 않는다 — ${expected}개월이어야 한다(평가주기 × 총 차수). 산식으로 채우기를 누른다.`,
       )
     }
   }

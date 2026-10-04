@@ -20,7 +20,7 @@ import { fail, ok, type ActionResult } from './mutations/result'
  *
  * ## `service_role`이 여기 없다 — 그것이 영구 상태가 된다
  *
- * 배치는 `authenticated`로 돈다. 즉 **RLS 정책 32개가 배치에도 적용된다.**
+ * 배치는 `authenticated`로 돈다. 즉 **RLS 정책 48개(채택 당시 32)가 배치에도 적용된다.**
  * `service_role`(`rolbypassrls = t`)을 쓰면 그 32개가 배치 경로에서 통째로 무효가 되고,
  * 그 사실은 **정책 테스트가 전부 초록인 채로** 참이 된다(테스트는 롤 안의 분리만 본다).
  *
