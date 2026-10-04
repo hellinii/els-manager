@@ -98,6 +98,11 @@ const ELEMENT_SOURCES = {
   '④': { where: '공통', label: '배리어', fields: ['barrier'] },
   '⑤': { where: '공통', label: '현재 워스트오브', fields: ['worstOf'] },
   '⑥': { where: '공통', label: '예상 충족 여부', fields: ['conditionResult'] },
+  /*
+   * ⑪은 문서의 「공통」 행 끝에 온다(문서 순서 = 이 객체의 키 순서 — 아래 「증감·순서·겹침」). ⑪은 두 보기 모두에 있다 — 시간순(`ScheduleRow`)은 ① 옆, 상품별은 차수 행. 종전 문서는 상품별 차수
+   * 행에만 두었고(P8 컷 1에서 발견 — DOC-010 AQ-89 ⓐ) DOC-008 v2.42가 「공통」 행으로 옮겼다.
+   */
+  '⑪': { where: '공통', label: 'D-Day', fields: ['dDay'] },
   '⑦': { where: '상품별 보기 · 카드 머리', label: '투자원금', fields: ['principal'] },
   '⑧': { where: '상품별 보기 · 카드 머리', label: '연쿠폰율', fields: ['annualCouponRate'] },
   '⑨': {
@@ -110,12 +115,6 @@ const ELEMENT_SOURCES = {
     label: 'KI 배리어·관찰방식',
     fields: ['kiBarrier', 'kiObservation'],
   },
-  /*
-   * 문서는 ⑪을 상품별 차수 행에만 두고 「⑦~⑭가 상품별에만 있는 것은 결정」이라 적는데,
-   * 시간순 보기(`ScheduleRow`)도 ① 옆에 D-Day를 렌더한다 — 문서의 배치와 렌더러가 갈린
-   * 자리다(P8 컷 1에서 발견). 이 파일은 렌더러를 보지 않으므로 문서 쪽 배치를 적는다.
-   */
-  '⑪': { where: '상품별 보기 · 차수 행', label: 'D-Day', fields: ['dDay'] },
   '⑫': {
     where: '상품별 보기 · 차수 행',
     label: '예상 수령액',
@@ -200,9 +199,9 @@ const UNMARKED = {
     reason: '소유자 필터 선택지의 값이다(`schedule/page.tsx`의 `ownersOf`)',
   },
   ownerName: {
-    kind: 'UNREGISTERED',
-    reason:
-      '두 보기 모두 상품명 아래에 적는다(`ScheduleRow`·`ProductScheduleCard`) — 소유자 선택지의 라벨이기도 하다. 항목 표시에 마커가 없고 SCR-301 절에 그 표시의 근거가 없다',
+    kind: 'PROSE',
+    anchor: '소유자 이름은 두 보기 모두 상품명 아래에 적는다',
+    reason: '두 보기 모두 상품명 아래(`ScheduleRow`·`ProductScheduleCard`) — 소유자 선택지의 라벨이기도 하다(DOC-008 v2.42 · AQ-89 ⓑ)',
   },
   hasLizard: {
     kind: 'PROSE',
@@ -225,9 +224,9 @@ const UNMARKED = {
     reason: '구획(지난 / 다가오는)과 상품별 카드의 접기를 가른다. 값으로 렌더되지 않는다',
   },
   accountType: {
-    kind: 'UNREGISTERED',
-    reason:
-      '상품별 카드 머리에 「비과세」 뱃지로 선다(`ProductScheduleCard`). 항목 표시에 마커가 없고 SCR-301 절에 그 표시의 근거가 없다',
+    kind: 'PROSE',
+    anchor: '비과세 계좌면 「비과세」 뱃지를 단다',
+    reason: '상품별 카드 머리의 「비과세」 뱃지(`ProductScheduleCard`) — DOC-008 v2.42 · AQ-89 ⓑ',
   },
   totalRounds: {
     kind: 'PROSE',
@@ -259,9 +258,9 @@ const UNMARKED_COUPON = {
     reason: '링크 대상(SCR-202)이자 상품별 카드에 월수익 행을 붙이는 키다',
   },
   ownerName: {
-    kind: 'UNREGISTERED',
-    reason:
-      '시간순의 월수익 행도 상품명 아래에 적는다 — `ScheduleItem.ownerName`과 같은 자리 · 같은 공백(항목 표시에 마커가 없다)',
+    kind: 'PROSE',
+    anchor: '소유자 이름은 두 보기 모두 상품명 아래에 적는다',
+    reason: '시간순의 월수익 행도 상품명 아래 — `ScheduleItem.ownerName`과 같은 자리 · 같은 문장(DOC-008 v2.42)',
   },
   currency: {
     kind: 'PROSE',

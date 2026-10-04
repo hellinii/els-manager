@@ -237,7 +237,7 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
         expect(Object.values(GRADE_RECORDS[axis]!).every((g) => g === grade), `${axis} 전체가 ${grade}`).toBe(true)
       }
     }
-    expect([...wholeAxes.keys()].filter((axis) => !(axis in GRADE_RECORDS)).sort()).toEqual(['accountType', 'priceSource'])
+    expect([...wholeAxes.keys()].filter((axis) => !(axis in GRADE_RECORDS)).sort()).toEqual(['accountType', 'priceSource', 'productCurrency'])
     expect(wholeAxes.get('integrityIssue')).toBe('defect')
     expect(Object.keys(INTEGRITY_ISSUE_GRADES)).toHaveLength(3)
   })
