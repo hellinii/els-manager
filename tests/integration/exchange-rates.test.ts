@@ -140,7 +140,10 @@ describe('§4.11 listExchangeRates — 원소는 지원 외화마다 하나', ()
         isStale: false,
         // ★ 전 사용자(A 하나 + B 하나)의 «미상환» 달러 — 조회자로 좁히면 1, 상환 완료(B)를 세면 3이다
         usedByActiveProducts: 2,
-        autoCollected: false,
+        // P8 컷 c2(2026-10-06)부터 true다 — EXCHANGE_RATE_PROVIDERS가 ECOS·KOREAEXIM을
+        // 등록했다(ADR-010 분기 A). 화면 문구는 이 값에서 파생된다 — 레지스트리가 서는
+        // 날 화면이 코드 변경 없이 바뀐다는 것이 ADR-010의 설계였다.
+        autoCollected: true,
       },
     ])
   })

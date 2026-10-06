@@ -1,4 +1,6 @@
+import { ECOS } from './ecos'
 import { KIWOOM_ES040 } from './kiwoom'
+import { KOREAEXIM } from './koreaexim'
 
 import type { DecimalValue } from '@/lib/decimal'
 import type { ForeignCurrency } from '@/lib/domain'
@@ -256,8 +258,13 @@ export function isKnownProvider(id: string): boolean {
  * 받아들인다(오염). 두 목록이 겹치지 않음을 `tests/providers/exchange-rate-registry.test.ts`가 단언한다.
  *
  * 항목의 모양은 컷 c1이 정했다 — 아래 `ExchangeRateProviderFactory`.
+ *
+ * ★ **배선 완료 (P8 컷 c2, 2026-10-06 — ADR-010 결정 분기 A).** `[0]`이 **주 원천**이고
+ * `[1]`은 **폴백**이다 — `collectExchangeRateAndRecord`가 이 순서대로 순차 시도한다
+ * (교차 비교·평균 없음). 분기 C로 되돌아가는 날은 이 배열을 비운다 — 코드는 지우지
+ * 않는다(ADR-010 분기 D와 같은 원칙).
  */
-export const EXCHANGE_RATE_PROVIDERS: readonly ExchangeRateProviderFactory[] = []
+export const EXCHANGE_RATE_PROVIDERS: readonly ExchangeRateProviderFactory[] = [ECOS, KOREAEXIM]
 
 /**
  * 환율 공급자 어댑터 — DOC-010 ADR-010 · DOC-011 CR-11~13 (P8 컷 c1)
@@ -302,6 +309,10 @@ export type ExchangeRateProviderFactory = {
  * 같은 모양이지만 **분리된 맵이다**). `missingProviderCredentials()`를 호출하되 그
  * 결과를 `decide()`의 CR-10 경로로 흘려보내지 않는다 — 키가 없으면 환율 단계만 끈다.
  *
- * `EXCHANGE_RATE_PROVIDERS`와 같은 이유로 컷 c1에서는 **비어 있다** — 실제 등록은 c2다.
+ * ★ **등록 완료 (P8 컷 c2).** 이름은 c1이 정했다(DOC-010 §7.2) — 값은 `~/.els-deploy/`에
+ * 있고 `env.ts`의 `ecosApiKey()`·`koreaeximApiKey()`가 읽는다.
  */
-export const EXCHANGE_RATE_PROVIDER_CREDENTIALS: Record<string, readonly string[]> = {}
+export const EXCHANGE_RATE_PROVIDER_CREDENTIALS: Record<string, readonly string[]> = {
+  ECOS: ['ECOS_API_KEY'],
+  KOREAEXIM: ['KOREAEXIM_API_KEY'],
+}

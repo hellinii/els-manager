@@ -4,6 +4,7 @@ import { refusalResponse, resultResponse } from '@/lib/cron/respond'
 import { batchContext } from '@/lib/db/batch'
 import { cronSecret, cronServiceAccount, missingProviderCredentials } from '@/lib/db/env'
 import { collectAndRecord } from '@/lib/db/mutations/collect'
+import { collectExchangeRateAndRecord } from '@/lib/db/mutations/exchangeRate'
 import { fail, ok } from '@/lib/db/mutations/result'
 import { today } from '@/lib/db/today'
 import { PRICE_PROVIDERS, PROVIDER_CREDENTIALS } from '@/lib/providers/types'
@@ -148,6 +149,21 @@ export async function GET(request: Request): Promise<Response> {
         startedAt,
         finishedAt: () => new Date().toISOString(),
       })
+
+      /*
+       * 환율 단계 — DOC-011 CR-11. 가격 단계의 성공·실패와 무관하게 실행하고, 이 응답의
+       * 상태·본문에는 전혀 반영하지 않는다(결과는 `cron_runs`(`job = EXCHANGE_RATE`)로만
+       * 보고한다). 함수 자체가 던지지 않지만 호출 자리에서도 한 번 더 막는다(CR-11).
+       */
+      await collectExchangeRateAndRecord(ctx.data, {
+        startedAt,
+        finishedAt: () => new Date().toISOString(),
+      }).catch((error) =>
+        console.error(
+          `[cron] 환율 단계 호출이 예외로 끝났다(무시): ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
+
       if (!collected.ok) return fail(collected.error.code, collected.error.message)
       return ok(toCronResult(collected.data, startedAt))
     } catch (error) {

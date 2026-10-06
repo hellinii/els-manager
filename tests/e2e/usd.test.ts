@@ -145,8 +145,15 @@ describe('SCR-302 환율 절 → 추정 환율이 화면을 지난다 (P8 컷 a3
     expect(rateSectionTag(html)).toMatch(/\bopen\b/)
     expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.title)
     expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.missing)
-    // 수집 상태는 필드에서 파생된다 — 레지스트리가 비어 있다(컷 a3)
-    expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.notCollected)
+    /*
+     * 수집 상태는 필드에서 파생된다 — P8 컷 c2(2026-10-06)부터 레지스트리가 ECOS·
+     * KOREAEXIM을 등록했다(ADR-010 분기 A). 컴포넌트 자신의 설계대로 코드 변경 없이
+     * 「자동 수집 안 함」 → 「자동 수집」으로 바뀌었다(ExchangeRateSection.tsx 각주).
+     * `provider`는 아직 null이다 — 이 환경에 AUTO 행이 생긴 적이 없다(값이 없다,
+     * `EXCHANGE_RATE_SECTION_TEXT.missing`과 같은 줄).
+     */
+    expect(html).toContain('자동 수집')
+    expect(html).not.toContain(EXCHANGE_RATE_SECTION_TEXT.notCollected)
     expect(html).toContain(EXCHANGE_RATE_SECTION_TEXT.refreshExcludes)
   })
 
