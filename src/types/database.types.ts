@@ -111,6 +111,7 @@ export type Database = {
           failed: Json
           finished_at: string
           id: string
+          job: Database["public"]["Enums"]["cron_job"]
           outcome: Database["public"]["Enums"]["cron_outcome"]
           skipped: number
           started_at: string
@@ -125,6 +126,7 @@ export type Database = {
           failed?: Json
           finished_at: string
           id?: string
+          job?: Database["public"]["Enums"]["cron_job"]
           outcome: Database["public"]["Enums"]["cron_outcome"]
           skipped: number
           started_at: string
@@ -139,6 +141,7 @@ export type Database = {
           failed?: Json
           finished_at?: string
           id?: string
+          job?: Database["public"]["Enums"]["cron_job"]
           outcome?: Database["public"]["Enums"]["cron_outcome"]
           skipped?: number
           started_at?: string
@@ -636,6 +639,7 @@ export type Database = {
       coupon_outcome: "PAID" | "UNPAID"
       coupon_payout: "AT_REDEMPTION" | "MONTHLY"
       cron_caller: "BATCH" | "MANUAL_REFRESH"
+      cron_job: "PRICES" | "EXCHANGE_RATE"
       cron_outcome: "OK" | "PROVIDER_UNAVAILABLE" | "INTERNAL"
       health_insurance_type: "EMPLOYEE" | "REGIONAL" | "DEPENDENT" | "NONE"
       ki_observation: "CONTINUOUS" | "CLOSING"
@@ -775,6 +779,7 @@ export const Constants = {
       coupon_outcome: ["PAID", "UNPAID"],
       coupon_payout: ["AT_REDEMPTION", "MONTHLY"],
       cron_caller: ["BATCH", "MANUAL_REFRESH"],
+      cron_job: ["PRICES", "EXCHANGE_RATE"],
       cron_outcome: ["OK", "PROVIDER_UNAVAILABLE", "INTERNAL"],
       health_insurance_type: ["EMPLOYEE", "REGIONAL", "DEPENDENT", "NONE"],
       ki_observation: ["CONTINUOUS", "CLOSING"],
