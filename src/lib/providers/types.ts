@@ -1,6 +1,7 @@
 import { KIWOOM_ES040 } from './kiwoom'
 
 import type { DecimalValue } from '@/lib/decimal'
+import type { ForeignCurrency } from '@/lib/domain'
 
 /**
  * 시세 공급자 어댑터 — DOC-010 **ADR-004(보정 이행판, v3.0)** · ADR-008 · DOC-011 §5.8·§7.1
@@ -254,6 +255,53 @@ export function isKnownProvider(id: string): boolean {
  * `KNOWN_PROVIDER_IDS`에 들어가면 V-21(§5.12 자산 매핑의 `provider`)이 환율 공급자를 시세 공급자로
  * 받아들인다(오염). 두 목록이 겹치지 않음을 `tests/providers/exchange-rate-registry.test.ts`가 단언한다.
  *
- * 항목의 모양은 컷 c1이 정한다 — 여기서는 `id` 하나만 요구한다(지금 읽는 쪽은 길이만 본다).
+ * 항목의 모양은 컷 c1이 정했다 — 아래 `ExchangeRateProviderFactory`.
  */
-export const EXCHANGE_RATE_PROVIDERS: readonly { readonly id: string }[] = []
+export const EXCHANGE_RATE_PROVIDERS: readonly ExchangeRateProviderFactory[] = []
+
+/**
+ * 환율 공급자 어댑터 — DOC-010 ADR-010 · DOC-011 CR-11~13 (P8 컷 c1)
+ *
+ * `PriceProvider`와 모양이 다르다 — 심볼이 없다(통화 하나 · 기준일 하나를 묻는다).
+ * 실패도 교차 호출의 결과가 아니라 **순차 폴백**(주 → 폴백) 각 시도의 결과다. 계약
+ * 의무는 `PriceProvider`의 ①(던지지 않는다)과 같다.
+ */
+export interface ExchangeRateProvider {
+  readonly id: string
+  fetchRate(currency: ForeignCurrency, asOf: string): Promise<ExchangeRateOutcome>
+}
+
+/** 성공한 환율 관측 하나 */
+export type ExchangeRateQuote = {
+  currency: ForeignCurrency
+  /** ★ 공급자가 준 기준일이다 — CR-12. ECOS는 응답 필드에서, 한국수출입은행은 요청한 날짜(응답에 날짜 필드가 없다) */
+  asOfDate: string
+  rate: DecimalValue
+}
+
+/** 실패한 환율 관측 하나 — `ProviderFailure`와 같은 모양(부류·세분류 재사용) */
+export type ExchangeRateFailure = {
+  currency: ForeignCurrency
+  failure: FailureClass
+  code: ProviderFailureCode
+  detail: string
+}
+
+export type ExchangeRateOutcome =
+  | ({ ok: true } & ExchangeRateQuote)
+  | ({ ok: false } & ExchangeRateFailure)
+
+/** 등록과 생성을 가른다 — `ProviderFactory`와 같은 이유 */
+export type ExchangeRateProviderFactory = {
+  readonly id: string
+  create(deps: ProviderDeps): ExchangeRateProvider
+}
+
+/**
+ * 환율 공급자별로 필요한 환경변수 이름 — CR-13의 출처(시세의 `PROVIDER_CREDENTIALS`와
+ * 같은 모양이지만 **분리된 맵이다**). `missingProviderCredentials()`를 호출하되 그
+ * 결과를 `decide()`의 CR-10 경로로 흘려보내지 않는다 — 키가 없으면 환율 단계만 끈다.
+ *
+ * `EXCHANGE_RATE_PROVIDERS`와 같은 이유로 컷 c1에서는 **비어 있다** — 실제 등록은 c2다.
+ */
+export const EXCHANGE_RATE_PROVIDER_CREDENTIALS: Record<string, readonly string[]> = {}

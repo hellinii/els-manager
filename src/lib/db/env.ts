@@ -27,6 +27,8 @@ const SUPABASE_ANON_KEY = 'NEXT_PUBLIC_SUPABASE_ANON_KEY'
 const CRON_SECRET = 'CRON_SECRET'
 const CRON_SERVICE_EMAIL = 'CRON_SERVICE_EMAIL'
 const CRON_SERVICE_PASSWORD = 'CRON_SERVICE_PASSWORD'
+const ECOS_API_KEY = 'ECOS_API_KEY'
+const KOREAEXIM_API_KEY = 'KOREAEXIM_API_KEY'
 
 export type SupabaseEnv = {
   url: string
@@ -147,4 +149,21 @@ export function cronServiceAccount(): {
  */
 export function missingProviderCredentials(names: readonly string[]): readonly string[] {
   return names.filter((name) => optional_(name) == null)
+}
+
+/**
+ * 환율 자동 수집 원천 키 — DOC-010 ADR-010 · §7.2, DOC-011 CR-13 (P8 컷 c1).
+ *
+ * ★ **`cronSecret()`과 부재 규약이 다르다 — 던지지 않는다.** 환율 수집은 분기 A/A′의
+ * 추가 기능이고 수동 입력(`saveExchangeRate`)이 모든 분기에서 동작하는 설계된 정상
+ * 경로이므로(DOC-001 C-03), 키 부재로 전체 배치를 멈추면 CR-10이 막으려던 것과 같은
+ * 모양의 과잉이 된다. `optional_()`을 그대로 쓰고 `null`을 돌려준다 — c2가 CR-13대로
+ * 그 원천만 끈다.
+ */
+export function ecosApiKey(): string | null {
+  return optional_(ECOS_API_KEY)
+}
+
+export function koreaeximApiKey(): string | null {
+  return optional_(KOREAEXIM_API_KEY)
 }

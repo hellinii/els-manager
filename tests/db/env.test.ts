@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { cronSecret, supabaseEnv } from '@/lib/db/env'
+import { cronSecret, ecosApiKey, koreaeximApiKey, supabaseEnv } from '@/lib/db/env'
 
 /**
  * 환경변수 해석 — DOC-010 §7.2, DOC-013 §5.2 (P5b 컷 1 신설)
@@ -21,7 +21,13 @@ import { cronSecret, supabaseEnv } from '@/lib/db/env'
  * 원래 값을 복원한다(개발자 기계의 셸에 값이 있어도 결과가 같아야 한다).
  */
 
-const NAMES = ['NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'CRON_SECRET'] as const
+const NAMES = [
+  'NEXT_PUBLIC_SUPABASE_URL',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  'CRON_SECRET',
+  'ECOS_API_KEY',
+  'KOREAEXIM_API_KEY',
+] as const
 
 const ORIGINAL = new Map<string, string | undefined>(
   NAMES.map((name) => [name, process.env[name]]),
@@ -116,5 +122,42 @@ describe('supabaseEnv', () => {
     set('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'anon-key')
     set('CRON_SECRET', undefined)
     expect(() => supabaseEnv()).not.toThrow()
+  })
+})
+
+/**
+ * 환율 자동 수집 키 — DOC-010 ADR-010 · §7.2, DOC-011 CR-13 (P8 컷 c1).
+ *
+ * ★ **`cronSecret()`과 반대다 — 던지지 않는다.** 부재는 `null`이고, 그것이 CR-13대로
+ * 「그 원천만 끈다」의 신호다. `require_`가 아니라 `optional_`을 쓰므로 `cronServiceAccount()`와
+ * 같은 부재 규약이다.
+ */
+describe('ecosApiKey · koreaeximApiKey', () => {
+  it('미설정이면 null이다 — 던지지 않는다', () => {
+    set('ECOS_API_KEY', undefined)
+    set('KOREAEXIM_API_KEY', undefined)
+    expect(ecosApiKey()).toBeNull()
+    expect(koreaeximApiKey()).toBeNull()
+  })
+
+  it('빈 문자열·공백도 null이다', () => {
+    set('ECOS_API_KEY', '')
+    set('KOREAEXIM_API_KEY', '   ')
+    expect(ecosApiKey()).toBeNull()
+    expect(koreaeximApiKey()).toBeNull()
+  })
+
+  it('값이 있으면 그대로 돌려준다 — 다듬지 않는다', () => {
+    set('ECOS_API_KEY', ' ecos-key-value ')
+    set('KOREAEXIM_API_KEY', 'exim-key-value')
+    expect(ecosApiKey()).toBe(' ecos-key-value ')
+    expect(koreaeximApiKey()).toBe('exim-key-value')
+  })
+
+  it('둘은 서로 독립이다 — 하나만 있어도 된다', () => {
+    set('ECOS_API_KEY', 'ecos-key-value')
+    set('KOREAEXIM_API_KEY', undefined)
+    expect(ecosApiKey()).toBe('ecos-key-value')
+    expect(koreaeximApiKey()).toBeNull()
   })
 })
