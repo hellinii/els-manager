@@ -151,9 +151,12 @@ export async function GET(request: Request): Promise<Response> {
       })
 
       /*
-       * 환율 단계 — DOC-011 CR-11. 가격 단계의 성공·실패와 무관하게 실행하고, 이 응답의
-       * 상태·본문에는 전혀 반영하지 않는다(결과는 `cron_runs`(`job = EXCHANGE_RATE`)로만
+       * 환율 단계 — DOC-011 CR-11. `collected`가 값으로 실패(`{ok:false}`)해도 실행하고,
+       * 이 응답의 상태·본문에는 전혀 반영하지 않는다(결과는 `cron_runs`(`job = EXCHANGE_RATE`)로만
        * 보고한다). 함수 자체가 던지지 않지만 호출 자리에서도 한 번 더 막는다(CR-11).
+       * ★ `collectAndRecord`가 «예외»로 끝나면(위 try의 catch로 바로 빠진다) 이 줄에
+       * 닿지 않는다 — CR-11은 단방향 규칙(환율 실패 → 가격 상태 불변)이라 이 경로에서도
+       * 깨지지 않지만, "가격 단계와 완전히 무관"은 아니라는 것을 c1·c2 반박 검토가 짚었다.
        */
       await collectExchangeRateAndRecord(ctx.data, {
         startedAt,

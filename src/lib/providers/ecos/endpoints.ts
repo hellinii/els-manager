@@ -20,7 +20,7 @@ const ITEM_CODE_USD = '0000001'
  */
 export function statisticSearchUrl(authKey: string, asOf: string): string {
   const d = asOf.replaceAll('-', '')
-  return `${BASE}/StatisticSearch/${authKey}/json/kr/1/100/${STAT_CODE}/D/${d}/${d}/${ITEM_CODE_USD}`
+  return `${BASE}/StatisticSearch/${encodeURIComponent(authKey)}/json/kr/1/100/${STAT_CODE}/D/${d}/${d}/${ITEM_CODE_USD}`
 }
 
 /**

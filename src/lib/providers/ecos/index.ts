@@ -40,6 +40,9 @@ export function createEcosProvider(deps: ProviderDeps = {}): ExchangeRateProvide
 
       try {
         const response = await doFetch(statisticSearchUrl(deps.apiKey, asOf), {
+          // 측정 기간에 ECOS의 리다이렉트는 관측되지 않았지만, KOREAEXIM에서 실측된
+          // WAF 쿠키 챌린지(302 — AQ-83)와 같은 방어를 선제적으로 든다(c1·c2 반박 검토)
+          redirect: 'manual',
           signal: AbortSignal.timeout(timeoutMs),
         })
         if (!response.ok) {

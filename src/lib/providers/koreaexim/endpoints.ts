@@ -15,7 +15,7 @@ const BASE = 'https://oapi.koreaexim.go.kr/site/program/financial/exchangeJSON'
  */
 export function exchangeJsonUrl(authKey: string, asOf: string): string {
   const d = asOf.replaceAll('-', '')
-  return `${BASE}?authkey=${authKey}&searchdate=${d}&data=AP01`
+  return `${BASE}?authkey=${encodeURIComponent(authKey)}&searchdate=${d}&data=AP01`
 }
 
 /**
