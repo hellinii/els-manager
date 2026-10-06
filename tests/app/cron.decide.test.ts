@@ -296,6 +296,9 @@ const NOT_A_VERDICT: Record<string, string> = {
   'CR-07': '§5.8이 `PROVIDER_UNAVAILABLE`로 답하고 `respond.ts`가 503으로 옮긴다 — `tests/cron/respond.test.ts`',
   'CR-08': '§5.8·수집기의 실패를 `respond.ts`가 500으로 옮긴다 — 같은 파일',
   'CR-09': '응답 헤더. 판정이 아니라 `respond.ts`가 «무조건» 싣는다(e2e가 세 갈래에서 단언한다)',
+  'CR-11': '환율 단계의 실패 보고. 판정이 아니라 `cron_runs`(`job` 열)와 `CronResult`가 담당한다 — 시세 단계의 응답 상태는 바꾸지 않는다',
+  'CR-12': '환율의 기준일 사전 확인. 수집기의 규칙이다 — CR-05의 환율판',
+  'CR-13': '환율 키 부재 시 그 단계만 끈다 — CR-10(전체 500)과 다른 축이라 사전 판정이 아니다',
 }
 
 describe('§7.1 동작 규칙 표 ↔ 판정', () => {
@@ -345,7 +348,7 @@ describe('§7.1 동작 규칙 표 ↔ 판정', () => {
     for (const id of verdicts) expect(NOT_A_VERDICT[id], `${id}가 두 부류에 다 있다`).toBeUndefined()
 
     expect([...documented].sort()).toEqual([...classified].sort())
-    expect(documented).toHaveLength(10) // CR-01 ~ CR-10 (CR-10은 v3.5 신설)
+    expect(documented).toHaveLength(13) // CR-01 ~ CR-13 (CR-10은 v3.5 신설 · CR-11~13은 P8 컷 c1, v4.39)
   })
 
   it('사전 판정 셋의 규칙 문언이 이 구현을 서술한다', () => {
