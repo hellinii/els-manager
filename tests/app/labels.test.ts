@@ -10,6 +10,7 @@ import {
   CONTRIBUTION_BASIS_GRADES,
   COUPON_CONDITION_RESULT_GRADES,
   COUPON_STATE_GRADES,
+  EVALUATION_VERDICT_GRADES,
   INTEGRITY_ISSUE_GRADES,
   KI_STATUS_GRADES,
   STATUS_GRADES,
@@ -170,6 +171,8 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
       ...Object.values(COUPON_STATE_GRADES),
       ...Object.values(COUPON_CONDITION_RESULT_GRADES),
       ...Object.values(CONTRIBUTION_BASIS_GRADES),
+      // P6 컷 7-3 — 평가일 판정
+      ...Object.values(EVALUATION_VERDICT_GRADES),
     ])
     expect([...used].sort()).toEqual(documentedGrades().sort())
   })
@@ -221,6 +224,7 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
     couponState: COUPON_STATE_GRADES,
     couponConditionResult: COUPON_CONDITION_RESULT_GRADES,
     contributionBasis: CONTRIBUTION_BASIS_GRADES,
+    evaluationVerdict: EVALUATION_VERDICT_GRADES,
   }
 
   it('★ 「쓰는 곳」의 값마다 코드의 등급이 같다 — 집합이 아니라 값별이다 (DOC-005 v1.18)', () => {
@@ -242,9 +246,9 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
     expect(Object.keys(INTEGRITY_ISSUE_GRADES)).toHaveLength(3)
   })
 
-  it('★ 월수익 축 · 기여 근거는 값이 전부 「쓰는 곳」에 있다 — 양방향 (DOC-005 v1.18)', () => {
+  it('★ 월수익 축 · 기여 근거 · 평가일 판정은 값이 전부 「쓰는 곳」에 있다 — 양방향 (DOC-005 v1.18 · v1.21)', () => {
     const { values } = documentedValueGrades()
-    for (const axis of ['couponState', 'couponConditionResult', 'contributionBasis']) {
+    for (const axis of ['couponState', 'couponConditionResult', 'contributionBasis', 'evaluationVerdict']) {
       const documented = Object.fromEntries(
         [...values].filter(([key]) => key.startsWith(`${axis}.`)).map(([key, grade]) => [key.slice(axis.length + 1), grade]),
       )

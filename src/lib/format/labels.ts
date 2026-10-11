@@ -6,7 +6,13 @@ import type {
   CouponState,
   KiStatus,
 } from '@/lib/domain'
-import type { AttentionReason, IntegrityIssue, ProductListItem, RedemptionView } from '@/lib/db/queries/map'
+import type {
+  AttentionReason,
+  EvaluationVerdictKind,
+  IntegrityIssue,
+  ProductListItem,
+  RedemptionView,
+} from '@/lib/db/queries/map'
 import type { AssetPriceView } from '@/lib/db/queries/prices'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import type { AssetInput, ProductInput } from '@/lib/db/mutations/types'
@@ -129,6 +135,19 @@ export const CONDITION_RESULT_LABELS: Record<ConditionResult, string> = {
   EARLY: '조기상환',
   LIZARD: '리자드상환',
   CARRY_OVER: '이월',
+}
+
+/**
+ * 평가일 판정 — DOC-005 §6.1 `evaluationVerdict` (P6 컷 7 · DOC-007 §3.6).
+ *
+ * 「예상」을 붙이지 않는다 — 이미 지난 평가일의 종가로 낸 판정이다(DOC-005 §8.12 「판정의 세 시점」). 「조건 충족」이
+ * 「조기상환」(기록 — `redemptionType`)과 다른 낱말인 것이 그 구분이다. 「— 직접 확인」 조치 접미는 `KI_BELOW`의 선례다
+ */
+export const EVALUATION_VERDICT_LABELS: Record<EvaluationVerdictKind, string> = {
+  EARLY: '조기상환 조건 충족',
+  LIZARD: '리자드상환 조건 충족',
+  MATURITY_REACHED: '만기 평가일 경과',
+  CLOSE_MISSING: '평가일 종가 없음 — 직접 확인',
 }
 
 export const KI_STATUS_LABELS: Record<KiStatus, string> = {
@@ -262,6 +281,7 @@ export const LABEL_AXES = {
   contributionBasis: CONTRIBUTION_BASIS_LABELS,
   redemptionType: REDEMPTION_TYPE_LABELS,
   conditionResult: CONDITION_RESULT_LABELS,
+  evaluationVerdict: EVALUATION_VERDICT_LABELS,
   kiStatus: KI_STATUS_LABELS,
   kiObservation: KI_OBSERVATION_LABELS,
   assetType: ASSET_TYPE_LABELS,

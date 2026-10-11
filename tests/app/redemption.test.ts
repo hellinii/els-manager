@@ -8,13 +8,14 @@ import { parseRedemptionForm, parseTouchedAtForm } from '@/lib/forms/parse'
 import {
   REDEMPTION_DATE_OFFSET_DAYS,
   REDEMPTION_FIELDS,
+  prefillRoundOf,
   redemptionDefaults,
   redemptionValuesOf,
   roundFillOf,
   roundOptionsOf,
   taxableIncomeLocked,
 } from '@/lib/forms/redemption'
-import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
+import { NO_EVALUATION_CLOSES, type EvaluationCloses } from '@/lib/db/queries/load'
 
 import { ASSET_1, OWNER, priceMap, productRow, redemption, schedule } from '../db/helpers/rows'
 
@@ -412,7 +413,7 @@ describe('기본값 — 판정에서 나온다', () => {
   it('★ 폼의 모든 칸에 값이 있다', () => {
     // `REDEMPTION_FIELDS`를 좌변으로 둔다 — 칸이 늘고 여기 대응이 없으면 그 칸은
     // 초기값 없이 렌더되고, 수정 경로에서는 그것이 곧 값의 상실이다.
-    const values = redemptionDefaults(viewWith('120.000000'), ASOF)
+    const values = redemptionDefaults(viewWith('120.000000'), ASOF, null)
     for (const name of REDEMPTION_FIELDS) {
       expect(Object.keys(values), `${name}의 기본값이 없다`).toContain(name)
     }
@@ -420,7 +421,7 @@ describe('기본값 — 판정에서 나온다', () => {
 
   it('조기상환 판정이면 유형·차수·금액을 채운다', () => {
     const view = viewWith('120.000000')
-    const values = redemptionDefaults(view, ASOF)
+    const values = redemptionDefaults(view, ASOF, null)
 
     // 1.2 ≥ 0.9이므로 1차 조기상환 판정이다.
     expect(values.redemptionType).toBe('EARLY')
@@ -434,19 +435,19 @@ describe('기본값 — 판정에서 나온다', () => {
   it('★ 원천징수세액은 비운다 — 채우면 계약의 산출이 영원히 실행되지 않는다', () => {
     // §5.4는 `withholdingTax`가 **미입력일 때만** 산출한다. 화면이 추정값을 채우면
     // 그 산출 경로가 죽고, 사용자는 우리 추정을 실제 징수액으로 저장한다.
-    expect(redemptionDefaults(viewWith('120.000000'), ASOF).withholdingTax).toBe('')
+    expect(redemptionDefaults(viewWith('120.000000'), ASOF, null).withholdingTax).toBe('')
   })
 
   it('★ 확정값 체크는 꺼져 있다 — ST-05', () => {
     // `is_confirmed`는 「증권사가 제공한 실제 값」이다(DOC-005 §6). 기본이 참이면
     // 추정값이 확정값으로 저장되고 화면은 그것을 같은 무게로 보여 준다.
-    expect(redemptionDefaults(viewWith('120.000000'), ASOF).isConfirmed).toBe('')
+    expect(redemptionDefaults(viewWith('120.000000'), ASOF, null).isConfirmed).toBe('')
   })
 
   it('이월 판정이면 유형을 채우지 않는다 — 없는 판단을 지어내지 않는다', () => {
     // 0.8 < 0.9 → `CARRY_OVER`. 「상환이 아니다」이므로 유형이 비고, 차수·금액은
     // 여전히 적용 차수의 것이다(사용자가 만기 상환으로 고칠 수 있다).
-    const values = redemptionDefaults(viewWith('80.000000'), ASOF)
+    const values = redemptionDefaults(viewWith('80.000000'), ASOF, null)
     expect(values.redemptionType).toBe('')
     expect(values.roundNo).toBe('1')
   })
@@ -460,7 +461,7 @@ describe('기본값 — 판정에서 나온다', () => {
     const view = viewWith(null)
     expect(view.projection).not.toBeNull()
 
-    const values = redemptionDefaults(view, ASOF)
+    const values = redemptionDefaults(view, ASOF, null)
     expect(values.redemptionType).toBe('')
     expect(values.grossAmount).toBe(view.projection!.expectedGross)
   })
@@ -474,7 +475,7 @@ describe('기본값 — 판정에서 나온다', () => {
      * 사용자가 고치지 않으면 「아직 일어나지 않은 상환」이 그 해의 금융소득에 들어간다.
      */
     const view = viewWith('120.000000')
-    const values = redemptionDefaults(view, ASOF)
+    const values = redemptionDefaults(view, ASOF, null)
     expect(values.redemptionDate).toBe(ASOF)
 
     // 그리고 선택했을 때의 값과 실제로 다르다 — 같으면 이 케이스가 항진명제다
@@ -488,7 +489,7 @@ describe('기본값 — 판정에서 나온다', () => {
      * 되돌리기만 해도 금액이 변하고, 둘 중 하나는 틀린 값이다.
      */
     const view = viewWith('120.000000')
-    const values = redemptionDefaults(view, ASOF)
+    const values = redemptionDefaults(view, ASOF, null)
     const picked = roundFillOf(roundOptionsOf(view), values.roundNo, values.redemptionType)
 
     expect(values.grossAmount).toBe(picked!.amounts!.grossAmount)
@@ -524,7 +525,7 @@ describe('기본값 — 판정에서 나온다', () => {
       NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
-    const values = redemptionDefaults(view, '2026-08-01')
+    const values = redemptionDefaults(view, '2026-08-01', null)
     expect(values.redemptionType).toBe('LIZARD')
     expect(values.roundNo).toBe('2')
 
@@ -536,16 +537,167 @@ describe('기본값 — 판정에서 나온다', () => {
     expect(view.projection!.expectedGross).toBe('108000000')
   })
 
-  it('적용 차수가 없으면 차수·금액이 빈다 — E-07', () => {
-    // 전 차수 경과 미상환. 자동 채움의 근거가 없으므로 지어내지 않는다.
+  it('~~E-07이면 빈칸~~ → 전 차수 경과(만기 경과)면 평가일 판정의 만기 차수로 채운다 · 유형은 비운다 (P6 컷 7-3)', () => {
+    /*
+     * 종전 이름은 「적용 차수가 없으면 차수·금액이 빈다 — E-07」이었다. 적용 차수(`projection`)는 여전히 없지만
+     * 평가일 판정이 「만기 평가일 경과」(DOC-007 §3.6 — 시세 무관)를 내므로 둘째 갈래가 그 차수로 채운다
+     * (DOC-008 SCR-203 「상환 확인 필요에서 왔을 때」). 이름을 그대로 두면 「E-07이면 빈칸」이 거짓인 채 초록이 된다.
+     */
     const view = viewWith('120.000000', '2027-06-30')
     expect(view.projection).toBeNull()
+    expect(view.evaluationVerdict?.kind).toBe('MATURITY_REACHED')
 
-    const values = redemptionDefaults(view, '2027-06-30')
+    const values = redemptionDefaults(view, '2027-06-30', null)
+    expect(values.roundNo).toBe('2')
+    // 마지막 차수 — 손익은 실수령액이 가른다(종전 별 각주 그대로)
+    expect(values.redemptionType).toBe('')
+    // 유형이 비면 EARLY 가정 금액 — 1억 × (1 + 0.08 × 12/12). KI 터치가 없다
+    expect(values.grossAmount).toBe('108000000')
+    expect(values.redemptionDate).toBe(shiftDays('2027-01-04', REDEMPTION_DATE_OFFSET_DAYS))
+  })
+
+  it('채울 근거가 전혀 없으면 비운다 — 적용 차수도 평가일 판정도 없다(일정 0건)', () => {
+    const view = toProductDetailView(
+      productRow({ redemption_schedules: [] }),
+      priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
+      ASOF,
+      OWNER,
+      NO_ESTIMATE_RATES,
+      NO_EVALUATION_CLOSES,
+    )
+    expect(view.projection).toBeNull()
+    expect(view.evaluationVerdict).toBeNull()
+    expect(prefillRoundOf(view, null)).toBeNull()
+
+    const values = redemptionDefaults(view, ASOF, null)
     expect(values.roundNo).toBe('')
     expect(values.grossAmount).toBe('')
     expect(values.taxableIncome).toBe('')
     expect(values.redemptionType).toBe('')
+    expect(values.redemptionDate).toBe(ASOF)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 상환 확인 필요에서 왔을 때 — 첫 렌더의 둘째 갈래 (P6 컷 7-3 · DOC-008 SCR-203 v2.43~)
+// ---------------------------------------------------------------------------
+
+describe('기본값 — 상환 확인 필요에서 왔을 때 (평가일 판정 · ?round=k)', () => {
+  /** 1차 2026-07-02(B 0.90 · L 0.80 / 5%) · 2차 2027-01-04(B 0.85) · 3차 2027-07-02(만기 · B 0.80). 등록일 2026-01-02 */
+  const AFTER_R1 = '2026-08-01'
+  const R1_PAID = shiftDays('2026-07-02', REDEMPTION_DATE_OFFSET_DAYS)
+
+  function verdictView(params: { close?: string; asOf?: string; kiTouchedAt?: string | null } = {}) {
+    const closes: EvaluationCloses =
+      params.close == null
+        ? NO_EVALUATION_CLOSES
+        : new Map([[ASSET_1, new Map([['2026-07-02', { as_of_date: '2026-07-02', price: params.close, source: 'AUTO' as const }]])]])
+    return toProductDetailView(
+      productRow({
+        ki_touched_at: params.kiTouchedAt ?? null,
+        redemption_schedules: [
+          schedule({
+            round_no: 1,
+            evaluation_date: '2026-07-02',
+            barrier: '0.9000',
+            lizard_barrier: '0.8000',
+            lizard_coupon_rate: '0.0500',
+          }),
+          schedule({ round_no: 2, evaluation_date: '2027-01-04', barrier: '0.8500' }),
+          schedule({ round_no: 3, evaluation_date: '2027-07-02', barrier: '0.8000' }),
+        ],
+      }),
+      // 최신 시세는 2차 배리어 아래 — 종전 경로(다음 차수 × 최신 시세)는 이월이라 유형을 채우지 않는다
+      priceMap([{ assetId: ASSET_1, price: '70.000000' }]),
+      params.asOf ?? AFTER_R1,
+      OWNER,
+      NO_ESTIMATE_RATES,
+      closes,
+    )
+  }
+
+  it('★ 판정이 조기상환이면 쿼리 없이도 그 차수 · 유형 · 그 차수 금액 · 평가일 + 5일 — 종전처럼 다음 차수가 아니다', () => {
+    const view = verdictView({ close: '95.000000' })
+    expect(view.projection?.appliedRoundNo).toBe(2)
+    expect(prefillRoundOf(view, null)).toEqual({ roundNo: 1, source: 'VERDICT' })
+
+    const values = redemptionDefaults(view, AFTER_R1, null)
+    expect(values).toMatchObject({
+      roundNo: '1',
+      redemptionType: 'EARLY',
+      // 1억 × (1 + 0.08 × 6/12)
+      grossAmount: '104000000',
+      taxableIncome: '4000000',
+      redemptionDate: R1_PAID,
+      withholdingTax: '',
+      isConfirmed: '',
+    })
+    // 차수를 «고른» 것과 같은 값이다(v2.7 — 같은 함수)
+    const picked = roundFillOf(roundOptionsOf(view), '1', 'EARLY')
+    expect(values.grossAmount).toBe(picked!.amounts!.grossAmount)
+    expect(values.redemptionDate).toBe(picked!.redemptionDate)
+  })
+
+  it('판정이 리자드상환이면 리자드 쿠폰율 금액이다', () => {
+    const values = redemptionDefaults(verdictView({ close: '85.000000' }), AFTER_R1, null)
+    // 1억 × (1 + 0.05 × 6/12)
+    expect(values).toMatchObject({ roundNo: '1', redemptionType: 'LIZARD', grossAmount: '102500000' })
+  })
+
+  it('평가일 종가 없음이면 쿼리 없이는 종전 경로다 — 판정이 없다', () => {
+    const view = verdictView()
+    expect(view.evaluationVerdict?.kind).toBe('CLOSE_MISSING')
+    expect(prefillRoundOf(view, null)).toEqual({ roundNo: 2, source: 'PROJECTION' })
+    expect(redemptionDefaults(view, AFTER_R1, null)).toMatchObject({ roundNo: '2', redemptionDate: AFTER_R1 })
+  })
+
+  it('평가일 종가 없음 + ⑥의 버튼(?round=1)이면 그 차수 · 유형은 비운다 — 없는 판단을 지어내지 않는다', () => {
+    const view = verdictView()
+    expect(prefillRoundOf(view, 1)).toEqual({ roundNo: 1, source: 'REQUESTED' })
+    expect(redemptionDefaults(view, AFTER_R1, 1)).toMatchObject({
+      roundNo: '1',
+      redemptionType: '',
+      grossAmount: '104000000',
+      redemptionDate: R1_PAID,
+    })
+  })
+
+  it('요청 차수가 판정 차수와 다르면 유형을 판정에서 옮기지 않는다', () => {
+    const values = redemptionDefaults(verdictView({ close: '95.000000' }), AFTER_R1, 2)
+    expect(values).toMatchObject({
+      roundNo: '2',
+      redemptionType: '',
+      redemptionDate: shiftDays('2027-01-04', REDEMPTION_DATE_OFFSET_DAYS),
+    })
+  })
+
+  it('없는 차수를 요청하면 오류 없이 무시한다 — 조작된 주소', () => {
+    const view = verdictView({ close: '95.000000' })
+    expect(prefillRoundOf(view, 99)).toEqual({ roundNo: 1, source: 'VERDICT' })
+    expect(redemptionDefaults(view, AFTER_R1, 99).roundNo).toBe('1')
+  })
+
+  it('만기 평가일 경과 — 유형은 비우고, KI 터치가 없으면 이익 가정 금액', () => {
+    const view = verdictView({ asOf: '2027-07-03' })
+    expect(view.evaluationVerdict?.kind).toBe('MATURITY_REACHED')
+    expect(redemptionDefaults(view, '2027-07-03', null)).toMatchObject({
+      roundNo: '3',
+      redemptionType: '',
+      // 1억 × (1 + 0.08 × 18/12)
+      grossAmount: '112000000',
+      redemptionDate: shiftDays('2027-07-02', REDEMPTION_DATE_OFFSET_DAYS),
+    })
+  })
+
+  it('★ KI 터치가 기록된 상품의 만기는 금액을 비운다 — 손실일 수 있고 이익 금액은 「항상 틀린 방향」이다', () => {
+    const view = verdictView({ asOf: '2027-07-03', kiTouchedAt: '2027-03-02' })
+    expect(redemptionDefaults(view, '2027-07-03', null)).toMatchObject({
+      roundNo: '3',
+      redemptionType: '',
+      grossAmount: '',
+      taxableIncome: '',
+      redemptionDate: shiftDays('2027-07-02', REDEMPTION_DATE_OFFSET_DAYS),
+    })
   })
 })
 
@@ -620,7 +772,7 @@ describe('마지막 차수에서는 상환 유형을 비운다', () => {
     expect(view.projection!.appliedRoundNo).toBe(2)
     expect(view.schedules.find((s) => s.roundNo === 2)!.conditionResult).toBe('EARLY')
 
-    const values = redemptionDefaults(view, '2026-12-01')
+    const values = redemptionDefaults(view, '2026-12-01', null)
     expect(values.redemptionType).toBe('')
     // **차수·금액은 여전히 채운다** — 비우는 것은 유형 하나다. 사용자가 만기 이익/손실을
     // 고르면 나머지 칸이 이미 채워져 있다.
@@ -642,7 +794,7 @@ describe('마지막 차수에서는 상환 유형을 비운다', () => {
     const view = viewWith('120.000000')
     expect(view.projection!.appliedRoundNo).toBe(1)
 
-    expect(redemptionDefaults(view, ASOF).redemptionType).toBe('EARLY')
+    expect(redemptionDefaults(view, ASOF, null).redemptionType).toBe('EARLY')
   })
 
   it('★ 차수 번호가 불연속이어도 마지막을 맞게 고른다 — 행 수로 판정하지 않는다', () => {
@@ -660,7 +812,7 @@ describe('마지막 차수에서는 상환 유형을 비운다', () => {
     expect(view.product.totalRounds).toBe(2)
     expect(view.projection!.appliedRoundNo).toBe(99)
 
-    expect(redemptionDefaults(view, '2026-12-01').redemptionType).toBe('')
+    expect(redemptionDefaults(view, '2026-12-01', null).redemptionType).toBe('')
   })
 })
 

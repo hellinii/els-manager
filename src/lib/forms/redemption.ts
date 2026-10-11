@@ -25,7 +25,7 @@ import {
  * |---|---|---|
  * | `roundNo`·`grossAmount`·`taxableIncome` | 적용 차수의 추정값 | 금액은 `roundFillOf`가 낸다(차수를 고쳤을 때와 같은 함수). 적용 차수가 없으면 비운다 |
  * | `redemptionType` | 판정이 **확정적일 때만**(`EARLY`·`LIZARD`) **그리고 적용 차수가 마지막이 아닐 때만** | `CARRY_OVER`는 「상환이 아니다」이므로 채우면 없는 판단을 지어낸다. 마지막 차수는 `isFinalRound`의 머리글 |
- * | `redemptionDate` | 기준일 | **적용 차수가 미래이므로 그 평가일을 넣으면 「아직 일어나지 않은 상환」이 기본값이 된다.** 계약이 미래 일자를 거부하지 않으므로(V-10은 발행일 이후만 본다) `max`도 두지 않는다 — 즉 막아 주는 층이 없다 |
+ * | `redemptionDate` | 기준일 (판정 · 요청 경로는 그 평가일 + 5일 — `prefillRoundOf`) | **적용 차수가 미래이므로 그 평가일을 넣으면 「아직 일어나지 않은 상환」이 기본값이 된다.** 계약이 미래 일자를 거부하지 않으므로(V-10은 발행일 이후만 본다) `max`도 두지 않는다 — 즉 막아 주는 층이 없다 |
  * | `withholdingTax` | **비운다** | 계약이 `taxableIncome × 분리과세율`로 산출한다(§5.4). 채우면 그 산출이 영원히 실행되지 않는다 |
  * | `isConfirmed` | 거짓 | 「증권사가 제공한 실제 값」이므로(DOC-005 §6) 기본 참이면 추정값이 확정값으로 저장된다(ST-05) |
  *
@@ -315,20 +315,53 @@ function isFinalRound(roundNo: number, schedules: readonly { roundNo: number }[]
 }
 
 /**
+ * 첫 렌더의 차수는 어디서 왔는가 — DOC-008 SCR-203 「상환 확인 필요에서 왔을 때」 (P6 컷 7-3)
+ *
+ * | 출처 | 언제 | 상환일 |
+ * |---|---|---|
+ * | `REQUESTED` | `?round=k`가 그 상품에 **실재하는** 차수 | 그 평가일 + 5일 |
+ * | `VERDICT` | 쿼리가 없어도 평가일 판정이 `EARLY` · `LIZARD` · `MATURITY_REACHED` | 그 평가일 + 5일 |
+ * | `PROJECTION` | 그 밖(종가 없음 포함) — 종전 경로(적용 차수 = 다음 도래) | 기준일 |
+ *
+ * 종가 없음이 판정 차수로 옮기지 않는 이유: **판정이 없다.** 「확정적일 때만 채운다」(v0.7)를 차수에도 적용한 것이다 —
+ * ⑥의 버튼은 그 차수를 `?round=k`로 명시하므로 사용 흐름은 같다. 페이지도 이 함수를 불러 안내 문장을 고른다 —
+ * 기본값과 안내가 다른 판단에서 나오지 않게.
+ */
+export type RedemptionPrefill = { roundNo: number; source: 'REQUESTED' | 'VERDICT' | 'PROJECTION' }
+
+export function prefillRoundOf(
+  view: ProductDetailView,
+  requestedRound: number | null,
+): RedemptionPrefill | null {
+  if (requestedRound != null && view.schedules.some((s) => s.roundNo === requestedRound)) {
+    return { roundNo: requestedRound, source: 'REQUESTED' }
+  }
+  const verdict = view.evaluationVerdict
+  if (verdict != null && verdict.kind !== 'CLOSE_MISSING') {
+    return { roundNo: verdict.roundNo, source: 'VERDICT' }
+  }
+  return view.projection == null ? null : { roundNo: view.projection.appliedRoundNo, source: 'PROJECTION' }
+}
+
+/**
  * §5.4 상환 처리의 기본값 — 조건 판정에서 나온다.
  *
  * `asOf`를 인자로 받는다 — 화면이 `new Date()`를 부르면 요청당 한 번이라는 규약이
  * 깨진다(Q-02). `getAsOf()`가 계약과 같은 값을 준다.
+ *
+ * **`requestedRound`(`?round=k`)는 기본값이 없는 필수 인자다** (P6 컷 7-3) — 빠뜨린 호출이 조용히 종전 경로가 되면
+ * 「상환 확인 필요」의 버튼이 다음 차수로 채운 폼을 연다. 쿼리가 없으면 `null`을 명시한다.
  */
 export function redemptionDefaults(
   view: ProductDetailView,
   asOf: string,
+  requestedRound: number | null,
 ): Record<string, string> {
-  const applied = view.projection
+  const pick = prefillRoundOf(view, requestedRound)
   const round =
-    applied == null
-      ? null
-      : (view.schedules.find((s) => s.roundNo === applied.appliedRoundNo) ?? null)
+    pick == null ? null : (view.schedules.find((s) => s.roundNo === pick.roundNo) ?? null)
+  // 판정 · 요청에서 온 차수는 이미 평가됐다 — 상환일을 그 평가일 + 5일로 둔다(아래 `redemptionDate` 각주의 반대 근거)
+  const fromVerdict = pick != null && pick.source !== 'PROJECTION'
 
   /*
    * ★ **마지막 차수에서는 유형을 비운다** (P4.5, DOC-008 §5 SCR-203의 별 각주).
@@ -355,9 +388,17 @@ export function redemptionDefaults(
   const finalRound = round != null && isFinalRound(round.roundNo, view.schedules)
 
   // 판정이 확정적일 때만, 그리고 마지막 차수가 아닐 때만 채운다 —
-  // 없는 판단을 지어내지 않는다.
-  const redemptionType = finalRound ? '' : (DECISIVE[round?.conditionResult ?? ''] ?? '')
-  const roundNo = applied == null ? '' : String(applied.appliedRoundNo)
+  // 없는 판단을 지어내지 않는다. 판정 · 요청 경로에서는 **그 차수의 평가일 판정**이 확정적일 때만이다 — 요청 차수가
+  // 판정 차수와 다르거나(조작된 주소) 판정이 종가 없음이면 그 차수에는 판단이 없다. 다음 차수의 `conditionResult`
+  // (최신 시세 — 「예상」)를 지난 차수에 옮기지 않는다.
+  const verdict = view.evaluationVerdict
+  const decisive = fromVerdict
+    ? verdict != null && verdict.roundNo === round?.roundNo
+      ? (DECISIVE[verdict.kind] ?? '')
+      : ''
+    : (DECISIVE[round?.conditionResult ?? ''] ?? '')
+  const redemptionType = finalRound ? '' : decisive
+  const roundNo = pick == null ? '' : String(pick.roundNo)
 
   /*
    * ★ **금액은 `roundFillOf`가 낸다 — 차수를 고쳤을 때와 «같은 함수»다** (v2.7).
@@ -374,6 +415,17 @@ export function redemptionDefaults(
    */
   const fill = roundFillOf(roundOptionsOf(view), roundNo, redemptionType)
 
+  /*
+   * ★ **KI 터치가 기록된 상품의 만기는 금액을 비운다 — 판정 · 요청 경로만** (P6 컷 7-3 · DOC-008 SCR-203 v2.44).
+   *
+   * 유형이 비면 `roundFillOf`는 `EARLY` 가정(이익) 금액을 낸다. 아직 오지 않은 마지막 차수(종전 경로)라면 손익이 열려
+   * 있으니 그 추정이 첫 렌더로 맞다. 그러나 **이미 지난 만기에서 KI가 터치됐으면 손실일 수 있고**, 손실 상환에 이익
+   * 금액을 채우는 것은 「항상 틀린 방향」이다(위 `assumedAmountsOf`의 만기손실 각주). 터치가 없으면 대개 이익이므로
+   * 종전처럼 채운다 — 사용자의 미기록 터치(D-04)는 막지 못한다.
+   */
+  const maturityAfterTouch = fromVerdict && finalRound && view.product.kiTouchedAt != null
+  const amounts = maturityAfterTouch ? null : (fill?.amounts ?? null)
+
   return {
     redemptionType,
     roundNo,
@@ -384,10 +436,13 @@ export function redemptionDefaults(
      * 이후만 본다) 귀속연도는 상환일이 정하므로, 사용자가 고치지 않으면 「아직 일어나지
      * 않은 상환」이 그 해의 금융소득에 들어간다. 차수를 **고르는 순간**에는 그것이
      * 사용자의 의사이므로 그때 평가일 + 5일로 바뀐다(DOC-008 §5 v2.7).
+     *
+     * **판정 · 요청 경로는 반대다** (P6 컷 7-3) — 그 차수는 이미 평가됐으므로 막을 「아직 일어나지 않은 상환」이 없다.
+     * 차수를 «고른» 것과 같은 값(평가일 + 5일)이다. 경과 1~4일이면 기준일보다 뒤의 날짜가 되지만 남은 것은 지급뿐이다.
      */
-    redemptionDate: asOf,
-    grossAmount: fill?.amounts?.grossAmount ?? '',
-    taxableIncome: fill?.amounts?.taxableIncome ?? '',
+    redemptionDate: fromVerdict && fill != null ? fill.redemptionDate : asOf,
+    grossAmount: amounts?.grossAmount ?? '',
+    taxableIncome: amounts?.taxableIncome ?? '',
     // 비운다 — 계약이 산출한다(§5.4). 채우면 그 산출이 영원히 실행되지 않는다.
     withholdingTax: '',
     // 채우지 않는다 — 거래내역의 지급일 환율이고 참고값이다(DOC-008 SCR-203)

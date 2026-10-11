@@ -1,7 +1,7 @@
 import type { ListProductsParams } from '@/lib/db/queries/products'
 import type { ListScheduleParams } from '@/lib/db/queries/schedule'
 import type { KiStatus } from '@/lib/domain'
-import { PATHS } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 
 /**
  * URL 질의 문자열 → 계약 입력 — **순수**하다. `next`도 `react`도 모른다
@@ -183,6 +183,19 @@ export function parsePage(values: QueryValues): number {
   if (!/^\d+$/.test(raw)) return 1
   const parsed = Number.parseInt(raw, 10)
   return parsed < 1 ? 1 : parsed
+}
+
+/**
+ * SCR-203의 요청 차수 — `?round=k` (P6 컷 7-3 · `REDEEM_ROUND`).
+ *
+ * 1 이상의 정수만 받는다. 그 밖(빈 값 · 음수 · 소수 · 글자 · 배열)은 `null` — **오류가 아니라 무시다**(이 파일 머리의
+ * 「인식하지 못한 값은 버린다」). 그 상품에 실재하는 차수인지는 뷰를 아는 쪽(`prefillRoundOf`)이 본다
+ */
+export function parseRedeemRound(values: QueryValues): number | null {
+  const raw = one(values[REDEEM_ROUND.param])
+  if (!/^\d+$/.test(raw)) return null
+  const parsed = Number.parseInt(raw, 10)
+  return parsed >= 1 ? parsed : null
 }
 
 /**

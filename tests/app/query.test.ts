@@ -24,6 +24,7 @@ import {
   isUuid,
   parseImportQuery,
   parseProductFilter,
+  parseRedeemRound,
   parseScheduleFilter,
   parseScheduleView,
   parseTaxFilter,
@@ -33,7 +34,7 @@ import {
   type ProductFilter,
   type ScheduleFilter,
 } from '@/lib/forms/query'
-import { PATHS } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 
 /**
  * SCR-201의 필터 파서 — **주소가 상태다** (P4 컷 2)
@@ -889,3 +890,26 @@ describe('SCR-204 불러오기 주소 — 주소가 상태다 (DOC-008 v2.9)', (
     expect(importHref(target, { query: '4000', code: 'E04000' })).toBe(`${PATHS.productEdit(id)}?q=4000&code=E04000`)
   })
 })
+
+describe('SCR-203 ?round=k — parseRedeemRound (P6 컷 7-3)', () => {
+  it('1 이상의 정수만 받는다 — 앞뒤 공백은 지운다', () => {
+    expect(parseRedeemRound({ round: '3' })).toBe(3)
+    expect(parseRedeemRound({ round: ' 2 ' })).toBe(2)
+  })
+
+  it('그 밖은 무시다(null) — 오류가 아니다', () => {
+    for (const round of ['0', '-1', '1.5', 'abc', '', '1e2']) {
+      expect(parseRedeemRound({ round }), round).toBeNull()
+    }
+    expect(parseRedeemRound({ round: ['1', '2'] })).toBeNull()
+    expect(parseRedeemRound({})).toBeNull()
+  })
+
+  it('REDEEM_ROUND.href와 왕복한다 — 링크와 받는 쪽이 같은 이름을 본다', () => {
+    const href = REDEEM_ROUND.href('00000000-0000-4000-8000-000000000001', 4)
+    expect(href).toBe(`${PATHS.productRedeem('00000000-0000-4000-8000-000000000001')}?round=4`)
+    const query = Object.fromEntries(new URL(href, 'http://x').searchParams)
+    expect(parseRedeemRound(query)).toBe(4)
+  })
+})
+

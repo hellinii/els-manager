@@ -1,5 +1,5 @@
 import type { ConditionResult, ContributionBasis, CouponConditionResult, CouponState, KiStatus } from '@/lib/domain'
-import type { AttentionReason, IntegrityIssue, ProductListItem } from '@/lib/db/queries/map'
+import type { AttentionReason, EvaluationVerdictKind, IntegrityIssue, ProductListItem } from '@/lib/db/queries/map'
 
 /**
  * 시각 등급 — **DOC-005 §6.3이 정본이다**
@@ -43,6 +43,19 @@ export const CONDITION_RESULT_GRADES: Record<ConditionResult, BadgeGrade> = {
   EARLY: 'positive',
   LIZARD: 'positive',
   CARRY_OVER: 'caution',
+}
+
+/**
+ * 평가일 판정 (P6 컷 7 · DOC-005 §6.3) — **충족을 `positive`로 두지 않는다.** `positive`는 확정된 상환(상환 실적 ·
+ * `status.REDEEMED`)의 등급이고, 이 값은 사용자가 거래내역을 보고 기록해야 풀리는 **조치**다(`couponState.UNRECORDED`와
+ * 같은 부류). 추정 충족을 확정과 같은 색으로 칠하면 GQ-09의 혼동이 커진다. 종가 없음은 수집이 오면 풀리기도 하므로
+ * `attentionReason.PRICE_MISSING`과 같은 `caution`이다
+ */
+export const EVALUATION_VERDICT_GRADES: Record<EvaluationVerdictKind, BadgeGrade> = {
+  EARLY: 'attention',
+  LIZARD: 'attention',
+  MATURITY_REACHED: 'attention',
+  CLOSE_MISSING: 'caution',
 }
 
 /**

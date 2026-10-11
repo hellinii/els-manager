@@ -79,6 +79,19 @@ export const COUPON_SECTION = {
     `${PATHS.productCoupons(productId)}?edit=${encodeURIComponent(recordId)}`,
 } as const
 
+/**
+ * SCR-203 상환 처리의 «차수를 정해 연» 주소 (P6 컷 7-3 — DOC-008 SCR-203 「상환 확인 필요에서 왔을 때」).
+ *
+ * SCR-101 ⑥ · SCR-202 안내의 [상환 처리]가 방금 지난 차수를 `?round=k`로 넘긴다. 받는 쪽은 `parseRedeemRound`가
+ * 형식을 보고 화면이 그 상품에 실재하는 차수인지 본다(없으면 무시 — 종전 기본값). `EXCHANGE_RATE_SECTION`과 같은
+ * 이유로 `PATHS` 밖이다 — 쿼리가 붙은 주소는 라우트가 아니다
+ */
+export const REDEEM_ROUND = {
+  param: 'round',
+  href: (productId: string, roundNo: number): string =>
+    `${PATHS.productRedeem(productId)}?round=${roundNo}`,
+} as const
+
 export type NavItem = {
   /** UI 표시 문자열. 한글 표준 용어 (DOC-005) */
   label: string

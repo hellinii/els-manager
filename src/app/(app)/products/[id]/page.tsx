@@ -6,6 +6,7 @@ import { Badge } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import { CouponSection } from '@/components/products/CouponSection'
 import { DeleteProductForm } from '@/components/products/DeleteProductForm'
+import { EvaluationVerdictNotice } from '@/components/products/EvaluationVerdictNotice'
 import { KiTouchForm } from '@/components/products/KiTouchForm'
 import { RedemptionActions } from '@/components/products/RedemptionActions'
 import { ScheduleTable } from '@/components/products/ScheduleTable'
@@ -37,7 +38,7 @@ import {
   ymd,
 } from '@/lib/format'
 import { isUuid } from '@/lib/forms/query'
-import { COUPON_SECTION, PATHS } from '@/lib/routes/paths'
+import { COUPON_SECTION, PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 
 /**
  * SCR-202 ELS 상세 — 읽기 + **소유자 액션 다섯** (P4 컷 3·5·6, DOC-008 §5·DOC-011 §4.3)
@@ -138,6 +139,8 @@ export default async function ProductDetailPage({
 
         <Summary display={display} product={product} />
 
+        <EvaluationVerdictNotice verdict={view.evaluationVerdict} couponPayout={product.couponPayout} />
+
         {/*
           ST-04 — 비소유자에게는 **아무것도 렌더되지 않는다.** 비활성화가 아니다:
           비활성화는 타인 데이터에 대한 조작 가능성을 암시한다. 위 머리글이 「타인의
@@ -159,8 +162,16 @@ export default async function ProductDetailPage({
                 조작의 다음 행동은 이 화면의 수정·취소다 — 왕복이 늘 뿐이다.
               */}
               {redemption == null && (
+                /*
+                 * 평가일 판정이 있으면 그 차수로 연다(P6 컷 7-3 — `?round=k`). 위 안내에 버튼을 하나 더 두지 않는다 —
+                 * 같은 목적지에 입구가 둘이면 어느 것을 눌러야 하는지 화면이 답해야 한다(액션 수 아홉 그대로)
+                 */
                 <Link
-                  href={PATHS.productRedeem(product.id)}
+                  href={
+                    view.evaluationVerdict == null
+                      ? PATHS.productRedeem(product.id)
+                      : REDEEM_ROUND.href(product.id, view.evaluationVerdict.roundNo)
+                  }
                   className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700"
                 >
                   상환 처리
