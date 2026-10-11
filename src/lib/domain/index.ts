@@ -35,12 +35,23 @@ export {
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
   isPast,
+  isWeekendDate,
   nextEvaluation,
   overdueEvaluations,
   shiftBusinessDays,
   shiftDays,
   type OverdueEvaluation,
 } from './schedule'
+
+export {
+  evaluationVerdictOf,
+  finalRoundOf,
+  roundToJudge,
+  type EvaluationVerdict,
+  type EvaluationVerdictParams,
+  type RoundToJudge,
+  type VerdictRound,
+} from './evaluationVerdict'
 
 export {
   CURRENCY_ORDER,

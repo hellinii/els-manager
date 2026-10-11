@@ -133,11 +133,26 @@ export function shiftBusinessDays(iso: string, days: number): string {
   let remaining = days
   while (remaining > 0) {
     epoch += 1
-    // 1970-01-01(에포크 0)은 목요일이다 — (epoch + 4) % 7 이 0이면 일요일, 6이면 토요일
-    const weekday = (((epoch + 4) % 7) + 7) % 7
-    if (weekday !== 0 && weekday !== 6) remaining -= 1
+    if (!isWeekendEpochDay(epoch)) remaining -= 1
   }
   return formatIsoDate(fromEpochDay(epoch))
+}
+
+/** 1970-01-01(에포크 0)은 목요일이다 — (epoch + 4) % 7 이 0이면 일요일, 6이면 토요일 */
+function isWeekendEpochDay(epoch: number): boolean {
+  const weekday = (((epoch + 4) % 7) + 7) % 7
+  return weekday === 0 || weekday === 6
+}
+
+/**
+ * 토 · 일인가 — **휴장일은 모른다**(RD-03 ⓐ — 공휴일 표가 없다).
+ *
+ * 평가일 판정(DOC-007 §3.6)이 「평가일 종가 없음」의 안내를 가르는 데 쓴다. 주말로 저장된 평가일에는
+ * 종가가 영영 오지 않으므로 할 일이 시세 입력이 아니라 **일정의 평가일 수정**(SCR-204)이다 — 산식
+ * 날짜(`발행일 + n개월 − 1일`)는 주말을 건너뛰지 않는다(RD-21).
+ */
+export function isWeekendDate(iso: string): boolean {
+  return isWeekendEpochDay(toEpochDay(parseIsoDate(iso)))
 }
 
 /**
@@ -273,9 +288,10 @@ export type OverdueEvaluation<T> = {
  * `nextEvaluation`과 서로 배타적인 두 구간을 담당한다. 평가일 당일은 경과로
  * 보지 않으므로 어느 쪽에도 중복 포함되지 않는다.
  *
- * 결과가 비어 있지 않은 상품은 "상환 처리 또는 이월 확인" 대상이다. 시스템이
- * 이월을 자동 확정하지 않는다. 확인 이력을 저장하지 않으므로 조회마다
- * 재산출된다(RD-06).
+ * ~~결과가 비어 있지 않은 상품은 "상환 처리 또는 이월 확인" 대상이다.~~ → **무엇을 물을지는 평가일 판정이
+ * 정한다**(`evaluationVerdictOf` — DOC-007 §3.6, P6 컷 7). 가장 최근 경과 차수를 그 평가일의 종가로 판정해
+ * 충족 · 만기 · 종가 없음이면 「상환 확인 필요」로 묻고, **이월이면 묻지 않는다**(D2 — 확정이 아니라 질문 생략).
+ * 확인 이력은 여전히 저장하지 않으며 조회마다 재산출된다(RD-06 — 유도로 해소).
  */
 export function overdueEvaluations<
   T extends { roundNo: number; evaluationDate: string },
