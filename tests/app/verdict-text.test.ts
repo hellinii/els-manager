@@ -89,6 +89,10 @@ describe('evaluationVerdictSentence', () => {
     }
     expect(evaluationVerdictSentence(view({}), KRW)).not.toContain('월수익')
   })
+
+  it('지급방식을 모르면(null — 홈 ⑥) V-29 문장을 잇지 않는다 · 나머지는 상세와 같다', () => {
+    expect(evaluationVerdictSentence(view({}), null)).toBe(evaluationVerdictSentence(view({}), KRW))
+  })
 })
 
 describe('평가일 판정의 표시 · 등급', () => {

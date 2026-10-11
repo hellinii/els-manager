@@ -248,8 +248,13 @@ export async function saveAssetPrice(
   jar: ReturnType<typeof cookieJar>,
   assetId: string,
   price: string,
+  /**
+   * 그 시세의 기준일 — **P6 컷 7-5가 필요해졌다**(평가일 종가를 화면으로 넣는다). 기본은 화면이 든 기준일(`max`)이다.
+   * 과거 날짜도 화면을 지나므로 V-17(미래 거부)이 그대로 걸린다
+   */
+  asOfDate?: string,
 ): Promise<void> {
-  await savePriceViaScreen(jar, assetId, price)
+  await savePriceViaScreen(jar, assetId, price, asOfDate)
 }
 
 /**
@@ -324,6 +329,7 @@ async function savePriceViaScreen(
   jar: ReturnType<typeof cookieJar>,
   assetId: string,
   price: string = CURRENT_PRICE,
+  asOfDate?: string,
 ): Promise<void> {
   const savePriceId = actionIdOf('saveManualPriceAction')
   const html = await (await get(PATHS.prices, jar)).text()
@@ -338,7 +344,7 @@ async function savePriceViaScreen(
     ...formFieldsFor(row, savePriceId),
     ['assetId', assetId],
     ['price', price],
-    ['asOfDate', asOf],
+    ['asOfDate', asOfDate ?? asOf],
   ])
   const after = await res.text()
   if (!after.includes('시세를 저장했다.')) {

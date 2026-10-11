@@ -5,7 +5,6 @@ import {
   dDay,
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
-  shiftDays,
 } from '@/lib/domain'
 import {
   ATTENTION_REASON_LABELS,
@@ -35,6 +34,7 @@ import {
 import { cookieJar, get } from './helpers/server'
 import { DISPLAY_NAME, E2E_LIVE, E2E_PAST } from './helpers/users'
 import { closeSeedConnection } from '../integration/helpers/seed'
+import { issueDateForFirstRound } from './helpers/dates'
 
 /**
  * SCR-101 홈 — **Next를 지나야 존재하는 것들** (P4 컷 9)
@@ -138,43 +138,8 @@ function rowOf(html: string, productName: string): string {
 // 발행일을 기준일에서 거꾸로 만든다
 // ---------------------------------------------------------------------------
 
-// `shiftDays`는 `lib/domain`에서 온다 — 사본을 두면 앱과 갈릴 수 있고,
-// 이 파일의 전제가 「앱이 저장할 때 쓴 함수와 같은 것으로 검산한다」다.
-
-function monthsBefore(iso: string, months: number): string {
-  const t = new Date(`${iso}T00:00:00Z`)
-  t.setUTCMonth(t.getUTCMonth() - months)
-  return t.toISOString().slice(0, 10)
-}
-
-/**
- * 첫 평가일이 `[min, max]`일 뒤에 오는 발행일 — **앱의 함수로 검산한다.**
- *
- * `발행일 + 6개월 = 목표일`의 역산이 정확히 성립하지 않을 수 있으므로(월말 보정)
- * 후보를 하루씩 밀며 `generateEvaluationDates`가 낸 첫 평가일의 D-Day를 본다.
- * 그 함수는 화면이 저장할 때 쓴 것과 같다 — 여기서 산술을 다시 쓰면 테스트가
- * 프로덕션 경로를 재구현하게 되고, 두 구현이 어긋나도 픽스처가 우연히 맞는다.
- */
-function issueDateForFirstRound(
-  asOf: string,
-  window: { min: number; max: number },
-): string {
-  const base = monthsBefore(shiftDays(asOf, window.min), 6)
-  for (let shift = 0; shift <= window.max - window.min; shift += 1) {
-    const candidate = shiftDays(base, shift)
-    const [first] = generateEvaluationDates({
-      issueDate: candidate,
-      evaluationPeriodMonths: 6,
-      totalRounds: 3,
-      offsetDays: EVALUATION_DATE_OFFSET_DAYS,
-    })
-    const d = dDay({ from: asOf, evaluationDate: first! })
-    if (d >= window.min && d <= window.max) return candidate
-  }
-  throw new Error(
-    `첫 평가일이 ${window.min}~${window.max}일 뒤에 오는 발행일을 찾지 못했다 (기준일 ${asOf}).`,
-  )
-}
+// 발행일 역산(`issueDateForFirstRound`)은 `./helpers/dates`로 옮겼다(P6 컷 7-5 — 평가일 판정 흐름이 같은 역산을 쓴다).
+// 그 함수도 앱의 함수로 검산한다 — 이 파일의 전제가 「앱이 저장할 때 쓴 함수와 같은 것으로 검산한다」다.
 
 function firstRoundOf(product: RegisteredProduct): string {
   return generateEvaluationDates({
