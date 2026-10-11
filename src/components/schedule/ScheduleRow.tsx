@@ -69,7 +69,7 @@ export function ScheduleRow({
         {/*
           부호의 뒤집음은 `dDayLabel` 하나에만 있다(§4.1의 `dDay`는 과거가 음수).
           지난 절에서도 값을 보여주는 이유는 「얼마나 지났는가」가 상환 처리의
-          시급성이기 때문이다(§4.1 `EVALUATION_PASSED`).
+          시급성이기 때문이다(홈 ⑥ 「상환 확인 필요」 — §4.1 `redemptionChecks`).
         */}
         <span
           className={`text-xs tabular-nums ${

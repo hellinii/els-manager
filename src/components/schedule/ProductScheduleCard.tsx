@@ -227,7 +227,7 @@ export function ProductScheduleCard({
           <p className="px-4 py-3 text-xs text-neutral-600">
             다가오는 차수가 없다.{' '}
             <Link href={PATHS.product(group.productId)} className="underline">
-              상환 처리 · 이월 확인
+              상환 처리
             </Link>
           </p>
         )}

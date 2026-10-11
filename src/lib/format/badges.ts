@@ -59,7 +59,7 @@ export const EVALUATION_VERDICT_GRADES: Record<EvaluationVerdictKind, BadgeGrade
 }
 
 /**
- * 월수익 상태 (P8 컷 b3 · DOC-005 §6.3). 「미기록」만 사용자 조치다 — 거래내역에서 옮겨 적어야 풀린다(「평가일 경과」와
+ * 월수익 상태 (P8 컷 b3 · DOC-005 §6.3). 「미기록」만 사용자 조치다 — 거래내역에서 옮겨 적어야 풀린다(「상환 확인 필요」와
  * 같은 부류, 홈의 `COUPON_UNRECORDED`와 같은 등급). 「미지급」은 조건을 못 맞춘 달이라 관찰이다(차수의 이월과 같다)
  */
 export const COUPON_STATE_GRADES: Record<CouponState, BadgeGrade> = {
@@ -98,14 +98,13 @@ export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
   KI_NEAR: 'caution',
   KI_BELOW: 'attention',
   KI_TOUCHED: 'attention',
-  EVALUATION_PASSED: 'attention',
   // 시세 없음은 수집이 오면 해소된다 — 사용자가 할 일이 있으나(수동 입력) 폴백이다.
   PRICE_MISSING: 'caution',
   UNDERLYING_MISSING: 'defect',
   SCHEDULE_MISSING: 'defect',
   // 셋째 결함도 데이터 수정이다(SCR-204) — 조치(attention)와 다른 등급이어야 ST-06의 구분이 색에 남는다
   COUPON_SCHEDULE_MISSING: 'defect',
-  // 사용자가 거래내역에서 옮겨 적을 지난 사실 — 「평가일 경과」와 같은 부류(DOC-008 SQ-21 ⓓ b3 개정)
+  // 사용자가 거래내역에서 옮겨 적을 지난 사실 — 「상환 확인 필요」(`evaluationVerdict`)와 같은 부류(DOC-008 SQ-21 ⓓ b3 개정)
   COUPON_UNRECORDED: 'attention',
 }
 

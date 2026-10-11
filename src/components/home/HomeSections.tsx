@@ -3,10 +3,13 @@ import { Fragment } from 'react'
 
 import { Badge } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
+import { OwnerOnly } from '@/components/state/OwnerOnly'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
 import {
   ATTENTION_REASON_GRADES,
   ATTENTION_REASON_LABELS,
+  EVALUATION_VERDICT_GRADES,
+  EVALUATION_VERDICT_LABELS,
   attentionChipLabel,
   IMMINENT_LABEL,
   MONTHLY_COUPON_ESTIMATE_NOTE,
@@ -17,6 +20,7 @@ import {
   barrierGap,
   convertedIncludedLine,
   dDayLabel,
+  evaluationVerdictSentence,
   groupAttention,
   heaviestGrade,
   isImminent,
@@ -30,12 +34,12 @@ import {
   ymd,
 } from '@/lib/format'
 import { FILTER_KEYS, type DashboardScope } from '@/lib/forms/query'
-import { PATHS } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 
 /**
- * SCR-101의 다섯 요소 — DOC-008 §5 (P4 컷 9)
+ * SCR-101의 여섯 요소 — DOC-008 §5 (P4 컷 9 · ⑥은 P6 컷 7-4)
  *
- * ① 임박 평가일 · ② 총 자산 요약 · ③ 올해 금융소득 · ④ 주의 상태 상품 ·
+ * ⑥ 상환 확인 필요(맨 위) · ① 임박 평가일 · ② 총 자산 요약 · ③ 올해 금융소득 · ④ 주의 상태 상품 ·
  * ⑤ 최근 상환 실적. 범위 전환은 폼이 아니라 링크이므로 `ScopeSwitch`에 있다.
  *
  * ## 이 파일이 정하지 않는 것 둘
@@ -51,6 +55,87 @@ import { PATHS } from '@/lib/routes/paths'
  * 6번째 항목이 어떤 방법으로도 보이지 않는데 화면에 그 사실이 없다 — AQ-22가 등재한
  * 형태이며, 그래서 두 목록 모두 「총 N건 중 …」과 전체를 보는 링크를 함께 낸다.
  */
+
+// ---------------------------------------------------------------------------
+// ⑥ 상환 확인 필요 — 맨 위 (P6 컷 7-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⑥ — **평가일이 지난 뒤 「그날 종가로 보니 상환 조건을 충족했다」를 다음 접속 때 알린다** (DOC-008 SCR-101 「P6 컷 7-0」 각주).
+ *
+ * - **0건이면 그리지 않는다** — 알림이다. ④처럼 늘 서서 「있는가」에 답하는 절이 아니다
+ * - **자르지 않는다** — 상품당 최대 1건이고 다음 평가일이 지나면 사라진다. 순서는 계약 그대로(평가일 · 상품명)
+ * - **[상환 처리]는 소유자에게만**(ST-04 · D1) — 남의 상품은 이름과 사실만. 판정 넷 모두에 단다(종가 없음이어도 증권사에서
+ *   확인한 사용자가 기록하러 갈 수 있어야 한다). **「시세 입력」은 모두에게** — 종가 없음이고 주말이 아닐 때만(시세는 공용
+ *   데이터 · 주말 날짜의 종가는 「관측하지 않은 관측」 — DOC-010 AQ-100)
+ * - 안내 문장은 상세(SCR-202)와 같은 함수다. 지급방식은 계약에 없으므로 `null` — V-29 문장은 SCR-203이 말한다
+ */
+export function RedemptionCheckSection({
+  items,
+  scope,
+}: {
+  items: DashboardView['redemptionChecks']
+  scope: DashboardScope
+}) {
+  if (items.length === 0) return null
+
+  return (
+    <section className="flex flex-col gap-2" aria-label="상환 확인 필요">
+      <h2 className="text-sm font-semibold">
+        상환 확인 필요 <span className="font-normal text-neutral-500">{items.length}건</span>
+      </h2>
+      <p className="text-xs text-neutral-600">
+        평가일 종가로 판정한 추정이다. 상환을 기록하거나 다음 평가일이 지나면 사라진다. 판정이 이월이면 올리지 않는다.
+      </p>
+
+      <ul className="divide-y divide-red-100 rounded-lg border border-red-200 bg-red-50/40">
+        {items.map((item) => (
+          <li key={item.productId} className="flex flex-col gap-1.5 px-4 py-3">
+            <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <Link
+                  href={PATHS.product(item.productId)}
+                  className="truncate text-sm font-medium text-neutral-900 hover:underline"
+                >
+                  {item.productName}
+                </Link>
+                <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
+                  {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
+                  <span className="tabular-nums">{`${item.roundNo}차 · ${ymd(item.evaluationDate)}`}</span>
+                  <span className="tabular-nums text-red-700">{dDayLabel(item.dDay)}</span>
+                  {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
+                </span>
+              </span>
+
+              <span className="flex flex-wrap items-center gap-2">
+                <Badge grade={EVALUATION_VERDICT_GRADES[item.kind]}>{EVALUATION_VERDICT_LABELS[item.kind]}</Badge>
+                {item.worstOf != null && item.barrier != null && (
+                  <span className="text-xs tabular-nums text-neutral-600">
+                    {`평가일 워스트오브 ${percent(item.worstOf)} · 배리어 ${percent(item.barrier)}`}
+                  </span>
+                )}
+                {item.kind === 'CLOSE_MISSING' && !item.weekendEvaluation && (
+                  <Link href={PATHS.prices} className="text-xs font-medium underline">
+                    시세 입력
+                  </Link>
+                )}
+                <OwnerOnly isOwner={item.isOwner}>
+                  <Link
+                    href={REDEEM_ROUND.href(item.productId, item.roundNo)}
+                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-700"
+                  >
+                    상환 처리
+                  </Link>
+                </OwnerOnly>
+              </span>
+            </span>
+            <p className="text-xs text-neutral-700">{evaluationVerdictSentence(item, null)}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // ① 임박 평가일 알림
@@ -85,11 +170,11 @@ export function UpcomingSection({
          * **이 표의 빈 상태가 아니다**(DOC-008 §6 각주). 상품은 있는데 미상환
          * 상품의 다음 평가일이 하나도 없는 상태이며, 전 차수가 경과했거나
          * (E-07 · DOC-007 §9.2) 전부 상환완료라는 뜻이다. 그때 다음 행동은 등록이
-         * 아니라 **상환 처리 또는 이월 확인**이므로 SCR-301의 셋째 빈 상태와 같은
+         * 아니라 **상환 처리**이므로(P6 컷 7-4 — 무엇을 물을지는 ⑥의 평가일 판정이 정하고 이월이면 묻지 않는다) SCR-301의 셋째 빈 상태와 같은
          * 문구 부류다(DOC-010 AQ-34가 둘을 함께 다룬다).
          */
         <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          임박한 평가일이 없다. 경과한 차수의 상환 처리 또는 이월을 확인한다.
+          임박한 평가일이 없다. 경과한 차수는 위 「상환 확인 필요」가 묻는다 — 없으면 이월로 판정됐다.
         </p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
@@ -406,7 +491,7 @@ export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }
  * 관측 지점이다.
  *
  * 자르지 않는다 — 조치 목록이 잘리면 「할 일이 없다」로 읽히고, 잘린 항목은
- * `EVALUATION_PASSED`처럼 시간이 지나도 사라지지 않는 것들이다.
+ * 결함 · KI 하회처럼 사용자가 고치거나 확인하기 전까지 사라지지 않는 것들이다.
  */
 export function AttentionSection({
   items,
@@ -426,7 +511,7 @@ export function AttentionSection({
 
       {groups.length === 0 ? (
         <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          조치가 필요한 상품이 없다.
+          주의 상태 상품이 없다.
         </p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">

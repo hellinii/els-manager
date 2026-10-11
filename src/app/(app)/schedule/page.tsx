@@ -157,7 +157,7 @@ export default async function SchedulePage({
    */
   const missingUpcoming =
     upcoming.length === 0 && filter.range !== 'PAST'
-      ? '다가오는 평가일이 없다. 경과한 차수의 상환 처리 또는 이월을 확인한다.'
+      ? '다가오는 평가일이 없다. 경과한 차수는 홈의 「상환 확인 필요」가 묻는다 — 없으면 이월로 판정됐다.'
       : null
 
   return (

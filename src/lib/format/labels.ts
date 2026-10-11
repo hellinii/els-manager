@@ -202,7 +202,6 @@ export const ATTENTION_REASON_LABELS: Record<AttentionReason, string> = {
   KI_NEAR: 'KI 근접',
   KI_BELOW: 'KI 배리어 하회 — 확인 필요',
   KI_TOUCHED: 'KI 터치',
-  EVALUATION_PASSED: '평가일 경과',
   PRICE_MISSING: '시세 없음',
   UNDERLYING_MISSING: '기초자산 없음 — 수정 필요',
   SCHEDULE_MISSING: '평가일정 없음 — 수정 필요',

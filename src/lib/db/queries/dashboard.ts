@@ -12,8 +12,10 @@ import {
 
 import { currentYear } from '../today'
 import type { QueryContext } from './context'
+import { evaluationClosePairsOf, evaluationVerdictFor } from './evaluation'
 import {
   loadEstimateRates,
+  loadEvaluationCloses,
   loadLatestPrices,
   loadProducts,
   loadTaxProfile,
@@ -24,6 +26,7 @@ import {
   amountString,
   attentionReasonsFor,
   couponObservationsOf,
+  evaluationVerdictViewOf,
   exchangeRateBasisOf,
   judge,
   ownerNameOf,
@@ -32,6 +35,7 @@ import {
   ratioString,
   redemptionMarkOf,
   type AttentionReason,
+  type EvaluationVerdictView,
   type ExchangeRateBasisView,
 } from './map'
 import { assetIdsOf } from './products'
@@ -40,6 +44,19 @@ import { computeOwnTax } from './tax'
 /** §4.1 — 대시보드 */
 
 export type DashboardView = {
+  /**
+   * ⑥ 상환 확인 필요 — 화면 맨 위 (§4.1 v4.40 · P6 컷 7-4 · DOC-007 §3.6).
+   *
+   * 평가일 판정이 묻는 상품만 — 조건 충족 · 만기 평가일 경과 · 평가일 종가 없음. **이월이면 어디에도 없다**(D2). 상품당
+   * 최대 1건(가장 최근 경과 차수 — D4), 평가일 오름차순 · 같으면 상품명, **자르지 않는다**(④와 같은 근거). `scope`를 따른다.
+   *
+   * **`isOwner`를 싣는다** — 이 목록은 소유자 전용 조치([상환 처리])를 싣기 때문이다. `upcomingEvaluations`에
+   * `ownerId`를 두지 않기로 한 근거(소유자 전용 조치가 없다)의 반대다. `ownerId`가 아니라 `isOwner`인 이유: 비교는
+   * 매퍼가 끝낸다(`map.ts`의 `row.owner_id === viewerId` 선례) — 화면은 `viewerId`를 모른다
+   */
+  redemptionChecks: Array<
+    { productId: string; productName: string; ownerName: string; isOwner: boolean } & EvaluationVerdictView
+  >
   upcomingEvaluations: Array<{
     productId: string
     productName: string
@@ -263,8 +280,14 @@ export function makeDashboardQueries(ctx: QueryContext) {
       loadEstimateRates(ctx),
     ])
 
-    // ② 자산별 최신 시세 — assetIdsOf(rows)를 알아야 하므로 여기만 순차다
-    const prices = await loadLatestPrices(ctx, assetIdsOf(rows))
+    /*
+     * ② 자산별 최신 시세 — assetIdsOf(rows)를 알아야 하므로 여기만 순차다. 평가일 종가도 같은 이유로 여기서 **나란히**
+     * 낸다(§4.0 — 왕복 5 → 판정할 쌍이 있으면 6 · 물결 2 그대로). 쌍이 0건이면 로더가 질의를 내지 않는다
+     */
+    const [prices, closes] = await Promise.all([
+      loadLatestPrices(ctx, assetIdsOf(rows)),
+      loadEvaluationCloses(ctx, evaluationClosePairsOf(rows, ctx.asOf)),
+    ])
 
     const judgments = rows.map((row) => ({ row, j: judge(row, prices, ctx.asOf) }))
 
@@ -274,7 +297,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
      * 미상환 상품의 다음 평가일 전체를 `dDay` 오름차순으로 반환하고 표시 건수는
      * 화면이 정한다. "임박"의 경계를 계약에 박으면 그 값이 어느 문서에도 근거가
      * 없는 상수가 되고, 창 밖의 상품은 화면에서 사라져 SCR-101의 목적이 조용히
-     * 좁아진다. 이미 경과한 차수는 `attentionItems`의 `EVALUATION_PASSED`가 담당한다.
+     * 좁아진다. ~~이미 경과한 차수는 `attentionItems`의 `EVALUATION_PASSED`가 담당한다.~~ → 이미 경과한 차수는
+     * `redemptionChecks`가 담당한다 — 평가일 판정이 이월이면 어디에도 없다(D2 · P6 컷 7-4).
      */
     const upcomingEvaluations = judgments
       .filter((entry) => entry.j.next != null)
@@ -298,6 +322,29 @@ export function makeDashboardQueries(ctx: QueryContext) {
         }
       })
       .sort((a, b) => a.dDay - b.dDay || a.productName.localeCompare(b.productName))
+
+    /*
+     * ⑥ — 상품당 판정 한 번(`evaluationVerdictFor`), 뷰는 상세와 같은 `evaluationVerdictViewOf`. 상환된 상품은 null이다(E-05)
+     */
+    const redemptionChecks = rows
+      .flatMap((row) => {
+        const verdict = evaluationVerdictViewOf(row, evaluationVerdictFor(row, closes, ctx.asOf), ctx.asOf)
+        return verdict == null
+          ? []
+          : [
+              {
+                productId: row.id,
+                productName: row.name,
+                ownerName: ownerNameOf(row),
+                isOwner: row.owner_id === ctx.viewerId,
+                ...verdict,
+              },
+            ]
+      })
+      .sort(
+        (a, b) =>
+          a.evaluationDate.localeCompare(b.evaluationDate) || a.productName.localeCompare(b.productName),
+      )
 
     const activeRows = rows.filter((row) => redemptionMarkOf(row) == null)
     const redeemedRows = rows.filter((row) => row.redemptions != null)
@@ -363,6 +410,7 @@ export function makeDashboardQueries(ctx: QueryContext) {
       )
 
     return {
+      redemptionChecks,
       upcomingEvaluations,
       totals: {
         activeCount: activeRows.length,

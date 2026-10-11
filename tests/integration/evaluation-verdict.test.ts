@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import type { DashboardView } from '@/lib/db/queries/dashboard'
 import { loadEvaluationCloses } from '@/lib/db/queries/load'
 import type { ProductDetailView } from '@/lib/db/queries/map'
 
@@ -54,9 +55,26 @@ const VERDICT_TABLE: Record<string, Spec> = {
 }
 const isVerdictPath = (entry: string) => entry.startsWith('evaluationVerdict')
 
+/** §4.1 `redemptionChecks` (P6 컷 7-4) — 원소 = 상품 넷 + `EvaluationVerdictView`. 분류는 위 표와 같아야 한다(같은 매퍼다) */
+const CHECK_TABLE: Record<string, Spec> = {
+  'redemptionChecks[].productId': 'UUID',
+  'redemptionChecks[].productName': 'TEXT',
+  'redemptionChecks[].ownerName': 'TEXT',
+  'redemptionChecks[].isOwner': 'BOOL',
+  ...Object.fromEntries(
+    Object.entries(VERDICT_TABLE)
+      .filter(([path]) => path !== 'evaluationVerdict')
+      .map(([path, spec]) => [path.replace(/^evaluationVerdict\./, 'redemptionChecks[].'), spec]),
+  ),
+}
+const isCheckPath = (entry: string) => entry.startsWith('redemptionChecks')
+
 let s: Scenario
 let views: Record<'met' | 'missing' | 'carry' | 'maturity' | 'beforeReg', ProductDetailView>
 let coverage: Coverage
+let mine: DashboardView
+let allAsB: DashboardView
+let checkCoverage: Coverage
 
 async function seedVerdictProduct(params: {
   id: string
@@ -143,6 +161,13 @@ beforeAll(async () => {
     VERDICT_TABLE,
     Object.entries(views).map(([label, value]) => ({ label, value })),
   )
+
+  mine = await s.asA.getDashboard({ scope: 'MINE' })
+  allAsB = await s.asB.getDashboard({ scope: 'ALL' })
+  checkCoverage = collect(CHECK_TABLE, [
+    { label: 'A MINE', value: mine },
+    { label: 'B ALL', value: allAsB },
+  ])
 })
 
 afterAll(async () => {
@@ -268,3 +293,61 @@ describe('§4.0 왕복 — 평가일 종가는 쌍이 있을 때만 하나 는�
     }
   })
 })
+
+describe('§4.1 redemptionChecks — 홈 ⑥ (P6 컷 7-4)', () => {
+  const ids = (view: DashboardView) => view.redemptionChecks.map((item) => item.productId)
+  const VERDICT_IDS: readonly string[] = [FX.productVerdictMissing, FX.productVerdictMet, FX.productVerdictMaturity]
+
+  it('묻는 상품만 — 충족 · 종가 없음 · 만기. 이월 · 등록 전은 없다 · 평가일 오름차순', () => {
+    // 결측 05-04 → 충족 06-01 · 만기 06-01(같은 날이면 상품명 — 「판정만기」 < 「판정충족」)
+    expect(ids(mine)).toEqual([FX.productVerdictMissing, FX.productVerdictMaturity, FX.productVerdictMet])
+    expect(mine.redemptionChecks.map((item) => item.kind)).toEqual(['CLOSE_MISSING', 'MATURITY_REACHED', 'EARLY'])
+  })
+
+  it('상세와 같은 판정 · 같은 형태다 — 한 사실을 두 화면이 다르게 부르지 않는다', () => {
+    const met = mine.redemptionChecks.find((item) => item.productId === FX.productVerdictMet)
+    expect(met).toEqual({
+      productId: FX.productVerdictMet,
+      productName: '[ITG] 판정충족',
+      ownerName: expect.any(String),
+      isOwner: true,
+      ...views.met.evaluationVerdict,
+    })
+  })
+
+  it('★ isOwner — 전체 보기의 남의 상품은 거짓이다(버튼이 소유자 전용)', () => {
+    const asB = allAsB.redemptionChecks.filter((item) => VERDICT_IDS.includes(item.productId))
+    expect(asB).toHaveLength(3)
+    expect(asB.every((item) => item.isOwner === false)).toBe(true)
+    expect(mine.redemptionChecks.every((item) => item.isOwner)).toBe(true)
+  })
+
+  it('④에 「평가일 경과」 사유가 없다 — 경과 차수는 ⑥이 묻는다', () => {
+    expect(mine.attentionItems.map((item) => item.reason)).not.toContain('EVALUATION_PASSED')
+  })
+
+  it('형식 — 위반 · 미분류 · 미관측 · null로만 관측 없음', () => {
+    expect(checkCoverage.violations).toEqual([])
+    expect(checkCoverage.unclassified.filter(isCheckPath)).toEqual([])
+    expect(checkCoverage.unobserved).toEqual([])
+    expect(checkCoverage.neverNonNull).toEqual([])
+  })
+
+  it('★ 왕복 — 판정할 쌍이 있으면 asset_prices 1이 시세와 나란히 는다(5 → 6)', async () => {
+    const counter = countRequests()
+    try {
+      await s.asA.getDashboard({ scope: 'MINE' })
+      expect(tallyPaths(counter.paths())).toEqual({
+        els_products: 1,
+        assets: 1,
+        tax_years: 1,
+        tax_profiles: 1,
+        exchange_rates: 1,
+        asset_prices: 1,
+      })
+    } finally {
+      counter.restore()
+    }
+  })
+})
+

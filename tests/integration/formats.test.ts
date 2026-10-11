@@ -55,7 +55,7 @@ const ATTENTION_REASONS = [
   'KI_NEAR',
   'KI_BELOW',
   'KI_TOUCHED',
-  'EVALUATION_PASSED',
+  // 'EVALUATION_PASSED' — P6 컷 7-4에서 사라졌다(⑥ `redemptionChecks`가 맡는다). 허용 집합에 남기면 되살아나도 초록이다
   'PRICE_MISSING',
   'UNDERLYING_MISSING',
   'SCHEDULE_MISSING',

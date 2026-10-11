@@ -701,14 +701,18 @@ describe('§4.1 attentionItems', () => {
     ).toContain('PRICE_MISSING')
   })
 
-  it('EVALUATION_PASSED — 경과 미상환', () => {
+  it('~~EVALUATION_PASSED — 경과 미상환~~ → 경과는 조치 사유가 아니다 · 그 상품은 ⑥의 평가일 판정이 묻는다 (P6 컷 7-4)', () => {
+    /*
+     * 전 차수 경과 미상환. 종전에는 ④에 「평가일 경과」가 붙었다 — 이월 상품에도 상환될 때까지 붙어 아무것도 가르지
+     * 못했다(DOC-007 RD-06). 이제 경과 차수에서 무엇을 물을지는 평가일 판정이 정하고(여기서는 만기 평가일 경과), 이월이면
+     * 묻지 않는다. 사유 목록에는 시세 쪽 사유만 남는다(시세 95 / 기준가 100 — KI 0.5 위, 시세 있음 → 사유 없음)
+     */
+    const row = productRow()
+    const prices = priceMap([{ assetId: ASSET_1, price: '95.000000' }])
+    expect(attentionReasonsOf(row, prices, '2028-01-01')).toEqual([])
     expect(
-      attentionReasonsOf(
-        productRow(),
-        priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
-        '2028-01-01',
-      ),
-    ).toContain('EVALUATION_PASSED')
+      toProductDetailView(row, prices, '2028-01-01', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES).evaluationVerdict?.kind,
+    ).toBe('MATURITY_REACHED')
   })
 })
 
@@ -881,16 +885,14 @@ describe('입력 기준 — 결함이 파괴한 입력만 죽는다', () => {
       expect(reasons[0]).toBe('SCHEDULE_MISSING')
     })
 
-    it('UNDERLYING_MISSING + 경과 → EVALUATION_PASSED도 보고한다', () => {
-      // overdueEvaluations의 입력은 (schedules, asOf, redemption)뿐 — 시세가 없다.
-      // 경과 미상환(E-07)과 결함 수정(SCR-204)은 서로 다른 조치다.
+    it('UNDERLYING_MISSING + 만기 경과 → ④는 결함만 · ⑥은 만기 평가일 경과 (P6 컷 7-4)', () => {
+      // 종전에는 ④가 `['UNDERLYING_MISSING', 'EVALUATION_PASSED']`였다. 결함 수정(SCR-204)과 상환 기록은 서로 다른 조치이고,
+      // 뒤의 것은 이제 ⑥이 묻는다 — 만기 갈래는 시세를 쓰지 않으므로 시세 입력을 파괴한 결함이 가리지 않는다(§4.2 입력 기준)
+      const row = productRow({ els_underlyings: [] })
+      expect(attentionReasonsOf(row, priceMap([]), '2028-01-01')).toEqual(['UNDERLYING_MISSING'])
       expect(
-        attentionReasonsOf(
-          productRow({ els_underlyings: [] }),
-          priceMap([]),
-          '2028-01-01',
-        ),
-      ).toEqual(['UNDERLYING_MISSING', 'EVALUATION_PASSED'])
+        toProductDetailView(row, priceMap([]), '2028-01-01', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES).evaluationVerdict?.kind,
+      ).toBe('MATURITY_REACHED')
     })
 
     it('UNDERLYING_MISSING은 PRICE_MISSING을 내지 않는다', () => {
@@ -1182,8 +1184,8 @@ describe('평가일정이 목록과 같은 판정을 낸다 (§4.4 v1.8)', () =>
   it('`isPast`와 `status`가 직교한다 — 미상환의 경과 차수도 있다', () => {
     /*
      * 넷 중 둘을 여기서 고정한다(위 케이스가 「상환 + 미래」를 고정했다). 미상환
-     * 상품의 경과 차수는 E-07이며 §4.1이 `EVALUATION_PASSED`로 조치를 요구하는
-     * 상태다 — 그 행이 지난 절에 오고, 그때도 상품은 `ACTIVE`다.
+     * 상품의 경과 차수는 E-07이며 ~~§4.1이 `EVALUATION_PASSED`로 조치를 요구하는~~ → 평가일 판정(⑥)이 무엇을 물을지
+     * 정하는 상태다(P6 컷 7-4) — 그 행이 지난 절에 오고, 그때도 상품은 `ACTIVE`다.
      */
     const rounds = toScheduleItems(
       productRow(),

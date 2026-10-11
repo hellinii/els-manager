@@ -37,7 +37,11 @@ export const REDEEM_PREFILL_NOTE =
  */
 export function evaluationVerdictSentence(
   verdict: EvaluationVerdictView,
-  context: { couponPayout: CouponPayout },
+  /**
+   * 상품의 쿠폰 지급방식 — 월지급식이면 V-29 문장을 잇는다. **`null` = 모른다**(홈 ⑥ — `redemptionChecks`는 지급방식을
+   * 싣지 않는다). 그때는 잇지 않는다 — 그 문장은 기록하는 자리(SCR-203)의 힌트가 다시 말한다. 기본값을 두지 않는다
+   */
+  context: { couponPayout: CouponPayout } | null,
 ): string {
   const date = korDate(verdict.evaluationDate)
   const sentences: string[] = []
@@ -72,7 +76,7 @@ export function evaluationVerdictSentence(
     }
   }
 
-  if (context.couponPayout === 'MONTHLY') {
+  if (context?.couponPayout === 'MONTHLY') {
     sentences.push('같은 날의 월수익은 상환에 합치지 않고 월수익 기록에 적는다.')
   }
   return sentences.join(' ')

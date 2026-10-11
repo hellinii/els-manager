@@ -22,7 +22,6 @@ import {
   MINOR_UNITS,
   moneyString,
   nextCoupon,
-  overdueEvaluations,
   portfolioPnl,
   realizedPnl,
   taxableIncome,
@@ -416,22 +415,6 @@ export function worstOfRow(
   )
 }
 
-/**
- * 순수 모듈은 `{ roundNo, evaluationDate }`(camelCase)를 받고 행은 snake_case다.
- * 어댑터가 **행을 붙여서** 넘긴다 — `nextEvaluation`이 제네릭으로 입력 타입을
- * 그대로 반환하므로, 이렇게 하면 고른 차수의 나머지 열(배리어·리자드)을 다시
- * 찾지 않아도 된다. `round_no`로 되찾으면 그 조회가 또 하나의 실패 지점이 된다.
- */
-type ScheduleForJudgment = {
-  roundNo: number
-  evaluationDate: string
-  row: ScheduleRow
-}
-
-function forJudgment(s: ScheduleRow): ScheduleForJudgment {
-  return { roundNo: s.round_no, evaluationDate: s.evaluation_date, row: s }
-}
-
 export type Judgment = {
   status: 'ACTIVE' | 'REDEEMED'
   integrityIssue: IntegrityIssue | null
@@ -448,8 +431,8 @@ export type Judgment = {
   next: ScheduleRow | null
   conditionResult: ConditionResult | null
   ki: KiStatus | null
-  /** 경과 미상환 차수(E-07). 차수 입력에서만 나오므로 시세 결함에 영향받지 않는다 */
-  overdue: ScheduleRow[]
+  // ~~`overdue` — 경과 미상환 차수(E-07)~~ → 유일한 소비자(`EVALUATION_PASSED`)가 사라져 뺐다(P6 컷 7-4). 경과 차수에서
+  // 무엇을 물을지는 평가일 판정(`./evaluation`)이 정한다 — 도메인 함수 `overdueEvaluations`는 그 입력으로 남는다
 }
 
 /**
@@ -464,8 +447,8 @@ export type Judgment = {
  *
  * | 결함 | 파괴한 입력 | 죽는 값 | 사는 값 |
  * |---|---|---|---|
- * | `UNDERLYING_MISSING` | 시세 | `worstOf`·`ki`·`conditionResult` | `next`·`overdue`·`expectedGross`·`projection` |
- * | `SCHEDULE_MISSING` | 차수 | (자연히) `next`·`overdue`·`conditionResult` | `worstOf`·`ki` |
+ * | `UNDERLYING_MISSING` | 시세 | `worstOf`·`ki`·`conditionResult` | `next`·`expectedGross`·`projection` |
+ * | `SCHEDULE_MISSING` | 차수 | (자연히) `next`·`conditionResult` | `worstOf`·`ki` |
  *
  * ## E-05는 별개 축이다
  *
@@ -485,18 +468,14 @@ export function judge(
   reportIntegrityIssue(row, integrityIssue)
 
   // ── 차수 입력에서 나오는 값 ──────────────────────────────────────────────
-  // ROUNDS가 파괴돼도 **끊지 않는다.** 일정이 0건이면 아래 두 함수가 이미 빈
-  // 결과를 준다 — 억제가 아니라 자연 결과이며, 둘을 구분해야 차수가 생겼을 때
+  // ROUNDS가 파괴돼도 **끊지 않는다.** 일정이 0건이면 `attributionOf`가 이미 빈
+  // 결과(`NO_ROUND`)를 준다 — 억제가 아니라 자연 결과이며, 둘을 구분해야 차수가 생겼을 때
   // 무엇이 되살아나는지 알 수 있다.
-  const schedules = row.redemption_schedules.map(forJudgment)
   // **적용 차수를 여기서 다시 고르지 않는다.** `attributionOf`가 상환 완료를 먼저
   // 잡으므로 `REDEEMED`에서 `next`가 `null`인 성질이 그 함수 안에 있다 —
   // 종전의 `status === 'REDEEMED' ? null : …` 삼항이 그 사실의 사본이었다.
   const attribution = attributionOf(row, asOf)
   const next = attribution.kind === 'ESTIMATED' ? attribution.round : null
-  const overdue = overdueEvaluations({ schedules, asOf, redemption: mark }).map(
-    (entry) => entry.schedule.row,
-  )
 
   // ── 시세 입력에서 나오는 값 ──────────────────────────────────────────────
   // **자연 소멸에 기대면 안 된다.** kiStatus는 `kiBarrier == null`이면 시세를
@@ -512,7 +491,6 @@ export function judge(
       next,
       conditionResult: null,
       ki: null,
-      overdue,
     }
   }
 
@@ -552,7 +530,6 @@ export function judge(
     next,
     conditionResult,
     ki,
-    overdue,
   }
 }
 
@@ -1774,7 +1751,6 @@ export type AttentionReason =
   | 'KI_NEAR'
   | 'KI_BELOW'
   | 'KI_TOUCHED'
-  | 'EVALUATION_PASSED'
   | 'PRICE_MISSING'
   | 'UNDERLYING_MISSING'
   | 'SCHEDULE_MISSING'
@@ -1835,7 +1811,6 @@ export function attentionReasonsFor(
   // 파괴하는 세 번째 결함이 생겼을 때 조용히 틀린다.
   if (j.destroyed !== 'PRICES' && j.worstOf == null) reasons.push('PRICE_MISSING')
 
-  if (j.overdue.length > 0) reasons.push('EVALUATION_PASSED')
 
   return reasons
 }

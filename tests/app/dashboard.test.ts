@@ -53,6 +53,8 @@ const ELEMENT_SOURCES = {
   '③': 'currentYearTax',
   '④': 'attentionItems',
   '⑤': 'recentRedemptions',
+  // P6 컷 7-4 — 화면에서는 맨 위지만 번호는 끝이다(①~⑤의 참조가 수십 곳 — DOC-008 SCR-101 「P6 컷 7-0」 각주)
+  '⑥': 'redemptionChecks',
 } as const satisfies Record<string, keyof DashboardView>
 
 type Expect<T extends true> = T
@@ -95,7 +97,7 @@ describe('DOC-008 §5 주요 요소 ↔ `DashboardView`', () => {
 
   it('파서가 요소를 찾았다', () => {
     // 0건을 찾고 조용히 통과하는 것이 이 부류 파서의 유일한 위험이다.
-    expect(mainElements().length).toBe(5)
+    expect(mainElements().length).toBe(6)
   })
 })
 
@@ -219,7 +221,7 @@ describe('groupAttention', () => {
     const groups = groupAttention([
       item('p2', 'KI_NEAR'),
       item('p1', 'KI_BELOW'),
-      item('p2', 'EVALUATION_PASSED'),
+      item('p2', 'PRICE_MISSING'),
     ])
     expect(groups.map((g) => g.productId)).toEqual(['p2', 'p1'])
   })
@@ -229,10 +231,10 @@ describe('groupAttention', () => {
     const groups = groupAttention([
       item('p1', 'KI_BELOW'),
       item('p2', 'KI_NEAR'),
-      item('p1', 'EVALUATION_PASSED'),
+      item('p1', 'PRICE_MISSING'),
     ])
     expect(groups).toHaveLength(2)
-    expect(groups[0]!.reasons).toEqual(['KI_BELOW', 'EVALUATION_PASSED'])
+    expect(groups[0]!.reasons).toEqual(['KI_BELOW', 'PRICE_MISSING'])
   })
 
   it('소유자를 그룹으로 옮긴다 — `scope = ALL`에서 화면이 읽는다', () => {

@@ -9,6 +9,7 @@ import {
 } from '@/lib/domain'
 import {
   ATTENTION_REASON_LABELS,
+  EVALUATION_VERDICT_LABELS,
   IMMINENT_DAYS,
   IMMINENT_LABEL,
   PRICE_MISSING_LABEL,
@@ -21,7 +22,7 @@ import {
   ymd,
 } from '@/lib/format'
 import { DASHBOARD_KEYS, SCHEDULE_KEYS } from '@/lib/forms/query'
-import { PATHS } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 
 import { actionIdOf, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
@@ -85,6 +86,8 @@ const TAXABLE_OLD = '1,000,000'
 const LOW_PRICE = '40000000000.000000'
 
 const SECTIONS = {
+  // P6 컷 7-4 — 맨 위. 0건이면 그리지 않으므로 머리의 부재가 곧 0건이다
+  redemptionCheck: '상환 확인 필요',
   upcoming: '임박 평가일',
   totals: '총 자산 요약',
   attention: '주의 상태 상품',
@@ -225,7 +228,7 @@ describe('SCR-101 홈', () => {
     })
 
     // ② 먼 평가일 + 기초자산 결함 — 첫 평가일이 60~120일 뒤이므로 세 차수 전부
-    //    미래이고, 그래서 `EVALUATION_PASSED`가 섞이지 않는다(시각 독립).
+    //    미래이고, 그래서 ⑥(상환 확인 필요)에 오르지 않는다(시각 독립).
     far = await registerProduct(live, {
       label: '홈원거리',
       issueDate: issueDateForFirstRound(asOf, { min: 60, max: 120 }),
@@ -288,7 +291,9 @@ describe('SCR-101 홈', () => {
 
     // 자리표시가 사라졌다 — 컷 9의 원장 이동이 화면에서 보이는 형태다.
     expect(html).not.toContain('아직 만들지 않은 화면이다')
-    for (const title of Object.values(SECTIONS)) {
+    // 늘 서는 절 넷 — ⑥ 상환 확인 필요는 0건이면 그리지 않으므로(알림이다) 여기서 요구하지 않는다(아래 ④ 케이스가 부재를 본다)
+    for (const [key, title] of Object.entries(SECTIONS)) {
+      if (key === 'redemptionCheck') continue
       expect(hasSection(html, title), `${title} 절이 없다`).toBe(true)
     }
 
@@ -365,8 +370,9 @@ describe('SCR-101 홈', () => {
 
     expect(row).toContain(ATTENTION_REASON_LABELS.UNDERLYING_MISSING)
     expect(row, '결함 상품에 시세 없음이 붙었다').not.toContain(PRICE_MISSING_LABEL)
-    // 사유가 정확히 하나다 — 세 차수 전부 미래이므로 `EVALUATION_PASSED`도 없다.
-    expect(row).not.toContain(ATTENTION_REASON_LABELS.EVALUATION_PASSED)
+    // 경과 차수가 없으므로 ⑥도 없다 — 실행 사용자의 상품은 차수가 전부 미래이거나 상환됐다(P6 컷 7-4). 0건이면 절을
+    // 그리지 않는다는 것의 관측이기도 하다
+    expect(hasSection(html, SECTIONS.redemptionCheck)).toBe(false)
   })
 
   it('조치 목록이 두 상품이다 — 정상 상품은 올라오지 않는다', async () => {
@@ -454,8 +460,8 @@ describe('SCR-101 홈', () => {
     /*
      * ★ **전용 사용자가 없으면 만들 수 없던 상태다**(AQ-34). 이 사용자의 유일한
      * 상품은 전 차수가 경과했으므로(2년 전 발행 + 6개월 주기 3차수) `upcomingEvaluations`가
-     * 빈 배열이다. 그때 다음 행동은 등록이 아니라 **상환 처리 또는 이월 확인**이며,
-     * 나머지 요소는 그대로 렌더된다 — 이 표의 빈 상태가 아니다(DOC-008 §6 각주).
+     * 빈 배열이다. 그때 다음 행동은 등록이 아니라 ~~상환 처리 또는 이월 확인~~ → **상환 처리**이며(⑥이 묻는다 —
+     * P6 컷 7-4), 나머지 요소는 그대로 렌더된다 — 이 표의 빈 상태가 아니다(DOC-008 §6 각주).
      */
     const html = visible(await (await get(PATHS.home, past)).text())
 
@@ -464,10 +470,15 @@ describe('SCR-101 홈', () => {
     expect(html).not.toContain(EMPTY_MINE)
     expect(hasSection(html, SECTIONS.totals)).toBe(true)
     expect(html).toContain(amount(P_OVERDUE.replace(/,/g, '')))
-    // 그 상품은 조치 목록에 있다 — 경과했기 때문이다
-    expect(sectionOf(html, SECTIONS.attention)).toContain(
-      ATTENTION_REASON_LABELS.EVALUATION_PASSED,
-    )
+    /*
+     * ~~그 상품은 조치 목록에 있다 — 경과했기 때문이다~~ → **⑥ 상환 확인 필요에 있다**(P6 컷 7-4). 전 차수가 경과했으므로
+     * 평가일 판정은 「만기 평가일 경과」다 — 오늘 등록했어도(등록일 컷 없음 — 만기에는 이월이 없다) 그렇다. [상환 처리]는
+     * 만기 차수(3차)를 `?round=3`으로 연다. ④에서는 「평가일 경과」 칩이 사라졌다
+     */
+    const check = rowOf(sectionOf(html, SECTIONS.redemptionCheck), overdue.productName)
+    expect(check).toContain(EVALUATION_VERDICT_LABELS.MATURITY_REACHED)
+    expect(check).toContain(`href="${REDEEM_ROUND.href(overdue.productId, 3)}"`)
+    expect(sectionOf(html, SECTIONS.attention)).not.toContain('평가일 경과')
   })
 
   // -------------------------------------------------------------------------

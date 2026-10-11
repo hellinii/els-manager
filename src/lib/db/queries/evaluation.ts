@@ -24,7 +24,7 @@ import type { EvaluationClosePair, EvaluationCloses, ProductCoreRow, ScheduleRow
  * 「평가일 종가 없음」이다(형식은 정상이고 값만 거짓인 부류).
  */
 
-/** 순수 모듈은 camelCase를 받는다 — 행을 붙여 넘겨 결과의 `schedule.row`로 되찾는다(`forJudgment`와 같은 패턴) */
+/** 순수 모듈은 camelCase를 받는다 — 행을 붙여 넘겨 결과의 `schedule.row`로 되찾는다(`nextEvaluation`의 「행을 붙여 넘긴다」 패턴) */
 export type ScheduleForVerdict = {
   roundNo: number
   evaluationDate: string

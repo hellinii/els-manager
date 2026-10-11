@@ -4,6 +4,7 @@ import {
   AttentionSection,
   RecentRedemptionsSection,
   TotalsSection,
+  RedemptionCheckSection,
   UpcomingSection,
   YearTaxSection,
 } from '@/components/home/HomeSections'
@@ -101,7 +102,11 @@ export default async function HomePage({
         </>
       ) : (
         <>
-          {/* 세 물음의 순서 — ① 평가일 ③ 종합과세 ④ 조치 */}
+          {/*
+            ⑥ 상환 확인 필요가 맨 위다(P6 컷 7-4) — 셋째 물음(조치가 필요한 상품이 있는가) 중 가장 급한 것이고, 0건이면
+            그리지 않는다. 그 아래 세 물음의 순서 — ① 평가일 ③ 종합과세 ④ 조치
+          */}
+          <RedemptionCheckSection items={view.redemptionChecks} scope={scope} />
           <UpcomingSection items={view.upcomingEvaluations} scope={scope} />
           <TotalsSection totals={view.totals} scope={scope} />
           <YearTaxSection tax={view.currentYearTax} />
