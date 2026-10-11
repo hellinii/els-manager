@@ -13,6 +13,7 @@ import {
 import { dec } from '@/lib/decimal'
 import { NO_ESTIMATE_RATES } from '@/lib/domain'
 import { deriveDisplay } from '@/lib/format'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 
 import { ASSET_1, ASSET_2, OTHER, OWNER, asset, priceMap, productRow, redemption, schedule, taxBasis } from './helpers/rows'
 
@@ -212,7 +213,7 @@ describe('§4.3 상품 상세', () => {
       priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.product.totalRounds).toBe(3)
@@ -228,7 +229,7 @@ describe('§4.3 상품 상세', () => {
       ]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.underlyings.map((u) => u.isWorst)).toEqual([true, true])
@@ -243,7 +244,7 @@ describe('§4.3 상품 상세', () => {
       ]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.underlyings.map((u) => u.isWorst)).toEqual([false, true])
@@ -258,7 +259,7 @@ describe('§4.3 상품 상세', () => {
       ]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.underlyings.map((u) => u.isWorst)).toEqual([false, false])
@@ -273,7 +274,7 @@ describe('§4.3 상품 상세', () => {
       priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     // P × (1 + r × m×n / 12) = 1억 × (1 + 0.08 × 6/12) = 104,000,000
@@ -290,7 +291,7 @@ describe('§4.3 상품 상세', () => {
       priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.schedules[0].conditionResult).toBe('EARLY')
@@ -311,7 +312,7 @@ describe('§4.3 상품 상세', () => {
       priceMap([]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     expect(view.redemption?.realizedPnl).toBe('-30000000')
@@ -325,7 +326,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.projection).toBeNull()
     })
@@ -336,7 +337,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.projection).toBeNull()
       expect(view.product.totalRounds).toBe(0)
@@ -352,7 +353,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
 
       expect(view.product.integrityIssue).toBe('UNDERLYING_MISSING')
@@ -371,7 +372,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
         '2028-01-01', // 두 차수 모두 경과했고 상환 레코드가 없다
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.projection).toBeNull()
       expect(view.schedules.every((s) => s.isPast)).toBe(true)
@@ -383,7 +384,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.projection).not.toBeNull()
       expect(view.projection!.appliedRoundNo).toBe(1)
@@ -398,7 +399,7 @@ describe('§4.3 상품 상세', () => {
         priceMap([{ assetId: ASSET_1, price: '95.000000' }]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.projection!.expectedTaxableIncome).toBe('0')
     })
@@ -778,7 +779,7 @@ describe('입력 기준 — 결함이 파괴한 입력만 죽는다', () => {
         ]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
 
       expect(view.underlyings.map((u) => u.ratio)).toEqual(['0.9500', '0.4500'])
@@ -849,7 +850,7 @@ describe('입력 기준 — 결함이 파괴한 입력만 죽는다', () => {
         priceMap([]),
         ASOF,
         OWNER,
-        NO_ESTIMATE_RATES,
+        NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
       )
       expect(view.schedules.map((x) => x.expectedGross)).toEqual([
         '104000000',
@@ -988,7 +989,7 @@ describe('목록과 상세가 같은 판정을 낸다 (§4.3 판정 삼종)', ()
 
   it.each(CASES)('$label', ({ row, prices }) => {
     const item = toProductListItem(row, prices, ASOF, OWNER)
-    const view = toProductDetailView(row, prices, ASOF, OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(row, prices, ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
 
     // 세 필드가 값으로 같다 — 여기가 어긋나면 아래 판정이 우연히 같을 수 있다
     expect(view.product.status).toBe(item.status)
@@ -1025,7 +1026,7 @@ describe('목록과 상세가 같은 판정을 낸다 (§4.3 판정 삼종)', ()
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(view.product.status).toBe('REDEEMED')
     expect(view.product.worstOf).toBe('1.2000')
@@ -1466,7 +1467,7 @@ describe('기초자산별 관측 — 계약 조건의 형제다', () => {
     ])
 
     const list = toProductListItem(row, prices, ASOF, OWNER)
-    const detail = toProductDetailView(row, prices, ASOF, OWNER, NO_ESTIMATE_RATES)
+    const detail = toProductDetailView(row, prices, ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     const [firstRound] = toScheduleItems(row, prices, ASOF, taxBasis())
 
     const shape = (u: {
@@ -1605,7 +1606,7 @@ describe('기실현 등재 — 억제는 결함 이름이 아니라 부재를 �
   it('던지지 않는다 — 워스트오브를 빈 집합에 묻지 않는다', () => {
     expect(() => toProductListItem(realizedRow(), priceMap([]), ASOF, OWNER)).not.toThrow()
     expect(() =>
-      toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES),
+      toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES),
     ).not.toThrow()
   })
 
@@ -1646,7 +1647,7 @@ describe('기실현 등재 — 억제는 결함 이름이 아니라 부재를 �
     expect(item.terms.underlyings).toEqual([])
     expect(item.terms.barriers).toEqual([])
 
-    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(view.product.issueDate).toBeNull()
     expect(view.product.annualCouponRate).toBeNull()
     expect(view.product.entryMode).toBe('REALIZED_ONLY')
@@ -1657,7 +1658,7 @@ describe('기실현 등재 — 억제는 결함 이름이 아니라 부재를 �
   })
 
   it('귀속연도는 상환일에서 나온다 — 세금 집계에 그 해로 들어간다', () => {
-    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(realizedRow(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(view.redemption?.redemptionDate).toBe('2026-06-04')
     expect(view.redemption?.taxableIncome).toBe('1398019')
     expect(view.redemption?.withholdingTax).toBe('215295')

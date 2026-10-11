@@ -2,8 +2,10 @@ import { dec } from '@/lib/decimal'
 import { CURRENCY_ORDER, type KiStatus } from '@/lib/domain'
 
 import type { QueryContext } from './context'
+import { evaluationClosePairsOf } from './evaluation'
 import {
   loadEstimateRates,
+  loadEvaluationCloses,
   loadLatestPrices,
   loadProduct,
   loadProducts,
@@ -142,8 +144,15 @@ export function makeProductQueries(ctx: QueryContext) {
     // 미존재는 null이다(§3.1). 예외를 던지지 않는다.
     if (row == null) return null
 
-    const prices = await loadLatestPrices(ctx, assetIdsOf([row]))
-    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId, rates)
+    /*
+     * 평가일 종가는 시세와 **나란히** 둘째 물결에 낸다(§4.0 — 왕복 3 → 쌍이 있으면 4 · 물결 2 그대로). 판정할 차수가
+     * 없으면(경과 없음 · 등록 전 · 만기 · 상환 완료) 쌍이 0건이고 로더가 질의를 내지 않는다
+     */
+    const [prices, closes] = await Promise.all([
+      loadLatestPrices(ctx, assetIdsOf([row])),
+      loadEvaluationCloses(ctx, evaluationClosePairsOf([row], ctx.asOf)),
+    ])
+    return toProductDetailView(row, prices, ctx.asOf, ctx.viewerId, rates, closes)
   }
 
   return { listProducts, getProduct }

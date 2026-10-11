@@ -298,6 +298,8 @@ export const ELS_PRODUCT_COLUMNS = defineColumns('els_products', {
   note: 'raw',
   // 기실현 등재의 판별 열 — DOC-002 §4.6. 금액이 아니므로 `raw`다
   entry_mode: 'raw',
+  // 등록일의 원천 — 평가일 판정의 하한(DOC-007 §3.6 · D3). KST 날짜로의 변환은 `kstDateOf`가 한다(`::date`는 UTC로 자른다)
+  created_at: 'raw',
 })
 
 export const UNDERLYING_COLUMNS = defineColumns('els_underlyings', {

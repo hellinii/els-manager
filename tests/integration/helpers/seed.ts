@@ -265,13 +265,19 @@ export async function seedProduct(params: {
   entryMode?: 'FULL' | 'REALIZED_ONLY'
   /** `issueDate`에 `null`을 줄 수 있게 따로 둔다(기실현) */
   issueDateNull?: boolean
+  /**
+   * P6 컷 7 — 등록일(`created_at`). 기본은 DB 기본값(`now()`)이고, 그러면 `AS_OF`(2026-06-30)보다 **뒤**라 모든 경과
+   * 차수가 「등록 전」이 되어 평가일 판정이 한 번도 돌지 않는다(D3). 판정을 관측하려면 소급한다
+   */
+  createdAt?: string
 }): Promise<void> {
   await sql(
     `insert into public.els_products
        (id, owner_id, name, issue_date, principal, evaluation_period_months,
         annual_coupon_rate, ki_barrier, ki_observation, ki_touched_at, account_type,
-        issuer, note, currency, coupon_payout, monthly_coupon_annual_rate, entry_mode)
-     values ($1, $2, $3, $4, $5, 6, $13, $6, $7, $8, $9, $10, $11, $12, $14, $15, $16)`,
+        issuer, note, currency, coupon_payout, monthly_coupon_annual_rate, entry_mode, created_at)
+     values ($1, $2, $3, $4, $5, 6, $13, $6, $7, $8, $9, $10, $11, $12, $14, $15, $16,
+             coalesce($17::timestamptz, now()))`,
     [
       params.id,
       params.ownerId,
@@ -289,6 +295,7 @@ export async function seedProduct(params: {
       params.couponPayout ?? 'AT_REDEMPTION',
       params.monthlyCouponAnnualRate ?? null,
       params.entryMode ?? 'FULL',
+      params.createdAt ?? null,
     ],
   )
 }

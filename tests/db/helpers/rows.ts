@@ -37,6 +37,9 @@ export function productRow(overrides: Partial<ProductRow> = {}): ProductRow {
     // 기본값이 `FULL`인 것이 DB 기본값과 같다(DOC-002 §4.6) — 픽스처가 스키마와
     // 다른 기본을 쓰면 기존 케이스 전부가 조용히 다른 상품을 시험하게 된다.
     entry_mode: 'FULL',
+    // 등록일 = 발행일(KST 2026-01-02) — 평가일 판정의 하한(D3). 발행일 이후의 모든 경과 차수가 판정 대상이 되므로
+    // 종가를 주지 않은 기존 케이스는 「평가일 종가 없음」 또는 만기로 판정된다 — 기존 단언은 그 필드를 읽지 않는다
+    created_at: '2026-01-01T15:00:00+00:00',
     users: { id: OWNER, display_name: '소유자' },
     els_underlyings: [
       { asset_id: ASSET_1, base_price: '100.000000', sequence: 1, assets: asset(ASSET_1, '자산1') },

@@ -17,6 +17,7 @@ import {
 import { formOfValues, parseProductForm } from '@/lib/forms/parse'
 import { INTENT_FIELD, productFieldNames, rowCountsOf, transition } from '@/lib/forms/productForm'
 import { productValuesOf } from '@/lib/forms/values'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 
 import { ASSET_1, OWNER, couponPayment, monthlyProductRow, priceMap, productRow } from '../db/helpers/rows'
 
@@ -181,7 +182,7 @@ describe('수정 초기값 — getProduct에서', () => {
   const PRICED = priceMap([{ assetId: ASSET_1, price: '95.000000' }])
 
   it('★ 왕복 — 초기값을 그대로 저장하면 율 · 일정이 저장값과 같다(b2~b3의 V-25 공백이 닫힌다)', () => {
-    const view = toProductDetailView(monthlyProductRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(monthlyProductRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     const values = productValuesOf(view)
     expect(values[MONTHLY_RATE_FIELD]).toBe('7.2')
     const input = parseProductForm(formOfValues(values))
@@ -196,7 +197,7 @@ describe('수정 초기값 — getProduct에서', () => {
   })
 
   it('상환 시 지급 상품의 초기값 — 월지급 칸은 빈 값이고 행이 없다(b4 — 칸은 늘 있다) · 그대로 저장해도 싣지 않는다', () => {
-    const view = toProductDetailView(productRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(productRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     const values = productValuesOf(view)
     expect(values[MONTHLY_RATE_FIELD]).toBe('')
     expect(values[couponCell(0, 'evaluationDate')]).toBeUndefined()
@@ -210,9 +211,9 @@ describe('수정 초기값 — getProduct에서', () => {
       PRICED,
       '2027-01-20',
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(couponLockOf(recorded)).toEqual({ recordedCouponNos: [1, 3] })
-    expect(couponLockOf(toProductDetailView(monthlyProductRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES))).toBeNull()
+    expect(couponLockOf(toProductDetailView(monthlyProductRow(), PRICED, '2027-01-20', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES))).toBeNull()
   })
 })

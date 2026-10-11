@@ -16,6 +16,7 @@ import {
   toRowErrors,
 } from '@/lib/forms/coupons'
 import { formOfValues } from '@/lib/forms/parse'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 
 import { ASSET_1, OWNER, couponPayment, monthlyProductRow, priceMap, productRow, redemption } from '../db/helpers/rows'
 
@@ -27,7 +28,7 @@ import { ASSET_1, OWNER, couponPayment, monthlyProductRow, priceMap, productRow,
 
 const PRICED = priceMap([{ assetId: ASSET_1, price: '95.000000' }])
 const detail = (row = monthlyProductRow(), asOf = '2027-01-20') =>
-  toProductDetailView(row, PRICED, asOf, OWNER, NO_ESTIMATE_RATES)
+  toProductDetailView(row, PRICED, asOf, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
 
 describe('기본 목록 — recordable로 고른다', () => {
   it('기록 없는 평가된 달만 — 1번째(지급 기록) 빼고 2 · 3번째', () => {
@@ -59,7 +60,7 @@ describe('기본 목록 — recordable로 고른다', () => {
       new Map(),
       '2026-10-03',
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(couponRowsOf(realized)).toHaveLength(1)
     expect(couponRowsOf(realized, 3)).toHaveLength(3)

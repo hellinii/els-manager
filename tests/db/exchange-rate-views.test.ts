@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { krwEstimateOf } from '@/lib/db/queries/dashboard'
 import { forecastItemsOf } from '@/lib/db/queries/forecast'
-import { estimateRateOf, type TaxYearContext } from '@/lib/db/queries/load'
+import { estimateRateOf, NO_EVALUATION_CLOSES, type TaxYearContext } from '@/lib/db/queries/load'
 import { exchangeRateBasisOf, toProductDetailView } from '@/lib/db/queries/map'
 import { computeOwnTax, contributionOf } from '@/lib/db/queries/tax'
 import { TAX_CONSTANT_KEY_MAP } from '@/lib/db/taxConstants'
@@ -108,7 +108,7 @@ describe('ExchangeRateBasisView — §4.0 (근거 뷰)', () => {
 
 describe('§4.3 projection.exchangeRateBasis — 환산했을 때만', () => {
   it('일반계좌 · 이익 > 0 · 환율 있음 → 원화 과세와 그 환율', () => {
-    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, WITH_RATE)
+    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, WITH_RATE, NO_EVALUATION_CLOSES)
     expect(view.projection).toMatchObject({
       expectedTaxableIncome: '580029',
       exchangeRateBasis: exchangeRateBasisOf(RATE, ASOF),
@@ -116,7 +116,7 @@ describe('§4.3 projection.exchangeRateBasis — 환산했을 때만', () => {
   })
 
   it('환율 없음 → 금액과 근거가 함께 빈다 (E-09)', () => {
-    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(view.projection).toMatchObject({ expectedTaxableIncome: null, exchangeRateBasis: null })
   })
 
@@ -124,12 +124,12 @@ describe('§4.3 projection.exchangeRateBasis — 환산했을 때만', () => {
     ['비과세 — 환율 없이 0', usdActive({ account_type: 'TAX_FREE' })],
     ['달러 이익 0 — 곱할 이익이 없다', usdActive({ annual_coupon_rate: '0.0000' })],
   ])('환율이 있어도 근거가 없다: %s', (_what, row) => {
-    const view = toProductDetailView(row, priceMap([]), ASOF, OWNER, WITH_RATE)
+    const view = toProductDetailView(row, priceMap([]), ASOF, OWNER, WITH_RATE, NO_EVALUATION_CLOSES)
     expect(view.projection).toMatchObject({ expectedTaxableIncome: '0', exchangeRateBasis: null })
   })
 
   it('원화 상품은 환율이 있어도 근거가 없다 — 바이트 불변 (DOC-011 §4.3 표)', () => {
-    const view = toProductDetailView(productRow(), priceMap([]), ASOF, OWNER, WITH_RATE)
+    const view = toProductDetailView(productRow(), priceMap([]), ASOF, OWNER, WITH_RATE, NO_EVALUATION_CLOSES)
     expect(view.projection).toMatchObject({
       expectedTaxableIncome: '4000000',
       exchangeRateBasis: null,

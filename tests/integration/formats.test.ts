@@ -221,6 +221,9 @@ const PRODUCT_DETAIL: Record<string, Spec> = {
   coupons: 'NULL_OBJECT',
   // P8 컷 b4 — 잔여 월수익. 같은 이유로 여기서는 null로만 온다(하위 경로는 coupon-views)
   remainingCoupons: 'NULL_OBJECT',
+  // P6 컷 7 — 평가일 판정. 이 파일의 상품은 등록일이 `now()`라 `AS_OF`의 모든 경과 차수가 「등록 전」이다(D3) — null로만
+  // 온다. 하위 경로는 등록일을 소급한 픽스처가 서는 `evaluation-verdict.test.ts`가 같은 계기로 본다
+  evaluationVerdict: 'NULL_OBJECT',
   'product.evaluationPeriodMonths': 'NUMBER',
   'product.totalRounds': 'NUMBER',
   // 판정 삼종 (v1.4) — §4.2의 같은 이름 필드와 같은 분류여야 한다. 형식이 갈리면

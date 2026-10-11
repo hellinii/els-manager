@@ -17,6 +17,7 @@ import {
   isCouponRecordable,
   isPast,
   isRedeemed,
+  isWeekendDate,
   kiStatus,
   MINOR_UNITS,
   moneyString,
@@ -52,9 +53,11 @@ import {
 import { separateTaxationWithholding, type TaxConstants } from '@/lib/tax'
 
 import { attributionOf, type Attribution } from './attribution'
+import { evaluationVerdictFor, type ProductVerdict } from './evaluation'
 import { incomeEventsOf } from './income'
 import type {
   CouponPaymentRow,
+  EvaluationCloses,
   LatestPrice,
   ProductCoreRow,
   ProductRow,
@@ -954,6 +957,80 @@ export type ProductDetailView = {
    * 상환 완료 · NO_ROUND에서도 이 사건들은 F에 남는다). `null` = `coupons`와 같은 경우
    */
   remainingCoupons: RemainingCouponsView | null
+  /**
+   * 평가일 판정 (§4.3 v4.40 — P6 컷 7 · DOC-007 §3.6). `null` = 물을 것이 없다 — 상환 완료 · 경과 차수 없음 · 등록 전 ·
+   * 이월(D2) · 일정 0건 · 기실현. **`schedules[].conditionResult`와 별개 필드다** — 그 값의 불변식 `isPast ⟹ null`은
+   * 그대로다(경과 행에 판정을 실으면 「그 차수가 도래했을 때의 결과인 척」하는 값이 된다)
+   */
+  evaluationVerdict: EvaluationVerdictView | null
+}
+
+/**
+ * §4.3 `evaluationVerdict` · §4.1 `redemptionChecks`의 공통 형태 — 평가일 판정(DOC-007 §3.6).
+ *
+ * `kind`는 DOC-005 §6.1 축 `evaluationVerdict`다 — 순수 모듈의 `CONDITION_MET`을 결과(EARLY · LIZARD)로 펼친 평면 넷이다.
+ * 합성 규칙 없이 값마다 표시 · 등급이 한 행씩이어야 라벨 대조가 양방향으로 선다.
+ */
+export type EvaluationVerdictKind = 'EARLY' | 'LIZARD' | 'MATURITY_REACHED' | 'CLOSE_MISSING'
+
+export type EvaluationVerdictView = {
+  kind: EvaluationVerdictKind
+  roundNo: number
+  evaluationDate: string
+  /** 늘 ≤ -1 — 과거가 음수(DOC-005 §6.2). 경과한 차수만 판정하므로 */
+  dDay: number
+  /** 평가일 종가로 낸 W(4자리). EARLY · LIZARD만 — 그 밖 `null` */
+  worstOf: string | null
+  /** EARLY면 B(n), LIZARD면 L(n)(4자리). 그 밖 `null` */
+  barrier: string | null
+  /** 평가일 종가가 없는 기초자산(sequence 순). CLOSE_MISSING만 — 그 밖 `null` */
+  missingAssets: Array<{ assetId: string; assetName: string }> | null
+  /** 평가일이 토 · 일 — 종가가 영영 오지 않으므로 안내가 「일정의 평가일을 고친다」로 바뀐다 */
+  weekendEvaluation: boolean
+}
+
+/** 순수 판정 → 뷰. 판정은 `evaluationVerdictFor`(`./evaluation`)가 한 번 낸다 — 여기서 다시 판정하지 않는다 */
+export function evaluationVerdictViewOf(
+  row: ProductCoreRow,
+  verdict: ProductVerdict | null,
+  asOf: string,
+): EvaluationVerdictView | null {
+  if (verdict == null) return null
+
+  const { roundNo, evaluationDate } = verdict.schedule
+  const base = {
+    roundNo,
+    evaluationDate,
+    dDay: dDay({ from: asOf, evaluationDate }),
+    weekendEvaluation: isWeekendDate(evaluationDate),
+  }
+
+  switch (verdict.kind) {
+    case 'CONDITION_MET':
+      return {
+        ...base,
+        kind: verdict.result,
+        worstOf: ratioString(verdict.worstOf),
+        barrier: ratioString(verdict.barrier),
+        missingAssets: null,
+      }
+    case 'MATURITY_REACHED':
+      return { ...base, kind: 'MATURITY_REACHED', worstOf: null, barrier: null, missingAssets: null }
+    case 'CLOSE_MISSING': {
+      const names = new Map(row.els_underlyings.map((u) => [u.asset_id, u.assets?.name]))
+      return {
+        ...base,
+        kind: 'CLOSE_MISSING',
+        worstOf: null,
+        barrier: null,
+        missingAssets: verdict.missingAssetIds.map((assetId) => ({
+          assetId,
+          // 상세의 `contractUnderlyingsOf`와 같은 폴백 — 같은 결함을 두 화면이 다르게 부르지 않는다
+          assetName: names.get(assetId) ?? '(알 수 없음)',
+        })),
+      }
+    }
+  }
 }
 
 /** §4.3 `remainingCoupons` — 사건 집합은 `incomeEventsOf`의 추정 월수익 그대로다(§4.6 `breakdown.coupons`의 추정 몫과 같다) */
@@ -1006,6 +1083,11 @@ export function toProductDetailView(
    * 환율이 있는데도 달러 추정이 전부 E-09로 보인다(DOC-011 §4.0 규칙 2·3).
    */
   rates: EstimateRates,
+  /**
+   * 평가일 종가 — **기본값이 없다**(`rates`와 같은 이유). 빠뜨린 호출이 조용히 빈 맵이 되면 판정할 차수가 있는 상품이
+   * 전부 「평가일 종가 없음」으로 보인다(DOC-007 §3.6). 판정할 차수가 없는 호출은 `NO_EVALUATION_CLOSES`를 명시한다
+   */
+  closes: EvaluationCloses,
 ): ProductDetailView {
   const j = judge(row, prices, asOf)
   // §4.3 `coupons` · `remainingCoupons`가 같이 빈다 — 한 번 만들어 둘 다 읽는다
@@ -1129,6 +1211,7 @@ export function toProductDetailView(
       .map((payment) => couponRecordViewOf(payment, row.currency)),
     // `coupons`와 같은 경우에 빈다(상환 시 지급 · 셋째 결함의 억제 · 계약 밖 율 없음) — 기실현은 `{ byYear: [] }`
     remainingCoupons: coupons == null ? null : remainingCouponsOf(row, asOf, rates),
+    evaluationVerdict: evaluationVerdictViewOf(row, evaluationVerdictFor(row, closes, asOf), asOf),
   }
 }
 

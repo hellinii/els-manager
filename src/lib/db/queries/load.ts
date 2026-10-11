@@ -572,6 +572,76 @@ export async function loadPriceDatesInWindow(
 }
 
 // ---------------------------------------------------------------------------
+// 평가일 종가 — DOC-007 §3.6 · DOC-011 §4.0 (P6 컷 7)
+// ---------------------------------------------------------------------------
+
+export type EvaluationClosePair = { assetId: string; date: string }
+
+/** 자산 → 날짜 → 그날 행. **요청한 쌍만** 담는다 */
+export type EvaluationCloses = ReadonlyMap<string, ReadonlyMap<string, PriceRow>>
+
+/** 판정할 차수가 없는 화면 · 테스트의 값 — `NO_ESTIMATE_RATES`와 같은 자리다 */
+export const NO_EVALUATION_CLOSES: EvaluationCloses = new Map()
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * 평가일 종가 — `(자산, 평가일)` **정확한 쌍만** 읽는다.
+ *
+ * ★ **`.in(asset).in(date)`를 쓰지 않는다** — 위 `loadPriceDatesInWindow`의 경고와 같다. 교차곱은 요청하지 않은
+ * 쌍까지 실어 오고(결과를 다시 걸러도 행 수는 「자산 수 × 날짜 수」로 커진다), 그 행 수가 `TRUNCATION_PROBE_LIMIT`에
+ * 닿으면 홈 전체가 던진다. 범위 형태도 답이 아니다 — 평가일은 몇 달씩 떨어져 있다. 그래서 자산별로 날짜를 묶은
+ * `or(and(asset_id.eq.…,as_of_date.in.(…)),…)` 하나로 보낸다 — 왕복 1, 행 수 = 실재하는 쌍 수.
+ *
+ * - 쌍이 0건이면 **질의를 내지 않는다**(빈 `in()`을 만들지 않는 `loadLatestPrices`와 같은 규칙) — 그래서 판정할
+ *   차수가 없는 상품만 있는 화면의 왕복 예산은 종전 그대로다.
+ * - 필터 문자열을 조립하므로 **값의 형식을 먼저 검사한다.** 값은 DB에서 왔지만 형식이 어긋나면 필터 문법이 바뀐다.
+ * - `as_of_date <= asOf` 상한(D6)은 정확한 날짜를 고르는 질의에서 실효가 없으나 같은 규약을 지킨다 — 평가일은
+ *   경과 차수라 늘 기준일보다 앞선다.
+ */
+export async function loadEvaluationCloses(
+  ctx: QueryContext,
+  pairs: readonly EvaluationClosePair[],
+): Promise<EvaluationCloses> {
+  const datesByAsset = new Map<string, Set<string>>()
+  for (const { assetId, date } of pairs) {
+    if (!UUID.test(assetId) || !ISO_DATE.test(date)) {
+      throw new RangeError(`평가일 종가 쌍의 형식이 아니다: ${assetId} @ ${date}`)
+    }
+    const dates = datesByAsset.get(assetId) ?? new Set<string>()
+    dates.add(date)
+    datesByAsset.set(assetId, dates)
+  }
+  if (datesByAsset.size === 0) return NO_EVALUATION_CLOSES
+
+  const filter = [...datesByAsset]
+    .map(([assetId, dates]) => `and(asset_id.eq.${assetId},as_of_date.in.(${[...dates].join(',')}))`)
+    .join(',')
+
+  const { data, error } = await ctx.db
+    .from('asset_prices')
+    .select(['asset_id', selectList(PRICE_COLUMNS)].join(','))
+    .or(filter)
+    .lte('as_of_date', ctx.asOf)
+    .limit(TRUNCATION_PROBE_LIMIT)
+    .overrideTypes<Array<PriceRow & { asset_id: string }>, { merge: false }>()
+
+  if (error != null) fail('평가일 종가', error)
+  assertNotTruncated(data, '평가일 종가')
+
+  const out = new Map<string, Map<string, PriceRow>>()
+  for (const { asset_id: assetId, ...price } of data) {
+    // 이중 방어 — 요청한 쌍만 담는다
+    if (!datesByAsset.get(assetId)?.has(price.as_of_date)) continue
+    const byDate = out.get(assetId) ?? new Map<string, PriceRow>()
+    byDate.set(price.as_of_date, price)
+    out.set(assetId, byDate)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
 // 세금 — 연도 컨텍스트와 프로필
 // ---------------------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { currentYear, today } from '@/lib/db/today'
+import { currentYear, kstDateOf, today } from '@/lib/db/today'
 
 /**
  * 기준일의 KST/UTC 경계 — DOC-011 §4.0 Q-02
@@ -69,5 +69,24 @@ describe('currentYear() — 기준일에서 파생한다', () => {
   it('형식이 어긋나면 던진다', () => {
     expect(() => currentYear('26-07-27')).toThrow(/YYYY-MM-DD/)
     expect(() => currentYear('')).toThrow(/YYYY-MM-DD/)
+  })
+})
+
+describe('kstDateOf() — 등록일 (DOC-007 §3.6 · D3)', () => {
+  it('PostgREST의 마이크로초 6자리를 읽는다 — UTC 14:59:59.999999는 KST 같은 날 23:59:59', () => {
+    expect(kstDateOf('2026-07-27T14:59:59.999999+00:00')).toBe('2026-07-27')
+  })
+
+  it('UTC 15:00에 날짜가 넘어간다 — `::date`로 자르면 하루 앞당겨지는 9시간 창', () => {
+    expect(kstDateOf('2026-07-27T15:00:00.000001+00:00')).toBe('2026-07-28')
+    expect(kstDateOf('2026-07-27T23:30:00+00:00')).toBe('2026-07-28')
+  })
+
+  it('오프셋이 붙은 표기도 같은 순간으로 읽는다', () => {
+    expect(kstDateOf('2026-07-28T00:30:00+09:00')).toBe('2026-07-28')
+  })
+
+  it('읽을 수 없으면 던진다 — 「오늘」로 대체하면 등록일 컷이 모든 경과 차수를 뺀다', () => {
+    expect(() => kstDateOf('not-a-timestamp')).toThrow(RangeError)
   })
 })

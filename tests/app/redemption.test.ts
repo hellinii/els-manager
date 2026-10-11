@@ -14,6 +14,7 @@ import {
   roundOptionsOf,
   taxableIncomeLocked,
 } from '@/lib/forms/redemption'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 
 import { ASSET_1, OWNER, priceMap, productRow, redemption, schedule } from '../db/helpers/rows'
 
@@ -54,7 +55,7 @@ function viewWith(price: string | null, asOf = ASOF) {
     priceMap([{ assetId: ASSET_1, price }]),
     asOf,
     OWNER,
-    NO_ESTIMATE_RATES,
+    NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
   )
 }
 
@@ -136,7 +137,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     const [first, second] = roundOptionsOf(view)
     expect(first!.early).toEqual({ grossAmount: '10400.52', taxableIncome: '' })
@@ -183,7 +184,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     const [first] = roundOptionsOf(view)
     expect(first?.early?.taxableIncome).toBe('0')
@@ -198,7 +199,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(roundOptionsOf(general)[0]?.early?.taxableIncome).toBe('')
   })
@@ -221,7 +222,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     for (const option of roundOptionsOf(view)) {
@@ -255,7 +256,7 @@ describe('차수 선택지', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     const option = roundOptionsOf(view)[0]!
@@ -320,7 +321,7 @@ describe('차수를 고치면 다시 채운다 — roundFillOf', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     const rounds = roundOptionsOf(view)
 
@@ -362,7 +363,7 @@ describe('차수를 고치면 다시 채운다 — roundFillOf', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(roundFillOf(roundOptionsOf(view), '1', 'LIZARD')!.amounts).toEqual({
       grossAmount: '100000000',
@@ -520,7 +521,7 @@ describe('기본값 — 판정에서 나온다', () => {
       priceMap([{ assetId: ASSET_1, price: '70.000000' }]),
       '2026-08-01',
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
 
     const values = redemptionDefaults(view, '2026-08-01')
@@ -607,7 +608,7 @@ describe('마지막 차수에서는 상환 유형을 비운다', () => {
       priceMap([{ assetId: ASSET_1, price: '120.000000' }]),
       '2026-12-01',
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
   }
 

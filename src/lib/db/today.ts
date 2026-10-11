@@ -49,6 +49,22 @@ export function today(now: Date = new Date()): string {
 }
 
 /**
+ * `timestamptz` 문자열 → `Asia/Seoul` 날짜 — **등록일**(`els_products.created_at`, DOC-005 · DOC-007 §3.6)이 쓴다.
+ *
+ * **DB에서 `::date`로 자르지 않는다** — 세션 시간대(UTC)로 잘려 KST 00~09시에 등록한 상품이 하루 앞당겨진다.
+ * 위 `today`와 같은 경로(tz 데이터베이스)를 지난다. PostgREST는 마이크로초 6자리(`…59.999999+00:00`)를 준다 —
+ * V8의 `Date`가 그 형식을 받는다는 사실은 `tests/db/today.test.ts`가 고정한다. 읽을 수 없으면 던진다 — 조용히
+ * 「오늘」로 대체하면 등록일 컷(D3)이 그 상품의 모든 경과 차수를 판정에서 뺀다.
+ */
+export function kstDateOf(timestamp: string): string {
+  const at = new Date(timestamp)
+  if (Number.isNaN(at.getTime())) {
+    throw new RangeError(`시각을 읽을 수 없다: ${timestamp}`)
+  }
+  return today(at)
+}
+
+/**
  * 귀속연도의 기본값. `getDashboard.currentYearTax.year`가 쓴다.
  *
  * 기준일에서 파생시킨다 — `new Date().getFullYear()`를 따로 부르면 UTC 연도가

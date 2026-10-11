@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { judge, toMonthlyCouponScheduleItems, toProductDetailView } from '@/lib/db/queries/map'
 import { NO_ESTIMATE_RATES } from '@/lib/domain'
 import { deriveDisplay } from '@/lib/format'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 
 import {
   ASSET_1,
@@ -24,7 +25,7 @@ import {
 
 const PRICED = priceMap([{ assetId: ASSET_1, price: '95.000000' }]) // 워스트오브 0.95
 const view = (row = monthlyProductRow(), asOf = '2027-01-20', prices = PRICED) =>
-  toProductDetailView(row, prices, asOf, OWNER, NO_ESTIMATE_RATES)
+  toProductDetailView(row, prices, asOf, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
 
 describe('상환 시 지급 상품 — 월수익 필드가 비고 상환 값은 종전과 같다', () => {
   it('coupons null · unnumbered [] · 월수익 연쿠폰율 null · 구성 null', () => {
@@ -33,7 +34,7 @@ describe('상환 시 지급 상품 — 월수익 필드가 비고 상환 값은 
       PRICED,
       '2026-12-01',
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(v.coupons).toBeNull()
     expect(v.unnumberedCouponRecords).toEqual([])
@@ -198,13 +199,13 @@ describe('검산 B-2 — 만기 손실 상환 + 월수익 30 · 미지급 6 → 
   })
 
   it('실현손익 = 60,000,000 + 30 × 600,000 − 100,000,000 · 구성 한 줄(상환 −40,000,000 · 월수익 +18,000,000)', () => {
-    const r = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES).redemption
+    const r = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES).redemption
     expect(r?.realizedPnl).toBe('-22000000')
     expect(r?.pnlBreakdown).toEqual({ redemption: '-40000000', coupons: '18000000' })
   })
 
   it('상환 과세는 0이다(I-08) — 월수익의 과세는 그대로 남고 만기 손실과 통산하지 않는다', () => {
-    const v = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES)
+    const v = toProductDetailView(lost, PRICED, '2030-01-02', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(v.redemption?.taxableIncome).toBe('0')
     expect(v.coupons?.filter((c) => c.state === 'PAID')).toHaveLength(30)
     expect(v.coupons?.filter((c) => c.state === 'UNPAID')).toHaveLength(6)
@@ -258,14 +259,14 @@ describe('기실현 월지급 상품 — 일정이 정의상 없다', () => {
   })
 
   it('결함이 아니다 · coupons [] · 순번 없는 기록은 지급일 순', () => {
-    const v = toProductDetailView(realized, new Map(), '2026-10-03', OWNER, NO_ESTIMATE_RATES)
+    const v = toProductDetailView(realized, new Map(), '2026-10-03', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(v.product.integrityIssue).toBeNull()
     expect(v.coupons).toEqual([])
     expect(v.unnumberedCouponRecords.map((r) => r.id)).toEqual(['p-a', 'p-b'])
   })
 
   it('실현손익에 순번 없는 PAID가 들어간다 — 70,000,000 + 1,200,000 − 100,000,000', () => {
-    const v = toProductDetailView(realized, new Map(), '2026-10-03', OWNER, NO_ESTIMATE_RATES)
+    const v = toProductDetailView(realized, new Map(), '2026-10-03', OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(v.redemption?.realizedPnl).toBe('-28800000')
     expect(v.redemption?.pnlBreakdown).toEqual({ redemption: '-30000000', coupons: '1200000' })
   })

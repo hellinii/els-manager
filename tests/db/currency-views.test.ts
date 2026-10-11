@@ -14,6 +14,7 @@ import { TAX_CONSTANT_KEY_MAP } from '@/lib/db/taxConstants'
 import { dec } from '@/lib/decimal'
 import { NO_ESTIMATE_RATES, type EstimateRates } from '@/lib/domain'
 import { forecastYears, type ForecastYearInput } from '@/lib/tax'
+import { NO_EVALUATION_CLOSES } from '@/lib/db/queries/load'
 import { BRACKETS_2026, CONSTANTS_2026 } from '../fixtures/tax-2026'
 import { monthlyProductRow, OWNER, priceMap, productRow, redemption, schedule, taxBasis } from './helpers/rows'
 
@@ -120,7 +121,7 @@ describe('§4.1 totals.byCurrency — 통화를 넘어 더하지 않는다', () 
 
 describe('§4.3 상세 — 한 상품 안에서 금액이 두 통화다', () => {
   it('상품 통화 금액은 달러, 예상 과세는 E-09(`null`) — 추정 환율이 없다 (검산 A-3)', () => {
-    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES)
+    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES)
     expect(view.product).toMatchObject({ currency: 'USD', principal: '10000.50' })
     // 10000.50 × (1 + 0.08 × 6/12) = 10400.52
     expect(view.schedules[0]!.expectedGross).toBe('10400.52')
@@ -134,7 +135,7 @@ describe('§4.3 상세 — 한 상품 안에서 금액이 두 통화다', () => 
   })
 
   it('추정 환율이 있으면 달러 이익을 한 번 곱한다 — 400.02 × 1,450 = 580,029원', () => {
-    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, WITH_RATE)
+    const view = toProductDetailView(usdActive(), priceMap([]), ASOF, OWNER, WITH_RATE, NO_EVALUATION_CLOSES)
     expect(view.projection?.expectedTaxableIncome).toBe('580029')
   })
 
@@ -144,13 +145,13 @@ describe('§4.3 상세 — 한 상품 안에서 금액이 두 통화다', () => 
       priceMap([]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(view.projection?.expectedTaxableIncome).toBe('0')
   })
 
   it('원화 상품은 환율이 있어도 곱하지 않는다 — 종전 값 그대로', () => {
-    const view = toProductDetailView(productRow(), priceMap([]), ASOF, OWNER, WITH_RATE)
+    const view = toProductDetailView(productRow(), priceMap([]), ASOF, OWNER, WITH_RATE, NO_EVALUATION_CLOSES)
     expect(view.projection?.expectedTaxableIncome).toBe('4000000')
     expect(view.product.currency).toBe('KRW')
   })
@@ -168,7 +169,7 @@ describe('§4.3 상세 — 한 상품 안에서 금액이 두 통화다', () => 
       priceMap([]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(view.redemption).toMatchObject({
       grossAmount: '10600.75',
@@ -186,7 +187,7 @@ describe('§4.3 상세 — 한 상품 안에서 금액이 두 통화다', () => 
       priceMap([]),
       ASOF,
       OWNER,
-      NO_ESTIMATE_RATES,
+      NO_ESTIMATE_RATES, NO_EVALUATION_CLOSES,
     )
     expect(view.redemption?.exchangeRate).toBeNull()
     expect(view.redemption?.grossAmount).toBe('104000000')
