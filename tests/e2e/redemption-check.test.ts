@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { today } from '@/lib/db/today'
 import { shiftDays } from '@/lib/domain'
-import { EVALUATION_VERDICT_LABELS, REDEMPTION_TYPE_LABELS } from '@/lib/format'
+import { EVALUATION_VERDICT_LABELS, REDEMPTION_TYPE_LABELS, redeemPrefillNote } from '@/lib/format'
 import { DASHBOARD_KEYS } from '@/lib/forms/query'
 import { REDEMPTION_DATE_OFFSET_DAYS } from '@/lib/forms/redemption'
 import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
@@ -174,7 +174,8 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
   it('★ ⑤ [상환 처리]가 1차 · 조기상환 · 1차 금액 · 평가일 + 5일로 채운 폼을 연다 → 저장하면 ⑥에서 사라진다', async () => {
     const actionId = actionIdOf('redemptionFormAction')
     const form = await (await get(REDEEM_ROUND.href(met.productId, 1), a)).text()
-    expect(form).toContain('방금 지난 차수(상환 확인 필요) 기준의 추정값을 채웠다')
+    // 안내는 실제로 채운 것을 말한다(DOC-008 SCR-203 v2.46) — 유형을 판정에서 채웠고 금액은 비우지 않았다
+    expect(form).toContain(redeemPrefillNote({ typeFilled: true, amountsBlankedByKiTouch: false }))
 
     const values = Object.fromEntries(formValuesFor(form, actionId))
     expect(values).toMatchObject({
@@ -192,6 +193,13 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
 
     const home = await homeOf(a)
     expect(rowIn(sectionOf(home, CHECK), met.productName), '기록했는데 ⑥에 남았다').toBe('')
-    expect(rowIn(sectionOf(home, '최근 상환 실적'), met.productName)).toContain(REDEMPTION_TYPE_LABELS.EARLY)
+    /*
+     * 기록의 관측은 **상세**에서 한다 — 홈 ⑤ 「최근 상환 실적」은 세 건만 보이므로(`RECENT_VISIBLE`) 같은 사용자 A에 다른
+     * e2e 파일이 더 최근 날짜의 상환을 만들면 이 상품이 잘려 나간다(반박 검토 — 실행 순서 · 날짜에 의존하는 단언이었다)
+     */
+    const detail = visible(await (await get(PATHS.product(met.productId), a)).text())
+    expect(detail).toContain('>상환 실적<')
+    expect(detail).toContain(REDEMPTION_TYPE_LABELS.EARLY)
+    expect(detail, '상환했는데 상세의 안내가 남았다').not.toContain('aria-label="상환 확인 필요"')
   })
 })

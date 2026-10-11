@@ -276,3 +276,104 @@ describe('isWeekendDate', () => {
     expect(isWeekendDate('2026-10-09')).toBe(false) // 한글날 — 평일이다
   })
 })
+
+describe('검산 블록 F — DOC-007 §3.6의 표 입력 그대로 (P6 컷 7-7)', () => {
+  /*
+   * 공통 입력: 기초자산 X · Y · Z(기준가 각 100), 1차 2026-04-14(화) · 2차 2026-10-14(수) · 마지막 6차, B(2) = 0.90, 리자드 없음,
+   * 노낙인, 등록일 2026-08-20, asOf 2026-10-19(월). 판정 대상은 2차다. 행마다 바꾼 것만 바꾼다
+   */
+  const F_ROUNDS: VerdictRound[] = [
+    { roundNo: 1, evaluationDate: '2026-04-14', barrier: '0.9000' },
+    { roundNo: 2, evaluationDate: '2026-10-14', barrier: '0.9000' },
+    { roundNo: 3, evaluationDate: '2027-04-14', barrier: '0.8500' },
+    { roundNo: 4, evaluationDate: '2027-10-14', barrier: '0.8500' },
+    { roundNo: 5, evaluationDate: '2028-04-14', barrier: '0.8000' },
+    { roundNo: 6, evaluationDate: '2028-10-14', barrier: '0.8000' },
+  ]
+  const XYZ = [
+    { assetId: 'X', basePrice: '100' },
+    { assetId: 'Y', basePrice: '100' },
+    { assetId: 'Z', basePrice: '100' },
+  ]
+  const xyz = (date: string, x: string, y: string, z: string) => ({ [`X@${date}`]: x, [`Y@${date}`]: y, [`Z@${date}`]: z })
+  const F = (overrides: Partial<EvaluationVerdictParams<VerdictRound>>) =>
+    evaluationVerdictOf(
+      active({
+        schedules: F_ROUNDS,
+        underlyings: XYZ,
+        closeOn: closes({}),
+        kiBarrier: null,
+        kiTouchedAt: null,
+        registrationDate: '2026-08-20',
+        asOf: '2026-10-19',
+        ...overrides,
+      }),
+    )
+  const F1_CLOSES = xyz('2026-10-14', '90', '95', '100')
+
+  it('F-1 — W* = 0.90 = B(2) → EARLY (경계 포함)', () => {
+    const v = F({ closeOn: closes(F1_CLOSES) })
+    expect(v?.kind === 'CONDITION_MET' && [v.result, v.schedule.roundNo, v.worstOf.toString()]).toEqual(['EARLY', 2, '0.9'])
+  })
+
+  it('F-2 — X 89.996 → W* = 0.89996 < 0.90 → 이월 → 없음(반올림하지 않는다)', () => {
+    expect(F({ closeOn: closes(xyz('2026-10-14', '89.996', '95', '100')) })).toBeNull()
+  })
+
+  it('F-3 — Z의 그날 행 없음 → CLOSE_MISSING [Z]', () => {
+    const table = xyz('2026-10-14', '90', '95', '100')
+    delete table['Z@2026-10-14']
+    expect(F({ closeOn: closes(table) })).toMatchObject({ kind: 'CLOSE_MISSING', missingAssetIds: ['Z'], weekend: false })
+  })
+
+  it('F-4 — 셋 다 전날(10-13) 행만 → CLOSE_MISSING [X, Y, Z]', () => {
+    expect(F({ closeOn: closes(xyz('2026-10-13', '90', '95', '100')) })).toMatchObject({
+      kind: 'CLOSE_MISSING',
+      missingAssetIds: ['X', 'Y', 'Z'],
+    })
+  })
+
+  it('F-5 — 당일(10-14)은 1차가 대상이고 등록 전 → 없음 · 경과 1일(10-15)에 행이 없으면 CLOSE_MISSING', () => {
+    expect(F({ asOf: '2026-10-14', closeOn: closes(F1_CLOSES) })).toBeNull()
+    expect(F({ asOf: '2026-10-15' })).toMatchObject({ kind: 'CLOSE_MISSING', missingAssetIds: ['X', 'Y', 'Z'] })
+    expect(F({ asOf: '2026-10-15', closeOn: closes(F1_CLOSES) })?.kind).toBe('CONDITION_MET')
+  })
+
+  it('F-6 — L(2) 0.85 · KI 미터치 요구 · KI 0.60 · X 87 → 평가일 뒤(10-16) 터치면 LIZARD, 당일(10-14) 터치면 없음', () => {
+    const rounds = F_ROUNDS.map((r) =>
+      r.roundNo === 2 ? { ...r, lizardBarrier: '0.8500', lizardRequiresNoKi: true } : r,
+    )
+    const base = { schedules: rounds, kiBarrier: '0.6000', closeOn: closes(xyz('2026-10-14', '87', '95', '100')) }
+    const after = F({ ...base, kiTouchedAt: '2026-10-16' })
+    expect(after?.kind === 'CONDITION_MET' && [after.result, after.barrier.toString()]).toEqual(['LIZARD', '0.85'])
+    expect(F({ ...base, kiTouchedAt: '2026-10-14' })).toBeNull()
+  })
+
+  it('F-7 — 등록일 10-15(평가일 다음 날) → 없음 · 10-14(= 평가일) → EARLY', () => {
+    expect(F({ registrationDate: '2026-10-15', closeOn: closes(F1_CLOSES) })).toBeNull()
+    expect(F({ registrationDate: '2026-10-14', closeOn: closes(F1_CLOSES) })?.kind).toBe('CONDITION_MET')
+  })
+
+  it('F-8 — 6차(마지막) 뒤 · 그날 행 없음 · 등록일이 그 평가일 뒤 → MATURITY_REACHED', () => {
+    expect(F({ asOf: '2028-10-16', registrationDate: '2028-10-15' })).toMatchObject({ kind: 'MATURITY_REACHED' })
+    expect(F({ asOf: '2028-10-16', registrationDate: '2028-10-15' })?.schedule.roundNo).toBe(6)
+  })
+
+  it('F-9 — 등록 2026-03-01 · 1차 충족(기록 없음) · 2차 X 85 → 없음(가장 최근 차수만 — D4)', () => {
+    expect(
+      F({
+        registrationDate: '2026-03-01',
+        closeOn: closes({ ...xyz('2026-04-14', '100', '100', '100'), ...xyz('2026-10-14', '85', '95', '100') }),
+      }),
+    ).toBeNull()
+    // 그 1차 카드는 2차 평가일 전까지 떠 있었다(종가가 들어온 뒤부터)
+    expect(
+      F({ registrationDate: '2026-03-01', asOf: '2026-10-13', closeOn: closes(xyz('2026-04-14', '100', '100', '100')) })?.kind,
+    ).toBe('CONDITION_MET')
+  })
+
+  it('F-10 — 2차가 2026-10-17(토)로 저장 · 그날 행 없음 → CLOSE_MISSING · 주말', () => {
+    const rounds = F_ROUNDS.map((r) => (r.roundNo === 2 ? { ...r, evaluationDate: '2026-10-17' } : r))
+    expect(F({ schedules: rounds })).toMatchObject({ kind: 'CLOSE_MISSING', missingAssetIds: ['X', 'Y', 'Z'], weekend: true })
+  })
+})

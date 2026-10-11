@@ -5,9 +5,9 @@ import { notFound } from 'next/navigation'
 import { RedemptionForm } from '@/components/products/RedemptionForm'
 import { AccessDenied } from '@/components/system/AccessDenied'
 import { getAsOf, getQueries } from '@/lib/db/server'
-import { REDEEM_PREFILL_NOTE, REDEMPTION_TYPE_LABELS, korDate, money } from '@/lib/format'
+import { REDEMPTION_TYPE_LABELS, korDate, money, redeemPrefillNote } from '@/lib/format'
 import { isUuid, parseRedeemRound, type QueryValues } from '@/lib/forms/query'
-import { prefillRoundOf, redemptionDefaults, roundOptionsOf } from '@/lib/forms/redemption'
+import { redemptionPrefillOf, roundOptionsOf } from '@/lib/forms/redemption'
 import { PATHS } from '@/lib/routes/paths'
 
 import { redemptionFormAction } from './actions'
@@ -67,8 +67,8 @@ export default async function ProductRedeemPage({
   }
 
   const { product, redemption } = view
-  // 기본값과 안내가 «같은 판단»에서 나온다 — `redemptionDefaults`도 이 함수를 부른다
-  const prefill = prefillRoundOf(view, requestedRound)
+  // 기본값과 안내가 «같은 계산»에서 나온다 — 안내가 따로 판단하면 채운 것과 다른 말을 한다(DOC-008 SCR-203 v2.46)
+  const prefill = redemptionPrefillOf(view, getAsOf(), requestedRound)
 
   return (
     <section className="flex flex-col gap-5">
@@ -105,7 +105,7 @@ export default async function ProductRedeemPage({
         </div>
       ) : (
         <>
-          {prefill == null ? (
+          {prefill.pick == null ? (
             /*
              * 적용 차수가 없다 — 전 차수 경과(E-07) 또는 평가일정 0건(§9.2).
              * 자동 채움의 근거가 없으므로 그 사실을 적는다. 폼은 그대로 그린다:
@@ -115,13 +115,13 @@ export default async function ProductRedeemPage({
               적용 차수가 없어 자동으로 채울 값이 없다 — 전 차수가 경과했거나
               평가일정이 0건이다. 증권사 거래내역을 보고 직접 입력한다.
             </p>
-          ) : prefill.source !== 'PROJECTION' ? (
+          ) : prefill.pick.source !== 'PROJECTION' ? (
             /*
              * 「상환 확인 필요」에서 왔다(P6 컷 7-3) — 방금 지난 차수 기준이다. 아래 종전 안내와 같은 이유로 차수
              * 번호를 박지 않는다. 뒤 두 문장은 종전 안내와 같다(차수를 바꾸면 다시 채운다 · 저장되는 것은 적힌 값)
              */
             <p className="rounded-md bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
-              <strong>{REDEEM_PREFILL_NOTE}</strong>{' '}
+              <strong>{redeemPrefillNote(prefill)}</strong>{' '}
               차수를 바꾸면 상환일·실수령액·과세 금융소득을 그 차수 기준으로 다시 채운다.{' '}
               증권사 거래내역의 실제 값으로 고친다 — 저장되는 것은 여기 적힌 값이다.
             </p>
@@ -153,7 +153,7 @@ export default async function ProductRedeemPage({
 
           <RedemptionForm
             action={redemptionFormAction}
-            initialValues={redemptionDefaults(view, getAsOf(), requestedRound)}
+            initialValues={prefill.values}
             rounds={roundOptionsOf(view)}
             productId={id}
             currency={product.currency}

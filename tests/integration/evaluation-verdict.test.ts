@@ -192,6 +192,39 @@ describe('loadEvaluationCloses — 정확한 쌍만 (PostgREST `or(and(…))`)',
     })
   })
 
+  it('★ 질의가 정확한 쌍만 가져온다 — 서버가 보낸 행 수와 요청 모양을 본다(로더의 JS 이중 방어 앞에서)', async () => {
+    /*
+     * 위 케이스는 로더가 «돌려준» 맵만 본다. 로더는 요청하지 않은 쌍을 JS에서 한 번 더 거르므로(이중 방어) 질의가
+     * `.in(asset).in(date)` 교차곱으로 퇴행해도 그 맵은 같다 — 반박 검토(P6 컷 7-6)가 찾은 헛도는 음성 대조다. 교차곱의
+     * 비용은 값이 아니라 **행 수**(자산 × 날짜 → Q-06 상한 → 홈 전체가 던진다)이므로 응답 본문의 행 수를 센다.
+     * 교차곱 조합(자산1@05-04 · 자산2@06-01)에 행을 세워 두었다 — 교차곱이면 3행, 정확한 쌍이면 1행이다
+     */
+    const ctx = { db: (await contractsFor(ITG_USER_A)).db, asOf: AS_OF, viewerId: ITG_USER_A }
+    const original = globalThis.fetch
+    const seen: Array<{ url: string; rows: number }> = []
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await original(input, init)
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (url.includes('/rest/v1/asset_prices')) {
+        const body: unknown = await res.clone().json()
+        seen.push({ url: decodeURIComponent(url), rows: Array.isArray(body) ? body.length : -1 })
+      }
+      return res
+    }) as typeof fetch
+    try {
+      await loadEvaluationCloses(ctx, [
+        { assetId: FX.assetVerdict1, date: '2026-06-01' },
+        { assetId: FX.assetVerdict2, date: '2026-05-04' },
+      ])
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.rows, '서버가 요청하지 않은 쌍의 행을 보냈다 — 교차곱이다').toBe(1)
+    expect(seen[0]!.url).toContain(`or=(and(asset_id.eq.${FX.assetVerdict1},as_of_date.in.(2026-06-01))`)
+    expect(seen[0]!.url).not.toMatch(/[?&]as_of_date=in\./)
+  })
+
   it('한 자산의 여러 날짜를 한 묶음으로 읽는다', async () => {
     const ctx = { db: (await contractsFor(ITG_USER_A)).db, asOf: AS_OF, viewerId: ITG_USER_A }
     const closes = await loadEvaluationCloses(ctx, [

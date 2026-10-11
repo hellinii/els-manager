@@ -137,6 +137,6 @@ export {
 } from './dashboard'
 export {
   EVALUATION_VERDICT_FRESH_DAYS,
-  REDEEM_PREFILL_NOTE,
   evaluationVerdictSentence,
+  redeemPrefillNote,
 } from './verdict'

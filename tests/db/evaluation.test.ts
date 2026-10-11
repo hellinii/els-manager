@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { evaluationClosePairsOf, evaluationVerdictFor } from '@/lib/db/queries/evaluation'
+import { evaluationClosePairsOf, evaluationVerdictFor, registrationDateOf } from '@/lib/db/queries/evaluation'
 import { NO_EVALUATION_CLOSES, type EvaluationCloses, type PriceRow } from '@/lib/db/queries/load'
 import { toProductDetailView } from '@/lib/db/queries/map'
 import { NO_ESTIMATE_RATES } from '@/lib/domain'
@@ -178,3 +178,22 @@ describe('§4.3 evaluationVerdict — 상세 뷰', () => {
     expect(detail(row, NO_EVALUATION_CLOSES).evaluationVerdict?.weekendEvaluation).toBe(true)
   })
 })
+
+describe('읽을 수 없는 등록일 — 그 상품만 「등록일 모름」 (DOC-002 DQ-18 ④ · P6 컷 7-7)', () => {
+  it("created_at = 'infinity'면 던지지 않는다 — 쌍 선택이 깨지면 전체 보기의 홈이 죽는다", () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const broken = productRow({ id: 'broken', created_at: 'infinity' })
+      expect(registrationDateOf(broken)).toBeNull()
+      // 다른 상품의 쌍은 그대로다
+      expect(evaluationClosePairsOf([broken, productRow()], ASOF)).toEqual([{ assetId: ASSET_1, date: R1 }])
+      // 비만기 차수는 묻지 않는다(「등록 전」 갈래) · 만기는 묻는다
+      expect(evaluationVerdictFor(broken, NO_EVALUATION_CLOSES, ASOF)).toBeNull()
+      expect(evaluationVerdictFor(broken, NO_EVALUATION_CLOSES, '2027-01-05')?.kind).toBe('MATURITY_REACHED')
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining('DQ-18'))
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+

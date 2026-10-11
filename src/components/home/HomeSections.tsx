@@ -174,7 +174,7 @@ export function UpcomingSection({
          * 문구 부류다(DOC-010 AQ-34가 둘을 함께 다룬다).
          */
         <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          임박한 평가일이 없다. 경과한 차수는 위 「상환 확인 필요」가 묻는다 — 없으면 이월로 판정됐다.
+          임박한 평가일이 없다. 경과한 차수의 상환은 위 「상환 확인 필요」가 묻는다.
         </p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">

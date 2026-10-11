@@ -52,15 +52,34 @@ function markOf(row: ProductCoreRow): RedemptionMark {
   return row.redemptions == null ? null : { redemptionDate: row.redemptions.redemption_date }
 }
 
-/** 등록일 — `created_at`의 Asia/Seoul 날짜 (D3) */
-export function registrationDateOf(row: ProductCoreRow): string {
-  return kstDateOf(row.created_at)
+/**
+ * 등록일 — `created_at`의 Asia/Seoul 날짜 (D3). **읽을 수 없으면 `null`(「등록일 모름」)이고 던지지 않는다**
+ * (DOC-002 DQ-18 ④ · P6 컷 7-7).
+ *
+ * `timestamptz`는 `'infinity'`를 받고 테이블 UPDATE가 그것을 막지 않는다. 여기서 던지면 그 행 하나가 쌍 선택
+ * (`evaluationClosePairsOf`)을 통째로 깨뜨려 `scope = 'ALL'`의 홈 전체와 상세가 죽는다 — 남의 상품 하나가 모두의 홈을
+ * 죽이는 셈이다. 그 상품만 격리하고 결함처럼 기록을 남긴다
+ */
+export function registrationDateOf(row: ProductCoreRow): string | null {
+  try {
+    return kstDateOf(row.created_at)
+  } catch {
+    console.error(
+      `[평가일 판정] 상품 ${row.id}의 등록일(created_at=${row.created_at})을 읽을 수 없다 (DOC-002 DQ-18 ④). ` +
+        '「등록일 모름」으로 보아 만기만 묻는다.',
+    )
+    return null
+  }
 }
 
+/**
+ * 「등록일 모름」이면 기준일을 등록일로 본다 — 가장 최근 경과 차수(평가일 < 기준일)는 늘 「등록 전」이 되어 묻지 않고, 만기는
+ * 등록일과 무관하게 묻는다(만기에는 이월이 없다). 「모른다 → 묻지 않는다(만기 제외)」를 기존 갈래로 표현한다
+ */
 function targetOf(row: ProductCoreRow, asOf: string) {
   return roundToJudge({
     schedules: row.redemption_schedules.map(forVerdict),
-    registrationDate: registrationDateOf(row),
+    registrationDate: registrationDateOf(row) ?? asOf,
     asOf,
     redemption: markOf(row),
   })
@@ -118,7 +137,7 @@ export function evaluationVerdictFor(
         closeOn: (assetId: string, date: string) => closes.get(assetId)?.get(date)?.price ?? null,
         kiBarrier: row.ki_barrier,
         kiTouchedAt: row.ki_touched_at,
-        registrationDate: registrationDateOf(row),
+        registrationDate: registrationDateOf(row) ?? asOf,
         asOf,
       },
       mark,

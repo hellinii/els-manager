@@ -240,8 +240,9 @@ export function isPast(params: {
  * 적용 차수 — DOC-007 §7.2
  *
  * 사용자가 지정하지 않은 경우 **다음 도래 평가일의 차수**로 가정한다(RD-02).
- * 모든 평가일이 경과했으면 `null`이며, 호출부는 E-07(상환 처리 또는 이월 확인
- * 요청)로 처리한다.
+ * 모든 평가일이 경과했으면 `null`이다(E-07). ~~호출부는 상환 처리 또는 이월 확인 요청으로 처리한다.~~ → 그 상품에
+ * 무엇을 물을지는 평가일 판정이 정한다 — 전 차수가 경과했으면 「만기 평가일 경과」다(`evaluationVerdictOf` · DOC-007
+ * §3.6 · P6 컷 7). 이월은 묻지 않는다(D2).
  */
 export function nextEvaluation<
   T extends { roundNo: number; evaluationDate: string },

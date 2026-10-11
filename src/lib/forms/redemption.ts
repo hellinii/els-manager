@@ -327,12 +327,12 @@ function isFinalRound(roundNo: number, schedules: readonly { roundNo: number }[]
  * ⑥의 버튼은 그 차수를 `?round=k`로 명시하므로 사용 흐름은 같다. 페이지도 이 함수를 불러 안내 문장을 고른다 —
  * 기본값과 안내가 다른 판단에서 나오지 않게.
  */
-export type RedemptionPrefill = { roundNo: number; source: 'REQUESTED' | 'VERDICT' | 'PROJECTION' }
+export type RedemptionPrefillPick = { roundNo: number; source: 'REQUESTED' | 'VERDICT' | 'PROJECTION' }
 
 export function prefillRoundOf(
   view: ProductDetailView,
   requestedRound: number | null,
-): RedemptionPrefill | null {
+): RedemptionPrefillPick | null {
   if (requestedRound != null && view.schedules.some((s) => s.roundNo === requestedRound)) {
     return { roundNo: requestedRound, source: 'REQUESTED' }
   }
@@ -357,6 +357,29 @@ export function redemptionDefaults(
   asOf: string,
   requestedRound: number | null,
 ): Record<string, string> {
+  return redemptionPrefillOf(view, asOf, requestedRound).values
+}
+
+/**
+ * 기본값과 **그 기본값이 어떻게 나왔는가** — 페이지가 안내 문단을 고르는 재료다 (P6 컷 7-7 · DOC-008 SCR-203 v2.46).
+ *
+ * 안내가 따로 판단하면 기본값과 다른 것을 말할 수 있다(v2.44의 한 문장이 그랬다) — 같은 계산의 부산물로 낸다.
+ */
+export type RedemptionPrefill = {
+  values: Record<string, string>
+  /** 첫 렌더의 차수가 어디서 왔는가. `null` = 채울 근거가 없다 */
+  pick: RedemptionPrefillPick | null
+  /** 판정 · 요청 경로에서 그 차수의 평가일 판정이 유형을 채웠는가 */
+  typeFilled: boolean
+  /** KI 터치가 기록된 만기라 금액을 비웠는가(판정 · 요청 경로만) */
+  amountsBlankedByKiTouch: boolean
+}
+
+export function redemptionPrefillOf(
+  view: ProductDetailView,
+  asOf: string,
+  requestedRound: number | null,
+): RedemptionPrefill {
   const pick = prefillRoundOf(view, requestedRound)
   const round =
     pick == null ? null : (view.schedules.find((s) => s.roundNo === pick.roundNo) ?? null)
@@ -426,7 +449,7 @@ export function redemptionDefaults(
   const maturityAfterTouch = fromVerdict && finalRound && view.product.kiTouchedAt != null
   const amounts = maturityAfterTouch ? null : (fill?.amounts ?? null)
 
-  return {
+  const values = {
     redemptionType,
     roundNo,
     /*
@@ -449,6 +472,12 @@ export function redemptionDefaults(
     exchangeRate: '',
     isConfirmed: '',
     note: '',
+  }
+  return {
+    values,
+    pick,
+    typeFilled: fromVerdict && redemptionType !== '',
+    amountsBlankedByKiTouch: maturityAfterTouch,
   }
 }
 

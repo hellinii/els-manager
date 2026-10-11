@@ -21,11 +21,22 @@ import { percent } from './ratio'
 export const EVALUATION_VERDICT_FRESH_DAYS = 2
 
 /**
- * SCR-203 — 판정(또는 `?round=k`)에서 온 첫 렌더의 안내. **차수 번호를 박지 않는다** — 서버 렌더라 사용자가 차수를
- * 바꿔도 그대로 남는다(v2.7 각주 · 종전 안내와 같은 이유)
+ * SCR-203 — 판정(또는 `?round=k`)에서 온 첫 렌더의 안내 (DOC-008 SCR-203 v2.46).
+ *
+ * **실제로 채운 것을 말한다.** 한 문장으로 두었던 v2.44는 유형을 비운 경로(만기 · 종가 없음 · 요청 ≠ 판정)와 금액을 비운
+ * 경로(KI 터치가 기록된 만기)에서 거짓이었다. 상환일 안내(「연휴면 하루이틀 밀릴 수 있다」)는 칸 힌트가 차수를 «바꿀» 때만
+ * 내므로 첫 렌더에는 여기서 말한다. **차수 번호를 박지 않는다** — 서버 렌더라 사용자가 차수를 바꿔도 남는다(v2.7)
  */
-export const REDEEM_PREFILL_NOTE =
-  '방금 지난 차수(상환 확인 필요) 기준의 추정값을 채웠다 — 유형은 평가일 종가로 낸 판정이고 상환일은 그 평가일 + 5일이다.'
+export function redeemPrefillNote(outcome: { typeFilled: boolean; amountsBlankedByKiTouch: boolean }): string {
+  return [
+    '방금 지난 차수(상환 확인 필요) 기준으로 채웠다.',
+    outcome.typeFilled ? '유형은 그 평가일 종가로 낸 판정(추정)이다.' : '유형은 비웠다 — 거래내역을 보고 고른다.',
+    ...(outcome.amountsBlankedByKiTouch
+      ? ['KI 터치가 기록된 만기라 실수령액 · 과세 금융소득을 비웠다 — 손실일 수 있다.']
+      : []),
+    '상환일은 그 평가일 + 5일이다 — 연휴에 걸리면 하루이틀 밀릴 수 있으니 거래내역의 날짜로 고친다.',
+  ].join(' ')
+}
 
 /**
  * 안내 한 문단. 첫 문장이 사실이고, 뒤는 그 사실에 따라 붙는 덧붙임이다.

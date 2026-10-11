@@ -10,6 +10,7 @@ import {
   REDEMPTION_FIELDS,
   prefillRoundOf,
   redemptionDefaults,
+  redemptionPrefillOf,
   redemptionValuesOf,
   roundFillOf,
   roundOptionsOf,
@@ -687,6 +688,22 @@ describe('기본값 — 상환 확인 필요에서 왔을 때 (평가일 판정 
       grossAmount: '112000000',
       redemptionDate: shiftDays('2027-07-02', REDEMPTION_DATE_OFFSET_DAYS),
     })
+  })
+
+  it('채움 결과 — 안내가 쓰는 두 플래그가 기본값과 같은 계산에서 나온다 (DOC-008 SCR-203 v2.46)', () => {
+    const of = (view: ReturnType<typeof verdictView>, asOf: string, round: number | null) => {
+      const r = redemptionPrefillOf(view, asOf, round)
+      return [r.pick?.source, r.typeFilled, r.amountsBlankedByKiTouch]
+    }
+    expect(of(verdictView({ close: '95.000000' }), AFTER_R1, null)).toEqual(['VERDICT', true, false])
+    expect(of(verdictView(), AFTER_R1, 1)).toEqual(['REQUESTED', false, false])
+    expect(of(verdictView(), AFTER_R1, null)).toEqual(['PROJECTION', false, false])
+    expect(of(verdictView({ asOf: '2027-07-03' }), '2027-07-03', null)).toEqual(['VERDICT', false, false])
+    expect(of(verdictView({ asOf: '2027-07-03', kiTouchedAt: '2027-03-02' }), '2027-07-03', null)).toEqual([
+      'VERDICT',
+      false,
+      true,
+    ])
   })
 
   it('★ KI 터치가 기록된 상품의 만기는 금액을 비운다 — 손실일 수 있고 이익 금액은 「항상 틀린 방향」이다', () => {

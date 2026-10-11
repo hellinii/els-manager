@@ -6,6 +6,7 @@ import {
   EVALUATION_VERDICT_GRADES,
   EVALUATION_VERDICT_LABELS,
   evaluationVerdictSentence,
+  redeemPrefillNote,
 } from '@/lib/format'
 
 /**
@@ -105,3 +106,31 @@ describe('평가일 판정의 표시 · 등급', () => {
     expect(EVALUATION_VERDICT_GRADES.CLOSE_MISSING).toBe('caution')
   })
 })
+
+describe('redeemPrefillNote — SCR-203 안내는 실제로 채운 것을 말한다 (DOC-008 SCR-203 v2.46)', () => {
+  it('유형을 채웠으면 「평가일 종가로 낸 판정(추정)」 · 상환일 안내에 연휴 문장', () => {
+    const text = redeemPrefillNote({ typeFilled: true, amountsBlankedByKiTouch: false })
+    expect(text).toContain('유형은 그 평가일 종가로 낸 판정(추정)이다.')
+    expect(text).toContain('연휴에 걸리면 하루이틀 밀릴 수 있으니 거래내역의 날짜로 고친다.')
+    expect(text).not.toContain('비웠다')
+  })
+
+  it('유형을 비웠으면(만기 · 종가 없음 · 요청 ≠ 판정) 판정이라고 말하지 않는다', () => {
+    const text = redeemPrefillNote({ typeFilled: false, amountsBlankedByKiTouch: false })
+    expect(text).toContain('유형은 비웠다 — 거래내역을 보고 고른다.')
+    expect(text).not.toContain('판정(추정)')
+  })
+
+  it('KI 터치 만기로 금액을 비웠으면 그 사실과 이유를 말한다', () => {
+    expect(redeemPrefillNote({ typeFilled: false, amountsBlankedByKiTouch: true })).toContain(
+      'KI 터치가 기록된 만기라 실수령액 · 과세 금융소득을 비웠다 — 손실일 수 있다.',
+    )
+  })
+
+  it('차수 번호를 박지 않는다 — 서버 렌더라 사용자가 차수를 바꿔도 남는다(v2.7)', () => {
+    for (const typeFilled of [true, false]) {
+      expect(redeemPrefillNote({ typeFilled, amountsBlankedByKiTouch: !typeFilled })).not.toMatch(/\d+차/)
+    }
+  })
+})
+
