@@ -261,8 +261,9 @@ export function ProductScheduleCard({
             }
           >
             {/* `▸`를 «글자로 적지 않는다» — 네이티브 마커가 이미 있고 글자를
-                더하면 회전하지 않는 두 번째 삼각형이 생긴다 */}
-            <summary className="cursor-pointer px-4 py-2 text-xs text-neutral-600 marker:text-neutral-400 hover:bg-neutral-50">
+                더하면 회전하지 않는 두 번째 삼각형이 생긴다. 마커는 비텍스트라
+                3:1 기준이고 neutral-500(4.74:1)이다(WCAG 1.4.11 · DOC-008 ST-08) */}
+            <summary className="cursor-pointer px-4 py-2 text-xs text-neutral-600 marker:text-neutral-500 hover:bg-neutral-50">
               지난 차수 {group.past.length}건
             </summary>
             <ul className="divide-y divide-neutral-200 border-t border-neutral-200">
@@ -315,7 +316,7 @@ function CouponSubList({
       )}
       {rest.length > 0 && (
         <details open={next == null} className="border-t border-neutral-200">
-          <summary className="cursor-pointer px-4 py-2 text-xs text-neutral-600 marker:text-neutral-400 hover:bg-neutral-50">
+          <summary className="cursor-pointer px-4 py-2 text-xs text-neutral-600 marker:text-neutral-500 hover:bg-neutral-50">
             {next == null ? `월수익 ${rest.length}건` : `나머지 월수익 ${rest.length}건`}
           </summary>
           <ul className="divide-y divide-neutral-200 border-t border-neutral-200">

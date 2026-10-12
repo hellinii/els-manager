@@ -240,7 +240,8 @@ function WillMeetCell({
       {item.worstOf == null ? (
         // 이 목록은 판정 불가의 **원인**을 담지 않는다(뷰에 `integrityIssue`가 없다).
         // 원인별 안내는 SCR-201·202의 일이므로 여기서 지어내지 않는다.
-        <span className="text-neutral-400">판정 없음</span>
+        // 정보 글자다 — neutral-600(흰 바탕 7.81:1 · DOC-008 ST-08 · 홈 피드백 컷 K2).
+        <span className="text-neutral-600">판정 없음</span>
       ) : (
         <>
           <span className="tabular-nums text-neutral-700">

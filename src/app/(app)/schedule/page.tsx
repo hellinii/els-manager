@@ -301,10 +301,13 @@ function Section({
             {/*
               월 머리글 — `korMonth`가 만든다. 그룹 키와 라벨을 같은 순수 함수가
               함께 내므로 「같은 달인가」와 「어떻게 적는가」가 갈릴 수 없다.
+
+              건수도 정보 글자다 — neutral-50 바탕이라 500(4.54:1)이 아니라 600이고
+              월과는 굵기로 가른다(DOC-008 ST-08 · 홈 피드백 컷 K2).
             */}
             <h3 className="bg-neutral-50 px-1 py-1.5 text-xs font-medium text-neutral-600 lg:border-b lg:border-neutral-200 lg:px-4">
               {group.label}
-              <span className="ml-1.5 font-normal text-neutral-400">
+              <span className="ml-1.5 font-normal text-neutral-600">
                 {group.items.length}건
               </span>
             </h3>

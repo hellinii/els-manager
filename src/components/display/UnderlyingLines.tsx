@@ -43,8 +43,11 @@ export function UnderlyingLines({ lines }: { lines: readonly UnderlyingLine[] })
      * `UNDERLYING_MISSING`(I-07) 또는 기실현 등재다. 여기서 이유를 적지 않는 이유는
      * 두 화면 모두 무결성 표식을 **다른 칸**에 이미 들고 있기 때문이다 — 같은 사실을
      * 두 자리에 적으면 한쪽만 고쳐지는 날이 온다.
+     *
+     * 이 줄의 회색 글자(「없음」 · 「→」 · 「시세 없음」)는 정보를 나르므로 neutral-600이다 —
+     * SCR-201 행의 neutral-50 띠(`ProductRow`)에도 놓여 500(4.54:1)은 여유가 없다(DOC-008 ST-08).
      */
-    return <span className="text-neutral-400">없음</span>
+    return <span className="text-neutral-600">없음</span>
   }
 
   // 비교 대상이 있을 때만 표식이 뜻을 갖는다 — 위 머리글의 ST-05 규율.
@@ -57,14 +60,14 @@ export function UnderlyingLines({ lines }: { lines: readonly UnderlyingLine[] })
         <span key={index} className="whitespace-nowrap tabular-nums">
           <span className="text-neutral-700">{line.assetName}</span>{' '}
           {priceDisplay(line.basePrice)}
-          <span className="text-neutral-400"> → </span>
+          <span className="text-neutral-600"> → </span>
           {line.currentPrice == null ? (
             /*
              * 자산 단위의 E-01. 상품 수준의 「시세 없음」(⑤)은 **어느 자산이 원인인지**
              * 말하지 않으므로, 워스트오브가 하나 때문에 비었을 때 고칠 대상이 이 줄에서만
              * 드러난다(ST-01 · SCR-202 ②와 같은 근거).
              */
-            <span className="text-neutral-400">시세 없음</span>
+            <span className="text-neutral-600">시세 없음</span>
           ) : (
             priceDisplay(line.currentPrice)
           )}
