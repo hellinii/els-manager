@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { Badge } from '@/components/display/Badge'
+import { Badge, GRADE_ACCENT } from '@/components/display/Badge'
 import type { EvaluationVerdictView } from '@/lib/db/queries/map'
 import type { CouponPayout } from '@/lib/domain'
 import {
@@ -20,6 +20,10 @@ import { PATHS } from '@/lib/routes/paths'
  * 소유자에게만 보인다(입구가 둘이면 어느 것을 눌러야 하는지 화면이 답해야 한다). 「시세 관리」 링크는 모두에게 보인다 —
  * 시세는 공용 데이터다. 주말로 저장된 평가일에는 그 링크를 내지 않는다 — 할 일은 시세 입력이 아니라 일정 수정이고
  * 주말 날짜의 종가는 「관측하지 않은 관측」이다(DOC-007 RD-21 · DOC-010 AQ-100).
+ *
+ * **상자는 홈 ⑥ 카드와 같은 흰 바탕 · 왼쪽 띠다** *(홈 피드백 컷 K3 · 민서 결정(2026-10-12) D1)* — 띠만 배지 등급의 색
+ * (`GRADE_ACCENT`)이다. 종전의 빨강 상자에서는 조건 충족이 경고로 읽혔고(피드백 #1), 등급을 `record`로 옮긴 뒤에는
+ * 파랑 배지가 빨강 상자 안에 서게 된다 — 그래서 등급과 같은 커밋에 바꾼다.
  */
 export function EvaluationVerdictNotice({
   verdict,
@@ -35,7 +39,7 @@ export function EvaluationVerdictNotice({
   return (
     <section
       aria-label="상환 확인 필요"
-      className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50/60 px-3 py-2 text-sm text-neutral-800"
+      className={`flex flex-col gap-2 rounded-md border border-l-4 border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-800 ${GRADE_ACCENT[EVALUATION_VERDICT_GRADES[verdict.kind]]}`}
     >
       <p className="flex flex-wrap items-center gap-2">
         <span className="font-medium">상환 확인 필요</span>

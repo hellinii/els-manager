@@ -105,6 +105,15 @@ describe('평가일 판정의 표시 · 등급', () => {
     expect(Object.values(EVALUATION_VERDICT_GRADES)).not.toContain('positive')
     expect(EVALUATION_VERDICT_GRADES.CLOSE_MISSING).toBe('caution')
   })
+
+  it('★ 충족 · 만기는 attention도 아니다 — 할 일이 기록이다(record · 홈 피드백 컷 K3 · 민서 결정(2026-10-12) D1)', () => {
+    // 위 단언(positive 금지)은 attention으로 되돌려도 초록이다 — 빨강이 조건 충족을 경고로 읽게 한 것(피드백 #1)을
+    // 다시 들이지 않게 여기서 따로 막는다
+    expect(Object.values(EVALUATION_VERDICT_GRADES)).not.toContain('attention')
+    expect(EVALUATION_VERDICT_GRADES.EARLY).toBe('record')
+    expect(EVALUATION_VERDICT_GRADES.LIZARD).toBe('record')
+    expect(EVALUATION_VERDICT_GRADES.MATURITY_REACHED).toBe('record')
+  })
 })
 
 describe('redeemPrefillNote — SCR-203 안내는 실제로 채운 것을 말한다 (DOC-008 SCR-203 v2.46)', () => {

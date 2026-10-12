@@ -197,14 +197,18 @@ export function groupAttention<
  * 이 함수는 **줄 전체의 강조**에만 쓴다.
  *
  * 서열은 `BADGE_WEIGHT`가 정한다 — `BadgeGrade`의 전수 사상이므로 등급이 늘면
- * 여기서 컴파일이 깨진다.
+ * 여기서 컴파일이 깨진다. `caution` < `record` < `attention` < `defect`다 *(홈 피드백 컷 K3 · DOC-005 §6.3 v1.24)*:
+ * 관찰보다 할 일(기록)이, 기록보다 원금 위험이, 그보다 데이터 결함이 무겁다.
+ * **`record`는 다른 어느 등급과도 같은 무게가 아니어야 한다** — 비교가 엄격(`>`)이라 같은 무게면 먼저 온 사유가
+ * 이겨 사유 순서에 따라 답이 갈리고, 0이면 「월수익 미기록」만 있는 줄이 `neutral`이 된다.
  */
 const BADGE_WEIGHT: Record<BadgeGrade, number> = {
   neutral: 0,
   positive: 0,
   caution: 1,
-  attention: 2,
-  defect: 3,
+  record: 2,
+  attention: 3,
+  defect: 4,
 }
 
 export function heaviestGrade(reasons: readonly AttentionReason[]): BadgeGrade {

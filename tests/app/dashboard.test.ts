@@ -266,11 +266,30 @@ describe('heaviestGrade — 줄 전체의 강조', () => {
     )
   })
 
+  it('★ 기록(record)은 관찰보다 무겁고 원금 위험 · 결함보다 가볍다 — 순서를 뒤집어도 같은 답 (홈 피드백 컷 K3 · DOC-005 §6.3 v1.24)', () => {
+    /*
+     * 비교가 엄격(`>`)이라 `record`가 `caution`과 같은 무게면 먼저 온 사유가 이긴다 — 첫 쌍이 순서에 따라 갈린다.
+     * 0이면 「월수익 미기록」만 있는 줄이 `neutral`이 된다(아래 「사유 전수」가 빨개진다).
+     */
+    const cases: [AttentionReason[], string][] = [
+      [['KI_NEAR', 'COUPON_UNRECORDED'], 'record'],
+      [['PRICE_MISSING', 'COUPON_UNRECORDED'], 'record'],
+      [['COUPON_UNRECORDED', 'KI_BELOW'], 'attention'],
+      [['COUPON_UNRECORDED', 'KI_TOUCHED'], 'attention'],
+      [['UNDERLYING_MISSING', 'COUPON_UNRECORDED'], 'defect'],
+      [['COUPON_SCHEDULE_MISSING', 'COUPON_UNRECORDED'], 'defect'],
+    ]
+    for (const [reasons, grade] of cases) {
+      expect(heaviestGrade(reasons), reasons.join(' · ')).toBe(grade)
+      expect(heaviestGrade([...reasons].reverse()), [...reasons].reverse().join(' · ')).toBe(grade)
+    }
+  })
+
   it('사유가 없으면 중립이다', () => {
     expect(heaviestGrade([])).toBe('neutral')
   })
 
-  it('일곱 사유가 전부 등급을 얻는다 — 전수', () => {
+  it('사유 전수가 각자의 등급을 얻는다', () => {
     // `ATTENTION_REASON_GRADES`가 `Record<AttentionReason, …>`이므로 누락은 컴파일에서
     // 걸리지만, 그 표를 실제로 지나는지는 여기서 본다(빈 문자열·undefined 방어).
     for (const reason of Object.keys(ATTENTION_REASON_LABELS) as AttentionReason[]) {

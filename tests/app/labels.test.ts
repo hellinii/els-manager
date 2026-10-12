@@ -155,7 +155,8 @@ describe('DOC-008 §5 SCR-101 ↔ 조치 사유', () => {
 describe('DOC-005 §6.3 ↔ badges.ts', () => {
   function documentedGrades(): string[] {
     const rows = tableAfterHeader(DOC_005, '| 등급 | 의미 | 쓰는 곳 |')
-    expect(rows.length, '§6.3 표가 비어 있다').toBe(5)
+    // 여섯 — `record` 「기록 필요」가 홈 피드백 컷 K3(DOC-005 v1.24)에서 섰다
+    expect(rows.length, '§6.3 표의 행 수가 등급 수와 다르다').toBe(6)
     return rows.map(([grade]) => bare(grade ?? ''))
   }
 
@@ -254,9 +255,46 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
       )
       expect(documented, axis).toEqual(GRADE_RECORDS[axis])
     }
-    // 조치 사유 중 월수익 축 — 「월수익 미기록」은 사용자 조치다(「평가일 경과」와 같은 부류)
-    expect(values.get('attentionReason.COUPON_UNRECORDED')).toBe('attention')
-    expect(ATTENTION_REASON_GRADES.COUPON_UNRECORDED).toBe('attention')
+    // 조치 사유 중 월수익 축 — 「월수익 미기록」은 기록할 일이다(평가일 판정 충족과 같은 부류 — 홈 피드백 컷 K3)
+    expect(values.get('attentionReason.COUPON_UNRECORDED')).toBe('record')
+    expect(ATTENTION_REASON_GRADES.COUPON_UNRECORDED).toBe('record')
+  })
+
+  it('★ 기록과 확인은 다른 등급이다 — 할 일이 기록이면 record, 원금 위험(KI)이면 attention (DOC-005 v1.24 · 민서 결정(2026-10-12) D1)', () => {
+    /*
+     * 피드백 #1 — 홈 ⑥의 「조건 충족」이 빨강이라 좋은 소식이 경고로 읽혔다. 그 빨강은 `attention`이 원금 위험(KI)과
+     * 「거래내역을 옮겨 적을 일」을 한 등급에 묶은 데서 왔다. 값 하나라도 `attention`으로 되돌아가면 여기와 위의 값별
+     * 대조가 함께 빨개진다(§6.3이 그 값을 `record` 칸에 적고 있으므로).
+     */
+    const recorded: [string, BadgeGrade][] = [
+      ['evaluationVerdict.EARLY', EVALUATION_VERDICT_GRADES.EARLY],
+      ['evaluationVerdict.LIZARD', EVALUATION_VERDICT_GRADES.LIZARD],
+      ['evaluationVerdict.MATURITY_REACHED', EVALUATION_VERDICT_GRADES.MATURITY_REACHED],
+      ['couponState.UNRECORDED', COUPON_STATE_GRADES.UNRECORDED],
+      ['attentionReason.COUPON_UNRECORDED', ATTENTION_REASON_GRADES.COUPON_UNRECORDED],
+    ]
+    const principalRisk: [string, BadgeGrade][] = [
+      ['kiStatus.BELOW', KI_STATUS_GRADES.BELOW],
+      ['kiStatus.TOUCHED', KI_STATUS_GRADES.TOUCHED],
+      ['attentionReason.KI_BELOW', ATTENTION_REASON_GRADES.KI_BELOW],
+      ['attentionReason.KI_TOUCHED', ATTENTION_REASON_GRADES.KI_TOUCHED],
+    ]
+    for (const [key, grade] of recorded) expect(grade, key).toBe('record')
+    for (const [key, grade] of principalRisk) expect(grade, key).toBe('attention')
+    // 종가 없음은 판정 보류라 기록도 확인도 아닌 관찰이다(DOC-005 v1.20 각주)
+    expect(EVALUATION_VERDICT_GRADES.CLOSE_MISSING).toBe('caution')
+
+    // `attention`에 남은 값은 정확히 넷이다 — 등급 표 전체를 훑어 새로 끼어든 값이 없는지 본다
+    const attentionValues = Object.entries(GRADE_RECORDS)
+      .flatMap(([axis, table]) => Object.entries(table).map(([value, grade]) => [`${axis}.${value}`, grade] as const))
+      .filter(([, grade]) => grade === 'attention')
+      .map(([key]) => key)
+      .sort()
+    expect(attentionValues).toEqual(principalRisk.map(([key]) => key).sort())
+
+    // 문서도 같은 말을 한다 — §6.3의 `attention` 칸에 기록할 값이 남아 있지 않다
+    const { values } = documentedValueGrades()
+    for (const [key] of recorded) expect(values.get(key), key).toBe('record')
   })
 
   it('결함은 조치와 다른 등급이다 — ST-06', () => {

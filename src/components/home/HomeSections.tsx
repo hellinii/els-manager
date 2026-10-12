@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Fragment } from 'react'
 
-import { Badge } from '@/components/display/Badge'
+import { Badge, GRADE_ACCENT } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import { OwnerOnly } from '@/components/state/OwnerOnly'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
@@ -69,6 +69,10 @@ import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
  *   확인한 사용자가 기록하러 갈 수 있어야 한다). **「시세 입력」은 모두에게** — 종가 없음이고 주말이 아닐 때만(시세는 공용
  *   데이터 · 주말 날짜의 종가는 「관측하지 않은 관측」 — DOC-010 AQ-100)
  * - 안내 문장은 상세(SCR-202)와 같은 함수다. 지급방식은 계약에 없으므로 `null` — V-29 문장은 SCR-203이 말한다
+ * - **카드는 등급 색을 바탕에 깔지 않는다** *(홈 피드백 컷 K3 · 민서 결정(2026-10-12) D1)* — 흰 바탕에 왼쪽 띠만 배지
+ *   등급의 색이다(`GRADE_ACCENT` — 충족 · 만기는 `record` 파랑, 종가 없음은 `caution` 앰버). D+n은 줄의 글자색을
+ *   물려받는다(중립). 종전의 빨강 바탕 · 빨강 D+n은 조건 충족을 경고로 읽게 했다(피드백 #1). 옅은 파랑 바탕도 깔지
+ *   않는다 — 그 위의 neutral-500 글자가 4.36:1이다(DOC-008 §6 ST-08)
  */
 export function RedemptionCheckSection({
   items,
@@ -88,9 +92,12 @@ export function RedemptionCheckSection({
         평가일 종가로 판정한 추정이다. 상환을 기록하거나 다음 평가일이 지나면 사라진다. 판정이 이월이면 올리지 않는다.
       </p>
 
-      <ul className="divide-y divide-red-100 rounded-lg border border-red-200 bg-red-50/40">
+      <ul className="divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white">
         {items.map((item) => (
-          <li key={item.productId} className="flex flex-col gap-1.5 px-4 py-3">
+          <li
+            key={item.productId}
+            className={`flex flex-col gap-1.5 border-l-4 px-4 py-3 ${GRADE_ACCENT[EVALUATION_VERDICT_GRADES[item.kind]]}`}
+          >
             <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <span className="flex min-w-0 flex-col gap-0.5">
                 <Link
@@ -102,7 +109,7 @@ export function RedemptionCheckSection({
                 <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
                   {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
                   <span className="tabular-nums">{`${item.roundNo}차 · ${ymd(item.evaluationDate)}`}</span>
-                  <span className="tabular-nums text-red-700">{dDayLabel(item.dDay)}</span>
+                  <span className="tabular-nums">{dDayLabel(item.dDay)}</span>
                   {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
                 </span>
               </span>
