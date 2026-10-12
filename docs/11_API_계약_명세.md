@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.42 |
+| 버전 | 4.43 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.43 | 2026-10-13 | 민서 | **홈 피드백 컷 K0 — §4.1 `currentYearTax.isProfileSaved` 선행 명세(`src/` 0줄 · 구현 K9).** 2026-10-12 외부 UI 피드백 #6 — 홈 ③이 과세 프로필을 저장하지 않은 사용자에게 「종합과세 대상」과 추가납부 0원을 확정 결과처럼 보였다. 그 해 행이 없으면 집계는 §4.6 폴백으로 돌아 하한인데, 뷰가 그 사실을 싣지 않아 화면이 하한과 확정을 가를 수 없었다. **필드 하나 · 왕복 0 · 계약 수 불변(조회 11 · 변경 17)** — 그 해 행만 보고(§4.6 `profile.isSaved`와 같은 판정) 이월하지 않는다(§4.7 LOCF와 다르다). `boolean`인 근거를 §4.7 「`boolean`으로 두지 않는 이유」에 대한 반론으로 적었다 — 홈에는 `override`도 이월도 없어 상태가 정확히 둘이다. 무효화는 바꾸지 않는다(`saveTaxProfile`이 이미 `getDashboard`를 덮는다). **파싱되는 표(§3.2.1 · §6 · §7.1 · §8) 무변경** |
 | 4.42 | 2026-10-11 | 민서 | **P6 컷 7-6 — 증분 반박 검토 반영(문언만 · 계약 무변경).** §4.1 `redemptionChecks`의 `isOwner` 근거가 인용한 `map.ts` 줄 번호(:697 · :1033)가 컷 7 뒤에 어긋났다 — 줄 번호 대신 함수 이름(`toProductListItem` · `toProductDetailView`)으로 적었다. 다중 사유 표 각주의 「지금 표를 고치지 않는 이유」는 컷 7-4가 표를 고쳤으므로 취소선으로 남겼다 |
 | 4.41 | 2026-10-11 | 민서 | **P6 컷 7-4 — §4.1 `redemptionChecks`가 섰고 `attentionItems`의 `EVALUATION_PASSED`가 유니온에서 빠졌다(v4.40이 예고한 대로).** 다중 사유 표의 두 행(`UNDERLYING_MISSING` + 경과 → `['UNDERLYING_MISSING']` · 셋째 결함과 함께 뜨는 사유)과 순서 문장을 고쳤다. 왕복은 판정할 쌍이 있을 때만 `asset_prices` 1이 시세와 나란히 는다(5 → 6 · `tests/integration/evaluation-verdict.test.ts`가 다중집합으로 단언) — 정본 시나리오의 상품은 등록일이 `AS_OF` 뒤라 쌍이 0이고 `contracts.test.ts`의 예산은 그대로다. `Judgment.overdue`는 유일한 소비자를 잃어 뺐다(도메인 함수 `overdueEvaluations`는 판정의 입력으로 남는다) |
 | 4.40 | 2026-10-11 | 민서 | **P6 컷 7-0 — 평가일 판정 · 「상환 확인 필요」 선행 명세(문서 선행 · `src/` 0줄 · 마이그레이션 0).** 민서 요청(2026-10-07) — 평가일이 지나면 앱이 곧장 다음 차수로 넘어가 실제로 조기상환됐는데 기록을 깜박해도 아무 신호가 없다. `judge()`는 다음 차수를 최신 시세로만 판정하고(`map.ts:473`), 남는 신호인 ④ `EVALUATION_PASSED`는 이월된 상품에도 상환 전까지 늘 붙어 있어 아무것도 가르지 못한다. 판정 규칙과 결정 D1~D4(민서 2026-10-11)의 정본은 DOC-007 §3.6이다. **계약 수 불변**(조회 11 · 변경 17 · V-01~V-29) · **파서가 읽는 표(§3.2.1 · §6 · §7.1 · §8) 무변경** — 바뀌는 것은 기존 계약의 필드 둘과 조건부 왕복 하나다. **(1) §4.3 `evaluationVerdict` · `EvaluationVerdictView` 신설(구현 컷 7-2)** — 가장 최근 경과 차수 하나를 그 평가일 종가로 판정한 결과(`EARLY` · `LIZARD` · `MATURITY_REACHED` · `CLOSE_MISSING`. 이월 · 등록일 전 · 상환 완료는 `null`). `schedules[].conditionResult`(다음 차수 × 최신 시세)와는 별도 필드이고 §4.4의 불변식 `isPast ⟹ conditionResult = null`은 그대로다 — 한 필드가 행에 따라 다른 시세를 뜻하게 되면 그 불변식과 v2.2의 금지(「그 차수가 도래했을 때의 결과인 척하는 값」)가 함께 무너진다. 저장하지 않고(M-02) 세금(`projection` · 귀속)에 쓰지 않는다 — 쓰면 「`PRICE_WIDE`에는 세금이 없다」는 전제가 깨진다. **(2) §4.1 `redemptionChecks` 신설(구현 컷 7-4 · DOC-008 SCR-101 ⑥)** — 같은 어댑터가 낸 같은 판정에 상품 · 소유 필드 넷을 붙인다. `isOwner`는 `upcomingEvaluations`에 `ownerId`를 두지 않은 근거(v2.0 — 소유자 전용 조치가 없다)의 **반대**다: 이 목록은 [상환 처리]를 행에 싣는다(D1). 평가일 오름차순 · 상품명순이고, 상품당 최대 1건이며, 자르지 않는다. **(3) `EVALUATION_PASSED`는 컷 7-4에서 없어진다** — 묻는 경우(충족 · 만기 · 종가 없음)는 전부 ⑥이 맡고 이월은 D2로 묻지 않는다. 남기면 같은 일을 두 번 알린다. 유니온 주석 · `upcomingEvaluations` 절의 문장(취소선) · 다중 사유 표 · 순서 문장 · §4.4 직교 문장에는 예고만 달았다(표 행과 문언 교체는 그 코드 커밋에 함께). §4.1 「⑥을 만들지 않는다」도 ⑥이 이 목록에 배정됐다고 고쳤다. **(4) §4.0 왕복 표** — `getProduct` 3(평가일 종가 쌍이 있으면 4) · `getDashboard` 5(쌍이 있으면 6). `asset_prices` 1왕복이 둘째 물결에서 시세와 나란히 나가므로 물결 수는 그대로이고, 쌍이 0건이면 질의를 내지 않는다(빈 `in()`을 만들지 않는 규칙). (자산, 평가일) **정확한 쌍만** 읽는다 — 자산별로 묶은 `.or(and(…))`를 쓰고 `.in().in()` 교차곱은 쓰지 않는다(`load.ts:542-544` ★★). **(5) §4.2 D1 표에 행 하나** — 시세 입력이 파괴되면(`UNDERLYING_MISSING`) 만기 갈래만 산다. E-05 축의 「막는 것」에 이 값을 더했다. **(6) 무변경 각주** — §5.4(`createRedemption`은 그대로이고 기록을 판정과 대조하지 않는다. V-30 「상환일 ≥ 그 차수 평가일」은 만들지 않는다) · §6(표 · `RULE_IDS` 그대로. 휴장일 · 주말 날짜의 대체 종가 입력은 규칙이 막지 않고 화면이 권하지 않는다) · §8(무효화 축이 이미 덮는다 — 과거 날짜 수동 시세는 `PRICE_WIDE`, 상환은 `PRODUCT_WIDE`, KI 터치 · 상품 수정도 이미 홈 · 상세를 덮는다. 판정의 입력마다 그것을 바꾸는 변경과 축을 표로 적었다. 새 조회 계약을 만들지 않는 것이 전제다) · §4.4(SCR-301은 판정을 싣지 않는다 — DOC-008 SQ-22). §4.3 월수익 행의 「지난 달의 결과를 제안하지 않는다」에는 DOC-007 RD-14의 조기상환 쪽이 이 필드로 닫혔다는 각주를 달았다(월수익 쪽은 열린 채다) |
@@ -612,6 +613,7 @@ type DashboardView = {
     convertedCount: number              // v4.9 (P8 컷 a3) — 추정 환율로 환산해 넣은 사건이 있는 상품 수 (v4.16 — 종전 「건 수」)
     unconvertedCount: number            // v4.9 (P8 컷 a2) — 환율이 없어 빠진 추정 사건이 있는 상품 수 (E-09 · v4.16 — 종전 「건 수」)
     monthlyCouponAssumption: boolean    // v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계)
+    isProfileSaved: boolean             // v4.43 (홈 피드백 컷 K0 명세 · 구현 K9) — 그 해(year) 본인 tax_profiles 행이 있는가. §4.6 `profile.isSaved`와 같은 판정 · 이월 없음. 아래 「과세 프로필 저장 여부」
   }
   attentionItems: Array<{
     productId: string
@@ -736,6 +738,22 @@ type DashboardView = {
 **`currentYearTax`의 세 필드.** 값은 §4.6 `income`과 **같은 집계**이고 E-09도 같다 — 확정 원화 과세는 늘 들어가고 추정이 필요한 달러 건만 환율이 없을 때 빠진다. `unconvertedCount`가 그 ~~건 수~~ **상품 수**이며(§4.6 `income.unconvertedCount`와 같은 값) `exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다. **`convertedCount`는 환산해 넣은 달러 추정 ~~건 수~~ 사건이 있는 상품 수다** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음(§4.6 `income.convertedCount`와 같은 값). *(v4.16 — 세는 단위는 상품이다. §4.0 「쿠폰 지급방식과 월수익」 규칙 4. 월지급식은 한 상품에 사건이 여럿이라 둘이 갈린다 — 달러 추정 월수익의 과세에는 원금이 없으므로 `max(0, …)`가 없고 늘 환율이 필요하다, DOC-007 §4.8)* DOC-008 SCR-101 ③의 「달러 상품 n건의 추정을 원화로 환산해 포함했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌(`TAX_FREE`)와 달러 이익 ≤ 0의 달러 추정은 환율 없이 0이므로(DOC-007 §4.8 · 검산 A-2) **어느 쪽으로도** 세지 않는다. 홈은 이 값들로 ③의 불완전함과 환산 사실을 말한다 — 문구는 DOC-008 ST-07이다.
 
 **컷**: `byCurrency`·`recentRedemptions[].currency`·`unconvertedCount`는 a2, `krwEstimate`·`exchangeRateBasis`·`convertedCount`는 a3다(§4.0 「컷별 도달」 — a2에는 추정 환율이 없어 `convertedCount`가 늘 0인 구조적 상수다). *(v4.16)* `receivedCoupons` · `realizedPnl`의 월수익 몫 · `COUPON_UNRECORDED`(와 그 `count` — b1 개정) · `COUPON_SCHEDULE_MISSING`은 b3, `currentYearTax`에 월수익 사건이 드는 것은 b4다(§4.0 「쿠폰 지급방식과 월수익」 컷별 도달). `krwEstimate`는 바뀌지 않는다 — 원금만 환산하고 받은 월수익은 환산하지 않는다(사실은 통화별 — DOC-007 §7.7).
+
+#### 과세 프로필 저장 여부 — `currentYearTax.isProfileSaved` (v4.43 선행 명세 — 홈 피드백 컷 K0, 구현 K9)
+
+**왜 필드가 필요한가.** 홈 ③은 과세 프로필을 저장하지 않은 사용자에게 「종합과세 대상」과 추가납부 0원을 확정 결과처럼 보였다(2026-10-12 피드백 #6). 그 해 행이 없으면 세금 집계는 §4.6의 폴백(`otherIncomeBase` 0 · `otherFinancialIncome` 0)으로 돌고, 그 결과는 계산이 아니라 **하한**이다 — 금융소득 외 종합소득 · ELS 외 금융소득이 0으로 들어가므로 `financialIncome` · `isComprehensive` · `additionalTax`가 실제보다 작거나 같다(추가납부는 그 둘이 커질수록 줄지 않는다 — DOC-007 §5.2). 그런데 이 뷰에는 「폴백으로 돌았는가」가 없어서 화면이 하한과 확정을 가를 수 없었다. 화면 규칙은 DOC-008 SCR-101 「홈 피드백 컷 K0」 ③이다.
+
+| 축 | 정의 |
+|---|---|
+| 값 | **그 해(`year`)의 본인 `tax_profiles` 행이 있는가.** §4.6 `profile.isSaved`와 **같은 판정**이다 — 두 계약 모두 `loadTaxProfile(ctx, viewerId, year)`(그 해 한 행 — `tax_year = year`)를 부르고 연도도 같은 기준일에서 나온다. 홈에는 `override`가 없으므로 거짓은 늘 「저장 없음」이다 |
+| 이월 | **없다.** §4.7의 LOCF(`profileYear`)와 다르다 — 작년 행만 있으면 거짓이다. SCR-401도 그 해를 「저장된 과세 프로필이 없다」로 보이므로(DOC-008 SCR-401 「「미입력」과 「0원」을 가른다」), 홈 ③의 링크를 따라가도 같은 상태를 말한다 |
+| 거짓일 때 | `financialIncome` · `isComprehensive` · `additionalTax`는 **하한**이다. 값 자체는 바뀌지 않는다 — 집계는 종전대로 폴백으로 돌고 이 필드는 그 사실만 싣는다 |
+| 왕복 | **늘지 않는다.** `getDashboard`가 세금 집계의 입력으로 그 행을 이미 읽는다(`queries/dashboard.ts`의 `loadTaxProfile`) — 반환에 `ownProfile != null`을 더할 뿐이다 |
+| 무효화 | 바꾸지 않는다 — `saveTaxProfile`의 `affects`가 이미 `getDashboard`를 덮는다(§8 · `routes/invalidation.ts`) |
+
+> **`boolean`으로 둔다 — §4.7 「`boolean`으로 두지 않는 이유는 §4.6이 이미 후회한 실수다」에 대한 반론.** 그 문단이 거부한 것은 **상태가 셋인데 값이 둘인 것**이었다 — §4.6의 `isSaved`는 「저장 없음」과 「`override` 적용 중」을 한 거짓으로 접었고, §4.7은 「그 해」 · 「이월」 · 「미입력」 셋이다. 홈에는 둘 다 없다 — `override`가 없고(홈은 시뮬레이션하지 않는다) 이월이 없다(위 표). **상태가 정확히 둘이므로 boolean이 그 공간을 접지 않는다.** 이름은 §4.6의 `profile.isSaved`를 평평한 `currentYearTax`로 옮긴 것이고 같은 객체의 `isComprehensive`와 접두가 맞는다. 낱말은 DOC-005 §6 「과세 프로필」이다.
+>
+> **계약 수는 그대로다**(조회 11 · 변경 17) — 기존 계약의 필드 하나다. 구현 K9는 integration의 형식 분류표(`tests/integration/formats.test.ts` — 새 필드는 분류를 요구한다)에 `BOOL`을 등록하고, 같은 실행에서 YEAR-1 프로필만 있는 사용자로 「이월 없음」을 음성 대조하며, `getTaxSummary(year).profile.isSaved`와 같은 값임을 단언한다.
 
 #### 상환 확인 필요 — `redemptionChecks` (v4.40 선행 명세 — P6 컷 7-0, 구현 컷 7-4)
 
