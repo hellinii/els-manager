@@ -11,10 +11,10 @@ import {
   EVALUATION_VERDICT_GRADES,
   EVALUATION_VERDICT_LABELS,
   attentionChipLabel,
-  IMMINENT_LABEL,
   MONTHLY_COUPON_ESTIMATE_NOTE,
   RECENT_VISIBLE,
   REDEMPTION_TYPE_LABELS,
+  SECTION_EMPTY,
   UPCOMING_VISIBLE,
   amount,
   barrierGap,
@@ -23,9 +23,9 @@ import {
   evaluationVerdictSentence,
   groupAttention,
   heaviestGrade,
-  isImminent,
   koreanWon,
   krwEstimateLine,
+  missingUpcomingNote,
   money,
   percent,
   signedMoney,
@@ -39,8 +39,13 @@ import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
 /**
  * SCR-101의 여섯 요소 — DOC-008 §5 (P4 컷 9 · ⑥은 P6 컷 7-4)
  *
- * ⑥ 상환 확인 필요(맨 위) · ① 임박 평가일 · ② 총 자산 요약 · ③ 올해 금융소득 · ④ 주의 상태 상품 ·
+ * ⑥ 상환 확인 필요(맨 위) · ① 다가오는 평가일 · ② 총 자산 요약 · ③ 올해 금융소득 · ④ 주의 상태 상품 ·
  * ⑤ 최근 상환 실적. 범위 전환은 폼이 아니라 링크이므로 `ScopeSwitch`에 있다.
+ *
+ * ## 절 빈 상태는 한 줄이다 (홈 피드백 컷 K4 · 피드백 #10)
+ *
+ * ① ④ ⑤가 비면 절 제목(h2)은 남고 그 아래 `SECTION_EMPTY`의 한 줄이다 — 점선 상자가 빈 절에 자리를 줬다. h2를
+ * 남기는 것은 「그 물음에 답이 없다」도 답이기 때문이다(⑥은 알림이라 0건이면 통째로 그리지 않는다).
  *
  * ## 이 파일이 정하지 않는 것 둘
  *
@@ -145,28 +150,33 @@ export function RedemptionCheckSection({
 }
 
 // ---------------------------------------------------------------------------
-// ① 임박 평가일 알림
+// ① 다가오는 평가일
 // ---------------------------------------------------------------------------
 
 /**
- * ① — **행마다 D-Day가 있고 「임박」은 그 위에 덧붙는다.**
+ * ① — **행마다 D-Day가 있고 그 위에 표식을 덧붙이지 않는다** *(홈 피드백 컷 K4 · 민서 결정(2026-10-12) D2)*.
  *
- * 경계(30일)가 나중에 틀린 값으로 판명되어도 사용자가 잃는 것은 강조뿐이다
- * (`IMMINENT_DAYS`의 각주). 그래서 이 절에서 표식을 지워도 정보는 남는다.
+ * ~~경계(30일) 안이면 「임박」을 덧붙였다~~ — 모든 행이 D-Day를 적으므로 표식이 행마다 같은 말을 했고(피드백 #3),
+ * 계약에 창이 없어 그 경계는 강조만 정했다. 늘 켜진 강조는 정보가 0이다(DOC-008 SQ-18).
+ *
+ * `redemptionCheckCount`는 빈 줄의 뒷절이 가리킬 ⑥이 실재하는지다(DOC-008 SQ-28 — `missingUpcomingNote`).
  */
 export function UpcomingSection({
   items,
   scope,
+  redemptionCheckCount,
 }: {
   items: DashboardView['upcomingEvaluations']
   scope: DashboardScope
+  /** ⑥ 「상환 확인 필요」의 항목 수 — 0이면 ⑥이 그려지지 않는다 */
+  redemptionCheckCount: number
 }) {
   const visible = takeVisible(items, UPCOMING_VISIBLE)
 
   return (
     <section className="flex flex-col gap-2">
       <SectionHead
-        title="임박 평가일"
+        title="다가오는 평가일"
         visible={visible}
         moreLabel="전체 일정"
         moreHref={PATHS.schedule}
@@ -178,11 +188,9 @@ export function UpcomingSection({
          * 상품의 다음 평가일이 하나도 없는 상태이며, 전 차수가 경과했거나
          * (E-07 · DOC-007 §9.2) 전부 상환완료라는 뜻이다. 그때 다음 행동은 등록이
          * 아니라 **상환 처리**이므로(P6 컷 7-4 — 무엇을 물을지는 ⑥의 평가일 판정이 정하고 이월이면 묻지 않는다) SCR-301의 셋째 빈 상태와 같은
-         * 문구 부류다(DOC-010 AQ-34가 둘을 함께 다룬다).
+         * 문구 부류다(DOC-010 AQ-34가 둘을 함께 다룬다). 글자는 그 둘이 한 함수다(`missingUpcomingNote` — 홈 피드백 컷 K4).
          */
-        <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          임박한 평가일이 없다. 경과한 차수의 상환은 위 「상환 확인 필요」가 묻는다.
-        </p>
+        <p className="text-sm text-neutral-600">{missingUpcomingNote('HOME', redemptionCheckCount)}</p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
           {visible.shown.map((item) => (
@@ -196,9 +204,6 @@ export function UpcomingSection({
                   <span className="text-xs tabular-nums text-neutral-500">
                     {dDayLabel(item.dDay)}
                   </span>
-                  {isImminent(item.dDay) && (
-                    <Badge grade="caution">{IMMINENT_LABEL}</Badge>
-                  )}
                 </span>
                 <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-500">
                   {/* §7.2 — 「SCR-101 홈 ─[평가일 알림]→ SCR-202 상세」 */}
@@ -518,9 +523,7 @@ export function AttentionSection({
       </h2>
 
       {groups.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          주의 상태 상품이 없다.
-        </p>
+        <p className="text-sm text-neutral-600">{SECTION_EMPTY.attention}</p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
           {groups.map((group) => (
@@ -600,9 +603,7 @@ export function RecentRedemptionsSection({
       />
 
       {visible.total === 0 ? (
-        <p className="rounded-lg border border-dashed border-neutral-300 px-4 py-6 text-center text-sm text-neutral-600">
-          상환된 상품이 없다.
-        </p>
+        <p className="text-sm text-neutral-600">{SECTION_EMPTY.recent}</p>
       ) : (
         <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
           {visible.shown.map((item) => (

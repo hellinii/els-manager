@@ -9,12 +9,12 @@ import {
 import {
   ATTENTION_REASON_LABELS,
   EVALUATION_VERDICT_LABELS,
-  IMMINENT_DAYS,
-  IMMINENT_LABEL,
   PRICE_MISSING_LABEL,
   REDEMPTION_TYPE_LABELS,
+  SECTION_EMPTY,
   amount,
   dDayLabel,
+  missingUpcomingNote,
   percent,
   signedWon,
   won,
@@ -45,7 +45,8 @@ import { issueDateForFirstRound } from './helpers/dates'
  * |---|---|
  * | **결정 F가 화면에 도달한다** | `SCHEDULE_MISSING` + KI 하회가 두 뱃지로 함께 보이는지는 렌더된 문서에만 있다. 일정 0건 상품은 SCR-301에 행이 없고 ①에서도 빠지므로 **이 목록이 유일한 창구다** |
  * | `PRICE_MISSING`이 결함에서 안 나온다 | 같은 자리의 **음성** 단언이며, 사유의 부재는 뷰를 읽어서는 확인되지만 **그 줄에 없음**은 렌더가 있어야 한다 |
- * | 임박 표식이 실제 데이터에서 갈린다 | `isImminent`는 상시 스위트가 보지만, 경계가 **행마다** 적용되어 한 줄에는 붙고 다른 줄에는 붙지 않는지는 한 문서 안의 대조다 |
+ * | ~~임박 표식이 실제 데이터에서 갈린다~~ → ①의 행에 표식이 없고 날짜 · D-Day가 남는다 *(홈 피드백 컷 K4 · D2)* | 표식을 지운 것은 렌더된 문서에서만 보인다 — 상시 스위트에는 지운 상수의 부재밖에 없다 |
+ * | 절 빈 상태가 한 줄이다 (K4) | 점선 상자의 부재와 h2의 존재는 마크업의 성질이다. 글자는 상시 스위트가 문서와 결속한다(`emptyState.test.ts`) |
  * | v2.0의 `ownerName`이 표시된다 | 범위에 따라 나타나고 사라지는 값이므로 **두 주소의 응답을 비교**해야 한다 |
  * | ⑤가 자료원을 얻었다 | v1.9까지 이 요소는 DOC-008에만 있었다. 합계와 목록의 합이 같은지가 「창이 없다」의 형태다 |
  *
@@ -54,11 +55,11 @@ import { issueDateForFirstRound } from './helpers/dates'
  * `scope = 'MINE'`의 집계는 그 소유자의 전 상품에서 나오므로, 다른 스위트의 상품이
  * 섞이면 「포함되어 있다」까지만 확인할 수 있다. `helpers/users.ts`의 두 전용 사용자는
  * 이 파일이 데이터를 전부 만들므로 **값으로** 단언한다 — 그리고 그 통제가
- * 「임박한 평가일이 없다」를 처음으로 렌더 가능하게 만든다.
+ * ①의 빈 줄(「다가오는 평가일 없음」)을 처음으로 렌더 가능하게 만든다.
  *
  * ## 시각에 의존하는 단언을 만들지 않는다
  *
- * 평가일은 `발행일 + n×주기`이므로 「임박」·「먼 평가일」을 고정 발행일로 만들면 그
+ * 평가일은 `발행일 + n×주기`이므로 「가까운 평가일」·「먼 평가일」을 고정 발행일로 만들면 그
  * 성질이 **오늘이 언제인지에 따라 바뀐다**(컷 7의 「적용 차수는 시각에 의존한다」와
  * 같은 함정). 그래서 발행일을 **기준일에서 거꾸로 계산**하고 앱이 저장에 쓴 함수로
  * 검산한다(`generateEvaluationDates`). 세금도 같은 이유로 비과세 계좌를 쓴다 —
@@ -69,7 +70,7 @@ import { issueDateForFirstRound } from './helpers/dates'
 // 픽스처 — 원금은 손으로 검산할 수 있는 값이다
 // ---------------------------------------------------------------------------
 
-const P_IMMINENT = '20,000,000'
+const P_SOON = '20,000,000'
 const P_FAR = '30,000,000'
 const P_DEFECT = '40,000,000'
 const P_REDEEMED = '50,000,000'
@@ -88,13 +89,13 @@ const LOW_PRICE = '40000000000.000000'
 const SECTIONS = {
   // P6 컷 7-4 — 맨 위. 0건이면 그리지 않으므로 머리의 부재가 곧 0건이다
   redemptionCheck: '상환 확인 필요',
-  upcoming: '임박 평가일',
+  // 홈 피드백 컷 K4 · D2 — 종전 「임박 평가일」
+  upcoming: '다가오는 평가일',
   totals: '총 자산 요약',
   attention: '주의 상태 상품',
   recent: '최근 상환 실적',
 } as const
 
-const EMPTY_UPCOMING = '임박한 평가일이 없다'
 const EMPTY_MINE = '내 상품이 없다'
 const EMPTY_ALL = '등록된 상품이 없다'
 
@@ -173,8 +174,8 @@ describe('SCR-101 홈', () => {
   let past: ReturnType<typeof cookieJar>
   let asOf: string
 
-  /** 임박(비과세) · 먼 평가일 + 기초자산 결함(비과세) · 일정 결함 + KI 하회 · 상환완료 */
-  let imminent: RegisteredProduct
+  /** 가까운 평가일(비과세) · 먼 평가일 + 기초자산 결함(비과세) · 일정 결함 + KI 하회 · 상환완료 */
+  let soon: RegisteredProduct
   let far: RegisteredProduct
   let defect: RegisteredProduct
   /**
@@ -197,12 +198,13 @@ describe('SCR-101 홈', () => {
     asOf = today()
 
     // ── 실행 사용자 ──────────────────────────────────────────────────────
-    // ① 임박 — 첫 평가일이 기준일 + 5~20일. 하한이 3 이상인 이유는 실행 중에
-    //    그 날이 지나가지 않게 하려는 것이다.
-    imminent = await registerProduct(live, {
-      label: '홈임박',
+    // ① 가까운 평가일 — 첫 평가일이 기준일 + 5~20일. 하한이 3 이상인 이유는 실행 중에
+    //    그 날이 지나가지 않게 하려는 것이다. 이름에 「임박」을 넣지 않는다 — 종전 라벨 「홈임박」이
+    //    「임박 표식이 있다」를 상품명으로 초록이 되게 했다(항진명제 · 홈 피드백 컷 K4)
+    soon = await registerProduct(live, {
+      label: '홈가까움',
       issueDate: issueDateForFirstRound(asOf, { min: 5, max: 20 }),
-      principal: P_IMMINENT,
+      principal: P_SOON,
       // 미상환 상품의 과세 기여는 적용 차수의 귀속연도에 달렸다 — 비과세로 두면
       // ③의 단언이 시각에 의존하지 않는다(`accountType` 옵션의 각주).
       accountType: 'TAX_FREE',
@@ -306,7 +308,7 @@ describe('SCR-101 홈', () => {
   it('★ 결함이 KI 하회를 가리지 않는다 — `SCHEDULE_MISSING` + `KI_BELOW`', async () => {
     /*
      * ★ **P3a.5 결정 F의 화면 실측이다.** 일정 0건 상품은 SCR-301에 행이 아예 없고
-     * (§4.4의 루트가 차수다) ①의 임박 목록에서도 빠지므로(다음 평가일이 없다) 그
+     * (§4.4의 루트가 차수다) ①의 다가오는 평가일 목록에서도 빠지므로(다음 평가일이 없다) 그
      * 상품의 KI 하회는 **이 목록에만** 나타난다. 결함으로 가리면 사용자 확인이 필요한
      * 유일한 상태(D-04)가 시스템 어디에서도 보이지 않는다.
      *
@@ -361,45 +363,46 @@ describe('SCR-101 홈', () => {
       visible(await (await get(PATHS.home, live)).text()),
       SECTIONS.attention,
     )
-    // 임박 상품은 워스트오브 120%이고 KI 배리어 50%이므로 안전이고, 상환완료 상품은
+    // 가까운 평가일 상품은 워스트오브 120%이고 KI 배리어 50%이므로 안전이고, 상환완료 상품은
     // E-05로 조치 대상이 아니다(§4.1이 결함만 남기고 나머지를 끊는다).
-    expect(rowsOf(attention, imminent)).toEqual([])
+    expect(rowsOf(attention, soon)).toEqual([])
     expect(rowsOf(attention, redeemed)).toEqual([])
     expect(rowsOf(attention, redeemedOld)).toEqual([])
     expect(attention).toContain('2건')
   })
 
   // -------------------------------------------------------------------------
-  // ① 임박 · 판정 없음
+  // ① 다가오는 평가일 · 판정 없음
   // -------------------------------------------------------------------------
 
-  it('★ 임박 표식이 행마다 갈린다 — 한 문서 안의 대조', async () => {
+  it('★ ①에 「임박」 표식이 없고 행이 날짜 · D-Day를 담는다 — 홈 피드백 컷 K4 · D2', async () => {
     /*
-     * ★ 경계(30일)가 **행마다** 적용되는지는 한 문서 안에서 갈려야 확인된다. 전 행에
-     * 붙는 구현도 하나도 안 붙는 구현도 상시 스위트를 통과하며, 그 둘의 차이가 여기다.
+     * ★ **종전 단언은 아무것도 검증하지 못했다.** 「가까운 행에 임박이 있다」를 `toContain('임박')`으로 봤는데
+     * 상품명이 「…홈임박…」이라 표식을 지워도 초록이었다(항진명제). 표식은 노드 단위로 본다 — `>임박<`.
      *
-     * D-Day 값은 두 행 모두에 있다 — 표식이 값을 **대신하지 않는다**는 것이
-     * `IMMINENT_DAYS`가 근거가 약한 상수임을 감당하는 방식이다.
+     * 지운 근거(DOC-008 SCR-101 「화면이 정한 값」 표): 모든 행이 D-Day를 적으므로 표식이 행마다 같은 말을 했고(피드백 #3),
+     * 계약에 창이 없어 30일 경계는 강조만 정했다. 그래서 확인할 것은 **D-Day가 두 행 모두에 남는다**이다.
      */
     const html = visible(await (await get(PATHS.home, live)).text())
+    // 절 제목이 바뀌었다 — 종전 제목의 h2가 없고 새 제목의 절이 있다
+    expect(html, '종전 절 제목이 남았다').not.toMatch(/<h2[^>]*>임박/)
     const upcoming = sectionOf(html, SECTIONS.upcoming)
-    expect(upcoming, '임박 절을 자르지 못했다').not.toBe('')
+    expect(upcoming, '다가오는 평가일 절을 자르지 못했다').not.toBe('')
 
-    const near = rowOf(upcoming, imminent)
+    const near = rowOf(upcoming, soon)
     const distant = rowOf(upcoming, far)
+    expect(upcoming, '「임박」 표식이 남았다').not.toContain('>임박<')
 
-    const nearDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(imminent) })
+    // 두 행이 실제로 가깝고 멀다 — 같은 D-Day면 아래 D-Day 단언이 서로를 구분하지 못한다
+    const nearDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(soon) })
     const farDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(far) })
-    expect(nearDDay).toBeLessThanOrEqual(IMMINENT_DAYS)
-    expect(farDDay).toBeGreaterThan(IMMINENT_DAYS)
+    expect(nearDDay).toBeLessThan(farDDay)
 
-    expect(near).toContain(IMMINENT_LABEL)
-    expect(distant, '먼 평가일에 임박 표식이 붙었다').not.toContain(IMMINENT_LABEL)
-
-    // 두 행 모두 날짜와 D-Day를 그대로 담는다
-    expect(near).toContain(ymd(firstRoundOf(imminent)))
-    expect(near).toContain(dDayLabel(nearDDay))
-    expect(distant).toContain(dDayLabel(farDDay))
+    // 두 행 모두 날짜와 D-Day를 그대로 담는다 — 노드 단위로 본다(다른 칸의 숫자에 맞지 않게)
+    expect(near).toContain(`>${ymd(firstRoundOf(soon))}<`)
+    expect(near).toContain(`>${dDayLabel(nearDDay)}<`)
+    expect(distant).toContain(`>${ymd(firstRoundOf(far))}<`)
+    expect(distant).toContain(`>${dDayLabel(farDDay)}<`)
   })
 
   it('가까운 것이 먼저다 — 계약이 준 순서를 다시 정하지 않는다', async () => {
@@ -409,7 +412,7 @@ describe('SCR-101 홈', () => {
     )
     // 상품 링크의 자리로 잰다(컷 K1 — 이름으로 재면 이름을 노드로 쪼갤 때 -1이 된다). 앞의 것이 -1이면 「먼저다」가
     // 거짓인 채 초록이므로 있음부터 본다 — 두 줄의 존재를 보는 다른 `it`에 기대지 않는다(실행 순서와 무관하게).
-    const nearAt = upcoming.indexOf(hrefOf(imminent))
+    const nearAt = upcoming.indexOf(hrefOf(soon))
     expect(nearAt, '가까운 평가일의 줄이 없다').toBeGreaterThan(-1)
     expect(nearAt).toBeLessThan(upcoming.indexOf(hrefOf(far)))
     // 두 건뿐이므로 자름이 없다 — 「N건 중 M건」이 아니라 「2건」이다.
@@ -434,12 +437,12 @@ describe('SCR-101 홈', () => {
     expect(distant).not.toContain('예상 충족')
 
     // 반대 방향 — 시세가 있는 행은 판정을 말한다(위 단언이 항진명제가 아니다).
-    const near = rowOf(upcoming, imminent)
+    const near = rowOf(upcoming, soon)
     expect(near).toContain('예상 충족') // 워스트오브 120% ≥ 1차 배리어 90%
-    expect(near).toContain(percent(imminent.worstOfRatio))
+    expect(near).toContain(percent(soon.worstOfRatio))
   })
 
-  it('★ 임박한 평가일이 없으면 그 절에 문구가 남는다 — AQ-34', async () => {
+  it('★ 다가오는 평가일이 없으면 그 절에 한 줄이 남는다 — AQ-34 · 홈 피드백 컷 K4', async () => {
     /*
      * ★ **전용 사용자가 없으면 만들 수 없던 상태다**(AQ-34). 이 사용자의 유일한
      * 상품은 전 차수가 경과했으므로(2년 전 발행 + 6개월 주기 3차수) `upcomingEvaluations`가
@@ -448,7 +451,6 @@ describe('SCR-101 홈', () => {
      */
     const html = visible(await (await get(PATHS.home, past)).text())
 
-    expect(html).toContain(EMPTY_UPCOMING)
     // 화면 전체의 빈 상태가 아니다 — 상품이 있으므로 다른 절이 살아 있다.
     expect(html).not.toContain(EMPTY_MINE)
     expect(hasSection(html, SECTIONS.totals)).toBe(true)
@@ -458,10 +460,26 @@ describe('SCR-101 홈', () => {
      * 평가일 판정은 「만기 평가일 경과」다 — 오늘 등록했어도(등록일 컷 없음 — 만기에는 이월이 없다) 그렇다. [상환 처리]는
      * 만기 차수(3차)를 `?round=3`으로 연다. ④에서는 「평가일 경과」 칩이 사라졌다
      */
-    const check = rowOf(sectionOf(html, SECTIONS.redemptionCheck), overdue)
+    const checks = sectionOf(html, SECTIONS.redemptionCheck)
+    const check = rowOf(checks, overdue)
     expect(check).toContain(EVALUATION_VERDICT_LABELS.MATURITY_REACHED)
     expect(check).toContain(`href="${REDEEM_ROUND.href(overdue.productId, 3)}"`)
     expect(sectionOf(html, SECTIONS.attention)).not.toContain('평가일 경과')
+
+    /*
+     * ★ **① ④ ⑤가 모두 비어 있고 셋 다 한 줄이다** (홈 피드백 컷 K4 · 피드백 #10). 절 제목(h2)은 남는다 — 「없다」도
+     * 그 물음의 답이다. 점선 상자의 부재는 문서 전체로 본다: 상품이 있는 홈에서 그 클래스를 쓰던 곳은 이 셋뿐이었다.
+     *
+     * ①의 뒷절은 ⑥에 항목이 있을 때만 붙는다(DOC-008 SQ-28) — 이 사용자의 ⑥은 위에서 본 한 건이다. ⑥이 빈 갈래는
+     * 여기서 렌더되지 않는다(그 상태의 사용자가 없다) — 상시 스위트가 함수의 두 갈래를 본다(`emptyState.test.ts`).
+     */
+    expect(rowsOf(checks, overdue), '⑥이 한 건이 아니다 — 아래 뒷절의 전제').toHaveLength(1)
+    const upcoming = sectionOf(html, SECTIONS.upcoming)
+    expect(upcoming, '다가오는 평가일 절(h2)이 사라졌다').not.toBe('')
+    expect(upcoming).toContain(`>${missingUpcomingNote('HOME', 1)}<`)
+    expect(sectionOf(html, SECTIONS.attention)).toContain(`>${SECTION_EMPTY.attention}<`)
+    expect(sectionOf(html, SECTIONS.recent)).toContain(`>${SECTION_EMPTY.recent}<`)
+    expect(html, '절 빈 상태에 점선 상자가 남았다').not.toContain('border-dashed')
   })
 
   // -------------------------------------------------------------------------
@@ -474,7 +492,7 @@ describe('SCR-101 홈', () => {
       SECTIONS.totals,
     )
 
-    // 보유중 셋(임박·먼 평가일·결함). 상환완료 둘은 세지 않는다.
+    // 보유중 셋(가까운 평가일·먼 평가일·결함). 상환완료 둘은 세지 않는다.
     expect(totals).toContain('3건')
     // 20,000,000 + 30,000,000 + 40,000,000
     expect(totals).toContain(amount('90000000'))
@@ -485,7 +503,7 @@ describe('SCR-101 홈', () => {
 
   it('★ ③의 금융소득이 상환 확정값 하나다 — 비과세 상품은 기여하지 않는다', async () => {
     /*
-     * ★ 임박·먼 평가일 상품은 비과세 계좌이므로 확정값이 있어도 과세소득이 0이고
+     * ★ 가까운 평가일·먼 평가일 상품은 비과세 계좌이므로 확정값이 있어도 과세소득이 0이고
      * (DOC-007 §4.2), 일정 0건 상품은 적용 차수가 없어 기여하지 않으며(결함이라서가
      * 아니다 — §4.2 입력 기준), 상환완료 상품만 남는다. 그래서 이 값이 정확히 하나의
      * 확정값이며 **시각에 의존하지 않는다.**
@@ -586,7 +604,7 @@ describe('SCR-101 홈', () => {
   it('본인 보기가 남의 상품을 담지 않는다', async () => {
     const mine = visible(await (await get(PATHS.home, past)).text())
     expect(rowsOf(mine, defect)).toEqual([])
-    expect(rowsOf(mine, imminent)).toEqual([])
+    expect(rowsOf(mine, soon)).toEqual([])
 
     const all = visible(
       await (await get(`${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL`, past)).text(),
@@ -628,7 +646,8 @@ describe('SCR-101 홈', () => {
     ).text()
 
     expect(html).toContain('지난 평가일')
-    expect(html).toContain('다가오는 평가일이 없다')
+    // 홈 ①의 빈 줄과 한 함수다(홈 피드백 컷 K4). 이 화면은 ⑥의 건수를 모르므로 뒷절이 조건문이다(DOC-008 SQ-28)
+    expect(html).toContain(`>${missingUpcomingNote('SCHEDULE')}<`)
     // 빈 상태 둘 중 어느 것도 아니다 — 목록이 비지 않았다(지난 차수가 셋 있다).
     expect(html).not.toContain('조건에 맞는 평가일이 없다')
     expect(html).not.toContain('등록된 평가일정이 없다')
@@ -640,7 +659,7 @@ describe('SCR-101 홈', () => {
      * 두면 사용자가 보기를 바꿀 때 **상태가 바뀐 것으로 읽는다.**
      */
     const byProduct = await (await get(`${PATHS.schedule}?${query}`, past)).text()
-    expect(byProduct).toContain('다가오는 평가일이 없다')
+    expect(byProduct).toContain(`>${missingUpcomingNote('SCHEDULE')}<`)
     expect(byProduct).not.toContain('조건에 맞는 평가일이 없다')
   })
 

@@ -8,22 +8,19 @@ import type { AttentionReason } from '@/lib/db/queries/map'
 import {
   ATTENTION_REASON_GRADES,
   ATTENTION_REASON_LABELS,
-  IMMINENT_DAYS,
-  IMMINENT_LABEL,
   RECENT_VISIBLE,
   UPCOMING_VISIBLE,
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,
-  isImminent,
   takeVisible,
 } from '@/lib/format'
 
 /**
  * 홈의 표시 구조 — SCR-101 (P4 컷 9)
  *
- * `lib/format/dashboard.ts`가 담은 것은 **계약이 화면에 넘긴 판단**이다(임박의 경계,
- * 표시 건수, 조치 목록의 접기). 화면 안에 두면 어떤 스위트도 보지 못하므로(AQ-23)
+ * `lib/format/dashboard.ts`가 담은 것은 **계약이 화면에 넘긴 판단**이다(표시 건수, 조치
+ * 목록의 접기 — ~~임박의 경계~~는 없앴다, 홈 피드백 컷 K4 · D2). 화면 안에 두면 어떤 스위트도 보지 못하므로(AQ-23)
  * 순수 함수로 떼었고 여기가 그 관측 지점이다.
  *
  * ## 요소 ↔ 뷰 필드 대조가 이 파일의 핵심이다
@@ -98,41 +95,6 @@ describe('DOC-008 §5 주요 요소 ↔ `DashboardView`', () => {
   it('파서가 요소를 찾았다', () => {
     // 0건을 찾고 조용히 통과하는 것이 이 부류 파서의 유일한 위험이다.
     expect(mainElements().length).toBe(6)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// 임박 — DOC-008 §5의 「화면이 정한 값 셋」
-// ---------------------------------------------------------------------------
-
-describe('임박 판정', () => {
-  it('경계가 30일이고 포함이다', () => {
-    expect(IMMINENT_DAYS).toBe(30)
-    expect(isImminent(IMMINENT_DAYS)).toBe(true)
-    expect(isImminent(IMMINENT_DAYS + 1)).toBe(false)
-  })
-
-  it('당일은 임박이다', () => {
-    // `dDay = 0`은 「오늘 평가된다」이며 가장 임박한 상태다. 경계 판정이 `> 0`이면
-    // 그 하루가 빠지는데, 그것이 사용자가 가장 알아야 하는 날이다.
-    expect(isImminent(0)).toBe(true)
-  })
-
-  it('경과한 차수는 임박이 아니다', () => {
-    /*
-     * `upcomingEvaluations`는 이미 미래 차수만 담으므로(§4.1) 이 하한은 방어다 —
-     * 계약이 그 성질을 잃는 날 「경과했는데 임박」이라는 표시가 나오지 않게 한다.
-     * 절댓값을 쓰는 구현(`Math.abs(dDay) <= 30`)이 정확히 그 표시를 만든다.
-     */
-    expect(isImminent(-1)).toBe(false)
-    expect(isImminent(-30)).toBe(false)
-  })
-
-  it('표식이 D-Day를 대신하지 않는다 — 라벨이 값을 담지 않는다', () => {
-    // 근거는 `IMMINENT_DAYS`의 각주다: 경계가 틀려도 정보가 사라지지 않아야 하므로
-    // 표식은 덧붙는 말이어야 하고, 숫자를 담으면 그것이 곧 두 번째 D-Day 표기가 된다.
-    expect(IMMINENT_LABEL).toBe('임박')
-    expect(IMMINENT_LABEL).not.toMatch(/\d/)
   })
 })
 

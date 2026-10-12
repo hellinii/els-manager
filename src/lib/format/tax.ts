@@ -5,7 +5,7 @@
  *
  * `app/(app)/tax/page.tsx`는 `server.ts`를 끌어오므로 어떤 스위트의 import 그래프에도
  * 들어갈 수 없다(DOC-010 AQ-23). 고를 수 있는 연도는 **값의 계산**이므로 순수 함수로
- * 떼면 상시 스위트가 본다 — `lib/format/dashboard.ts`(임박·표시 건수)와
+ * 떼면 상시 스위트가 본다 — `lib/format/dashboard.ts`(표시 건수·조치 접기)와
  * `lib/format/schedule.ts`(월 그룹·구획)를 뗀 것과 같은 자리다.
  *
  * **기준일 연도를 인자로 받는다.** `lib/db/today`를 끌어오면 표시 계층이 조회 계층에

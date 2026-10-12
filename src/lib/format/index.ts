@@ -126,15 +126,13 @@ export {
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,
-  isImminent,
   takeVisible,
-  IMMINENT_DAYS,
-  IMMINENT_LABEL,
   RECENT_VISIBLE,
   UPCOMING_VISIBLE,
   type AttentionGroup,
   type Visible,
 } from './dashboard'
+export { missingUpcomingNote, SECTION_EMPTY } from './emptyState'
 export {
   EVALUATION_VERDICT_FRESH_DAYS,
   evaluationVerdictSentence,

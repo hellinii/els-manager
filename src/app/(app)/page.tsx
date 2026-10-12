@@ -28,8 +28,8 @@ import { PATHS } from '@/lib/routes/paths'
  * ## 계약이 넘긴 판단은 전부 `lib/format/dashboard.ts`에 있다
  *
  * §4.1은 기간 창을 두지 않는다 — 창을 계약에 박으면 창 밖의 상품이 화면에서 사라지고
- * 그 상수는 어느 문서에도 근거가 없다. 그래서 「임박」의 경계(30일)와 표시 건수(5·3)와
- * 조치 목록의 접기는 화면의 것이고, **순수 모듈에 두어 상시 스위트가 본다**(AQ-23 —
+ * 그 상수는 어느 문서에도 근거가 없다. 그래서 표시 건수(5·3)와 조치 목록의 접기는
+ * 화면의 것이고(~~「임박」의 경계(30일)~~는 없앴다 — 홈 피드백 컷 K4 · D2), **순수 모듈에 두어 상시 스위트가 본다**(AQ-23 —
  * 이 파일은 `server.ts`를 끌어오므로 어떤 스위트의 import 그래프에도 들어갈 수 없다).
  *
  * ## 한 화면에 주어가 둘이다
@@ -107,7 +107,11 @@ export default async function HomePage({
             그리지 않는다. 그 아래 세 물음의 순서 — ① 평가일 ③ 종합과세 ④ 조치
           */}
           <RedemptionCheckSection items={view.redemptionChecks} scope={scope} />
-          <UpcomingSection items={view.upcomingEvaluations} scope={scope} />
+          <UpcomingSection
+            items={view.upcomingEvaluations}
+            scope={scope}
+            redemptionCheckCount={view.redemptionChecks.length}
+          />
           <TotalsSection totals={view.totals} scope={scope} />
           <YearTaxSection tax={view.currentYearTax} />
           <AttentionSection items={view.attentionItems} scope={scope} />
@@ -143,7 +147,7 @@ function HomeEmpty({ scope }: { scope: 'MINE' | 'ALL' }) {
   return (
     <EmptyState
       title="등록된 상품이 없다"
-      description="ELS를 등록하면 임박 평가일·조치 목록·올해 금융소득이 여기에 모인다."
+      description="ELS를 등록하면 다가오는 평가일·조치 목록·올해 금융소득이 여기에 모인다."
       action={{ label: '+ 등록', href: PATHS.productNew }}
     />
   )

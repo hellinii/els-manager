@@ -14,6 +14,7 @@ import {
   groupByMonth,
   korDate,
   mergeTimeline,
+  missingUpcomingNote,
   productsWithoutRounds,
   splitByPast,
   type MonthGroup,
@@ -154,11 +155,11 @@ export default async function SchedulePage({
    * 시간순은 「다가오는 평가일」 절의 자리, 상품별은 카드 목록 위다. 문구도 게이트도
    * 같으므로 여기서 한 번 정한다. `null`이면 그 상태가 아니거나 사용자가 미래를
    * 빼기로 한 것이다(그때 「없다」고 말하면 필터가 결함으로 읽힌다).
+   *
+   * 글자는 홈 ①의 빈 줄과 한 함수다(홈 피드백 컷 K4). 이 화면은 ⑥의 건수를 모르므로 뒷절이 조건문이다(DOC-008 SQ-28).
    */
   const missingUpcoming =
-    upcoming.length === 0 && filter.range !== 'PAST'
-      ? '다가오는 평가일이 없다. 경과한 차수의 상환은 홈의 「상환 확인 필요」가 묻는다.'
-      : null
+    upcoming.length === 0 && filter.range !== 'PAST' ? missingUpcomingNote('SCHEDULE') : null
 
   return (
     <section className="flex flex-col gap-5">
