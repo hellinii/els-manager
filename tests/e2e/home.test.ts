@@ -121,16 +121,32 @@ function hasSection(html: string, title: string): boolean {
   return sectionOf(html, title) !== ''
 }
 
-/** 그 상품의 줄만 모아 온다 */
-function rowsOf(html: string, productName: string): string[] {
-  return [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)]
-    .map((m) => m[0])
-    .filter((row) => row.includes(productName))
+/**
+ * 그 상품의 상세 링크 속성 — 줄 고르기와 순서 단언의 열쇠다.
+ *
+ * 닫는 따옴표까지 넣는다: ⑥의 `href="/products/{id}/redeem?round=k"`와 겹치지 않는다(앞부분이 같다).
+ */
+function hrefOf(product: Pick<RegisteredProduct, 'productId'>): string {
+  return `href="${PATHS.product(product.productId)}"`
 }
 
-function rowOf(html: string, productName: string): string {
-  const rows = rowsOf(html, productName)
-  expect(rows, `${productName}의 줄이 없다`).toHaveLength(1)
+/**
+ * 그 상품의 줄만 모아 온다 — ~~상품명이 들어 있는 줄~~ → **상품 링크가 있는 줄** *(홈 피드백 컷 K1)*.
+ *
+ * 이름으로 고르면 이름을 노드로 쪼개는 순간(회차 강조 — 컷 K5) 줄을 잃는다. 그때 양성 단언은 빨강이 되지만 `toEqual([])` ·
+ * `toBe('')` 꼴의 음성 단언은 **헛돌며 초록으로 남는다**(실측 — 컷 K1 커밋 본문). 링크는 ①④⑤⑥과 SCR-301 시간순의 어느
+ * 줄에나 정확히 하나다(`coupons.test.ts`의 `timeRowsOf` 선례).
+ */
+function rowsOf(html: string, product: Pick<RegisteredProduct, 'productId'>): string[] {
+  const href = hrefOf(product)
+  return [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)]
+    .map((m) => m[0])
+    .filter((row) => row.includes(href))
+}
+
+function rowOf(html: string, product: RegisteredProduct): string {
+  const rows = rowsOf(html, product)
+  expect(rows, `${product.productName}의 줄이 없다`).toHaveLength(1)
   return rows[0]!
 }
 
@@ -302,7 +318,7 @@ describe('SCR-101 홈', () => {
     const attention = sectionOf(html, SECTIONS.attention)
     expect(attention, '조치 절을 자르지 못했다').not.toBe('')
 
-    const row = rowOf(attention, defect.productName)
+    const row = rowOf(attention, defect)
     const schedule = ATTENTION_REASON_LABELS.SCHEDULE_MISSING
     const kiBelow = ATTENTION_REASON_LABELS.KI_BELOW
 
@@ -317,7 +333,7 @@ describe('SCR-101 홈', () => {
   it('★ 한 상품이 한 줄이다 — 사유가 둘이어도', async () => {
     // 접지 않으면 이 상품이 목록에 두 번 나타나고 사용자는 두 상품으로 읽는다.
     const html = visible(await (await get(PATHS.home, live)).text())
-    expect(rowsOf(sectionOf(html, SECTIONS.attention), defect.productName)).toHaveLength(1)
+    expect(rowsOf(sectionOf(html, SECTIONS.attention), defect)).toHaveLength(1)
   })
 
   it('★ `PRICE_MISSING`을 결함에서 내지 않는다 — 오지 않을 시세를 기다리게 하지 않는다', async () => {
@@ -331,7 +347,7 @@ describe('SCR-101 홈', () => {
      * 있는 문구이고(진짜 E-01), 문서 전체에 대한 음성 단언은 그때 잘못된 이유로 깨진다.
      */
     const html = visible(await (await get(PATHS.home, live)).text())
-    const row = rowOf(sectionOf(html, SECTIONS.attention), far.productName)
+    const row = rowOf(sectionOf(html, SECTIONS.attention), far)
 
     expect(row).toContain(ATTENTION_REASON_LABELS.UNDERLYING_MISSING)
     expect(row, '결함 상품에 시세 없음이 붙었다').not.toContain(PRICE_MISSING_LABEL)
@@ -347,9 +363,9 @@ describe('SCR-101 홈', () => {
     )
     // 임박 상품은 워스트오브 120%이고 KI 배리어 50%이므로 안전이고, 상환완료 상품은
     // E-05로 조치 대상이 아니다(§4.1이 결함만 남기고 나머지를 끊는다).
-    expect(rowsOf(attention, imminent.productName)).toEqual([])
-    expect(rowsOf(attention, redeemed.productName)).toEqual([])
-    expect(rowsOf(attention, redeemedOld.productName)).toEqual([])
+    expect(rowsOf(attention, imminent)).toEqual([])
+    expect(rowsOf(attention, redeemed)).toEqual([])
+    expect(rowsOf(attention, redeemedOld)).toEqual([])
     expect(attention).toContain('2건')
   })
 
@@ -369,8 +385,8 @@ describe('SCR-101 홈', () => {
     const upcoming = sectionOf(html, SECTIONS.upcoming)
     expect(upcoming, '임박 절을 자르지 못했다').not.toBe('')
 
-    const near = rowOf(upcoming, imminent.productName)
-    const distant = rowOf(upcoming, far.productName)
+    const near = rowOf(upcoming, imminent)
+    const distant = rowOf(upcoming, far)
 
     const nearDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(imminent) })
     const farDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(far) })
@@ -391,9 +407,11 @@ describe('SCR-101 홈', () => {
       visible(await (await get(PATHS.home, live)).text()),
       SECTIONS.upcoming,
     )
-    expect(upcoming.indexOf(imminent.productName)).toBeLessThan(
-      upcoming.indexOf(far.productName),
-    )
+    // 상품 링크의 자리로 잰다(컷 K1 — 이름으로 재면 이름을 노드로 쪼갤 때 -1이 된다). 앞의 것이 -1이면 「먼저다」가
+    // 거짓인 채 초록이므로 있음부터 본다 — 두 줄의 존재를 보는 다른 `it`에 기대지 않는다(실행 순서와 무관하게).
+    const nearAt = upcoming.indexOf(hrefOf(imminent))
+    expect(nearAt, '가까운 평가일의 줄이 없다').toBeGreaterThan(-1)
+    expect(nearAt).toBeLessThan(upcoming.indexOf(hrefOf(far)))
     // 두 건뿐이므로 자름이 없다 — 「N건 중 M건」이 아니라 「2건」이다.
     expect(upcoming).toContain('2건')
     expect(upcoming).not.toContain('중 ')
@@ -409,14 +427,14 @@ describe('SCR-101 홈', () => {
       visible(await (await get(PATHS.home, live)).text()),
       SECTIONS.upcoming,
     )
-    const distant = rowOf(upcoming, far.productName)
+    const distant = rowOf(upcoming, far)
 
     expect(distant).toContain('판정 없음')
     expect(distant).not.toContain('예상 미충족')
     expect(distant).not.toContain('예상 충족')
 
     // 반대 방향 — 시세가 있는 행은 판정을 말한다(위 단언이 항진명제가 아니다).
-    const near = rowOf(upcoming, imminent.productName)
+    const near = rowOf(upcoming, imminent)
     expect(near).toContain('예상 충족') // 워스트오브 120% ≥ 1차 배리어 90%
     expect(near).toContain(percent(imminent.worstOfRatio))
   })
@@ -440,7 +458,7 @@ describe('SCR-101 홈', () => {
      * 평가일 판정은 「만기 평가일 경과」다 — 오늘 등록했어도(등록일 컷 없음 — 만기에는 이월이 없다) 그렇다. [상환 처리]는
      * 만기 차수(3차)를 `?round=3`으로 연다. ④에서는 「평가일 경과」 칩이 사라졌다
      */
-    const check = rowOf(sectionOf(html, SECTIONS.redemptionCheck), overdue.productName)
+    const check = rowOf(sectionOf(html, SECTIONS.redemptionCheck), overdue)
     expect(check).toContain(EVALUATION_VERDICT_LABELS.MATURITY_REACHED)
     expect(check).toContain(`href="${REDEEM_ROUND.href(overdue.productId, 3)}"`)
     expect(sectionOf(html, SECTIONS.attention)).not.toContain('평가일 경과')
@@ -496,16 +514,18 @@ describe('SCR-101 홈', () => {
     const recent = sectionOf(html, SECTIONS.recent)
     expect(recent, '상환 실적 절을 자르지 못했다').not.toBe('')
 
-    const row = rowOf(recent, redeemed.productName)
+    const row = rowOf(recent, redeemed)
     expect(row).toContain(REDEMPTION_TYPE_LABELS.MATURITY_GAIN)
     expect(row).toContain(amount(GROSS.replace(/,/g, '')))
     expect(row).toContain(signedWon('4000000'))
-    expect(row).toContain(`href="${PATHS.product(redeemed.productId)}"`)
+    // ~~상세 링크가 있다~~ → 줄을 그 링크로 골랐으므로(컷 K1) 링크는 위 `rowOf`가 이미 단언한다 — 남기면 항진명제다.
+    // 대신 반대 방향을 본다 — 이름으로 고를 때는 고르기 자체가 보장하던 「그 줄에 상품명이 보인다」(회차가 없는 이름이라 한 노드다)
+    expect(row, '⑤ 줄에 상품명이 없다').toContain(`>${redeemed.productName}<`)
     // 확정값으로 저장했으므로 「미확인」이 없다(ST-05의 반대 방향)
     expect(row).not.toContain('미확인')
 
     // 둘째 상환도 자기 값을 낸다 — 두 줄이 같은 값을 렌더하지 않는다
-    const older = rowOf(recent, redeemedOld.productName)
+    const older = rowOf(recent, redeemedOld)
     expect(older).toContain(signedWon('1000000'))
     expect(recent).toContain('2건')
 
@@ -528,10 +548,10 @@ describe('SCR-101 홈', () => {
       visible(await (await get(PATHS.home, live)).text()),
       SECTIONS.recent,
     )
-    // 3월 상환이 1월 상환보다 위에 있다
-    expect(recent.indexOf(redeemed.productName)).toBeLessThan(
-      recent.indexOf(redeemedOld.productName),
-    )
+    // 3월 상환이 1월 상환보다 위에 있다 — 상품 링크의 자리로 잰다(위 「가까운 것이 먼저다」와 같은 이유로 있음부터)
+    const newerAt = recent.indexOf(hrefOf(redeemed))
+    expect(newerAt, '3월 상환의 줄이 없다').toBeGreaterThan(-1)
+    expect(newerAt).toBeLessThan(recent.indexOf(hrefOf(redeemedOld)))
     expect(recent).toContain(ymd(`${asOf.slice(0, 4)}-03-02`))
     expect(recent).toContain(ymd(`${asOf.slice(0, 4)}-01-15`))
   })
@@ -555,23 +575,23 @@ describe('SCR-101 홈', () => {
     const all = visible(
       await (await get(`${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL`, past)).text(),
     )
-    const allRow = rowOf(sectionOf(all, SECTIONS.attention), defect.productName)
+    const allRow = rowOf(sectionOf(all, SECTIONS.attention), defect)
     expect(allRow, '전체 보기에 소유자가 없다').toContain(liveName)
 
     const mine = visible(await (await get(PATHS.home, live)).text())
-    const mineRow = rowOf(sectionOf(mine, SECTIONS.attention), defect.productName)
+    const mineRow = rowOf(sectionOf(mine, SECTIONS.attention), defect)
     expect(mineRow, '본인 보기에 소유자가 붙었다').not.toContain(liveName)
   })
 
   it('본인 보기가 남의 상품을 담지 않는다', async () => {
     const mine = visible(await (await get(PATHS.home, past)).text())
-    expect(rowsOf(mine, defect.productName)).toEqual([])
-    expect(rowsOf(mine, imminent.productName)).toEqual([])
+    expect(rowsOf(mine, defect)).toEqual([])
+    expect(rowsOf(mine, imminent)).toEqual([])
 
     const all = visible(
       await (await get(`${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL`, past)).text(),
     )
-    expect(rowsOf(sectionOf(all, SECTIONS.attention), defect.productName)).toHaveLength(1)
+    expect(rowsOf(sectionOf(all, SECTIONS.attention), defect)).toHaveLength(1)
   })
 
   it('조작된 범위가 오류가 되지 않고 본인 보기로 떨어진다', async () => {
@@ -581,7 +601,7 @@ describe('SCR-101 홈', () => {
     // 인식하지 못한 값은 버린다 — 그 결과가 기본값이고, 화면의 전환도 그 상태다.
     const nav = /<nav[^>]*aria-label="표시 범위"[\s\S]*?<\/nav>/.exec(html)?.[0]
     expect(nav).toMatch(/aria-current="true"[^>]*>내 상품/)
-    expect(rowsOf(html, defect.productName)).toHaveLength(1)
+    expect(rowsOf(html, defect)).toHaveLength(1)
   })
 
   // -------------------------------------------------------------------------
@@ -612,7 +632,7 @@ describe('SCR-101 홈', () => {
     // 빈 상태 둘 중 어느 것도 아니다 — 목록이 비지 않았다(지난 차수가 셋 있다).
     expect(html).not.toContain('조건에 맞는 평가일이 없다')
     expect(html).not.toContain('등록된 평가일정이 없다')
-    expect(rowsOf(html, overdue.productName)).toHaveLength(overdue.barriers.length)
+    expect(rowsOf(html, overdue)).toHaveLength(overdue.barriers.length)
 
     /*
      * ★ **문구가 보기마다 갈리지 않는다** (DOC-008 §6). 자리만 다르다 — 시간순은

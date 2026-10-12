@@ -35,8 +35,8 @@ import { DISPLAY_NAME } from './helpers/users'
  * 대상이 아니므로(D3) **SQL로 등록일을 발행일로 소급한다** — `defects.ts`의 「계약으로는 도달 불가」 선례와 같은 부류다.
  * 평가일 종가는 **화면으로 넣는다**(SCR-302 — V-17이 그대로 걸린다).
  *
- * 소유자는 통합 사용자 A(이 스위트의 기본 사용자), 남의 보기는 B다. 단언은 **상품명으로 행을 고른다** — 다른 파일이 A에
- * 만든 상품이 ⑥에 함께 있어도 섞이지 않는다.
+ * 소유자는 통합 사용자 A(이 스위트의 기본 사용자), 남의 보기는 B다. 단언은 ~~상품명으로~~ → **상품 링크(`href="/products/{id}"`)로**
+ * 행을 고른다 *(홈 피드백 컷 K1 — 회차 강조가 이름을 노드로 쪼갠다)* — 다른 파일이 A에 만든 상품이 ⑥에 함께 있어도 섞이지 않는다.
  */
 
 const P_PRINCIPAL = '100,000,000'
@@ -58,9 +58,16 @@ function sectionOf(html: string, title: string): string {
   return next < 0 ? html.slice(at) : html.slice(at, next)
 }
 
-/** 그 상품의 줄 — 없으면 빈 문자열 */
-function rowIn(html: string, productName: string): string {
-  return [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)].map((m) => m[0]).find((row) => row.includes(productName)) ?? ''
+/**
+ * 그 상품의 줄 — 없으면 빈 문자열. ~~상품명이 들어 있는 줄~~ → **상품 링크가 있는 줄** *(홈 피드백 컷 K1 — `home.test.ts`의
+ * `rowsOf`와 같은 열쇠)*. 닫는 따옴표까지 넣으므로 같은 줄의 `href="/products/{id}/redeem?round=k"`와 겹치지 않는다.
+ *
+ * `find ?? ''`를 유지한다 — 「이월이면 어디에도 없다」와 ⑤ 「저장하면 ⑥에서 사라진다」가 빈 문자열을 단언한다. 없음을
+ * 실패로 바꾸면(`toHaveLength(1)` 꼴) 그 둘이 성립하지 않는다.
+ */
+function rowIn(html: string, product: Pick<RegisteredProduct, 'productId'>): string {
+  const href = `href="${PATHS.product(product.productId)}"`
+  return [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)].map((m) => m[0]).find((row) => row.includes(href)) ?? ''
 }
 
 const CHECK = '상환 확인 필요'
@@ -113,7 +120,7 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
 
   it('① 평가일 종가가 없으면 ⑥에 「평가일 종가 없음 — 직접 확인」 · 시세 입력 · [상환 처리](?round=1)', async () => {
     const home = await homeOf(a)
-    const row = rowIn(sectionOf(home, CHECK), met.productName)
+    const row = rowIn(sectionOf(home, CHECK), met)
     expect(row, '⑥에 그 상품의 줄이 없다').not.toBe('')
     expect(row).toContain(EVALUATION_VERDICT_LABELS.CLOSE_MISSING)
     expect(row).toContain(`1차 · ${firstRound}`)
@@ -145,13 +152,13 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
 
   it('★ 이월이면 어디에도 없다 — ⑥에도 ④에도(D2 · 「평가일 경과」 칩은 사라졌다)', async () => {
     const home = await homeOf(a)
-    expect(rowIn(sectionOf(home, CHECK), carry.productName)).toBe('')
+    expect(rowIn(sectionOf(home, CHECK), carry)).toBe('')
     expect(sectionOf(home, '주의 상태 상품')).not.toContain('평가일 경과')
   })
 
   it('② SCR-302에서 그날 종가를 넣으면 「조기상환 조건 충족」으로 바뀐다 — 평가일 W 대 배리어', async () => {
     await saveAssetPrice(a, met.assetId, CLOSE_MET, firstRound)
-    const row = rowIn(sectionOf(await homeOf(a), CHECK), met.productName)
+    const row = rowIn(sectionOf(await homeOf(a), CHECK), met)
     expect(row).toContain(EVALUATION_VERDICT_LABELS.EARLY)
     expect(row).toContain('평가일 워스트오브 100% · 배리어 90%')
     // 종가가 생겼으므로 「시세 입력」은 없다
@@ -159,7 +166,7 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
   })
 
   it('③ 남의 전체 보기에는 행이 있고 [상환 처리]가 없다 — 이름과 사실만(ST-04 · D1)', async () => {
-    const row = rowIn(sectionOf(await homeOf(b, 'ALL'), CHECK), met.productName)
+    const row = rowIn(sectionOf(await homeOf(b, 'ALL'), CHECK), met)
     expect(row).toContain(EVALUATION_VERDICT_LABELS.EARLY)
     expect(row).toContain(DISPLAY_NAME[ITG_USER_A])
     expect(row).not.toContain('/redeem?round=')
@@ -192,7 +199,7 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
     expect([302, 303]).toContain(saved.status)
 
     const home = await homeOf(a)
-    expect(rowIn(sectionOf(home, CHECK), met.productName), '기록했는데 ⑥에 남았다').toBe('')
+    expect(rowIn(sectionOf(home, CHECK), met), '기록했는데 ⑥에 남았다').toBe('')
     /*
      * 기록의 관측은 **상세**에서 한다 — 홈 ⑤ 「최근 상환 실적」은 세 건만 보이므로(`RECENT_VISIBLE`) 같은 사용자 A에 다른
      * e2e 파일이 더 최근 날짜의 상환을 만들면 이 상품이 잘려 나간다(반박 검토 — 실행 순서 · 날짜에 의존하는 단언이었다)
