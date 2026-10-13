@@ -465,6 +465,21 @@ describe('§4.1 getDashboard', () => {
     expect(typeof view.currentYearTax.isComprehensive).toBe('boolean')
   })
 
+  it('currentYearTax.isProfileSaved = §4.6 profile.isSaved — 같은 판정 (v4.43 · 홈 피드백 컷 K9)', async () => {
+    /*
+     * 정본 시나리오는 과세 프로필을 세우지 않는다 — 위 §4.6 「프로필이 없으면 폴백한다」의 `isSaved=false`와 같은 상태다.
+     * 두 계약이 그 해 한 행을 같은 로더(`loadTaxProfile`)로 읽으므로 값이 갈리면 둘 중 하나가 다른 행을 본 것이다.
+     * 참 값은 `rls.test.ts`(A는 그 해 행이 있다), 이월 없음은 `formats.test.ts`(A는 작년 행만 있다)가 본다
+     */
+    const [home, tax] = await Promise.all([
+      s.asA.getDashboard({ scope: 'MINE' }),
+      s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
+    ])
+
+    expect(home.currentYearTax.isProfileSaved).toBe(false)
+    expect(home.currentYearTax.isProfileSaved).toBe(tax.profile.isSaved)
+  })
+
   it('attentionItems가 소유자를 담는다 — v2.0 `ownerName`', async () => {
     /*
      * ★ 이 목록의 사유는 저마다 조치를 지목하고 **그 조치는 소유자만 할 수 있다**

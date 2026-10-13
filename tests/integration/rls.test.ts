@@ -141,6 +141,22 @@ describe('조회 계약이 세션을 실제로 쓴다', () => {
     expect(view.profile.otherFinancialIncome).toBe('0')
     expect(view.profile.isSaved).toBe(false)
   })
+
+  it('홈의 프로필 저장 여부도 조회자 것이다 — A는 참 · B는 거짓, 범위와 무관 (DOC-011 §4.1 v4.43 · 홈 피드백 컷 K9)', async () => {
+    /*
+     * 참 값이 관측되는 유일한 자리다 — 다른 파일의 픽스처는 그 해 행을 세우지 않는다. B가 `ALL`로 A의 상품까지 보아도
+     * 세금은 본인 것이므로(D-02) A의 행이 B의 「저장됨」으로 새지 않아야 한다(`tax_profiles` SELECT 정책이 그 둘째 방어다)
+     */
+    const [aMine, aAll, bMine, bAll] = await Promise.all([
+      s.asA.getDashboard({ scope: 'MINE' }),
+      s.asA.getDashboard({ scope: 'ALL' }),
+      s.asB.getDashboard({ scope: 'MINE' }),
+      s.asB.getDashboard({ scope: 'ALL' }),
+    ])
+
+    expect([aMine, aAll].map((view) => view.currentYearTax.isProfileSaved)).toEqual([true, true])
+    expect([bMine, bAll].map((view) => view.currentYearTax.isProfileSaved)).toEqual([false, false])
+  })
 })
 
 describe('기준일이 컨텍스트에서 온다', () => {

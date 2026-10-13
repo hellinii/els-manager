@@ -122,6 +122,9 @@ const DASHBOARD: Record<string, Spec> = {
   'currentYearTax.convertedCount': 'NUMBER',
   // P8 컷 b4 (v4.29) — 추정 월수익 가정의 조건. 이 파일엔 월지급이 없어 늘 false다(값 단언은 coupon-views)
   'currentYearTax.monthlyCouponAssumption': 'BOOL',
+  // v4.43 (홈 피드백 컷 K9) — 그 해 본인 과세 프로필 행이 있는가. 이 파일의 A는 YEAR - 1 행만 있어 늘 false다(이월 없음 —
+  // 아래 「과세 프로필 저장 여부」). 참 값은 `rls.test.ts`가 본다(A는 그 해 행이 있다)
+  'currentYearTax.isProfileSaved': 'BOOL',
   ...basisSpec('currentYearTax.exchangeRateBasis'),
   'attentionItems[].productId': 'UUID',
   'attentionItems[].productName': 'TEXT',
@@ -887,6 +890,28 @@ describe('달러 픽스처의 값 — E-09가 뷰까지 온다 (P8 컷 a2 · 검
       currency: 'USD',
       activePrincipal: '20000.25',
     })
+  })
+})
+
+describe('과세 프로필 저장 여부 — 이월 없음 (DOC-011 §4.1 v4.43 · 홈 피드백 컷 K9)', () => {
+  /*
+   * 이 파일의 A는 `YEAR - 1` 프로필만 있다(위 픽스처 ★). §4.7은 그 행을 올해로 **이월**하지만(`profileYear = YEAR - 1`)
+   * §4.1 `isProfileSaved`는 그 해 행만 본다 — 같은 실행에서 두 계약이 갈리는 것이 요점이다. 전망 쪽 전제를 함께
+   * 단언하는 이유: 픽스처가 사라지면(행 0) 이월하는 구현도 거짓을 내므로, 이월이 실재하는 상태에서만 이 단언이 판별한다
+   */
+  it('작년 행만 있으면 거짓 — 같은 실행의 전망은 그 행을 이월한다 · §4.6과 같은 판정 · 범위와 무관', async () => {
+    const [mine, all, forecast, tax] = await Promise.all([
+      s.asA.getDashboard({ scope: 'MINE' }),
+      s.asA.getDashboard({ scope: 'ALL' }),
+      s.asA.getForecast({ ownerId: ITG_USER_A }),
+      s.asA.getTaxSummary({ ownerId: ITG_USER_A, year: YEAR }),
+    ])
+
+    // 전제 — 이월이 실재한다: 전망의 그 해 행이 작년 프로필을 쓴다
+    expect(forecast.find((row) => row.year === YEAR)?.profileYear).toBe(YEAR - 1)
+    expect(mine.currentYearTax.year).toBe(YEAR)
+    expect([mine, all].map((view) => view.currentYearTax.isProfileSaved)).toEqual([false, false])
+    expect(tax.profile.isSaved).toBe(false)
   })
 })
 

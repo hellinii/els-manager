@@ -124,6 +124,17 @@ export type DashboardView = {
     convertedCount: number
     /** v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계). SCR-101 ③ 추정 안내 줄의 조건 */
     monthlyCouponAssumption: boolean
+    /**
+     * v4.43 (홈 피드백 컷 K0 명세 · 구현 K9) — **그 해(`year`)의 본인 `tax_profiles` 행이 있는가.**
+     * §4.6 `profile.isSaved`와 같은 판정이다(두 계약 모두 `loadTaxProfile(ctx, viewerId, year)`). 홈에는 `override`가
+     * 없으므로 거짓은 늘 「저장 없음」이다.
+     *
+     * **이월하지 않는다** — §4.7의 LOCF(`profileYear`)와 다르다. 작년 행만 있으면 거짓이다.
+     *
+     * 거짓이면 위 `financialIncome` · `isComprehensive` · `additionalTax`는 **하한**이다(다른 소득이 0으로 들어간 폴백).
+     * 값 자체는 바뀌지 않는다 — 이 필드는 그 사실만 싣는다. 화면 규칙은 DOC-008 SCR-101 ③(구현 K10)
+     */
+    isProfileSaved: boolean
     /** 환산이 한 건이라도 있었을 때의 추정 환율 — `≠ null ⇔ convertedCount > 0` */
     exchangeRateBasis: ExchangeRateBasisView | null
   }
@@ -425,6 +436,8 @@ export function makeDashboardQueries(ctx: QueryContext) {
         unconvertedCount: own.unconvertedCount,
         convertedCount: own.convertedCount,
         monthlyCouponAssumption: own.monthlyCouponAssumption,
+        // v4.43 (K9) — 위 폴백(`ownProfile?.… ?? '0'`)과 **같은 행**에서 읽는다. 왕복은 늘지 않는다(§4.0 예산 불변)
+        isProfileSaved: ownProfile != null,
         exchangeRateBasis: exchangeRateBasisOf(own.estimateRate, ctx.asOf),
       },
       attentionItems,

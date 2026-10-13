@@ -758,6 +758,8 @@ describe('§4.6 · §4.3 · §4.1 · §4.7 · §4.8 — 월수익 사건이 세�
       expect(people.find((user) => user.isMe)?.currentYearFinancialIncome).toBe(view.income.total)
       expect(home.currentYearTax.financialIncome).toBe(view.income.total)
       expect(home.currentYearTax.monthlyCouponAssumption).toBe(true)
+      // v4.43 (홈 피드백 컷 K9) — 같은 그 해 행의 판정(§4.6 `profile.isSaved`). 이 파일은 프로필을 세우지 않는다
+      expect(home.currentYearTax.isProfileSaved).toBe(view.profile.isSaved)
       expect(rows.every((row) => row.monthlyCouponAssumption)).toBe(true)
     }
   })
