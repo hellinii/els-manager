@@ -5,7 +5,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 ID | DOC-011 |
-| 버전 | 4.43 |
+| 버전 | 4.44 |
 | 작성일 | 2026-07-26 |
 | 작성자 | 민서 |
 | 선행 문서 | DOC-002 데이터 모델 v0.6, DOC-007 계산 로직 명세 v0.5, DOC-008 화면 목록 v0.3, DOC-010 아키텍처 v1.0 |
@@ -15,6 +15,7 @@
 
 | 버전 | 일자 | 작성자 | 변경 내용 |
 |---|---|---|---|
+| 4.44 | 2026-10-13 | 민서 | **홈 피드백 컷 K8 — §4.1 `currentYearTax` 「세 필드」 단락의 SCR-101 ③ 환산 포함 줄 인용을 해요체로(문언만 · 계약 무변경 — 조회 11 · 변경 17 · V-01~V-29).** DOC-005 §2.1(안내문은 해요체 · 민서 결정(2026-10-12) D4)을 따라 DOC-008 v2.51이 정본 문장을 바꾼 커밋에 함께 고쳤다. 종전 인용은 취소선으로 남겼다. 이 인용을 바이트로 결속하는 테스트는 없다(결속의 정본은 DOC-008 SCR-101 「P8 달러 ELS — ② · ③ · ⑤」 블록 — `tests/app/exchangeRate.test.ts`). 파서가 읽는 표 무변경 |
 | 4.43 | 2026-10-13 | 민서 | **홈 피드백 컷 K0 — §4.1 `currentYearTax.isProfileSaved` 선행 명세(`src/` 0줄 · 구현 K9).** 2026-10-12 외부 UI 피드백 #6 — 홈 ③이 과세 프로필을 저장하지 않은 사용자에게 「종합과세 대상」과 추가납부 0원을 확정 결과처럼 보였다. 그 해 행이 없으면 집계는 §4.6 폴백으로 돌아 하한인데, 뷰가 그 사실을 싣지 않아 화면이 하한과 확정을 가를 수 없었다. **필드 하나 · 왕복 0 · 계약 수 불변(조회 11 · 변경 17)** — 그 해 행만 보고(§4.6 `profile.isSaved`와 같은 판정) 이월하지 않는다(§4.7 LOCF와 다르다). `boolean`인 근거를 §4.7 「`boolean`으로 두지 않는 이유」에 대한 반론으로 적었다 — 홈에는 `override`도 이월도 없어 상태가 정확히 둘이다. 무효화는 바꾸지 않는다(`saveTaxProfile`이 이미 `getDashboard`를 덮는다). **파싱되는 표(§3.2.1 · §6 · §7.1 · §8) 무변경** |
 | 4.42 | 2026-10-11 | 민서 | **P6 컷 7-6 — 증분 반박 검토 반영(문언만 · 계약 무변경).** §4.1 `redemptionChecks`의 `isOwner` 근거가 인용한 `map.ts` 줄 번호(:697 · :1033)가 컷 7 뒤에 어긋났다 — 줄 번호 대신 함수 이름(`toProductListItem` · `toProductDetailView`)으로 적었다. 다중 사유 표 각주의 「지금 표를 고치지 않는 이유」는 컷 7-4가 표를 고쳤으므로 취소선으로 남겼다 |
 | 4.41 | 2026-10-11 | 민서 | **P6 컷 7-4 — §4.1 `redemptionChecks`가 섰고 `attentionItems`의 `EVALUATION_PASSED`가 유니온에서 빠졌다(v4.40이 예고한 대로).** 다중 사유 표의 두 행(`UNDERLYING_MISSING` + 경과 → `['UNDERLYING_MISSING']` · 셋째 결함과 함께 뜨는 사유)과 순서 문장을 고쳤다. 왕복은 판정할 쌍이 있을 때만 `asset_prices` 1이 시세와 나란히 는다(5 → 6 · `tests/integration/evaluation-verdict.test.ts`가 다중집합으로 단언) — 정본 시나리오의 상품은 등록일이 `AS_OF` 뒤라 쌍이 0이고 `contracts.test.ts`의 예산은 그대로다. `Judgment.overdue`는 유일한 소비자를 잃어 뺐다(도메인 함수 `overdueEvaluations`는 판정의 입력으로 남는다) |
@@ -735,7 +736,7 @@ type DashboardView = {
 
 **② 마커는 여전히 `totals` 한 키다.** `tests/app/dashboard.test.ts`의 `ELEMENT_SOURCES`가 ②를 `totals`로 사상하고 그 사상은 바뀌지 않는다 — 새 필드는 ②의 **안쪽**이다. ~~⑥을 만들지 않는다.~~ → 통화 필드를 위해 ⑥을 만들지 않는다 — ⑥은 v4.40에서 **`redemptionChecks`**(상환 확인 필요)에 배정된다 *(v4.40 — `ELEMENT_SOURCES['⑥']`와 DOC-008 SCR-101 주요 요소 셀의 ⑥은 컷 7-4의 코드 커밋에 함께 선다. 그때까지 `tests/app/dashboard.test.ts`는 다섯을 단언한다)*.
 
-**`currentYearTax`의 세 필드.** 값은 §4.6 `income`과 **같은 집계**이고 E-09도 같다 — 확정 원화 과세는 늘 들어가고 추정이 필요한 달러 건만 환율이 없을 때 빠진다. `unconvertedCount`가 그 ~~건 수~~ **상품 수**이며(§4.6 `income.unconvertedCount`와 같은 값) `exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다. **`convertedCount`는 환산해 넣은 달러 추정 ~~건 수~~ 사건이 있는 상품 수다** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음(§4.6 `income.convertedCount`와 같은 값). *(v4.16 — 세는 단위는 상품이다. §4.0 「쿠폰 지급방식과 월수익」 규칙 4. 월지급식은 한 상품에 사건이 여럿이라 둘이 갈린다 — 달러 추정 월수익의 과세에는 원금이 없으므로 `max(0, …)`가 없고 늘 환율이 필요하다, DOC-007 §4.8)* DOC-008 SCR-101 ③의 「달러 상품 n건의 추정을 원화로 환산해 포함했다」의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌(`TAX_FREE`)와 달러 이익 ≤ 0의 달러 추정은 환율 없이 0이므로(DOC-007 §4.8 · 검산 A-2) **어느 쪽으로도** 세지 않는다. 홈은 이 값들로 ③의 불완전함과 환산 사실을 말한다 — 문구는 DOC-008 ST-07이다.
+**`currentYearTax`의 세 필드.** 값은 §4.6 `income`과 **같은 집계**이고 E-09도 같다 — 확정 원화 과세는 늘 들어가고 추정이 필요한 달러 건만 환율이 없을 때 빠진다. `unconvertedCount`가 그 ~~건 수~~ **상품 수**이며(§4.6 `income.unconvertedCount`와 같은 값) `exchangeRateBasis`는 환산이 한 건이라도 일어났을 때의 추정 환율이다. **`convertedCount`는 환산해 넣은 달러 추정 ~~건 수~~ 사건이 있는 상품 수다** — 일반계좌 · 달러 이익 > 0 · 추정 환율 있음(§4.6 `income.convertedCount`와 같은 값). *(v4.16 — 세는 단위는 상품이다. §4.0 「쿠폰 지급방식과 월수익」 규칙 4. 월지급식은 한 상품에 사건이 여럿이라 둘이 갈린다 — 달러 추정 월수익의 과세에는 원금이 없으므로 `max(0, …)`가 없고 늘 환율이 필요하다, DOC-007 §4.8)* DOC-008 SCR-101 ③의 ~~「달러 상품 n건의 추정을 원화로 환산해 포함했다」~~ → 「달러 상품 n건의 추정을 원화로 환산해 포함했어요」 *(v4.44 — 홈 피드백 컷 K8 · DOC-005 §2.1 해요체 · DOC-008 v2.51)*의 n이 이 값이고, `exchangeRateBasis ≠ null ⇔ convertedCount > 0`이다. 비과세 계좌(`TAX_FREE`)와 달러 이익 ≤ 0의 달러 추정은 환율 없이 0이므로(DOC-007 §4.8 · 검산 A-2) **어느 쪽으로도** 세지 않는다. 홈은 이 값들로 ③의 불완전함과 환산 사실을 말한다 — 문구는 DOC-008 ST-07이다.
 
 **컷**: `byCurrency`·`recentRedemptions[].currency`·`unconvertedCount`는 a2, `krwEstimate`·`exchangeRateBasis`·`convertedCount`는 a3다(§4.0 「컷별 도달」 — a2에는 추정 환율이 없어 `convertedCount`가 늘 0인 구조적 상수다). *(v4.16)* `receivedCoupons` · `realizedPnl`의 월수익 몫 · `COUPON_UNRECORDED`(와 그 `count` — b1 개정) · `COUPON_SCHEDULE_MISSING`은 b3, `currentYearTax`에 월수익 사건이 드는 것은 b4다(§4.0 「쿠폰 지급방식과 월수익」 컷별 도달). `krwEstimate`는 바뀌지 않는다 — 원금만 환산하고 받은 월수익은 환산하지 않는다(사실은 통화별 — DOC-007 §7.7).
 

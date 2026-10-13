@@ -8,9 +8,16 @@ import type { CouponPayout } from '@/lib/domain'
 import {
   EVALUATION_VERDICT_FRESH_DAYS,
   EVALUATION_VERDICT_LABELS,
+  EXCHANGE_RATE_INPUT_LINK_LABEL,
+  MONTHLY_COUPON_ESTIMATE_NOTE,
   SECTION_EMPTY,
+  SETTINGS_FOREIGN_DISCLAIMER,
+  convertedIncludedLine,
   evaluationVerdictSentence,
+  exchangeRateMissingLead,
+  exchangeRateMissingNotice,
   missingUpcomingNote,
+  type ExchangeRateMissing,
 } from '@/lib/format'
 
 /**
@@ -31,8 +38,12 @@ import {
  *    (K10 · K12)까지 다체가 남으므로 지금 올리면 빨간불이다. K12가 채운다(그 전에는 `todo`로 보인다 — 비어 있는 원장을
  *    초록으로 세지 않는다)
  * 3. **이미 고친 함수의 출력은 전 갈래가 해요체다** — 평가일 판정 문장(판정 넷 × 경과 일수 × 주말 × 지급방식 · K7)과
- *    ① · SCR-301의 빈 줄(K4). 평서 종결 0이고 해요체 종결이 하나 이상이며 「~요.」로 끝난다
+ *    ① · SCR-301의 빈 줄(K4). 평서 종결 0이고 해요체 종결이 하나 이상이며 「~요.」로 끝난다. **홈이 공유하는 문장**
+ *    (ST-07 세 형태 · 링크 글자 · 환산 포함 줄 · 월지급 면책 · SCR-502 달러 문장 — K8)도 평서 종결 0 · 해요체 종결 하나
+ *    이상이다(끝은 링크 글자 · 근거 괄호 · 부르는 자리의 마침표라 「~요.」를 요구하지 않는다)
  * 4. **라벨은 명사형이다** — 종결어미 · 마침표 · 「요」로 끝나지 않는다(판정 라벨 · 절 빈 상태 제목)
+ * 5. **SCR-502 면책 상자는 상자 전체가 해요체다**(민서 결정(2026-10-13) D8 · K8) — h2 「면책 고지」의 절을 구문 트리에서
+ *    잘라 그 JSX 글자만 본다. 파일 전체를 원장에 올리지 않는 이유는 상자 밖(앱 정보 · 계정 안내)이 아직 다체라서다
  *
  * **보지 못하는 것** — 원장 밖 파일의 JSX 글자(⑥ 블록 안내는 `HomeSections.tsx`의 리터럴이라 K12 전까지 밖이다), 개발자용
  * 예외와 화면 글자의 구별(파일 단위로 원장에 올릴 때 사람이 가른다), 문장의 길이 · 반복(§2.1 「한 사실에 한 문장」).
@@ -55,10 +66,18 @@ function declarativeEndings(text: string): string[] {
 /** 해요체 종결 — 「~요」 뒤에 구두점 · 여는 괄호(근거 괄호) · 닫는 따옴표 · 공백 · 끝 */
 const POLITE_ENDING = /요(?=[.,!?」)(\s]|$)/
 
+function sourceOf(file: string, text: string): ts.SourceFile {
+  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind)
+}
+
 /** 파일의 화면 글자 후보 — 문자열 조각 · 템플릿 조각 · JSX 글자. 주석은 구문 트리에 없으므로 보지 않는다 */
 function textFragments(file: string, text: string): string[] {
-  const kind = file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
-  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind)
+  return fragmentsUnder(sourceOf(file, text))
+}
+
+/** 한 노드 아래의 화면 글자 후보 — `textFragments`의 본체(파일 전체가 아니라 절 하나를 볼 때도 쓴다) */
+function fragmentsUnder(root: ts.Node): string[] {
   const out: string[] = []
   const walk = (n: ts.Node): void => {
     if (
@@ -74,8 +93,26 @@ function textFragments(file: string, text: string): string[] {
     }
     n.forEachChild(walk)
   }
-  walk(sf)
+  walk(root)
   return out
+}
+
+/**
+ * `<h2>{heading}</h2>`을 직접 자식으로 둔 JSX 요소 — 화면의 절 하나(제목 + 상자). 몇 개를 찾았는지 그대로 돌려준다
+ * (부르는 쪽이 정확히 하나임을 단언한다 — 0개를 자르고 초록이 되지 않게)
+ */
+function sectionsByHeading(sf: ts.SourceFile, heading: string): ts.JsxElement[] {
+  const found: ts.JsxElement[] = []
+  const isHeading = (c: ts.JsxChild): boolean =>
+    ts.isJsxElement(c) &&
+    c.openingElement.tagName.getText(sf) === 'h2' &&
+    c.children.some((t) => ts.isJsxText(t) && t.text.trim() === heading)
+  const walk = (n: ts.Node): void => {
+    if (ts.isJsxElement(n) && n.children.some(isHeading)) found.push(n)
+    n.forEachChild(walk)
+  }
+  walk(sf)
+  return found
 }
 
 const fileEndings = (file: string): string[] =>
@@ -112,6 +149,22 @@ describe('스캐너가 살아 있다 — 아래 단언이 항진명제가 아니
     expect(textFragments('synthetic.tsx', src).flatMap(declarativeEndings)).toEqual(['본다', '본다', '본다'])
   })
 
+  it('절 자르기는 그 h2의 절만 본다 — 옆 절의 다체를 잡지 않는다(합성 소스)', () => {
+    const src = [
+      'export const P = () => (',
+      '  <section>',
+      '    <div><h2>면책 고지</h2><p>추정이에요.</p></div>',
+      '    <div><h2>계정</h2><p>바꾸지 않는다.</p></div>',
+      '  </section>',
+      ')',
+    ].join('\n')
+    const sf = sourceOf('synthetic.tsx', src)
+    const sections = sectionsByHeading(sf, '면책 고지')
+    expect(sections).toHaveLength(1)
+    expect(fragmentsUnder(sections[0]!)).toEqual(['면책 고지', '추정이에요.'])
+    expect(fragmentsUnder(sectionsByHeading(sf, '계정')[0]!).flatMap(declarativeEndings)).toEqual(['는다'])
+  })
+
   it('실제 파일을 읽는다 — 서버 메시지(`errors.ts`)에는 아직 평서 종결이 있다(SQ-23 ⓑ)', () => {
     expect(fileEndings('src/lib/db/mutations/errors.ts').length).toBeGreaterThan(0)
   })
@@ -135,7 +188,10 @@ describe('이미 고친 함수의 출력 — 전 갈래가 해요체 (DOC-005 §
     null,
   ]
 
-  /** 판정 넷 × 경과(다음 날 이내 · 그 뒤) × 주말 × 지급방식 셋 — 종가 없음은 결측 자산 0 · 1 · 2 */
+  /**
+   * 판정 넷 × 경과(다음 날 이내 · 그 뒤) × 주말 × 지급방식 셋. 종가 없음의 결측 자산은 **둘짜리 한 가지**다 — 자산 수는
+   * 괄호 안 이름 나열만 바꾸고 종결어미와 무관하다(홈 피드백 컷 K8에서 주석을 실제 갈래에 맞췄다 — 종전 「0 · 1 · 2」는 거짓)
+   */
   function verdictOutputs(): Array<[string, string]> {
     const out: Array<[string, string]> = []
     for (const kind of KINDS) {
@@ -192,5 +248,54 @@ describe('라벨은 명사형 — 종결어미 · 마침표 · 「요」로 끝�
   it.each([...Object.values(EVALUATION_VERDICT_LABELS), ...Object.values(SECTION_EMPTY)])('%s', (label) => {
     expect(declarativeEndings(label)).toEqual([])
     expect(label).not.toMatch(/[.요]$/)
+  })
+})
+
+describe('홈이 공유하는 문장 — ST-07 · 환산 포함 줄 · 면책 둘이 해요체 (홈 피드백 컷 K8 · DOC-005 §2.1)', () => {
+  /** ST-07의 종류 전수 — `Record`가 빠짐을 typecheck에서 잡는다(새 형태가 생기면 여기가 빨갛다) */
+  const ST07_KINDS: Record<ExchangeRateMissing['kind'], true> = { COUNT: true, PRODUCT: true, FORECAST: true }
+  const MISSING: ExchangeRateMissing[] = [{ kind: 'COUNT', count: 2 }, { kind: 'PRODUCT' }, { kind: 'FORECAST', count: 3 }]
+  const BASIS = { rate: '1392.400000', asOfDate: '2026-09-28', isStale: false }
+
+  function sharedOutputs(): Array<[string, string]> {
+    return [
+      ...MISSING.map((m): [string, string] => [`ST-07 앞절 · ${m.kind}`, exchangeRateMissingLead(m)]),
+      ...MISSING.map((m): [string, string] => [`ST-07 한 줄 · ${m.kind}`, exchangeRateMissingNotice(m)]),
+      ['ST-07 링크 글자', EXCHANGE_RATE_INPUT_LINK_LABEL],
+      ['SCR-101 ③ 환산 포함 줄', convertedIncludedLine(2, BASIS)],
+      ['SCR-101 ③ 환산 포함 줄 · 환율 오래됨', convertedIncludedLine(2, { ...BASIS, isStale: true })],
+      ['월지급 면책 (SCR-101 ③ · SCR-401 · SCR-502)', MONTHLY_COUPON_ESTIMATE_NOTE],
+      ['SCR-502 달러 문장', SETTINGS_FOREIGN_DISCLAIMER],
+    ]
+  }
+
+  it('전제 — 갈래를 실제로 다 만들었다(ST-07 셋 × 앞절 · 한 줄 + 링크 글자 + 환산 둘 + 면책 둘)', () => {
+    expect(MISSING.map((m) => m.kind).sort()).toEqual(Object.keys(ST07_KINDS).sort())
+    expect(sharedOutputs()).toHaveLength(11)
+  })
+
+  it.each(sharedOutputs())('%s', (_label, text) => {
+    expect(declarativeEndings(text)).toEqual([])
+    expect(text).toMatch(POLITE_ENDING)
+  })
+})
+
+describe('SCR-502 면책 상자 — 상자 전체가 해요체 (민서 결정(2026-10-13) D8 · DOC-005 §2.1 「섞지 않는 단위는 상자다」)', () => {
+  const FILE = 'src/app/(app)/settings/page.tsx'
+  const sf = sourceOf(FILE, readFileSync(join(ROOT, FILE), 'utf8'))
+  const sections = sectionsByHeading(sf, '면책 고지')
+
+  it('전제 — 절이 정확히 하나이고 문단 셋의 글자와 상자가 잇는 상수 둘이 그 안에 있다', () => {
+    expect(sections).toHaveLength(1)
+    const section = sections[0]!
+    const text = fragmentsUnder(section).join(' ')
+    for (const phrase of ['투자 권유', '세금·건강보험료도', '사용자가 입력한 값']) expect(text).toContain(phrase)
+    const source = section.getText(sf)
+    expect(source).toContain('{SETTINGS_FOREIGN_DISCLAIMER}')
+    expect(source).toContain('{MONTHLY_COUPON_ESTIMATE_NOTE}')
+  })
+
+  it('절의 JSX 글자에 평서 종결이 없다 — 상수 둘은 위 describe가 본다', () => {
+    expect(fragmentsUnder(sections[0]!).flatMap(declarativeEndings)).toEqual([])
   })
 })

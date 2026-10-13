@@ -17,8 +17,11 @@ import { exchangeRateDisplay, won } from './money'
  * 쓰고(`tests/app/exchangeRate.test.ts`가 결속한다) 「 · 환율 오래됨」은 힌트를 뺀 모든 자리에 붙는다(v2.19).
  */
 
-/** 뒷절 — SCR-302 환율 절로 가는 링크의 글자 (컷 a3) */
-export const EXCHANGE_RATE_INPUT_LINK_LABEL = '시세 화면에서 환율을 입력한다'
+/**
+ * 뒷절 — SCR-302 환율 절로 가는 링크의 글자 (컷 a3). 문장 속 링크라 그 문장의 문체(해요체)를 따른다(DOC-005 §2.1 ·
+ * 홈 피드백 컷 K8)
+ */
+export const EXCHANGE_RATE_INPUT_LINK_LABEL = '시세 화면에서 환율을 입력하세요'
 
 /**
  * 앞절과 뒷절 사이 — 「 — 」. **화면(`ExchangeRateMissingNotice`)과 글자 함수가 이 하나를 쓴다** — 화면이 이음표를
@@ -37,15 +40,15 @@ export type ExchangeRateMissing =
   /** SCR-402 — 원화 합에서 빠진 상품 n건(비과세 · 상환된 상품도 센다 — ST-07 예외 행) */
   | { kind: 'FORECAST'; count: number }
 
-/** 앞절 — 무엇이 빠졌는가. 화면이 뒷절(링크)을 잇는다 */
+/** 앞절 — 무엇이 빠졌는가. 화면이 뒷절(링크)을 잇는다. 해요체다(DOC-005 §2.1 · 홈 피드백 컷 K8) */
 export function exchangeRateMissingLead(missing: ExchangeRateMissing): string {
   switch (missing.kind) {
     case 'COUNT':
-      return `환율이 없어 달러 상품 ${missing.count}건의 추정 과세 금융소득이 빠졌다`
+      return `환율이 없어 달러 상품 ${missing.count}건의 추정 과세 금융소득이 빠졌어요`
     case 'PRODUCT':
-      return '환율이 없어 추정 과세 금융소득을 계산하지 않았다'
+      return '환율이 없어 추정 과세 금융소득을 계산하지 않았어요'
     case 'FORECAST':
-      return `환율이 없어 달러 상품 ${missing.count}건의 원화 금액(세전 회수 · 잔여 원금)이 이 표에서 빠졌다`
+      return `환율이 없어 달러 상품 ${missing.count}건의 원화 금액(세전 회수 · 잔여 원금)이 이 표에서 빠졌어요`
   }
 }
 
@@ -73,9 +76,9 @@ export function krwEstimateLine(activePrincipal: string, basis: ExchangeRateBasi
   return `원화 환산 합계 약 ${won(activePrincipal)} (추정 · ${exchangeRateDisplay(basis.rate)} · ${ymd(basis.asOfDate)} 기준${staleTail(basis)})`
 }
 
-/** SCR-101 ③ — 「달러 상품 n건의 추정을 원화로 환산해 포함했다 (1,392.40원/달러 · 2026-09-28 기준 추정 환율)」 */
+/** SCR-101 ③ — 「달러 상품 n건의 추정을 원화로 환산해 포함했어요 (1,392.40원/달러 · 2026-09-28 기준 추정 환율)」 */
 export function convertedIncludedLine(count: number, basis: ExchangeRateBasisText): string {
-  return `달러 상품 ${count}건의 추정을 원화로 환산해 포함했다 (${exchangeRateDisplay(basis.rate)} · ${ymd(basis.asOfDate)} 기준 추정 환율${staleTail(basis)})`
+  return `달러 상품 ${count}건의 추정을 원화로 환산해 포함했어요 (${exchangeRateDisplay(basis.rate)} · ${ymd(basis.asOfDate)} 기준 추정 환율${staleTail(basis)})`
 }
 
 /** SCR-202 ⑤ — 「추정 · 1,392.40원/달러 · 2026-09-28 기준 추정 환율로 환산」 */
@@ -114,9 +117,12 @@ export const FOREIGN_TAX_ASSUMPTION_NOTE =
 export const FOREIGN_FORECAST_DISCLAIMER =
   '외화는 최신 환율 하나로 모든 연도를 환산한다 — 실제 과세표준은 지급일마다의 기준환율로 정해진다'
 
-/** SCR-502 면책 고지 — 「세금 · 건강보험료도 추정이다」 문단 끝. **조건 없이** 적는다(정적 화면이다) */
+/**
+ * SCR-502 면책 고지 — 「세금 · 건강보험료도 추정이에요」 문단 끝. **조건 없이** 적는다(정적 화면이다). 그 상자 전체가
+ * 해요체다(민서 결정(2026-10-13) D8 · 홈 피드백 컷 K8)
+ */
 export const SETTINGS_FOREIGN_DISCLAIMER =
-  '달러 상품의 원화 금액(추정 과세 금융소득 · 원화 환산 합계)은 최신 환율 하나를 가정한 추정이며, 과세 금융소득의 정본은 거래내역의 원화 값이다.'
+  '달러 상품의 원화 금액(추정 과세 금융소득 · 원화 환산 합계)은 최신 환율 하나를 가정한 추정이고, 과세 금융소득의 정본은 거래내역의 원화 값이에요.'
 
 /** SCR-302 환율 절의 글자 — DOC-008 SCR-302 「환율 (원/달러)」 절 표 */
 export const EXCHANGE_RATE_SECTION_TEXT = {

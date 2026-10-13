@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -23,6 +20,8 @@ import {
 } from '@/lib/format'
 import { EXCHANGE_RATE_SECTION, PATHS } from '@/lib/routes/paths'
 
+import { liveDoc, quoteBlock } from './docText'
+
 /**
  * ST-07 「환율 없음」 문구 ↔ DOC-008 §6 ST-07 명세 (P8 컷 a2)
  *
@@ -38,9 +37,22 @@ import { EXCHANGE_RATE_SECTION, PATHS } from '@/lib/routes/paths'
  * 여기서 문구가 명세와 갈리면 네 화면이 함께 갈린다.
  *
  * 문서의 n은 `n`으로 적혀 있다 — 건수를 `n`으로 되돌려 문서에서 찾는다.
+ *
+ * ## 결속은 살아 있는 글의 정본 블록에 건다 (홈 피드백 컷 K8)
+ *
+ * 문장이 해요체가 되며(DOC-005 §2.1) 종전 다체 문장은 문서에 **취소선으로 남았다**(DOC-000 U-06). 원문 전체에
+ * `toContain(「…」)`을 걸면 코드를 종전으로 되돌려도 그 취소선이 초록을 만든다 — 그래서 `liveDoc`(취소선 · 이력 행을
+ * 벗긴 글)을 본다. 그리고 이번에 바꾼 문장은 **그 문장의 정본 블록 하나**(`quoteBlock`)에서만 찾는다 — 같은 문장을
+ * 인용하는 자리가 여럿(ST-07 등재 행 · SCR-402 · 흐름도)이라 문서 전체에 걸면 정본만 낡아도 초록이다(K7 실측).
  */
 
-const DOC_008 = readFileSync(join(process.cwd(), 'docs', '08_정보구조_및_화면목록.md'), 'utf8')
+const DOC_008 = liveDoc('08_정보구조_및_화면목록.md')
+/** ST-07 세 형태의 정본 — §6 「ST-07 명세」 블록의 「문구」 행 */
+const ST07_SPEC = quoteBlock(DOC_008, '> **ST-07 명세 — 「환율 없음」')
+/** SCR-101 ② · ③ 근거 줄의 정본 — SCR-101 「P8 달러 ELS — ② · ③ · ⑤」 블록 */
+const HOME_A3 = quoteBlock(DOC_008, '> **P8 달러 ELS — ② · ③ · ⑤')
+/** SCR-502 달러 문장의 정본 — SCR-502 「P8 달러 ELS — 면책 고지에 한 문장」 블록 */
+const SETTINGS_A3 = quoteBlock(DOC_008, '> **P8 달러 ELS — 면책 고지에 한 문장')
 
 describe('ST-07 앞절이 DOC-008 명세의 문구 그대로다', () => {
   it.each([
@@ -48,15 +60,15 @@ describe('ST-07 앞절이 DOC-008 명세의 문구 그대로다', () => {
     ['PRODUCT', exchangeRateMissingLead({ kind: 'PRODUCT' })],
     ['FORECAST', exchangeRateMissingLead({ kind: 'FORECAST', count: 3 }).replace('3건', 'n건')],
   ])('%s', (_kind, lead) => {
-    expect(DOC_008).toContain(`「${lead} — `)
+    expect(ST07_SPEC).toContain(`「${lead} — `)
   })
 
   it('건수가 문구에 들어간다 — 화면이 세지 않는다', () => {
     expect(exchangeRateMissingLead({ kind: 'COUNT', count: 2 })).toBe(
-      '환율이 없어 달러 상품 2건의 추정 과세 금융소득이 빠졌다',
+      '환율이 없어 달러 상품 2건의 추정 과세 금융소득이 빠졌어요',
     )
     expect(exchangeRateMissingLead({ kind: 'FORECAST', count: 3 })).toBe(
-      '환율이 없어 달러 상품 3건의 원화 금액(세전 회수 · 잔여 원금)이 이 표에서 빠졌다',
+      '환율이 없어 달러 상품 3건의 원화 금액(세전 회수 · 잔여 원금)이 이 표에서 빠졌어요',
     )
   })
 })
@@ -67,11 +79,13 @@ describe('ST-07 뒷절 — SCR-302 환율 절로 가는 링크 (컷 a3-3 · SQ-2
       const lead = exchangeRateMissingLead(
         kind === 'PRODUCT' ? { kind } : { kind, count: 2 },
       ).replace('2건', 'n건')
-      expect(DOC_008).toContain(`「${lead}${EXCHANGE_RATE_MISSING_JOINER}${EXCHANGE_RATE_INPUT_LINK_LABEL}」`)
+      expect(ST07_SPEC).toContain(`「${lead}${EXCHANGE_RATE_MISSING_JOINER}${EXCHANGE_RATE_INPUT_LINK_LABEL}」`)
     }
     expect(exchangeRateMissingNotice({ kind: 'PRODUCT' })).toBe(
-      `환율이 없어 추정 과세 금융소득을 계산하지 않았다 — ${EXCHANGE_RATE_INPUT_LINK_LABEL}`,
+      `환율이 없어 추정 과세 금융소득을 계산하지 않았어요 — ${EXCHANGE_RATE_INPUT_LINK_LABEL}`,
     )
+    // 문장 속 링크는 그 문장의 문체다(DOC-005 §2.1) — 링크 글자만 다체로 남으면 한 줄 안에서 섞인다
+    expect(EXCHANGE_RATE_INPUT_LINK_LABEL).toBe('시세 화면에서 환율을 입력하세요')
   })
 
   it('링크가 절을 연다 — 쿼리가 열고 조각이 스크롤한다 (SQ-20 결정)', () => {
@@ -88,14 +102,20 @@ describe('근거 줄 — 각 화면의 문장이 DOC-008의 예시 그대로다 
   const STALE = { ...BASIS, isStale: true }
 
   it.each([
-    ['SCR-101 ②', krwEstimateLine('1097468000', BASIS)],
-    ['SCR-101 ③', convertedIncludedLine(2, BASIS).replace('2건', 'n건')],
-    ['SCR-202 ⑤', projectionBasisLine(BASIS)],
-    ['SCR-401 기준 줄', convertedTaxLine(2, BASIS).replace('2건', 'n건')],
-    ['SCR-402 다섯째 표식', forecastBasisLine(BASIS)],
-    ['SCR-203 힌트', redemptionTaxableHint(BASIS)],
-  ])('%s', (_where, line) => {
-    expect(DOC_008).toContain(`「${line}」`)
+    ['SCR-101 ②', DOC_008, krwEstimateLine('1097468000', BASIS)],
+    ['SCR-101 ③', HOME_A3, convertedIncludedLine(2, BASIS).replace('2건', 'n건')],
+    ['SCR-202 ⑤', DOC_008, projectionBasisLine(BASIS)],
+    ['SCR-401 기준 줄', DOC_008, convertedTaxLine(2, BASIS).replace('2건', 'n건')],
+    ['SCR-402 다섯째 표식', DOC_008, forecastBasisLine(BASIS)],
+    ['SCR-203 힌트', DOC_008, redemptionTaxableHint(BASIS)],
+  ])('%s', (_where, doc, line) => {
+    expect(doc).toContain(`「${line}」`)
+  })
+
+  it('SCR-101 ③ 환산 포함 줄은 해요체다 (홈 피드백 컷 K8)', () => {
+    expect(convertedIncludedLine(2, BASIS)).toBe(
+      '달러 상품 2건의 추정을 원화로 환산해 포함했어요 (1,392.40원/달러 · 2026-09-28 기준 추정 환율)',
+    )
   })
 
   it('SCR-203 힌트는 근거가 없으면 뒷절만이다 — 환율을 지어내지 않는다', () => {
@@ -114,7 +134,7 @@ describe('근거 줄 — 각 화면의 문장이 DOC-008의 예시 그대로다 
     expect(forecastBasisLine(STALE).endsWith(tail)).toBe(true)
     expect(redemptionTaxableHint(STALE)).toBe(redemptionTaxableHint(BASIS))
     // 표시어는 DOC-005 §6 「환율 경과」의 등재다
-    expect(readFileSync(join(process.cwd(), 'docs', '05_용어_사전.md'), 'utf8')).toContain(
+    expect(liveDoc('05_용어_사전.md')).toContain(
       `**"${EXCHANGE_RATE_STALE_LABEL}"**`,
     )
   })
@@ -132,17 +152,17 @@ describe('면책 · 절의 고정 문구가 DOC-008 그대로다 (컷 a3-3)', ()
    * 그 조각이 있어 초록이다(반박 검토 지적). 잘림을 「」만으로 못 가르는 둘은 문서의 앞말까지 붙인다.
    */
   it.each([
-    ['SCR-401 표시 주의 넷째 줄', '', FOREIGN_TAX_ASSUMPTION_NOTE],
-    ['SCR-402 면책', '', FOREIGN_FORECAST_DISCLAIMER],
-    ['SCR-502 면책', '', SETTINGS_FOREIGN_DISCLAIMER],
-    ['SCR-302 최신 값 없음', '', EXCHANGE_RATE_SECTION_TEXT.missing],
-    ['SCR-302 안내', '', EXCHANGE_RATE_SECTION_TEXT.estimateOnly],
-    ['SCR-302 안내 (SQ-19)', '', EXCHANGE_RATE_SECTION_TEXT.refreshExcludes],
-    ['SCR-302 수집 상태', '또는 ', EXCHANGE_RATE_SECTION_TEXT.notCollected],
-    ['SCR-302 제목', '제목 ', EXCHANGE_RATE_SECTION_TEXT.title],
-    ['SCR-302 입력 칸', '', EXCHANGE_RATE_SECTION_TEXT.rateLabel],
-  ])('%s', (_where, prefix, text) => {
-    expect(DOC_008).toContain(`${prefix}「${text}」`)
+    ['SCR-401 표시 주의 넷째 줄', DOC_008, '', FOREIGN_TAX_ASSUMPTION_NOTE],
+    ['SCR-402 면책', DOC_008, '', FOREIGN_FORECAST_DISCLAIMER],
+    ['SCR-502 면책 (해요체 · D8)', SETTINGS_A3, '', SETTINGS_FOREIGN_DISCLAIMER],
+    ['SCR-302 최신 값 없음', DOC_008, '', EXCHANGE_RATE_SECTION_TEXT.missing],
+    ['SCR-302 안내', DOC_008, '', EXCHANGE_RATE_SECTION_TEXT.estimateOnly],
+    ['SCR-302 안내 (SQ-19)', DOC_008, '', EXCHANGE_RATE_SECTION_TEXT.refreshExcludes],
+    ['SCR-302 수집 상태', DOC_008, '또는 ', EXCHANGE_RATE_SECTION_TEXT.notCollected],
+    ['SCR-302 제목', DOC_008, '제목 ', EXCHANGE_RATE_SECTION_TEXT.title],
+    ['SCR-302 입력 칸', DOC_008, '', EXCHANGE_RATE_SECTION_TEXT.rateLabel],
+  ])('%s', (_where, doc, prefix, text) => {
+    expect(doc).toContain(`${prefix}「${text}」`)
   })
 
   it('수집 상태 문구에 문서의 인용 「(ADR-010)」을 싣지 않는다 (v2.19)', () => {
