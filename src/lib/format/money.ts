@@ -79,6 +79,21 @@ export function koreanWon(value: string): string {
   return `${koreanAmount(dec(value))}원`
 }
 
+/** 한글 금액이 서는 하한 — 만 원. `koreanAmount`는 그 아래를 버려 「0」을 낸다 */
+const KOREAN_WON_UNIT = '10000'
+
+/**
+ * 한글 금액(`koreanWon`)으로 적을 만 단위가 있는가 — 1만 원 이상 (홈 피드백 컷 K13). **값으로 본다**(절대 규칙 #2).
+ *
+ * 거짓이면 `koreanWon`이 「0원」을 낸다 — 위 숫자와 모순으로 보이는 보조 표기다(음수도 같다 — `koreanAmount`는 양의 억 · 만만
+ * 적는다). 한글 금액 보조 괄호(홈 ② 원화 줄 · SCR-401 금액 칸)와 원화 환산 합계의 만 원 접기(`krwEstimateLine`)가 이 판정 하나를
+ * 쓴다. 종전에는 앞의 둘이 표시 문자열(`koreanWon(v) !== '0원'`)로, 뒤의 하나가 따로 둔 `dec` 비교로 봤다 — 같은 경계를 두 형태로
+ * 적으면 한쪽이 바뀌는 날 「보조 괄호는 서는데 환산 줄은 원 단위」처럼 갈린다
+ */
+export function hasKoreanWonUnit(value: string): boolean {
+  return dec(value).gte(KOREAN_WON_UNIT)
+}
+
 // ---------------------------------------------------------------------------
 // 상품 통화 — DOC-005 §9 (GQ-05 해결) · P8 컷 a2
 //

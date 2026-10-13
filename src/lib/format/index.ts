@@ -13,6 +13,7 @@
 export {
   amount,
   exchangeRateDisplay,
+  hasKoreanWonUnit,
   isNegativeAmount,
   koreanAmount,
   koreanWon,

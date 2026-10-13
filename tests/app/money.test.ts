@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   amount,
   exchangeRateDisplay,
+  hasKoreanWonUnit,
   isNegativeAmount,
+  koreanWon,
   money,
   moneyAmount,
   signedMoney,
@@ -96,6 +98,39 @@ describe('isNegativeAmount — 손익 색의 판정은 값이다 (홈 피드백 
      */
     for (const zero of ['-0', '-0.00', '-0.000', '-00']) {
       expect(isNegativeAmount(zero), zero).toBe(false)
+    }
+  })
+})
+
+describe('hasKoreanWonUnit — 한글 금액 보조와 환산 합계 만 원 접기의 경계는 값이다 (홈 피드백 컷 K13)', () => {
+  it.each([
+    ['9999', false],
+    ['10000', true],
+    ['9999.99', false],
+    ['10000.00', true],
+    ['0', false],
+    ['1', false],
+    ['99999999', true],
+    ['100000000', true],
+    ['1097468000', true],
+    ['-10000', false],
+    ['-1000000000', false],
+  ])('%s → %s', (v, expected) => {
+    expect(hasKoreanWonUnit(v)).toBe(expected)
+  })
+
+  it('★ 표기가 경계를 정하지 않는다 — 앞 0 · 소수 자리가 있어도 같은 값이면 같은 답', () => {
+    for (const v of ['010000', '10000.000', '00010000']) expect(hasKoreanWonUnit(v), v).toBe(true)
+    for (const v of ['09999', '9999.999', '0009999']) expect(hasKoreanWonUnit(v), v).toBe(false)
+  })
+
+  it('종전 판정(`koreanWon(v) !== \'0원\'`)과 같은 답이다 — 화면의 보조 괄호가 서는 자리가 바뀌지 않는다', () => {
+    /*
+     * 홈 ② 원화 줄 · SCR-401 금액 칸은 종전에 표시 문자열을 비교했다. 그 둘을 값 판정으로 바꾼 것이 글자를 바꾸지 않는다는 것을
+     * 이 말뭉치로 본다 — 음수는 `koreanAmount`가 양의 억 · 만만 적어 「0원」이었으므로 거짓이 같은 답이다
+     */
+    for (const v of ['0', '1', '9999', '10000', '10001', '99999999', '100000000', '100009999', '-1', '-10000', '-850000']) {
+      expect(hasKoreanWonUnit(v), v).toBe(koreanWon(v) !== '0원')
     }
   })
 })

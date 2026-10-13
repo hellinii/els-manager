@@ -15,6 +15,7 @@ import {
   amount,
   contributionBreakdownLine,
   convertedTaxLine,
+  hasKoreanWonUnit,
   koreanWon,
   percent,
   won,
@@ -363,9 +364,10 @@ function Amount({
         {amount(value)}원
         {/*
           `koreanWon`은 만 단위 아래를 버리므로 **보조 표기**다. 0원이거나 만 단위가
-          없으면 「0원」이 되어 위 숫자와 모순으로 보이므로 그때는 붙이지 않는다.
+          없으면 「0원」이 되어 위 숫자와 모순으로 보이므로 그때는 붙이지 않는다. 그 판정은 값이다
+          (`hasKoreanWonUnit` — 홈 ② 원화 줄 · 환산 합계 줄과 같은 판정 · 종전 표시 문자열 비교 · 홈 피드백 컷 K13).
         */}
-        {koreanWon(value) !== '0원' && (
+        {hasKoreanWonUnit(value) && (
           <span className="ml-1.5 text-xs font-normal text-neutral-500">
             ({koreanWon(value)})
           </span>

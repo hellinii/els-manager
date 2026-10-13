@@ -81,19 +81,32 @@ afterAll(async () => {
       savedRateDate,
     ])
   }
+  /*
+   * 원화 짝의 삭제 결과를 단언한다(홈 피드백 컷 K13) — 결과를 보지 않으면 삭제가 실패해도 이 파일은 초록이고, 남은 원화 짝(원금
+   * 1,000,000원)이 다른 파일의 홈 ② · 건수 단언을 파일 순서에 달리게 한다. `products.test.ts`의 삭제 단언과 같은 형태다. 단언은
+   * **정리를 다 한 뒤에** 한다 — 여기서 던지면 아래 달러 상품의 정리가 건너뛰어진다
+   */
+  let pairDeletion: { response: Response; detailStatus: number } | null = null
   if (krwPair != null) {
     const pairPath = PATHS.product(krwPair.productId)
     const pair = await (await get(pairPath, jar)).text()
-    await submitAction(pairPath, jar, formFieldsFor(pair, actionIdOf('deleteProductAction')))
+    const response = await submitAction(pairPath, jar, formFieldsFor(pair, actionIdOf('deleteProductAction')))
+    pairDeletion = { response, detailStatus: (await get(pairPath, jar)).status }
   }
-  if (product == null) return
-  const detailPath = PATHS.product(product.productId)
-  const detail = await (await get(detailPath, jar)).text()
-  if (detail.includes('>상환 실적<')) {
-    await submitAction(detailPath, jar, formFieldsFor(detail, actionIdOf('deleteRedemptionAction')))
+  if (product != null) {
+    const detailPath = PATHS.product(product.productId)
+    const detail = await (await get(detailPath, jar)).text()
+    if (detail.includes('>상환 실적<')) {
+      await submitAction(detailPath, jar, formFieldsFor(detail, actionIdOf('deleteRedemptionAction')))
+    }
+    const active = await (await get(detailPath, jar)).text()
+    await submitAction(detailPath, jar, formFieldsFor(active, actionIdOf('deleteProductAction')))
   }
-  const active = await (await get(detailPath, jar)).text()
-  await submitAction(detailPath, jar, formFieldsFor(active, actionIdOf('deleteProductAction')))
+  if (pairDeletion != null) {
+    expect([302, 303]).toContain(pairDeletion.response.status)
+    expect(locationPath(pairDeletion.response)).toBe(PATHS.products)
+    expect(pairDeletion.detailStatus).toBe(404)
+  }
 })
 
 /** 렌더된 폼 값 위에 덮어 제출한다 — 사용자가 몇 칸만 고치는 형태다 */
@@ -153,8 +166,13 @@ describe('SCR-204 → SCR-202 — 달러 상품이 상품 통화로 저장되고
      * 섞이지 않게. 원화 행은 `krwPair`가 보장한다(파일 순서에 기대지 않는다)
      */
     const totals = totalsOf(await (await get(PATHS.home, jar)).text())
-    // 전제 — 원화 행과 달러 행이 둘 다 있다(원화 짝의 원금이 들어 있다 — 정확한 합은 다른 파일이 남긴 것에 달려 보지 않는다)
-    expect(totals).toMatch(/[\d,]+원/)
+    /*
+     * 전제 — 원화 행과 달러 행이 둘 다 있다(원화 짝의 원금이 들어 있다 — 정확한 합은 다른 파일이 남긴 것에 달려 보지 않는다).
+     * **투자원금 칸의 원화 `<dd>` 자체**를 본다(홈 피드백 컷 K13). 종전 `/[\d,]+원/`은 절 어디든 걸렸다 — 실현손익 칸의 「0원」 ·
+     * 환산 줄의 「1,392.40원/달러」의 「40원」. 그래서 원화 짝이 없어도 초록일 수 있었다. 0이 아닌 원화 원금 줄은 0 숨김
+     * (`shownCurrencyRows`) 뒤에도 서므로 원화 짝이 들어 있다는 뜻이다
+     */
+    expect(principalCellOf(totals)).toMatch(/<dd[^>]*>[1-9][\d,]*원(?:<span\b|<\/dd>)/)
     // ★ 달러 원금이 **자기 줄**이다 — 종전 코드는 원화 줄 뒤에 「 · 」로 이어 한 `<dd>`에 담았다
     expect(totals).toMatch(/<dd[^>]*>\$10,000\.50<\/dd>/)
     // ★ 0인 달러 손익 줄이 서지 않는다 — 종전 코드는 실현손익 칸에 「$0.00」을 그렸다
@@ -170,6 +188,14 @@ function totalsOf(html: string): string {
   if (at < 0) throw new Error('홈 ② 절이 렌더되지 않았다')
   const next = html.indexOf('<h2', at + 4)
   return next < 0 ? html.slice(at) : html.slice(at, next)
+}
+
+/** ② 투자원금 칸 — 그 `<dt>`부터 칸을 닫는 `</div>`까지(통화 줄 `<dd>`들과 환산 합계 줄) */
+function principalCellOf(totals: string): string {
+  const at = totals.indexOf('>투자원금 (보유중)</dt>')
+  if (at < 0) throw new Error('② 투자원금 칸이 렌더되지 않았다')
+  const end = totals.indexOf('</div>', at)
+  return end < 0 ? totals.slice(at) : totals.slice(at, end)
 }
 
 /** 태그 · React의 빈 주석을 걷어 낸 글 — 인접한 두 텍스트가 한 문장으로 이어 읽히는지 본다 */

@@ -1,7 +1,5 @@
-import { dec } from '@/lib/decimal'
-
 import { ymd } from './date'
-import { exchangeRateDisplay, koreanWon, won } from './money'
+import { exchangeRateDisplay, hasKoreanWonUnit, koreanWon, won } from './money'
 
 /**
  * 환율 문구 — DOC-008 §6 ST-07 명세 · 각 화면의 원화 환산 근거 줄 (P8 컷 a2 · a3)
@@ -71,12 +69,6 @@ function staleTail(basis: ExchangeRateBasisText): string {
 }
 
 /**
- * 원화 환산 합계를 접는 단위 — 만 원 (DOC-008 SCR-101 「홈 피드백 컷 K0」 ②). 이보다 작으면 `koreanWon`이 「0원」을 내므로
- * 원 단위로 둔다
- */
-const KRW_ESTIMATE_FOLD_UNIT = '10000'
-
-/**
  * SCR-101 ② — ~~「원화 환산 합계 약 1,097,468,000원 (추정 · …)」~~ → 「원화 환산 합계 약 10억 9,746만원 (추정 · 1,392.40원/달러 ·
  * 2026-09-28 기준)」 *(홈 피드백 컷 K11 · 피드백 #7 · 민서 결정(2026-10-12) D5)*. `activePrincipal`은 원화 정수다(DOC-011 Q-07 ⓑ).
  *
@@ -84,10 +76,11 @@ const KRW_ESTIMATE_FOLD_UNIT = '10000'
  * 숫자(통화별 사실)보다 길어진다. 1만 원 미만이면 `koreanWon`이 「0원」을 내므로 `won`의 원 단위로 적는다 — 이 분기는
  * `koreanWon`의 동작이 아니라 여기서 둔다. 「약 · 추정 · 환율 · 기준일」은 그대로다(DOC-008 §5 머리 규칙 3 · ST-05).
  * 「합계」를 남기는 것은 SCR-502 면책(`SETTINGS_FOREIGN_DISCLAIMER`)이 이 줄을 「원화 환산 합계」로 부르기 때문이다.
- * 비교는 `dec`다(절대 규칙 #2)
+ * 접는 경계는 한글 금액 보조 괄호와 같은 판정이다(`hasKoreanWonUnit` — `dec` · 절대 규칙 #2 · 홈 피드백 컷 K13. 종전에는 여기만의
+ * 상수 `KRW_ESTIMATE_FOLD_UNIT`이었다)
  */
 export function krwEstimateLine(activePrincipal: string, basis: ExchangeRateBasisText): string {
-  const approx = dec(activePrincipal).gte(KRW_ESTIMATE_FOLD_UNIT) ? koreanWon(activePrincipal) : won(activePrincipal)
+  const approx = hasKoreanWonUnit(activePrincipal) ? koreanWon(activePrincipal) : won(activePrincipal)
   return `원화 환산 합계 약 ${approx} (추정 · ${exchangeRateDisplay(basis.rate)} · ${ymd(basis.asOfDate)} 기준${staleTail(basis)})`
 }
 

@@ -26,6 +26,7 @@ import {
   dDayLabel,
   gapTierOf,
   groupAttention,
+  hasKoreanWonUnit,
   heaviestGrade,
   isNegativeAmount,
   koreanWon,
@@ -404,12 +405,13 @@ export function TotalsSection({
           <dt className="text-xs text-neutral-500">투자원금 (보유중)</dt>
           {/*
             통화 줄 하나가 `<dd>` 하나다. 한글 금액 보조는 원화 줄에만 붙는다(DOC-008 §5 머리 표 「한글 금액 괄호」 — 달러는
-            붙이지 않는다). 원화 금액은 `money(v, 'KRW') === won(v)`라 종전 `{amount}원`과 같은 글자다
+            붙이지 않는다). 원화 금액은 `money(v, 'KRW') === won(v)`라 종전 `{amount}원`과 같은 글자다. 보조를 붙이는 판정은 값이다
+            (`hasKoreanWonUnit` — 환산 합계 줄의 만 원 접기와 같은 판정 · 종전 표시 문자열 비교 · 홈 피드백 컷 K13)
           */}
           {principals.map((row) => (
             <dd key={row.currency} className="text-base font-semibold tabular-nums">
               {money(row.activePrincipal, row.currency)}
-              {row.currency === 'KRW' && koreanWon(row.activePrincipal) !== '0원' && (
+              {row.currency === 'KRW' && hasKoreanWonUnit(row.activePrincipal) && (
                 <span className="ml-1.5 text-xs font-normal text-neutral-500">
                   ({koreanWon(row.activePrincipal)})
                 </span>
