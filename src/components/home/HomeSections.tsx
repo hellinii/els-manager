@@ -1,5 +1,4 @@
 import Link from 'next/link'
-import { Fragment } from 'react'
 
 import { Badge, GRADE_ACCENT, GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
@@ -21,19 +20,20 @@ import {
   TAX_METHOD_VERDICT_LABELS,
   UPCOMING_VISIBLE,
   YEAR_TAX_TEXT,
-  amount,
   barrierGap,
   convertedIncludedLine,
   dDayLabel,
   gapTierOf,
   groupAttention,
   heaviestGrade,
+  isNegativeAmount,
   koreanWon,
   krwEstimateLine,
   missingUpcomingNote,
   money,
   percent,
   redemptionCheckNote,
+  shownCurrencyRows,
   signedMoney,
   takeVisible,
   won,
@@ -356,6 +356,12 @@ const UPCOMING_HEAD = {
 /**
  * ② — **실현손익은 음수가 가능하다**(§4.1). 그것이 과세 금융소득과 갈리는 지점이며
  * (절대 규칙 #8) 부호를 붙여 표시한다(`signedMoney` — 원화는 `signedWon`과 같다).
+ *
+ * **통화마다 한 줄로 쌓는다** (홈 피드백 컷 K11 · 피드백 #7 · 민서 결정(2026-10-12) D5 · DOC-008 SCR-101 「홈 피드백 컷 K0」 ②).
+ * 종전에는 한 칸에 「 · 」로 이었다(「1,000,000,000원 (10억원) · $70,000.00」) — 통화가 둘이면 대표 숫자가 한 줄 문장이 됐다.
+ * 이제 통화 줄 하나가 `<dd>` 하나이고, **값이 0인 통화 줄은 숨긴다**(`shownCurrencyRows` — `dec` 비교 · 투자원금 · 실현손익은 전부
+ * 0이면 첫 줄 하나를 남긴다). 원화뿐이면 줄이 하나라 숨김이 일어나지 않고 **금액 문자열은 종전과 같다**(DOC-008 §5 머리
+ * 규칙 1 — 금액 문자열 기준). 마크업은 바뀌었다 — `<dl>` 안의 `<p>`가 `<dd>`가 됐다.
  */
 export function TotalsSection({
   totals,
@@ -364,6 +370,10 @@ export function TotalsSection({
   totals: DashboardView['totals']
   scope: DashboardScope
 }) {
+  const principals = shownCurrencyRows(totals.byCurrency, 'activePrincipal', { keepOne: true })
+  const pnls = shownCurrencyRows(totals.byCurrency, 'realizedPnl', { keepOne: true })
+  const coupons = shownCurrencyRows(totals.byCurrency, 'receivedCoupons', { keepOne: false })
+
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold">
@@ -382,78 +392,60 @@ export function TotalsSection({
         </div>
         <div>
           <dt className="text-xs text-neutral-500">투자원금 (보유중)</dt>
-          <dd className="text-base font-semibold tabular-nums">
-            {totals.byCurrency.map((row, index) => (
-              <Fragment key={row.currency}>
-                {index > 0 && ' · '}
-                {row.currency === 'KRW' ? (
-                  <>
-                    {amount(row.activePrincipal)}원
-                    {koreanWon(row.activePrincipal) !== '0원' && (
-                      <span className="ml-1.5 text-xs font-normal text-neutral-500">
-                        ({koreanWon(row.activePrincipal)})
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  money(row.activePrincipal, row.currency)
-                )}
-              </Fragment>
-            ))}
-          </dd>
           {/*
-            원화 환산 합계 — **추정이며 사실 옆에 따로 선다**(DOC-011 §4.1 · DOC-008 SCR-101 ② a3). 보유중 외화가
-            없으면(원화뿐) `krwEstimate`가 `null`이라 이 줄이 없다 — 원화 홈의 마크업이 바뀌지 않는다. 환율이 없으면
-            두 필드가 함께 빈다(부분합 없음) — 줄을 생략하고 ST-07도 여기서는 띄우지 않는다(③이 말한다).
+            통화 줄 하나가 `<dd>` 하나다. 한글 금액 보조는 원화 줄에만 붙는다(DOC-008 §5 머리 표 「한글 금액 괄호」 — 달러는
+            붙이지 않는다). 원화 금액은 `money(v, 'KRW') === won(v)`라 종전 `{amount}원`과 같은 글자다
+          */}
+          {principals.map((row) => (
+            <dd key={row.currency} className="text-base font-semibold tabular-nums">
+              {money(row.activePrincipal, row.currency)}
+              {row.currency === 'KRW' && koreanWon(row.activePrincipal) !== '0원' && (
+                <span className="ml-1.5 text-xs font-normal text-neutral-500">
+                  ({koreanWon(row.activePrincipal)})
+                </span>
+              )}
+            </dd>
+          ))}
+          {/*
+            원화 환산 합계 — **추정이며 사실 아래 따로 선다**(DOC-011 §4.1 · DOC-008 SCR-101 ② a3). 만 원 단위로 접은 짧은 한
+            줄이다(`krwEstimateLine` — 홈 피드백 컷 K11). 보유중 외화가 없으면(원화뿐) `krwEstimate`가 `null`이라 이 줄이 없다.
+            환율이 없으면 두 필드가 함께 빈다(부분합 없음) — 줄을 생략하고 ST-07도 여기서는 띄우지 않는다(③이 말한다).
           */}
           {totals.krwEstimate?.activePrincipal != null &&
             totals.krwEstimate.exchangeRateBasis != null && (
-              <p className="mt-0.5 text-xs text-neutral-500">
+              <dd className="mt-0.5 text-xs text-neutral-500">
                 {krwEstimateLine(
                   totals.krwEstimate.activePrincipal,
                   totals.krwEstimate.exchangeRateBasis,
                 )}
-              </p>
+              </dd>
             )}
         </div>
         <div>
           <dt className="text-xs text-neutral-500">실현손익 (누적)</dt>
           {/*
-            음수 색은 **통화별 값마다** 정한다 — 한 칸에 부호가 다른 둘이 올 수 있다. 한 행이면
-            종전처럼 `<dd>`가 색을 갖는다(원화뿐인 홈의 마크업이 바뀌지 않는다).
+            음수 색은 **통화 줄마다** 정한다 — 두 줄의 부호가 다를 수 있다. 색은 값으로 판정한다(`isNegativeAmount` — `'-0.00'`을
+            붉게 칠하지 않는다 · 홈 피드백 컷 K11). 종전에는 한 행일 때만 `<dd>`가 색을 갖는 분기가 따로 있었다 — 이제 한 형태다
           */}
-          {totals.byCurrency.length === 1 ? (
+          {pnls.map((row) => (
             <dd
-              className={`text-base font-semibold tabular-nums ${pnlColor(
-                totals.byCurrency[0]!.realizedPnl,
-              )}`}
+              key={row.currency}
+              className={`text-base font-semibold tabular-nums ${pnlColor(row.realizedPnl)}`}
             >
-              {signedMoney(totals.byCurrency[0]!.realizedPnl, totals.byCurrency[0]!.currency)}
+              {signedMoney(row.realizedPnl, row.currency)}
             </dd>
-          ) : (
-            <dd className="text-base font-semibold tabular-nums">
-              {totals.byCurrency.map((row, index) => (
-                <Fragment key={row.currency}>
-                  {index > 0 && ' · '}
-                  <span className={pnlColor(row.realizedPnl)}>
-                    {signedMoney(row.realizedPnl, row.currency)}
-                  </span>
-                </Fragment>
-              ))}
-            </dd>
-          )}
+          ))}
           {/*
             받은 월수익 — 보유중 월지급 상품이 이미 받은 월수익(DOC-008 SCR-101 ② · 민서 결정(2026-10-02) ②). **실현손익에
             넣지 않는다** — 만기에 KI 손실이 나면 원금 손실과 합쳐야 손익이 확정된다. 통화별 · 환산하지 않는다. 그 통화에
-            받은 월수익이 없으면(상환 시 지급뿐) 줄이 없다 — 원화 · 상환 시 지급뿐인 홈의 마크업이 바뀌지 않는다
+            받은 월수익이 없으면(상환 시 지급뿐) 줄이 없다 — 거름은 `dec`다(`keepOne: false` — 종전의 문자열 비교 `'0'` ·
+            `'0.00'`을 바꿨다)
           */}
-          {totals.byCurrency
-            .filter((row) => row.receivedCoupons !== '0' && row.receivedCoupons !== '0.00')
-            .map((row) => (
-              <p key={row.currency} className="mt-0.5 text-xs text-neutral-500">
-                받은 월수익 {signedMoney(row.receivedCoupons, row.currency)}
-              </p>
-            ))}
+          {coupons.map((row) => (
+            <dd key={row.currency} className="mt-0.5 text-xs text-neutral-500">
+              받은 월수익 {signedMoney(row.receivedCoupons, row.currency)}
+            </dd>
+          ))}
         </div>
       </dl>
     </section>
@@ -777,9 +769,12 @@ export function RecentRedemptionsSection({
 // 공통
 // ---------------------------------------------------------------------------
 
-/** 손익 색 — 음수만 붉다. 통화와 무관하다(부호가 문자열의 첫 글자다 — Q-07) */
+/**
+ * 손익 색 — 음수만 붉다. 통화와 무관하다. ~~부호가 문자열의 첫 글자다 — Q-07~~ → **값으로 판정한다**(`isNegativeAmount` —
+ * 첫 글자로 보면 `'-0.00'`이 붉다. ②의 0 숨김이 `dec`로 0을 가르므로 두 판정이 같은 축이어야 한다 · 홈 피드백 컷 K11)
+ */
 function pnlColor(value: string): string {
-  return value.startsWith('-') ? 'text-red-700' : 'text-neutral-900'
+  return isNegativeAmount(value) ? 'text-red-700' : 'text-neutral-900'
 }
 
 /**

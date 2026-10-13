@@ -107,6 +107,18 @@ export function signedMoney(value: string, currency: ProductCurrency): string {
   return `${sign}$${dollarBody(body)}`
 }
 
+/**
+ * 금액이 음수인가 — 손익 색의 판정 (홈 피드백 컷 K11). **값으로 본다**(절대 규칙 #2 — 표기가 판정을 정하지 않는다).
+ *
+ * 종전 화면은 첫 글자(`startsWith('-')`)로 봤다 — `'-0'` · `'-0.00'`이 붉게 칠해진다. 오늘 계약은 그 표기를 내지
+ * 않는다(`moneyString`의 `toFixed`가 음의 0에서 부호를 떨어뜨린다 — `'-0.001'` → `'0.00'`, 2026-10-13 실측). 그래도 값으로
+ * 보는 이유는 ②의 0 숨김(`shownCurrencyRows`)이 `dec`로 0을 가르기 때문이다 — 두 판정이 표기에 따라 갈리면 「0인데
+ * 붉은 줄」이 생긴다. `signedMoney`가 0에 부호를 붙이지 않는 규칙과 같은 판단이다.
+ */
+export function isNegativeAmount(value: string): boolean {
+  return dec(value).lt(0)
+}
+
 /** 단위 없는 금액 — 열 머리글에 통화가 있는 표에서 쓴다(원화 `amount`와 같은 자리) */
 export function moneyAmount(value: string, currency: ProductCurrency): string {
   if (currency === 'KRW') return amount(value)

@@ -102,7 +102,8 @@ describe('근거 줄 — 각 화면의 문장이 DOC-008의 예시 그대로다 
   const STALE = { ...BASIS, isStale: true }
 
   it.each([
-    ['SCR-101 ②', DOC_008, krwEstimateLine('1097468000', BASIS)],
+    // ② 원화 환산 합계도 그 블록 하나에 건다(홈 피드백 컷 K11 — K8까지는 문서 전체였다: K0 각주가 같은 줄을 말하므로 정본만 낡아도 초록)
+    ['SCR-101 ②', HOME_A3, krwEstimateLine('1097468000', BASIS)],
     ['SCR-101 ③', HOME_A3, convertedIncludedLine(2, BASIS).replace('2건', 'n건')],
     ['SCR-202 ⑤', DOC_008, projectionBasisLine(BASIS)],
     ['SCR-401 기준 줄', DOC_008, convertedTaxLine(2, BASIS).replace('2건', 'n건')],
@@ -110,6 +111,22 @@ describe('근거 줄 — 각 화면의 문장이 DOC-008의 예시 그대로다 
     ['SCR-203 힌트', DOC_008, redemptionTaxableHint(BASIS)],
   ])('%s', (_where, doc, line) => {
     expect(doc).toContain(`「${line}」`)
+  })
+
+  it('★ SCR-101 ② 원화 환산 합계는 만 원 단위로 내린다 — 1만 원 미만이면 원 단위다 (홈 피드백 컷 K11 · 피드백 #7 · D5)', () => {
+    const line = (krw: string) => krwEstimateLine(krw, BASIS)
+    const tail = ' (추정 · 1,392.40원/달러 · 2026-09-28 기준)'
+    // 1,097,468,000 → 10억 9,746만 — 만 원 미만(8,000원)을 버린다(반올림하지 않는다)
+    expect(line('1097468000')).toBe(`원화 환산 합계 약 10억 9,746만원${tail}`)
+    expect(line('1097469999')).toBe(`원화 환산 합계 약 10억 9,746만원${tail}`)
+    // 정확히 억 · 정확히 만 — 빈 단위를 적지 않는다(`koreanAmount`)
+    expect(line('100000000')).toBe(`원화 환산 합계 약 1억원${tail}`)
+    expect(line('10000')).toBe(`원화 환산 합계 약 1만원${tail}`)
+    // ★ 1만 원 미만 — `koreanWon`만 쓰면 「약 0원」이 된다(이 분기가 그것을 막는다)
+    expect(line('9999')).toBe(`원화 환산 합계 약 9,999원${tail}`)
+    expect(line('6962')).toBe(`원화 환산 합계 약 6,962원${tail}`)
+    // 「약 · 추정 · 환율 · 기준일」이 그대로다(DOC-008 §5 머리 규칙 3) — 「합계」는 SCR-502 면책이 이 줄을 부르는 이름이다
+    expect(SETTINGS_FOREIGN_DISCLAIMER).toContain('원화 환산 합계')
   })
 
   it('SCR-101 ③ 환산 포함 줄은 해요체다 (홈 피드백 컷 K8)', () => {
@@ -126,7 +143,7 @@ describe('근거 줄 — 각 화면의 문장이 DOC-008의 예시 그대로다 
   it('「환율 오래됨」은 힌트를 뺀 근거 줄 다섯에 붙는다 (v2.19)', () => {
     const tail = ` · ${EXCHANGE_RATE_STALE_LABEL}`
     expect(krwEstimateLine('1097468000', STALE)).toBe(
-      `원화 환산 합계 약 1,097,468,000원 (추정 · 1,392.40원/달러 · 2026-09-28 기준${tail})`,
+      `원화 환산 합계 약 10억 9,746만원 (추정 · 1,392.40원/달러 · 2026-09-28 기준${tail})`,
     )
     expect(convertedIncludedLine(1, STALE)).toContain(`추정 환율${tail})`)
     expect(projectionBasisLine(STALE).endsWith(tail)).toBe(true)

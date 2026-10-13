@@ -13,6 +13,7 @@
 export {
   amount,
   exchangeRateDisplay,
+  isNegativeAmount,
   koreanAmount,
   koreanWon,
   money,
@@ -141,6 +142,7 @@ export {
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,
+  shownCurrencyRows,
   takeVisible,
   yearTaxDisplay,
   RECENT_VISIBLE,

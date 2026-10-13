@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   amount,
   exchangeRateDisplay,
+  isNegativeAmount,
   money,
   moneyAmount,
   signedMoney,
@@ -70,5 +71,31 @@ describe('환율 — 1,392.40원/달러', () => {
   it('여섯 자리 저장값을 그대로 쉼표 처리하지 않는다 — 반올림이 먼저다', () => {
     // withCommas는 소수부 네 자리 이상에서 틀린다('1,392.123,456'). 반올림을 빼면 이 단언이 빨갛다
     expect(exchangeRateDisplay('1392.123456')).toBe('1,392.12원/달러')
+  })
+})
+
+describe('isNegativeAmount — 손익 색의 판정은 값이다 (홈 피드백 컷 K11)', () => {
+  it.each([
+    ['-1', true],
+    ['-0.01', true],
+    ['-1000.00', true],
+    ['-123456727012345', true],
+    ['0', false],
+    ['0.00', false],
+    ['616000', false],
+    ['860.00', false],
+  ])('%s → %s', (v, expected) => {
+    expect(isNegativeAmount(v)).toBe(expected)
+  })
+
+  it('★ 음의 0은 음수가 아니다 — 첫 글자로 보는 구현을 잡는다', () => {
+    /*
+     * 종전 화면의 판정은 `startsWith('-')`였다 — 이 케이스들이 붉게 칠해졌다. 오늘 계약은 이 표기를 내지 않는다(`moneyString`의
+     * `toFixed`가 음의 0에서 부호를 떨어뜨린다 — 실측). 그래도 ②의 0 숨김(`shownCurrencyRows`)이 값으로 0을 가르므로, 색도 같은
+     * 축이어야 「0인데 붉은 줄」이 생기지 않는다. `signedMoney`도 이 표기를 0으로 적는다(위 `'-0.00'` → `$0.00`)
+     */
+    for (const zero of ['-0', '-0.00', '-0.000', '-00']) {
+      expect(isNegativeAmount(zero), zero).toBe(false)
+    }
   })
 })

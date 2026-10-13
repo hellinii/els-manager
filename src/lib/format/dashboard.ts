@@ -80,6 +80,44 @@ export function hasFinancialIncomeToReport(tax: { financialIncome: string }): bo
   return !dec(tax.financialIncome).isZero()
 }
 
+/** ②의 금액 칸이 읽는 통화별 필드 셋 — 계약 `totals.byCurrency`의 금액 필드(DOC-011 §4.1) */
+export type CurrencyAmountField = 'activePrincipal' | 'realizedPnl' | 'receivedCoupons'
+
+/**
+ * **②의 칸에 어느 통화 줄을 세우는가** — 값이 0인 통화 줄은 숨긴다 (홈 피드백 컷 K11 · 피드백 #7 · 민서 결정(2026-10-12) D5)
+ *
+ * ## 왜 숨기는가
+ *
+ * 계약의 `byCurrency`는 **그 통화의 상품이 하나라도 있으면** 행을 준다(상환 완료 포함 — 손익이 갈 행이 있어야 한다). 그래서
+ * 달러 상품이 미상환 하나뿐이면 실현손익 칸에 「$0.00」이, 달러 상품이 전부 상환됐으면 투자원금 칸에 「$0.00」이 섰다 —
+ * 칸마다 그 통화의 사실이 0이라는 것을 한 줄씩 말했다(DOC-008 SCR-101 「홈 피드백 컷 K0」 ②).
+ *
+ * ## `keepOne` — 칸이 비지 않게 한다
+ *
+ * 투자원금 · 실현손익은 칸 머리가 늘 서므로 전부 0이면 **첫 줄 하나**를 남긴다(선언 순 — 계약이 원화 → 달러로 준다). 받은
+ * 월수익은 칸 머리가 없는 덧줄이라 하나도 남기지 않는다(`keepOne: false` — 종전대로 줄이 없다).
+ *
+ * ## 대가 — 「손익이 정확히 0」이 다른 통화 옆에서 보이지 않는다
+ *
+ * 계약은 통화별 상환 유무를 싣지 않으므로 「상환이 없어 0」과 「손익이 정확히 0」을 여기서 가르지 못하고 둘 다 숨긴다. 행
+ * 단위 사실은 ⑤와 SCR-201 상환완료 목록이 말한다.
+ *
+ * ## 비교는 `dec`다 (절대 규칙 #2)
+ *
+ * `'-0.00'` · `'0.000'`도 0이다. 오늘 계약은 `moneyString`(고정 자릿수)을 지나 `'0'` · `'0.00'`만 내지만 — 종전 받은 월수익
+ * 줄의 거름이 그 두 표기를 문자열로 비교했다 — 표기가 줄을 정하면 그 정규화가 사라지는 날 「$0.000」 줄이 선다
+ * (`hasFinancialIncomeToReport`와 같은 판단). 순서는 바꾸지 않는다. 타입을 계약에 묶지 않고 필요한 필드만 요구한다(이 파일 머리글).
+ */
+export function shownCurrencyRows<K extends CurrencyAmountField, T extends { readonly [P in K]: string }>(
+  rows: readonly T[],
+  field: K,
+  options: { keepOne: boolean },
+): T[] {
+  const nonZero = rows.filter((row) => !dec(row[field]).isZero())
+  if (nonZero.length > 0 || !options.keepOne) return nonZero
+  return rows.slice(0, 1)
+}
+
 /**
  * ③의 화면 문구 — DOC-008 SCR-101 「홈 피드백 컷 K0」 ③의 「」와 같은 바이트다 (홈 피드백 컷 K10 · DOC-005 §2.1)
  *

@@ -15,6 +15,7 @@ import {
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,
+  shownCurrencyRows,
   takeVisible,
   yearTaxDisplay,
   type YearTaxAmount,
@@ -316,6 +317,85 @@ describe('heaviestGrade — 줄 전체의 강조', () => {
  *    고정은 **참을 기대하는 두 케이스**를 깨뜨린다 — 두 방향을 함께 두어야 상수 구현이
  *    둘 다 걸린다).
  */
+// ---------------------------------------------------------------------------
+// ② — 값이 0인 통화 줄은 숨긴다 (홈 피드백 컷 K11)
+// ---------------------------------------------------------------------------
+
+/**
+ * `shownCurrencyRows` — DOC-008 SCR-101 「홈 피드백 컷 K0」 ②. 기대값은 손으로 적는다. 행 모양은 계약의 `byCurrency` 한 원소다
+ * (원금 · 손익 · 받은 월수익 — 달러는 소수 두 자리 고정 · Q-07′).
+ */
+describe('shownCurrencyRows — ② 통화 줄 (홈 피드백 컷 K11 · 피드백 #7 · D5)', () => {
+  type Row = DashboardView['totals']['byCurrency'][number]
+  function row(
+    currency: Row['currency'],
+    activePrincipal: string,
+    realizedPnl = currency === 'KRW' ? '0' : '0.00',
+    receivedCoupons = currency === 'KRW' ? '0' : '0.00',
+  ): Row {
+    return { currency, activeCount: 0, activePrincipal, realizedPnl, receivedCoupons }
+  }
+  const currencies = (rows: readonly Row[]) => rows.map((r) => r.currency)
+
+  it.each<[string, Row[], Row['currency'][]]>([
+    ['달러가 0이면 원화만', [row('KRW', '5000000'), row('USD', '0.00')], ['KRW']],
+    ['원화가 0이면 달러만', [row('KRW', '0'), row('USD', '600.00')], ['USD']],
+    ['둘 다 있으면 둘 다 — 계약이 준 순서 그대로', [row('KRW', '616000'), row('USD', '600.00')], ['KRW', 'USD']],
+    ['★ 전부 0이면 첫 줄 하나 — 칸이 비지 않는다', [row('KRW', '0'), row('USD', '0.00')], ['KRW']],
+    ['달러뿐이고 0이어도 그 줄 하나', [row('USD', '0.00')], ['USD']],
+    ['상품 0건 — 계약의 원화 0 한 행', [row('KRW', '0')], ['KRW']],
+  ])('투자원금 · keepOne — %s', (_case, rows, expected) => {
+    expect(currencies(shownCurrencyRows(rows, 'activePrincipal', { keepOne: true }))).toEqual(expected)
+  })
+
+  it('★ 칸마다 자기 필드로 고른다 — 달러가 전부 상환되면 원금 칸에서는 빠지고 손익 칸에는 선다', () => {
+    const rows = [row('KRW', '1000000000', '616000'), row('USD', '0.00', '600.00')]
+    expect(currencies(shownCurrencyRows(rows, 'activePrincipal', { keepOne: true }))).toEqual(['KRW'])
+    expect(currencies(shownCurrencyRows(rows, 'realizedPnl', { keepOne: true }))).toEqual(['KRW', 'USD'])
+  })
+
+  it('음수는 0이 아니다 — 손실 줄은 남는다', () => {
+    const rows = [row('KRW', '1000', '-850000'), row('USD', '1.00', '0.00')]
+    expect(currencies(shownCurrencyRows(rows, 'realizedPnl', { keepOne: true }))).toEqual(['KRW'])
+    const usdLoss = [row('KRW', '1000', '0'), row('USD', '1.00', '-92.40')]
+    expect(currencies(shownCurrencyRows(usdLoss, 'realizedPnl', { keepOne: true }))).toEqual(['USD'])
+  })
+
+  it('받은 월수익은 keepOne이 아니다 — 전부 0이면 줄이 없다 (종전대로)', () => {
+    const none = [row('KRW', '1000', '0', '0'), row('USD', '1.00', '0.00', '0.00')]
+    expect(shownCurrencyRows(none, 'receivedCoupons', { keepOne: false })).toEqual([])
+    const usdOnly = [row('KRW', '1000', '0', '0'), row('USD', '1.00', '0.00', '1200.00')]
+    expect(currencies(shownCurrencyRows(usdOnly, 'receivedCoupons', { keepOne: false }))).toEqual(['USD'])
+  })
+
+  it('★ 순서를 다시 정하지 않는다 — 남기는 첫 줄도 준 순서의 첫째다 (이름으로 원화를 고르는 구현을 잡는다)', () => {
+    const reversed = [row('USD', '600.00'), row('KRW', '616000')]
+    expect(currencies(shownCurrencyRows(reversed, 'activePrincipal', { keepOne: true }))).toEqual(['USD', 'KRW'])
+    const zeros = [row('USD', '0.00'), row('KRW', '0')]
+    expect(currencies(shownCurrencyRows(zeros, 'activePrincipal', { keepOne: true }))).toEqual(['USD'])
+  })
+
+  it('★ 표기가 줄을 정하지 않는다 — 0의 다른 표기도 0이다 (종전 받은 월수익 거름의 문자열 비교를 잡는다)', () => {
+    /*
+     * 종전 화면은 `!== '0' && !== '0.00'`로 걸렀다. 오늘 계약은 `moneyString`(고정 자릿수 · 음의 0은 부호 없음 — 실측)이라 그
+     * 비교도 같은 답을 내지만, 표기가 줄을 정하면 그 정규화가 사라지는 날 「$0.000」 줄이 선다(`hasFinancialIncomeToReport` 선례)
+     */
+    for (const zero of ['-0', '-0.00', '0.000', '00']) {
+      const rows = [row('KRW', '1000', '0', zero), row('USD', '1.00', '0.00', zero)]
+      expect(shownCurrencyRows(rows, 'receivedCoupons', { keepOne: false }), zero).toEqual([])
+      const principals = [row('KRW', '5000000'), row('USD', zero)]
+      expect(currencies(shownCurrencyRows(principals, 'activePrincipal', { keepOne: true })), zero).toEqual(['KRW'])
+    }
+  })
+
+  it('원본을 바꾸지 않고 행을 그대로 돌려준다 — 화면이 같은 행의 다른 필드(통화)를 읽는다', () => {
+    const rows = [row('KRW', '0'), row('USD', '600.00')]
+    const shown = shownCurrencyRows(rows, 'activePrincipal', { keepOne: true })
+    expect(shown[0]).toBe(rows[1])
+    expect(currencies(rows)).toEqual(['KRW', 'USD'])
+  })
+})
+
 describe('③은 상품이 없어도 말할 것이 있으면 남는다', () => {
   it('금융소득이 양수면 참이다 — 상품 0건에서도 도달한다', () => {
     /*

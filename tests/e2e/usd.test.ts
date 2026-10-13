@@ -37,8 +37,9 @@ import { cookieJar, get, locationPath } from './helpers/server'
  *
  * 기본 사용자(ITG_USER_A)를 다른 파일도 쓰고 파일 순서는 보장되지 않는다(`fileParallelism: false`는
  * 겹치지 않을 뿐 순서를 정하지 않는다). 미상환 달러 상품이 남으면 그 사용자의 세금 · 전망 화면에
- * ST-07 문구가 생기고 홈 ②에 「· $…」가 붙는다 — 다른 파일의 단언이 **이 파일이 먼저 돌았는가**에
- * 의존하게 된다. 그래서 `afterAll`이 상환 취소 → 삭제로 되돌린다(SCR-202의 2단계 삭제 그대로).
+ * ST-07 문구가 생기고 홈 ②에 ~~「· $…」가 붙는다~~ → 달러 줄이 선다 *(홈 피드백 컷 K11 — 통화마다 한 줄)* — 다른 파일의
+ * 단언이 **이 파일이 먼저 돌았는가**에 의존하게 된다. 그래서 `afterAll`이 상환 취소 → 삭제로 되돌린다(SCR-202의 2단계 삭제
+ * 그대로). 원화 짝(`krwPair` — 컷 K11)도 같은 자리에서 지운다.
  *
  * 달러 원금은 **센트를 싣는다** — 센트가 0이면 원 단위로 접는 결함이 형식과 값 둘 다에서 보이지
  * 않는다(DOC-011 Q-07′의 「채워진 픽스처」).
@@ -46,6 +47,13 @@ import { cookieJar, get, locationPath } from './helpers/server'
 
 let jar: ReturnType<typeof cookieJar>
 let product: RegisteredProduct
+/**
+ * 원화 짝 — **홈 피드백 컷 K11이 필요해졌다.** 홈 ②가 통화마다 한 줄인지(「 · 」로 잇지 않는지)는 원화 행과 달러 행이 함께 있어야
+ * 가른다. 이 사용자의 원화 상품은 다른 파일이 남긴 것에 기대면 파일 순서에 달린다(이 파일만 돌리면 원화 행이 없어 종전 코드에서도
+ * 초록이었다 — 실측). 비과세 계좌라 이 사용자의 세금 · 전망 값을 움직이지 않고, 달러 상품 수(ST-07 · 환산 건수)도 바꾸지 않는다.
+ * `afterAll`이 지운다
+ */
+let krwPair: RegisteredProduct
 /** 이 파일이 저장한 환율의 기준일 — `afterAll`이 그 좌표만 지운다(사용자에게는 DELETE가 없다 — 소유자 커넥션) */
 let savedRateDate: string | null = null
 
@@ -55,6 +63,11 @@ beforeAll(async () => {
     label: '달러',
     currency: 'USD',
     principal: '10,000.50',
+  })
+  krwPair = await registerProduct(jar, {
+    label: '원화짝',
+    principal: '1,000,000',
+    accountType: 'TAX_FREE',
   })
 })
 
@@ -67,6 +80,11 @@ afterAll(async () => {
     await sql(`delete from public.exchange_rates where currency = 'USD' and as_of_date = $1`, [
       savedRateDate,
     ])
+  }
+  if (krwPair != null) {
+    const pairPath = PATHS.product(krwPair.productId)
+    const pair = await (await get(pairPath, jar)).text()
+    await submitAction(pairPath, jar, formFieldsFor(pair, actionIdOf('deleteProductAction')))
   }
   if (product == null) return
   const detailPath = PATHS.product(product.productId)
@@ -126,7 +144,38 @@ describe('SCR-204 → SCR-202 — 달러 상품이 상품 통화로 저장되고
     const home = await (await get(PATHS.home, jar)).text()
     expect(home).toContain('$10,000.50')
   })
+
+  it('★ 홈 ② — 통화마다 한 줄이고 값이 0인 달러 줄은 서지 않는다 (홈 피드백 컷 K11 · 피드백 #7 · D5)', async () => {
+    /*
+     * 이 시점의 달러 상품은 미상환 하나다 — 계약의 `byCurrency`에 달러 행이 있고 그 실현손익은 0이다. 종전 화면은 그 행을
+     * 「 · 」로 이어 실현손익 칸에 「$0.00」을 적었다(원화 손익이 0이든 아니든 — 행이 있으면 그렸다). 이제 그 줄은 숨는다
+     * (`shownCurrencyRows` — 원화 줄이 0이어도 남는 것은 선언 순 첫 줄 하나다). ② 절만 잘라 본다 — 다른 절의 달러 금액과
+     * 섞이지 않게. 원화 행은 `krwPair`가 보장한다(파일 순서에 기대지 않는다)
+     */
+    const totals = totalsOf(await (await get(PATHS.home, jar)).text())
+    // 전제 — 원화 행과 달러 행이 둘 다 있다(원화 짝의 원금이 들어 있다 — 정확한 합은 다른 파일이 남긴 것에 달려 보지 않는다)
+    expect(totals).toMatch(/[\d,]+원/)
+    // ★ 달러 원금이 **자기 줄**이다 — 종전 코드는 원화 줄 뒤에 「 · 」로 이어 한 `<dd>`에 담았다
+    expect(totals).toMatch(/<dd[^>]*>\$10,000\.50<\/dd>/)
+    // ★ 0인 달러 손익 줄이 서지 않는다 — 종전 코드는 실현손익 칸에 「$0.00」을 그렸다
+    expect(totals).not.toContain('$0.00')
+    // ★ 「 · 」 이음이 없다 — 태그를 걷어 낸 글에서 본다(종전에는 「…원 (…) · $…」 · 「…원 · $…」였다)
+    expect(textOf(totals)).not.toMatch(/[원)]\s*·\s*[+-]?\$/)
+  })
 })
+
+/** 홈 ② 절 — 그 h2부터 다음 h2 앞까지(`home.test.ts`의 `sectionOf`와 같은 기법) */
+function totalsOf(html: string): string {
+  const at = html.search(/<h2[^>]*>총 자산 요약/)
+  if (at < 0) throw new Error('홈 ② 절이 렌더되지 않았다')
+  const next = html.indexOf('<h2', at + 4)
+  return next < 0 ? html.slice(at) : html.slice(at, next)
+}
+
+/** 태그 · React의 빈 주석을 걷어 낸 글 — 인접한 두 텍스트가 한 문장으로 이어 읽히는지 본다 */
+function textOf(html: string): string {
+  return html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+}
 
 /** `<details id="exchange-rate" …>` 태그 — 속성 순서에 기대지 않는다 */
 function rateSectionTag(html: string): string {
@@ -215,6 +264,14 @@ describe('SCR-302 환율 절 → 추정 환율이 화면을 지난다 (P8 컷 a3
   it('홈 ②에 원화 환산 합계 줄 · 전망에 다섯째 표식과 면책', async () => {
     const home = await (await get(PATHS.home, jar)).text()
     expect(home).toContain('원화 환산 합계 약')
+    /*
+     * 만 원 단위로 내린 형태다(홈 피드백 컷 K11 · `krwEstimateLine`). 원화 원금은 다른 파일이 이 사용자에게 무엇을 남겼는가에
+     * 따라 달라지므로 값이 아니라 모양을 본다 — 달러 원금만으로 10,000.50 × 1,392.40 ≈ 1,392만 원이라 늘 만 원 이상이다.
+     * 종전 원 단위(「약 13,924,696원」)는 「만원」이 없어 여기서 빨개진다
+     */
+    expect(textOf(totalsOf(home))).toMatch(
+      new RegExp(`원화 환산 합계 약 (?:[\\d,]+억 )?[\\d,]+(?:억|만)원 \\(추정 · 1,392\\.40원/달러 · ${savedRateDate} 기준\\)`),
+    )
     const forecast = await (await get(PATHS.forecast, jar)).text()
     expect(forecast).toContain(`환율 1,392.40원/달러(${savedRateDate} 기준) 가정`)
     expect(forecast).toContain(FOREIGN_FORECAST_DISCLAIMER)
