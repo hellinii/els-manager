@@ -17,6 +17,7 @@ import {
   missingUpcomingNote,
   percent,
   signedWon,
+  splitProductName,
   won,
   ymd,
 } from '@/lib/format'
@@ -47,6 +48,7 @@ import { issueDateForFirstRound } from './helpers/dates'
  * | `PRICE_MISSING`이 결함에서 안 나온다 | 같은 자리의 **음성** 단언이며, 사유의 부재는 뷰를 읽어서는 확인되지만 **그 줄에 없음**은 렌더가 있어야 한다 |
  * | ~~임박 표식이 실제 데이터에서 갈린다~~ → ①의 행에 표식이 없고 날짜 · D-Day가 남는다 *(홈 피드백 컷 K4 · D2)* | 표식을 지운 것은 렌더된 문서에서만 보인다 — 상시 스위트에는 지운 상수의 부재밖에 없다 |
  * | 절 빈 상태가 한 줄이다 (K4) | 점선 상자의 부재와 h2의 존재는 마크업의 성질이다. 글자는 상시 스위트가 문서와 결속한다(`emptyState.test.ts`) |
+ * | ①의 칸이 판정 없음 행에서도 남는다 · 상품명 끝의 회차가 따로 선다 · 링크 글자는 전체 이름이다 (K5) | 칸의 수와 노드의 경계는 마크업의 성질이다. 가르는 규칙은 상시 스위트가 본다(`productName.test.ts`). 정렬 자체(열이 맞는가)는 브라우저에만 있다 — 화면으로 확인한다 |
  * | v2.0의 `ownerName`이 표시된다 | 범위에 따라 나타나고 사라지는 값이므로 **두 주소의 응답을 비교**해야 한다 |
  * | ⑤가 자료원을 얻었다 | v1.9까지 이 요소는 DOC-008에만 있었다. 합계와 목록의 합이 같은지가 「창이 없다」의 형태다 |
  *
@@ -135,8 +137,11 @@ function hrefOf(product: Pick<RegisteredProduct, 'productId'>): string {
  * 그 상품의 줄만 모아 온다 — ~~상품명이 들어 있는 줄~~ → **상품 링크가 있는 줄** *(홈 피드백 컷 K1)*.
  *
  * 이름으로 고르면 이름을 노드로 쪼개는 순간(회차 강조 — 컷 K5) 줄을 잃는다. 그때 양성 단언은 빨강이 되지만 `toEqual([])` ·
- * `toBe('')` 꼴의 음성 단언은 **헛돌며 초록으로 남는다**(실측 — 컷 K1 커밋 본문). 링크는 ①④⑤⑥과 SCR-301 시간순의 어느
- * 줄에나 정확히 하나다(`coupons.test.ts`의 `timeRowsOf` 선례).
+ * `toBe('')` 꼴의 음성 단언은 **헛돌며 초록으로 남는다**(실측 — 컷 K1 커밋 본문). 상품 링크는 ①④⑤⑥과 SCR-301 시간순의
+ * 어느 줄에나 있다(`coupons.test.ts`의 `timeRowsOf` 선례). ~~어느 줄에나 정확히 하나다~~ → **홈 ①④⑤⑥의 줄에서만 하나다**
+ * *(컷 K5에서 바로잡았다)* — ⑥의 [상환 처리](`…/redeem?round=k`)는 닫는 따옴표 때문에 겹치지 않지만, SCR-301 시간순의 결함
+ * 행은 판정 칸의 「고치기」도 같은 주소다(`ScheduleRow`의 `JudgmentCell`). 고르기는 포함 여부라 그 줄도 맞게 고르고,
+ * 링크의 글자를 보는 `linkTextOf`는 홈의 줄에만 쓴다.
  */
 function rowsOf(html: string, product: Pick<RegisteredProduct, 'productId'>): string[] {
   const href = hrefOf(product)
@@ -149,6 +154,19 @@ function rowOf(html: string, product: RegisteredProduct): string {
   const rows = rowsOf(html, product)
   expect(rows, `${product.productName}의 줄이 없다`).toHaveLength(1)
   return rows[0]!
+}
+
+/**
+ * 그 줄에서 상품 링크의 **글자** — 태그를 벗긴 것 *(홈 피드백 컷 K5)*. 링크가 없으면 `null`.
+ *
+ * 줄을 링크로 고른 뒤(컷 K1)에는 「그 줄에 상품명이 보인다」를 고르기가 보장하지 않는다 — 이름으로 고를 때는 고르기
+ * 자체가 그것이었다. 회차에서 이름을 두 노드로 쪼개도(`ProductNameLink`) 링크의 글자는 전체 상품명이어야 한다
+ * (DOC-005 「회차」 — 접근성 이름이 바뀌지 않는다). 첫 링크만 본다(위 `rowsOf`의 각주 — 홈의 줄에서는 하나다).
+ */
+function linkTextOf(row: string, product: Pick<RegisteredProduct, 'productId'>): string | null {
+  const href = hrefOf(product).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`<a\\b[^>]*${href}[^>]*>([\\s\\S]*?)</a>`).exec(row)
+  return m == null ? null : m[1]!.replace(/<[^>]*>/g, '')
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +221,9 @@ describe('SCR-101 홈', () => {
     //    「임박 표식이 있다」를 상품명으로 초록이 되게 했다(항진명제 · 홈 피드백 컷 K4)
     soon = await registerProduct(live, {
       label: '홈가까움',
+      // 이름 끝을 「…{숫자}회」로 — ①의 회차 강조가 **갈리는** 갈래를 이 한 행이 렌더한다(홈 피드백 컷 K5). 나머지 픽스처는
+      // 숫자로 끝나 한 조각이다 — 아래 「회차가 따로 선다」의 양방향 대조
+      nameSuffix: '회',
       issueDate: issueDateForFirstRound(asOf, { min: 5, max: 20 }),
       principal: P_SOON,
       // 미상환 상품의 과세 기여는 적용 차수의 귀속연도에 달렸다 — 비과세로 두면
@@ -336,6 +357,8 @@ describe('SCR-101 홈', () => {
     // 접지 않으면 이 상품이 목록에 두 번 나타나고 사용자는 두 상품으로 읽는다.
     const html = visible(await (await get(PATHS.home, live)).text())
     expect(rowsOf(sectionOf(html, SECTIONS.attention), defect)).toHaveLength(1)
+    // 줄을 링크로 고르므로(컷 K1) 「그 줄에 상품명이 보인다」를 따로 본다 — ④도 `ProductNameLink`다(홈 피드백 컷 K5)
+    expect(linkTextOf(rowOf(sectionOf(html, SECTIONS.attention), defect), defect)).toBe(defect.productName)
   })
 
   it('★ `PRICE_MISSING`을 결함에서 내지 않는다 — 오지 않을 시세를 기다리게 하지 않는다', async () => {
@@ -405,6 +428,48 @@ describe('SCR-101 홈', () => {
     expect(distant).toContain(`>${dDayLabel(farDDay)}<`)
   })
 
+  it('★ ① 상품명 끝의 회차가 따로 서고 링크 글자는 전체 이름이다 — 홈 피드백 컷 K5', async () => {
+    /*
+     * ★ **양방향으로 본다.** 회차로 끝나는 이름(`soon` — `nameSuffix: '회'`)은 두 노드로 갈리고, 숫자로 끝나는 이름(`far`)은
+     * 종전처럼 한 노드다. 한쪽만 보면 「늘 가른다」 · 「늘 가르지 않는다」 구현이 각각 초록이다. 가르는 규칙의 경계(첫 숫자 ·
+     * 공백 · 끝 공백 · 「n차」)는 상시 스위트가 본다(`productName.test.ts`) — 여기서는 그 함수가 화면에 닿았는지다.
+     */
+    const upcoming = sectionOf(visible(await (await get(PATHS.home, live)).text()), SECTIONS.upcoming)
+    const near = rowOf(upcoming, soon)
+    const distant = rowOf(upcoming, far)
+
+    // 전제 — 두 이름이 실제로 두 갈래다(아니면 아래 단언이 서로를 구분하지 못한다)
+    const { lead, series } = splitProductName(soon.productName)
+    expect(series, `${soon.productName}이 회차로 끝나지 않는다 — nameSuffix 전제`).not.toBeNull()
+    expect(splitProductName(far.productName).series, `${far.productName}이 회차로 끝난다`).toBeNull()
+
+    // 갈린다 — 회차가 제 노드에 서고 앞부분도 제 노드다. 이름 전체가 한 노드로 남아 있지 않다
+    expect(near, '회차가 따로 서지 않았다').toContain(`>${series}<`)
+    expect(near).toContain(`>${lead}<`)
+    expect(near, '이름이 한 노드로 남았다').not.toContain(`>${soon.productName}<`)
+    // 안 갈린다 — 한 노드 그대로
+    expect(distant, '회차 없는 이름이 쪼개졌다').toContain(`>${far.productName}<`)
+
+    // 어느 쪽이든 링크의 글자는 전체 상품명이다 — 조각을 잃거나 덧붙이지 않는다
+    expect(linkTextOf(near, soon)).toBe(soon.productName)
+    expect(linkTextOf(distant, far)).toBe(far.productName)
+  })
+
+  it('★ ① 판정 없음 행도 칸을 잃지 않는다 — 홈 피드백 컷 K5', async () => {
+    /*
+     * ★ 판정 없음 행(`far` — 기초자산 결함으로 워스트오브가 없다)도 워스트오브 · 여유폭 자리에 「—」(장식)를 둔다 — 칸을
+     * 빼면 그 행의 판정 칸이 왼쪽으로 밀려 열이 무너진다. 정렬 자체는 브라우저의 일이고, 문서에서 보이는 대리 지표는 그
+     * 자리표시의 개수다. 시세가 있는 행에는 하나도 없다(반대 방향).
+     */
+    const upcoming = sectionOf(visible(await (await get(PATHS.home, live)).text()), SECTIONS.upcoming)
+    const near = rowOf(upcoming, soon)
+    const distant = rowOf(upcoming, far)
+
+    expect(distant.match(/>—</g), '판정 없음 행의 칸이 빠졌다').toHaveLength(2)
+    expect(distant).toContain(`>${percent('0.9000')}<`)
+    expect(near.match(/>—</g), '판정이 있는 행에 자리표시가 섰다').toBeNull()
+  })
+
   it('가까운 것이 먼저다 — 계약이 준 순서를 다시 정하지 않는다', async () => {
     const upcoming = sectionOf(
       visible(await (await get(PATHS.home, live)).text()),
@@ -462,6 +527,8 @@ describe('SCR-101 홈', () => {
      */
     const checks = sectionOf(html, SECTIONS.redemptionCheck)
     const check = rowOf(checks, overdue)
+    // ⑥도 `ProductNameLink`다(홈 피드백 컷 K5) — 링크의 글자가 전체 상품명이다. [상환 처리]의 주소는 닫는 따옴표 때문에 맞지 않는다
+    expect(linkTextOf(check, overdue)).toBe(overdue.productName)
     expect(check).toContain(EVALUATION_VERDICT_LABELS.MATURITY_REACHED)
     expect(check).toContain(`href="${REDEEM_ROUND.href(overdue.productId, 3)}"`)
     expect(sectionOf(html, SECTIONS.attention)).not.toContain('평가일 경과')

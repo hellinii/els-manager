@@ -133,6 +133,7 @@ export {
   type Visible,
 } from './dashboard'
 export { missingUpcomingNote, SECTION_EMPTY } from './emptyState'
+export { splitProductName, type ProductNameParts } from './productName'
 export {
   EVALUATION_VERDICT_FRESH_DAYS,
   evaluationVerdictSentence,

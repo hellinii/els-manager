@@ -3,6 +3,7 @@ import { Fragment } from 'react'
 
 import { Badge, GRADE_ACCENT } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
+import { ProductNameLink } from '@/components/display/ProductNameLink'
 import { OwnerOnly } from '@/components/state/OwnerOnly'
 import type { DashboardView } from '@/lib/db/queries/dashboard'
 import {
@@ -105,12 +106,7 @@ export function RedemptionCheckSection({
           >
             <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <span className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                  href={PATHS.product(item.productId)}
-                  className="truncate text-sm font-medium text-neutral-900 hover:underline"
-                >
-                  {item.productName}
-                </Link>
+                <ProductNameLink productId={item.productId} name={item.productName} />
                 <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
                   {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
                   <span className="tabular-nums">{`${item.roundNo}차 · ${ymd(item.evaluationDate)}`}</span>
@@ -160,6 +156,15 @@ export function RedemptionCheckSection({
  * 계약에 창이 없어 그 경계는 강조만 정했다. 늘 켜진 강조는 정보가 0이다(DOC-008 SQ-18).
  *
  * `redemptionCheckCount`는 빈 줄의 뒷절이 가리킬 ⑥이 실재하는지다(DOC-008 SQ-28 — `missingUpcomingNote`).
+ *
+ * ## 데스크톱은 고정 열, 그보다 좁으면 카드다 *(홈 피드백 컷 K5 · 피드백 #8 · #9 — DOC-008 SCR-101 「홈 피드백 컷 K0」 ①)*
+ *
+ * 마크업은 하나이고 값은 한 번만 렌더한다 — 모바일 카드의 묶음(ⓐ ⓒ)이 `lg`에서 `contents`로 상자를 잃어 그 자식이
+ * 열 일곱에 «펼쳐진다»(SCR-301 상품별 카드의 금액 칸 선례). 카드는 「평가일 · D-Day | 판정」 / 상품명 / 차수 / 수치 셋이다.
+ *
+ * - **판정이 없는 행도 칸을 잃지 않는다** — 워스트오브 · 여유폭 자리에 「—」(장식 — 판정 칸의 「판정 없음」이 뜻을
+ *   나른다)를 둔다. 칸을 빼면 그 행의 판정 칸이 왼쪽으로 밀려 열이 무너진다
+ * - **차수는 상품명과 다른 줄이다** — 회차(「…2047회」)와 차수(「1차」)가 나란히 오면 같은 「n번째」로 읽힌다(DOC-005 §8.3)
  */
 export function UpcomingSection({
   items,
@@ -192,86 +197,132 @@ export function UpcomingSection({
          */
         <p className="text-sm text-neutral-600">{missingUpcomingNote('HOME', redemptionCheckCount)}</p>
       ) : (
-        <ul className="divide-y divide-neutral-200 rounded-lg border border-neutral-200">
-          {visible.shown.map((item) => (
-            <li
-              key={`${item.productId}-${item.roundNo}`}
-              className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-            >
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="flex flex-wrap items-baseline gap-2">
-                  <span className="text-sm tabular-nums">{ymd(item.evaluationDate)}</span>
-                  <span className="text-xs tabular-nums text-neutral-500">
-                    {dDayLabel(item.dDay)}
-                  </span>
-                </span>
-                <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-500">
-                  {/* §7.2 — 「SCR-101 홈 ─[평가일 알림]→ SCR-202 상세」 */}
-                  <Link
-                    href={PATHS.product(item.productId)}
-                    className="truncate text-sm font-medium text-neutral-900 hover:underline"
-                  >
-                    {item.productName}
-                  </Link>
-                  <span>{item.roundNo}차</span>
-                  {/*
-                    범위가 전체일 때만 소유자를 적는다. 본인 보기에서는 전 행이
-                    같은 값이므로 그 표시가 아무것도 구분하지 않는다(`ProductRow`가
-                    「보유중」 뱃지를 달지 않는 것과 같은 판단).
-                  */}
-                  {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
-                </span>
-              </span>
+        <div className="overflow-hidden rounded-lg border border-neutral-200">
+          {/* 열 머리 — 데스크톱에만. `<ul>` 밖이라 줄로 세지 않는다. 숫자 칸의 머리는 값과 같이 오른쪽에 붙는다 */}
+          <div
+            className={`hidden ${UPCOMING_COLS} gap-x-3 border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-xs font-medium text-neutral-600 lg:grid`}
+          >
+            <span>{UPCOMING_HEAD.date}</span>
+            <span className="text-right">{UPCOMING_HEAD.dDay}</span>
+            <span>{UPCOMING_HEAD.product}</span>
+            <span className="text-right">{UPCOMING_HEAD.barrier}</span>
+            <span className="text-right">{UPCOMING_HEAD.worstOf}</span>
+            <span className="text-right">{UPCOMING_HEAD.gap}</span>
+            <span className="text-right">{UPCOMING_HEAD.verdict}</span>
+          </div>
 
-              <WillMeetCell item={item} />
-            </li>
-          ))}
-        </ul>
+          <ul className="divide-y divide-neutral-200">
+            {visible.shown.map((item) => (
+              <li
+                key={`${item.productId}-${item.roundNo}`}
+                className={`grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 px-4 py-3 lg:items-center ${UPCOMING_COLS}`}
+              >
+                {/* ⓐ 평가일 · D-Day — 카드의 첫 줄 왼쪽 */}
+                <div className="col-start-1 row-start-1 flex items-baseline gap-2 lg:contents">
+                  <span className="text-sm tabular-nums">{ymd(item.evaluationDate)}</span>
+                  <span className="text-xs tabular-nums text-neutral-600 lg:text-right">{dDayLabel(item.dDay)}</span>
+                </div>
+
+                {/* ⓑ 상품명 · 차수 — 한 칸 두 줄. §7.2 — 「SCR-101 홈 ─[평가일 알림]→ SCR-202 상세」 */}
+                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 lg:col-span-1 lg:row-start-auto">
+                  <ProductNameLink productId={item.productId} name={item.productName} />
+                  <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
+                    {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
+                    <span className="tabular-nums">{`${item.roundNo}차`}</span>
+                    {/*
+                      범위가 전체일 때만 소유자를 적는다. 본인 보기에서는 전 행이
+                      같은 값이므로 그 표시가 아무것도 구분하지 않는다(`ProductRow`가
+                      「보유중」 뱃지를 달지 않는 것과 같은 판단).
+                    */}
+                    {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
+                  </span>
+                </div>
+
+                {/* ⓒ 수치 셋 — 카드의 마지막 줄. 모바일 라벨은 열 머리와 같은 문자열이다 */}
+                <div className="col-span-2 row-start-3 flex flex-wrap items-baseline gap-x-3 text-xs lg:contents">
+                  <span className="tabular-nums text-neutral-600 lg:text-right">
+                    <span className="lg:hidden">{UPCOMING_HEAD.barrier} </span>
+                    {percent(item.barrier)}
+                  </span>
+                  {item.worstOf == null ? (
+                    <>
+                      <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
+                        —
+                      </span>
+                      <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
+                        —
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="tabular-nums text-neutral-700 lg:text-right">
+                        <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.worstOf} </span>
+                        {percent(item.worstOf)}
+                      </span>
+                      <span className="tabular-nums text-neutral-600 lg:text-right">
+                        <span className="lg:hidden">{UPCOMING_HEAD.gap} </span>
+                        {barrierGap(item.worstOf, item.barrier)}
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/*
+                  ⓓ 판정 — 카드의 첫 줄 오른쪽. **`null`은 「미충족」이 아니다**(§4.1): 판정 결과가 없으면(시세 없음 ·
+                  무결성 결함) 충족 여부를 말하지 않는다. `false`로 두면 「미충족」이라는 판정을 한 것이 되어 E-01과
+                  구분되지 않으므로, 계약이 세 값을 주는 것을 화면도 세 갈래로 받는다. 칸은 어느 갈래에서도 비지 않는다.
+                */}
+                <div className="col-start-2 row-start-1 justify-self-end text-xs lg:col-start-auto lg:row-start-auto">
+                  {item.worstOf == null ? (
+                    // 이 목록은 판정 불가의 **원인**을 담지 않는다(뷰에 `integrityIssue`가 없다).
+                    // 원인별 안내는 SCR-201·202의 일이므로 여기서 지어내지 않는다.
+                    // 정보 글자다 — neutral-600(흰 바탕 7.81:1 · DOC-008 ST-08 · 홈 피드백 컷 K2).
+                    <span className="text-neutral-600">판정 없음</span>
+                  ) : item.willMeet == null ? (
+                    // 워스트오브는 있는데 조건 판정이 없다(차수 입력의 결함 등) — 말하지 않되 칸은 남긴다(장식)
+                    <span aria-hidden="true" className="text-neutral-500">
+                      —
+                    </span>
+                  ) : (
+                    <Badge grade={item.willMeet ? 'positive' : 'caution'}>
+                      {item.willMeet ? '예상 충족' : '예상 미충족'}
+                    </Badge>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   )
 }
 
 /**
- * 예상 충족 — **`null`은 「미충족」이 아니다**(§4.1).
+ * ① 열 템플릿 — **완전한 리터럴이어야 한다**(Tailwind v4는 소스 텍스트를 스캔하므로 조립한 클래스를 만들지 않는다 —
+ * SCR-301 `ProductScheduleCard`의 `ROUND_COLS` 선례).
  *
- * 판정 결과가 없으면(시세 없음·무결성 결함) 충족 여부를 말하지 않는다. `false`로
- * 두면 「미충족」이라는 판정을 한 것이 되어 E-01과 구분되지 않으므로, 계약이 세 값을
- * 주는 것을 화면도 세 갈래로 받는다.
+ * 평가일 · D-Day · 상품명과 차수(한 칸) · 배리어 · 워스트오브 · 여유폭 · 판정. 상품명 칸만 늘고 줄며 나머지는 고정폭이라
+ * 행끼리 열이 맞는다. 판정 칸 7rem은 가장 긴 배지(여유폭 단계의 근소 — 홈 피드백 컷 K6)의 자리다.
+ *
+ * 중단점은 `lg`다(DOC-008 §8의 1024~ 테이블). 고정폭 합이 29rem + 간격 여섯(4.5rem)이라 상품명 칸은 `max-w-5xl` 안에서
+ * `sm`(640) 약 38px · `md`(768) 약 166px · `lg`(1024) 약 422px다.
  */
-function WillMeetCell({
-  item,
-}: {
-  item: DashboardView['upcomingEvaluations'][number]
-}) {
-  return (
-    <span className="flex flex-wrap items-baseline gap-2 text-xs">
-      <span className="tabular-nums text-neutral-500">
-        배리어 {percent(item.barrier)}
-      </span>
-      {item.worstOf == null ? (
-        // 이 목록은 판정 불가의 **원인**을 담지 않는다(뷰에 `integrityIssue`가 없다).
-        // 원인별 안내는 SCR-201·202의 일이므로 여기서 지어내지 않는다.
-        // 정보 글자다 — neutral-600(흰 바탕 7.81:1 · DOC-008 ST-08 · 홈 피드백 컷 K2).
-        <span className="text-neutral-600">판정 없음</span>
-      ) : (
-        <>
-          <span className="tabular-nums text-neutral-700">
-            워스트오브 {percent(item.worstOf)}
-          </span>
-          <span className="tabular-nums text-neutral-500">
-            {barrierGap(item.worstOf, item.barrier)}
-          </span>
-          {item.willMeet != null && (
-            <Badge grade={item.willMeet ? 'positive' : 'caution'}>
-              {item.willMeet ? '예상 충족' : '예상 미충족'}
-            </Badge>
-          )}
-        </>
-      )}
-    </span>
-  )
-}
+const UPCOMING_COLS = 'lg:grid-cols-[6rem_3.5rem_minmax(0,1fr)_3.5rem_4.5rem_4.5rem_7rem]'
+
+/**
+ * ① 열 머리 — 모바일 카드의 수치 라벨과 **같은 문자열**이다(폭과 무관하게 라벨이 값을 따라다닌다 — SCR-301 상품별 카드의
+ * 「예상」 규율과 같은 기전). 「배리어」는 종전 판정 칸의 라벨을 옮긴 한 자리다(DOC-005 GQ-14 — 자리가 늘지 않는다).
+ */
+const UPCOMING_HEAD = {
+  date: '평가일',
+  dDay: 'D-Day',
+  product: '상품 · 차수',
+  barrier: '배리어',
+  worstOf: '워스트오브',
+  gap: '여유폭',
+  verdict: '판정',
+} as const
 
 // ---------------------------------------------------------------------------
 // ② 총 자산 요약
@@ -532,12 +583,7 @@ export function AttentionSection({
               className="flex flex-col gap-1.5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <span className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                  href={PATHS.product(group.productId)}
-                  className="truncate text-sm font-medium hover:underline"
-                >
-                  {group.productName}
-                </Link>
+                <ProductNameLink productId={group.productId} name={group.productName} />
                 {/*
                   ★ v2.0의 `ownerName`이 여기 쓰인다. 위 사유의 조치는 전부
                   소유자만 할 수 있으므로(ST-04), 전체 보기에서 소유자를 적지 않으면
@@ -612,12 +658,7 @@ export function RecentRedemptionsSection({
               className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
             >
               <span className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                  href={PATHS.product(item.productId)}
-                  className="truncate text-sm font-medium hover:underline"
-                >
-                  {item.productName}
-                </Link>
+                <ProductNameLink productId={item.productId} name={item.productName} />
                 <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-500">
                   <span className="tabular-nums">{ymd(item.redemptionDate)}</span>
                   <span>{REDEMPTION_TYPE_LABELS[item.redemptionType]}</span>

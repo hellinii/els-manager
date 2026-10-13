@@ -141,12 +141,18 @@ export async function registerProduct(
      * 뒤 저장한다(JS 없음). 리자드를 붙이지 않는다(V-25 — 월지급 + 리자드는 v2). 율 · 배리어는 퍼센트다
      */
     monthly?: { annualRate: string; barrier: string }
+    /**
+     * 상품명 끝에 덧붙인다 — **홈 피드백 컷 K5가 필요해졌다.** 홈은 이름 끝의 `{숫자}회` · `{숫자}호`만 굵게 하는데
+     * (DOC-005 「회차」 · `splitProductName`) 기본 이름은 타임스탬프 숫자로 끝나 그 갈래가 렌더되지 않는다. `'회'`를 주면
+     * `…{타임스탬프}회`가 되어 이름이 두 조각으로 갈린다. 주지 않으면 이름이 종전 그대로다(한 조각)
+     */
+    nameSuffix?: string
   } = {},
 ): Promise<RegisteredProduct> {
   const stamp = String(Date.now()).slice(-6)
   const suffix = options.label == null ? stamp : `${options.label}${stamp}`
   const assetName = `[E2E] 자산${suffix}`
-  const productName = `[E2E] 상품${suffix}`
+  const productName = `[E2E] 상품${suffix}${options.nameSuffix ?? ''}`
   const barriers = ['90', '85', '80'] as const
   const principal = options.principal ?? DEFAULT_PRINCIPAL
 
