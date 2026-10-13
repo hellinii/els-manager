@@ -65,6 +65,19 @@ export const EXCHANGE_RATE_SECTION = {
 } as const
 
 /**
+ * SCR-401의 「과세 프로필」 절 — 홈 ③ 「과세 프로필 입력」 링크의 목적지 (홈 피드백 컷 K10 · DOC-008 SCR-101 「홈 피드백 컷 K0」 ③).
+ *
+ * 조각만이다 — 그 절은 접히지 않으므로 여는 쿼리가 필요 없다(`EXCHANGE_RATE_SECTION`과 다른 점). **연도를 싣지 않는다** —
+ * 홈 ③의 연도와 SCR-401의 기본 연도가 같은 기준일에서 나온다(`currentYear(asOf)`). 같지 않은 날이 생기면 `?year=`를 싣는다.
+ * `PATHS` 밖인 이유는 `EXCHANGE_RATE_SECTION`과 같다(조각이 붙은 주소는 라우트가 아니다).
+ */
+export const TAX_PROFILE_SECTION = {
+  /** SCR-401 과세 프로필 절의 `id` — 조각이 스크롤할 자리 */
+  id: 'tax-profile',
+  href: `${PATHS.tax}#tax-profile`,
+} as const
+
+/**
  * SCR-202 ⑦ 월수익 구획 · SCR-206의 수정 주소 (P8 컷 b3 — DOC-008 SCR-206 · SQ-21 ⓘ b3 개정).
  *
  * `EXCHANGE_RATE_SECTION`과 같은 이유로 `PATHS` 밖이다 — 조각 · 쿼리가 붙은 주소는 라우트가 아니다. 기록 화면의

@@ -15,6 +15,8 @@ import {
   PRICE_MISSING_LABEL,
   REDEMPTION_TYPE_LABELS,
   SECTION_EMPTY,
+  TAX_METHOD_VERDICT_LABELS,
+  YEAR_TAX_TEXT,
   amount,
   barrierGap,
   dDayLabel,
@@ -26,7 +28,7 @@ import {
   ymd,
 } from '@/lib/format'
 import { DASHBOARD_KEYS, SCHEDULE_KEYS } from '@/lib/forms/query'
-import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND, TAX_PROFILE_SECTION } from '@/lib/routes/paths'
 
 import { actionIdOf, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
@@ -653,11 +655,48 @@ describe('SCR-101 홈', () => {
 
     // 상환 둘의 확정 과세소득 합 = 4,000,000 + 1,000,000
     expect(tax).toContain(won('5000000'))
-    // 2천만원 이하이므로 분리과세로 종결되고 추가납부가 0이다(0이 정상이다)
-    expect(tax).toContain('분리과세로 종결된다')
-    expect(tax).not.toContain('종합과세 대상이다')
-    expect(tax).toContain(won('0'))
+    /*
+     * 2천만원 이하이므로 분리과세로 종결된다. 판정 제목은 SCR-401과 같은 상수이고(홈 피드백 컷 K10) **양성과 음성을 같은
+     * 모양으로** 본다 — 맨 부분 문자열 「종합과세 대상」은 안내 문장과 겹칠 수 있어 음성이 엉뚱한 이유로 빨개지거나, 제목을
+     * 바꿔도 다른 자리에 맞아 양성이 초록이 된다
+     */
+    const verdictTag = (label: string) => new RegExp(`<strong[^>]*>${label}</strong>`)
+    expect(tax).toMatch(verdictTag(TAX_METHOD_VERDICT_LABELS.SEPARATE))
+    expect(tax).not.toMatch(verdictTag(TAX_METHOD_VERDICT_LABELS.COMPREHENSIVE))
+    expect(tax).toContain(YEAR_TAX_TEXT.verdictBody.SEPARATE)
     expect(tax).toContain(`${asOf.slice(0, 4)}년 귀속`)
+
+    /*
+     * ★ **이 사용자는 과세 프로필이 없다**(`helpers/users.ts` 머리 — 일부러 만들지 않는다). 그래서 추가납부 칸은 금액이
+     * 아니라 「프로필 미입력」이다(홈 피드백 컷 K10 · 피드백 #6). 종전 단언 `toContain(won('0'))`은 **아무것도 가르지
+     * 못했다** — 「0원」이 위 「5,000,000원」 안에 들어 있다. 그래서 노드 경계(`>…<`)로 본다: 금액 칸의 「0원」이 사라졌다.
+     * 저장된 경로 · 「{금액} 이상」은 이 스위트가 관측하지 못한다(DOC-010 AQ-105 — 상시 진리표만 본다)
+     */
+    expect(tax).toContain(`>${YEAR_TAX_TEXT.profileMissing}<`)
+    expect(tax, '프로필이 없는데 추가납부가 「0원」으로 적혔다').not.toContain(`>${won('0')}<`)
+
+    /*
+     * 프로필 미입력 안내는 **펼친 채** 있고(하한 신호) 링크는 SCR-401 과세 프로필 절로 간다. 「추정 기준 보기」는 접힌다 —
+     * 서버가 그리므로 접힌 문장도 HTML에 있다. 링크가 `<details>` 안으로 들어가면 하한 신호가 접힌다(음성)
+     */
+    const detailsAt = tax.indexOf('<details')
+    expect(detailsAt, '「추정 기준 보기」가 없다').toBeGreaterThan(-1)
+    const details = tax.slice(detailsAt, tax.indexOf('</details>', detailsAt))
+    const outside = tax.slice(0, detailsAt) + tax.slice(tax.indexOf('</details>', detailsAt))
+    expect(details).toMatch(new RegExp(`<summary[^>]*>${YEAR_TAX_TEXT.basisSummary}</summary>`))
+    expect(details).toContain(YEAR_TAX_TEXT.estimateBasis)
+    expect(details).not.toContain(TAX_PROFILE_SECTION.href)
+    expect(outside).toMatch(
+      new RegExp(
+        `${YEAR_TAX_TEXT.profileMissingNote} ${YEAR_TAX_TEXT.profileMissingResolve} <a\\b[^>]*href="${TAX_PROFILE_SECTION.href}"[^>]*>${YEAR_TAX_TEXT.profileLink}</a>`,
+      ),
+    )
+  })
+
+  it('③의 「과세 프로필 입력」이 닿는 자리가 있다 — SCR-401에 그 조각의 `id`', async () => {
+    // 앵커를 달기 전에는 이 단언이 빨갛다 — 링크만 있고 목적지가 없으면 페이지 맨 위로 떨어진다
+    const html = await (await get(PATHS.tax, live)).text()
+    expect(html).toContain(`id="${TAX_PROFILE_SECTION.id}"`)
   })
 
   it('★ ⑤가 상환 실적을 담고 합계와 어긋나지 않는다 — v2.0', async () => {

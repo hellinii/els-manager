@@ -122,7 +122,7 @@ export type DashboardView = {
     unconvertedCount: number
     /** 추정 환율로 환산해 넣은 달러 추정이 있는 **상품** 수 (§4.1 v4.9 — P8 컷 a3 · 단위는 상품 — v4.16). §4.6 `income.convertedCount`와 같은 값 */
     convertedCount: number
-    /** v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계). SCR-101 ③ 추정 안내 줄의 조건 */
+    /** v4.29 (구현 b4) — §4.6 `income.monthlyCouponAssumption`과 같은 값(같은 집계). SCR-101 ③ 월지급 가정 줄의 조건(「추정 기준 보기」 안 — 홈 피드백 컷 K10) */
     monthlyCouponAssumption: boolean
     /**
      * v4.43 (홈 피드백 컷 K0 명세 · 구현 K9) — **그 해(`year`)의 본인 `tax_profiles` 행이 있는가.**

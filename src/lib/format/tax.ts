@@ -1,5 +1,5 @@
 /**
- * SCR-401의 **표시 구조** — 연도 선택지 (P4.5)
+ * SCR-401의 **표시 구조** — 연도 선택지 (P4.5) · 판정 제목(홈 피드백 컷 K10 — SCR-101 ③과 함께 쓴다)
  *
  * ## 왜 화면 안이 아니라 여기인가
  *
@@ -90,4 +90,26 @@ export function selectableYears(
   }
 
   return years
+}
+
+/**
+ * 종합과세 판정의 **제목** — SCR-101 ③과 SCR-401 ③이 같은 상수를 쓴다 (홈 피드백 컷 K10 · DOC-005 §9 · §2.1)
+ *
+ * 같은 판정을 두 화면이 다른 이름으로 부르지 않는다. 제목은 명사형이다(DOC-005 §2.1 — 종전 「종합과세 대상이다.」 ·
+ * 「분리과세로 종결된다.」는 문장이었다). 「분리과세로 종결」은 DOC-005 §4 「분리과세」의 정의(원천징수로 납세 의무가
+ * 종결되는 방식)와 같은 말이다 — 「분리과세 대상」으로 줄이지 않는다(§9의 금지 표기).
+ *
+ * 본문은 화면마다 다르다 — 홈은 `YEAR_TAX_TEXT.verdictBody`(해요체), SCR-401은 기준금액과의 차를 말하는 자기 문장이고
+ * 그 화면의 문체 이행은 DOC-008 SQ-23이다.
+ */
+export type TaxMethodVerdict = 'COMPREHENSIVE' | 'SEPARATE'
+
+export const TAX_METHOD_VERDICT_LABELS: Record<TaxMethodVerdict, string> = {
+  COMPREHENSIVE: '종합과세 대상',
+  SEPARATE: '분리과세로 종결',
+}
+
+/** 계약의 `isComprehensive`(F > 종합과세 기준금액)를 판정 키로 — 화면이 조건을 다시 쓰지 않는다 */
+export function taxMethodVerdictOf(isComprehensive: boolean): TaxMethodVerdict {
+  return isComprehensive ? 'COMPREHENSIVE' : 'SEPARATE'
 }

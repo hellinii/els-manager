@@ -9,12 +9,20 @@ import {
   ATTENTION_REASON_GRADES,
   ATTENTION_REASON_LABELS,
   RECENT_VISIBLE,
+  TAX_METHOD_VERDICT_LABELS,
   UPCOMING_VISIBLE,
+  YEAR_TAX_TEXT,
   groupAttention,
   hasFinancialIncomeToReport,
   heaviestGrade,
   takeVisible,
+  yearTaxDisplay,
+  type YearTaxAmount,
+  type YearTaxLine,
 } from '@/lib/format'
+import { PATHS, TAX_PROFILE_SECTION } from '@/lib/routes/paths'
+
+import { liveDoc, quoteBlock } from './docText'
 
 /**
  * 홈의 표시 구조 — SCR-101 (P4 컷 9)
@@ -354,5 +362,181 @@ describe('③은 상품이 없어도 말할 것이 있으면 남는다', () => {
      * 화면에서 사라진다(「조용히 틀리지 않는다」).
      */
     expect(hasFinancialIncomeToReport({ financialIncome: '-1' })).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ③ — 하한을 확정처럼 적지 않는다 (홈 피드백 컷 K10)
+// ---------------------------------------------------------------------------
+
+/**
+ * `yearTaxDisplay` — **기대값은 손으로 적은 표다**(함수에서 유도하지 않는다). 축은 넷: C 종합과세 · S 그 해 프로필 저장 ·
+ * Z 추가납부 0 · U 환율이 없어 빠진 달러 상품 있음. 표는 DOC-008 SCR-101 「홈 피드백 컷 K0」 ③의 상태 표를 16칸으로 편 것이다.
+ *
+ * **분리과세에서 추가납부가 0이 아닌 칸(C=F · Z=F)을 지우지 않는다.** 상수가 일관되면 그 경로의 추가납부는 정확히 0이지만
+ * (`separateTaxationRate` = 소득세율 × (1 + 지방소득세율)) 그 일관성을 단언하는 테스트가 없다 — 그래서 함수는 판정과 무관하게
+ * 계약의 값을 그대로 다루고, 표도 그 칸의 금액이 숨지 않는 것을 본다.
+ */
+describe('yearTaxDisplay — ③ 추가납부 칸과 펼친 줄 (홈 피드백 컷 K10 · 피드백 #5 · #6)', () => {
+  const P: YearTaxLine = 'PROFILE_MISSING'
+  const E: YearTaxLine = 'EXCHANGE_RATE_MISSING'
+  const N: YearTaxLine = 'ZERO_IS_NORMAL'
+  const NONZERO = '1234000'
+
+  type Kind = YearTaxAmount['kind']
+  //            C      S      Z      U      추가납부 칸         펼친 줄
+  const TABLE: Array<[boolean, boolean, boolean, boolean, Kind, YearTaxLine[]]> = [
+    [false, false, false, false, 'AT_LEAST', [P]],
+    [false, false, false, true, 'AT_LEAST', [P, E]],
+    [false, false, true, false, 'PROFILE_MISSING', [P]],
+    [false, false, true, true, 'PROFILE_MISSING', [P, E]],
+    [false, true, false, false, 'AMOUNT', []],
+    [false, true, false, true, 'AT_LEAST', [E]],
+    [false, true, true, false, 'AMOUNT', []],
+    [false, true, true, true, 'AMOUNT', [E]],
+    [true, false, false, false, 'AT_LEAST', [P]],
+    [true, false, false, true, 'AT_LEAST', [P, E]],
+    [true, false, true, false, 'PROFILE_MISSING', [P]],
+    [true, false, true, true, 'PROFILE_MISSING', [P, E]],
+    [true, true, false, false, 'AMOUNT', []],
+    [true, true, false, true, 'AT_LEAST', [E]],
+    [true, true, true, false, 'AMOUNT', [N]],
+    [true, true, true, true, 'AMOUNT', [E]],
+  ]
+
+  function input(
+    c: boolean,
+    s: boolean,
+    z: boolean | string,
+    u: boolean,
+    extra: Partial<Parameters<typeof yearTaxDisplay>[0]> = {},
+  ): Parameters<typeof yearTaxDisplay>[0] {
+    return {
+      isComprehensive: c,
+      isProfileSaved: s,
+      additionalTax: typeof z === 'string' ? z : z ? '0' : NONZERO,
+      unconvertedCount: u ? 2 : 0,
+      convertedCount: 0,
+      monthlyCouponAssumption: false,
+      exchangeRateBasis: null,
+      ...extra,
+    }
+  }
+
+  const BASIS = { rate: '1392.400000', asOfDate: '2026-09-28', isStale: false }
+  /** 접는 줄의 갈래 넷 — 월지급 가정 × 환산 포함. 불변식은 16칸 × 이 넷 전부에서 본다 */
+  const FOLD_VARIANTS = [
+    {},
+    { monthlyCouponAssumption: true },
+    { convertedCount: 1, exchangeRateBasis: BASIS },
+    { monthlyCouponAssumption: true, convertedCount: 1, exchangeRateBasis: BASIS },
+  ]
+
+  it('전제 — 표가 16조합을 정확히 한 번씩 덮는다', () => {
+    const keys = new Set(TABLE.map(([c, s, z, u]) => `${c}${s}${z}${u}`))
+    expect(TABLE).toHaveLength(16)
+    expect(keys.size).toBe(16)
+  })
+
+  it.each(TABLE)('C=%s S=%s Z=%s U=%s → 칸 %s · 펼침 %j', (c, s, z, u, kind, shown) => {
+    const d = yearTaxDisplay(input(c, s, z, u))
+    expect(d.verdict).toBe(c ? 'COMPREHENSIVE' : 'SEPARATE')
+    expect(d.additionalTax.kind).toBe(kind)
+    // 금액은 계약의 문자열 그대로다 — 화면이 `won`으로 적는다
+    if (kind !== 'PROFILE_MISSING') expect(d.additionalTax).toEqual({ kind, value: z ? '0' : NONZERO })
+    expect(d.shown).toEqual(shown)
+    expect(d.folded).toEqual(['ESTIMATE_BASIS'])
+  })
+
+  describe('불변식 — 16칸 × 접는 줄 갈래 넷', () => {
+    const cases = TABLE.flatMap(([c, s, z, u]) =>
+      FOLD_VARIANTS.map((extra) => ({ label: `C=${c} S=${s} Z=${z} U=${u} ${JSON.stringify(extra)}`, s, z, u, d: yearTaxDisplay(input(c, s, z, u, extra)) })),
+    )
+
+    it('전제 — 64갈래', () => expect(cases).toHaveLength(64))
+
+    it('★ 프로필이 없으면 추가납부 칸이 맨 금액이 아니다 — 「0원」이 확정처럼 서지 않는다(이번 피드백의 회귀 방지)', () => {
+      for (const { label, s, d } of cases) if (!s) expect(d.additionalTax.kind, label).not.toBe('AMOUNT')
+    })
+
+    it('하한(프로필 없음 · 환율 빠짐)이면 0이 아닌 금액은 늘 「이상」이 붙는다', () => {
+      for (const { label, s, z, u, d } of cases) if ((!s || u) && !z) expect(d.additionalTax.kind, label).toBe('AT_LEAST')
+    })
+
+    it('하한 신호 둘과 「0원이 정상」은 접지 않는다 · 적용 차수 가정은 늘 접힌 첫 줄이다', () => {
+      for (const { label, d } of cases) {
+        for (const line of [P, E, N]) expect(d.folded, label).not.toContain(line)
+        expect(d.folded[0], label).toBe('ESTIMATE_BASIS')
+        // 같은 줄이 두 자리에 서지 않는다
+        expect(new Set([...d.shown, ...d.folded]).size, label).toBe(d.shown.length + d.folded.length)
+      }
+    })
+  })
+
+  it('접는 줄 — 월지급 가정 · 환산 포함은 계약이 준 조건에서만 (적용 차수 가정 뒤 · 그 순서)', () => {
+    const base = (extra: Partial<Parameters<typeof yearTaxDisplay>[0]>) => yearTaxDisplay(input(true, true, false, false, extra)).folded
+    expect(base({ monthlyCouponAssumption: true })).toEqual(['ESTIMATE_BASIS', 'MONTHLY_COUPON'])
+    expect(base({ convertedCount: 2, exchangeRateBasis: BASIS })).toEqual(['ESTIMATE_BASIS', 'CONVERTED'])
+    expect(base({ monthlyCouponAssumption: true, convertedCount: 2, exchangeRateBasis: BASIS })).toEqual([
+      'ESTIMATE_BASIS',
+      'MONTHLY_COUPON',
+      'CONVERTED',
+    ])
+    // 환율이 없으면 그 줄을 쓸 수 없다 · 건수가 0이면 환율이 있어도 줄이 없다(계약의 `≠ null ⇔ convertedCount > 0`의 두 반쪽)
+    expect(base({ convertedCount: 2, exchangeRateBasis: null })).toEqual(['ESTIMATE_BASIS'])
+    expect(base({ convertedCount: 0, exchangeRateBasis: BASIS })).toEqual(['ESTIMATE_BASIS'])
+  })
+
+  it('★ 표기가 칸을 정하지 않는다 — 0의 다른 표기도 0이다(문자열 비교 구현을 잡는다)', () => {
+    /*
+     * 오늘 이 필드는 `amountString`(`toFixed(0)`)을 지나 늘 정수 표기라 `=== '0'`도 같은 답을 낸다 — 이 케이스는 그
+     * 정규화가 사라지는 날의 회귀 방어이고, 없으면 문자열 비교로 되돌리는 음성 대조가 초록이다(`hasFinancialIncomeToReport` 선례)
+     */
+    for (const zero of ['0.000', '00', '-0', '0.0']) {
+      expect(yearTaxDisplay(input(false, false, zero, false)).additionalTax, zero).toEqual({ kind: 'PROFILE_MISSING' })
+      const saved = yearTaxDisplay(input(true, true, zero, false))
+      expect(saved.additionalTax, zero).toEqual({ kind: 'AMOUNT', value: zero })
+      expect(saved.shown, zero).toEqual([N])
+      expect(yearTaxDisplay(input(true, true, zero, true)).additionalTax.kind, zero).toBe('AMOUNT')
+    }
+  })
+})
+
+describe('③ 문구 ↔ DOC-008 SCR-101 「홈 피드백 컷 K0」 ③ (살아 있는 글 · 그 각주 하나 · 홈 피드백 컷 K10)', () => {
+  /*
+   * 문구의 정본은 K0 각주의 ③ 문단이다. 그 각주는 ①부터 ⑥까지 한 인용 블록이므로 ③의 머리에서 잘라 ⑥ 머리 앞에서 끊는다 —
+   * 같은 낱말(「추정 기준 보기」 · 「종합과세 대상」)을 §9 SQ-27 · DOC-005가 인용하므로 문서 전체에 걸면 정본에서 지워도 초록이다
+   */
+  const block = quoteBlock(liveDoc('08_정보구조_및_화면목록.md'), '> **③ 올해 금융소득(본인) — 과세 프로필과 추정 기준')
+  const end = block.indexOf('\n> **⑥')
+  const section = block.slice(0, end)
+
+  /** 문구 상수 전부 — 중첩(판정 본문)을 펴서 키가 늘어도 결속 밖으로 새지 않게 한다 */
+  const TEXTS: Array<[string, string]> = [
+    ...Object.entries(TAX_METHOD_VERDICT_LABELS).map(([k, v]): [string, string] => [`판정 제목 ${k}`, v]),
+    ...Object.entries(YEAR_TAX_TEXT).flatMap(([k, v]): Array<[string, string]> =>
+      typeof v === 'string' ? [[k, v]] : Object.entries(v).map(([k2, v2]): [string, string] => [`${k}.${k2}`, v2]),
+    ),
+  ]
+
+  it('전제 — ③ 문단만 잘랐다(⑥ 앞에서 끊었다) · 상수 열둘을 다 폈다', () => {
+    expect(end, '⑥ 머리를 찾지 못했다 — 블록 끝까지 자르면 ⑥의 인용이 섞인다').toBeGreaterThan(0)
+    expect(section).not.toContain('⑥ 상환 확인 필요')
+    expect(TEXTS).toHaveLength(12)
+  })
+
+  it.each(TEXTS)('%s — 「」째로 있다', (_key, text) => {
+    expect(section).toContain(`「${text}」`)
+  })
+
+  it('링크의 목적지 — 백틱째 있고 SCR-401 경로의 조각이다', () => {
+    expect(TAX_PROFILE_SECTION.href).toBe(`${PATHS.tax}#${TAX_PROFILE_SECTION.id}`)
+    expect(section).toContain(`\`${TAX_PROFILE_SECTION.href}\``)
+  })
+
+  it('판정 제목은 DOC-005 §9의 권장 표기다 — SCR-401과 같은 이름', () => {
+    expect(liveDoc('05_용어_사전.md')).toContain(
+      `「${TAX_METHOD_VERDICT_LABELS.COMPREHENSIVE}」 · 「${TAX_METHOD_VERDICT_LABELS.SEPARATE}」 (SCR-101 ③ · SCR-401의 판정 제목)`,
+    )
   })
 })

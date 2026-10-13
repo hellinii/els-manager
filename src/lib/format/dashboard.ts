@@ -24,6 +24,7 @@ import type { AttentionReason } from '@/lib/db/queries/map'
 import { dec } from '@/lib/decimal'
 
 import { ATTENTION_REASON_GRADES, type BadgeGrade } from './badges'
+import { taxMethodVerdictOf, type TaxMethodVerdict } from './tax'
 
 /**
  * 표시 건수 — 「스크롤이나 클릭 없이 세 가지를 안다」(DOC-008 §5의 설계 의도).
@@ -77,6 +78,126 @@ export const RECENT_VISIBLE = 3
  */
 export function hasFinancialIncomeToReport(tax: { financialIncome: string }): boolean {
   return !dec(tax.financialIncome).isZero()
+}
+
+/**
+ * ③의 화면 문구 — DOC-008 SCR-101 「홈 피드백 컷 K0」 ③의 「」와 같은 바이트다 (홈 피드백 컷 K10 · DOC-005 §2.1)
+ *
+ * 제목 · 칸 글자는 명사형이고 안내는 해요체다. 판정 제목은 SCR-401과 같은 상수(`TAX_METHOD_VERDICT_LABELS` — `./tax`)이고
+ * 여기 있는 것은 홈만의 글자다. 결속은 `tests/app/dashboard.test.ts`(문서의 그 블록 하나 — `quoteBlock`)다.
+ *
+ * **세율 숫자를 넣지 않는다**(절대 규칙 #5) — 「0원이 정상」 안내가 원천징수율을 숫자로 말하면 세율이 코드에 박힌다.
+ */
+export const YEAR_TAX_TEXT = {
+  verdictBody: {
+    COMPREHENSIVE: '다른 종합소득과 합산해 누진세율이 적용돼요.',
+    SEPARATE: '원천징수로 납세 의무가 끝나요.',
+  } satisfies Record<TaxMethodVerdict, string>,
+  /** 추가납부 칸 — 프로필이 없고 추가납부가 0일 때 금액 대신 */
+  profileMissing: '프로필 미입력',
+  /** 하한 표식 — 금액 뒤 */
+  atLeast: '이상',
+  profileMissingNote: '과세 프로필이 없어 다른 소득을 0으로 계산했어요. 판정과 추가납부는 하한이에요.',
+  /**
+   * 해소 경로 — 다른 소득이 정말 없는 사용자가 이 줄을 늘 보지 않게 한다(DOC-008 SQ-18 「늘 켜진 강조는 정보가 0이다」).
+   * 0으로 저장하면 그 해 행이 생겨 `isProfileSaved`가 참이 된다
+   */
+  profileMissingResolve: '0으로 저장하면 사라져요.',
+  profileLink: '과세 프로필 입력',
+  zeroIsNormal: '0원이 정상일 수 있어요. 종합과세여도 이미 원천징수된 세금으로 충분하면 더 낼 세금이 없어요.',
+  basisSummary: '추정 기준 보기',
+  estimateBasis: '미상환 상품은 적용 차수(다음 도래 평가일)에 상환된다고 가정한 추정이에요.',
+} as const
+
+/**
+ * ③ 박스의 줄 — 앞의 셋은 **펼친 채** 두고 뒤의 셋은 「추정 기준 보기」 안에 접는다(DOC-008 SCR-101 「홈 피드백 컷 K0」 ③).
+ *
+ * | 줄 | 자리 | 왜 |
+ * |---|---|---|
+ * | `PROFILE_MISSING` | 펼침 | 판정과 추가납부가 **하한**이라는 신호다 |
+ * | `EXCHANGE_RATE_MISSING` | 펼침 | ST-07 — 같은 하한 신호(DOC-008 §6 ST-07 「자리」 — 접지 않는다) |
+ * | `ZERO_IS_NORMAL` | 펼침 | 종합과세인데 0원이면 오류로 읽힌다(DOC-007 §5.5) |
+ * | `ESTIMATE_BASIS` · `MONTHLY_COUPON` · `CONVERTED` | 접음 | 추정의 **기준** — 값의 성격을 바꾸지 않는다 |
+ */
+export type YearTaxLine =
+  | 'PROFILE_MISSING'
+  | 'EXCHANGE_RATE_MISSING'
+  | 'ZERO_IS_NORMAL'
+  | 'ESTIMATE_BASIS'
+  | 'MONTHLY_COUPON'
+  | 'CONVERTED'
+
+/** 추가납부 칸 — 금액 · 「{금액} 이상」 · 「프로필 미입력」. `value`는 계약의 문자열 그대로다(화면이 `won`으로 적는다) */
+export type YearTaxAmount = { kind: 'AMOUNT' | 'AT_LEAST'; value: string } | { kind: 'PROFILE_MISSING' }
+
+export type YearTaxDisplay = {
+  verdict: TaxMethodVerdict
+  additionalTax: YearTaxAmount
+  /** 펼친 채 두는 줄 — 순서대로 그린다 */
+  shown: YearTaxLine[]
+  /** 「추정 기준 보기」 안의 줄 — 늘 하나 이상이다(`ESTIMATE_BASIS`) */
+  folded: YearTaxLine[]
+}
+
+/**
+ * **③이 무엇을 확정처럼 적고 무엇을 하한으로 적는가** — SCR-101 ③ (홈 피드백 컷 K10 · 피드백 #5 · #6)
+ *
+ * ## 하한이 둘에서 온다
+ *
+ * `!isProfileSaved`(다른 소득이 0으로 들어갔다)와 `unconvertedCount > 0`(환율이 없어 달러 추정이 빠졌다). 추가납부는
+ * 다른 종합소득과 금융소득이 더해질수록 줄지 않으므로(귀속세액이 비교과세의 큰 값이고 누진세표가 볼록하다 — DOC-007 §5.2 ·
+ * `lib/tax/comprehensive.ts`) 그 상태의 값은 실제 값의 **하한**이다. 그래서 0이 아닌 값은 「{금액} 이상」이다.
+ *
+ * ## 프로필이 없고 0이면 금액을 적지 않는다
+ *
+ * 「0원」은 판정의 결과처럼 읽힌다 — 이번 피드백이 그것이었다(프로필 없는 사용자에게 「0원」이 확정처럼 보였다). 그때는
+ * 「프로필 미입력」이다(DOC-005 「과세 프로필」 · §6.1 `NONE` 「미입력」과 같은 근거). **환율만 빠지고 0이면 「0원」이다** —
+ * 그 하한 신호는 ST-07 줄이 펼친 채로 말한다.
+ *
+ * ## 분리과세라서 0이라고 가정하지 않는다
+ *
+ * 분리과세 경로의 추가납부는 상수가 일관되면 정확히 0이다(`separateTaxationRate` = `separateTaxationIncomeTaxRate` ×
+ * (1 + `localIncomeTaxRate`) — `lib/tax/comprehensive.ts` · `withholding.ts`). 그
+ * 일관성은 이 함수의 전제가 아니다 — 계약이 준 `additionalTax`를 판정과 무관하게 그대로 다룬다. 0이 아닌 분리과세 값이
+ * 오면 상수가 어긋난 것이고, 그때 화면이 그 값을 숨기면 결함이 사라진다.
+ *
+ * ## 비교는 `dec`다 (절대 규칙 #2)
+ *
+ * `'0.000'` · `'-0'`도 0이다. 오늘 이 필드는 `amountString`(`toFixed(0)`)을 지나 늘 정수 표기지만, 표기가 칸을 정하면
+ * 그 정규화가 사라지는 날 「프로필 미입력」이 「0.000원」이 된다(`hasFinancialIncomeToReport`와 같은 판단).
+ *
+ * 타입을 계약에 묶지 않고 필요한 필드만 요구한다(이 파일 머리글).
+ */
+export function yearTaxDisplay(tax: {
+  isComprehensive: boolean
+  isProfileSaved: boolean
+  additionalTax: string
+  unconvertedCount: number
+  convertedCount: number
+  monthlyCouponAssumption: boolean
+  exchangeRateBasis: unknown
+}): YearTaxDisplay {
+  const saved = tax.isProfileSaved
+  const unconverted = tax.unconvertedCount > 0
+  const zero = dec(tax.additionalTax).isZero()
+  const lowerBound = !saved || unconverted
+
+  const additionalTax: YearTaxAmount =
+    !saved && zero
+      ? { kind: 'PROFILE_MISSING' }
+      : { kind: lowerBound && !zero ? 'AT_LEAST' : 'AMOUNT', value: tax.additionalTax }
+
+  const shown: YearTaxLine[] = []
+  if (!saved) shown.push('PROFILE_MISSING')
+  if (unconverted) shown.push('EXCHANGE_RATE_MISSING')
+  if (saved && tax.isComprehensive && zero && !unconverted) shown.push('ZERO_IS_NORMAL')
+
+  const folded: YearTaxLine[] = ['ESTIMATE_BASIS']
+  if (tax.monthlyCouponAssumption) folded.push('MONTHLY_COUPON')
+  // 계약은 `≠ null ⇔ convertedCount > 0`이다 — 둘 다 보는 것은 종전 렌더의 조건 그대로다(환율 없이 그 줄을 쓸 수 없다)
+  if (tax.convertedCount > 0 && tax.exchangeRateBasis != null) folded.push('CONVERTED')
+
+  return { verdict: taxMethodVerdictOf(tax.isComprehensive), additionalTax, shown, folded }
 }
 
 /**

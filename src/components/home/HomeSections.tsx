@@ -18,7 +18,9 @@ import {
   RECENT_VISIBLE,
   REDEMPTION_TYPE_LABELS,
   SECTION_EMPTY,
+  TAX_METHOD_VERDICT_LABELS,
   UPCOMING_VISIBLE,
+  YEAR_TAX_TEXT,
   amount,
   barrierGap,
   convertedIncludedLine,
@@ -35,10 +37,13 @@ import {
   signedMoney,
   takeVisible,
   won,
+  yearTaxDisplay,
   ymd,
+  type YearTaxAmount,
+  type YearTaxLine,
 } from '@/lib/format'
 import { FILTER_KEYS, type DashboardScope } from '@/lib/forms/query'
-import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
+import { PATHS, REDEEM_ROUND, TAX_PROFILE_SECTION } from '@/lib/routes/paths'
 
 /**
  * SCR-101의 여섯 요소 — DOC-008 §5 (P4 컷 9 · ⑥은 P6 컷 7-4)
@@ -465,8 +470,14 @@ export function TotalsSection({
  * `scope = 'ALL'`이어도 세금은 합산하지 않으므로 전체 보기는 **상단이 전원이고
  * 세금이 본인인 화면**이 된다. 제목이 그 사실을 말하지 않으면 사용자는 전체 보기의
  * 금융소득을 가족 합계로 읽는다 — 그래서 「(본인)」이 두 범위 모두에서 붙는다.
+ *
+ * **하한을 확정처럼 적지 않는다** (홈 피드백 컷 K10 · 피드백 #5 · #6 · DOC-008 SCR-101 「홈 피드백 컷 K0」 ③). 과세
+ * 프로필이 없는 사용자에게 「분리과세로 종결」과 추가납부 0원이 확정 결과처럼 보였다 — 프로필이 없으면(계약의
+ * `isProfileSaved`) 다른 소득이 0으로 들어가 판정과 추가납부가 하한이다. 0원 자체는 정상일 수 있다(DOC-007 §5.5).
  */
 export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }) {
+  // 무엇을 확정처럼 적고 무엇을 하한으로 적는가 — 순수 함수가 정한다(홈 피드백 컷 K10 · 진리표는 `tests/app/dashboard.test.ts`)
+  const display = yearTaxDisplay(tax)
   return (
     <section className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -491,71 +502,124 @@ export function YearTaxSection({ tax }: { tax: DashboardView['currentYearTax'] }
           tax.isComprehensive ? 'bg-amber-50' : 'border border-neutral-200'
         }`}
       >
+        {/*
+          박스 안의 회색 글자는 neutral-600이다 — amber-50 위의 neutral-500은 4.57:1로 여유가 0.07이다(DOC-008 §6 ST-08 ·
+          홈 피드백 컷 K10). 칸 머리 둘은 흰 바탕일 때도 같은 색이다(바탕에 따라 글자색을 바꾸지 않는다).
+        */}
         <dl className="grid gap-3 sm:grid-cols-2">
           <div>
-            <dt className="text-xs text-neutral-500">금융소득 합계</dt>
+            <dt className="text-xs text-neutral-600">금융소득 합계</dt>
             <dd className="text-base font-semibold tabular-nums">
               {won(tax.financialIncome)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-neutral-500">추가납부 (추정)</dt>
+            <dt className="text-xs text-neutral-600">추가납부 (추정)</dt>
             <dd className="text-base font-semibold tabular-nums">
-              {won(tax.additionalTax)}
+              <AdditionalTaxValue amount={display.additionalTax} />
             </dd>
           </div>
         </dl>
 
+        {/*
+          판정 — 제목은 SCR-401과 같은 상수(명사형 · DOC-005 §9)이고 본문은 해요체다. 상세로 보내는 문장은 두지 않는다 — 절
+          머리의 「세금 계산」 링크가 같은 일을 한다(종전 「상세는 세금 계산 화면에서 본다」를 지웠다). **프로필이 없으면 판정도
+          하한이다** — 그 사실은 아래 펼친 줄(`PROFILE_MISSING`)이 말한다.
+        */}
         <p className={`text-sm ${tax.isComprehensive ? 'text-amber-900' : 'text-neutral-700'}`}>
-          {tax.isComprehensive ? (
-            <>
-              <strong>종합과세 대상이다.</strong> 다른 종합소득과 합산해 누진세율이
-              적용된다 — 상세는 세금 계산 화면에서 본다.
-            </>
-          ) : (
-            <>
-              <strong>분리과세로 종결된다.</strong> 원천징수로 납세 의무가 끝난다.
-            </>
-          )}
+          <strong className="block">{TAX_METHOD_VERDICT_LABELS[display.verdict]}</strong>
+          {YEAR_TAX_TEXT.verdictBody[display.verdict]}
         </p>
 
         {/*
-          미상환 상품의 기여는 적용 차수의 **추정**이다(RD-02 · §4.6). 적지 않으면
-          확정된 세액으로 읽힌다 — ST-05가 요구하는 구분이며, 이 절은 숫자가 둘뿐이라
-          뱃지 대신 한 줄로 적는다.
+          펼친 채 두는 줄 — 하한 신호 둘(프로필 없음 · ST-07)과 「0원이 정상」. ST-07은 SCR-401처럼 접지 않는다(DOC-008 §6
+          ST-07 명세 「자리」). 어느 줄이 서는가는 `yearTaxDisplay`가 정한다 — 화면은 그 결과를 그대로 그린다
         */}
-        <p className="text-xs text-neutral-500">
-          미상환 상품은 적용 차수(다음 도래 평가일)에 상환된다고 가정한 추정이며,
-          과세 프로필을 저장하지 않았으면 금융소득 외 소득이 0으로 계산된다.
-          {/*
-            월지급 가정 (P8 컷 b4 — DOC-008 SQ-21 ⓚ (c)) — 올해 F에 추정 월수익 사건이 있을 때만(계약의
-            `currentYearTax.monthlyCouponAssumption`). 문장은 SCR-401 · SCR-502와 같은 상수다
-          */}
-          {tax.monthlyCouponAssumption && <> {MONTHLY_COUPON_ESTIMATE_NOTE}.</>}
-        </p>
+        {display.shown.map((line) => (
+          <YearTaxLineView key={line} line={line} tax={tax} />
+        ))}
 
         {/*
-          ST-07 — 빠진 몫이 있으면 합계와 판정은 **하한**이다. 기본 환율로 채워 판정을
-          «완성»하지 않는다(DOC-011 §4.6). 건수는 계약이 센다 — 화면이 세면 무엇이 추정이
-          필요한 건인가(E-09)를 계약 밖에서 다시 판정하게 된다.
+          추정의 **기준** — 「추정 기준 보기」 안에 접는다(Nav의 `<details>`와 같은 패턴 — 서버가 그리므로 JS 없이 열리고
+          접힌 문장도 HTML에 있다). ST-05의 추정 표식은 「추가납부 (추정)」 머리와 이 요약이 진다. 종전 추정 안내 줄의 뒷절
+          (프로필을 저장하지 않았을 때의 조건문)은 지웠다 — 늘 떠 있어 프로필이 있는 사용자에게 정보가 0이었다(DOC-008 SQ-18).
+          그 내용은 조건부 `PROFILE_MISSING` 줄이 말한다
         */}
-        {/*
-          환산을 했으면 그 사실과 환율을 적는다(DOC-008 SCR-101 ③ a3). n은 계약의 `convertedCount`다 — 화면이 세지
-          않는다. 올해 귀속 달러 건이 전부 확정이거나 비과세면 0이라 줄이 없다.
-        */}
-        {tax.convertedCount > 0 && tax.exchangeRateBasis != null && (
-          <p className="text-xs text-neutral-500">
-            {convertedIncludedLine(tax.convertedCount, tax.exchangeRateBasis)}
-          </p>
-        )}
-        {tax.unconvertedCount > 0 && (
-          <p className="text-xs text-amber-900">
-            <ExchangeRateMissingNotice missing={{ kind: 'COUNT', count: tax.unconvertedCount }} />
-          </p>
-        )}
+        <details className="text-xs text-neutral-600">
+          <summary className="cursor-pointer">{YEAR_TAX_TEXT.basisSummary}</summary>
+          <div className="mt-1 flex flex-col gap-1">
+            {display.folded.map((line) => (
+              <YearTaxLineView key={line} line={line} tax={tax} />
+            ))}
+          </div>
+        </details>
       </div>
     </section>
   )
+}
+
+/** ③ 추가납부 칸 — 「프로필 미입력」 · 금액 · 「{금액} 이상」 (`yearTaxDisplay`의 `additionalTax`) */
+function AdditionalTaxValue({ amount }: { amount: YearTaxAmount }) {
+  if (amount.kind === 'PROFILE_MISSING') {
+    return <span className="text-sm font-medium text-neutral-700">{YEAR_TAX_TEXT.profileMissing}</span>
+  }
+  return (
+    <>
+      {won(amount.value)}
+      {amount.kind === 'AT_LEAST' && (
+        <span className="ml-1 text-xs font-normal text-neutral-600">{YEAR_TAX_TEXT.atLeast}</span>
+      )}
+    </>
+  )
+}
+
+/**
+ * ③의 줄 하나 — 줄 종류마다 글자 하나. `switch`가 `YearTaxLine` 전수를 덮지 않으면 typecheck가 막는다(`never`).
+ *
+ * 월지급 가정 (P8 컷 b4 — DOC-008 SQ-21 ⓚ (c)) — 올해 F에 추정 월수익 사건이 있을 때만(계약의
+ * `currentYearTax.monthlyCouponAssumption`). 문장은 SCR-401 · SCR-502와 같은 상수다. 환산 포함 줄의 n은 계약의
+ * `convertedCount`다(DOC-008 SCR-101 ③ a3 — 화면이 세지 않는다). ST-07의 건수도 계약이 센다 — 화면이 세면 무엇이 추정이
+ * 필요한 건인가(E-09)를 계약 밖에서 다시 판정하게 된다.
+ */
+function YearTaxLineView({
+  line,
+  tax,
+}: {
+  line: YearTaxLine
+  tax: DashboardView['currentYearTax']
+}) {
+  switch (line) {
+    case 'PROFILE_MISSING':
+      // 링크는 줄 끝이다 — ST-07의 링크 자리와 같다. 목적지는 SCR-401 과세 프로필 절(`/tax#tax-profile`)
+      return (
+        <p className="text-xs text-neutral-700">
+          {YEAR_TAX_TEXT.profileMissingNote} {YEAR_TAX_TEXT.profileMissingResolve}{' '}
+          <Link href={TAX_PROFILE_SECTION.href} className="font-medium underline underline-offset-2">
+            {YEAR_TAX_TEXT.profileLink}
+          </Link>
+        </p>
+      )
+    case 'EXCHANGE_RATE_MISSING':
+      return (
+        <p className="text-xs text-amber-900">
+          <ExchangeRateMissingNotice missing={{ kind: 'COUNT', count: tax.unconvertedCount }} />
+        </p>
+      )
+    case 'ZERO_IS_NORMAL':
+      return <p className="text-xs text-neutral-700">{YEAR_TAX_TEXT.zeroIsNormal}</p>
+    case 'ESTIMATE_BASIS':
+      return <p>{YEAR_TAX_TEXT.estimateBasis}</p>
+    case 'MONTHLY_COUPON':
+      return <p>{MONTHLY_COUPON_ESTIMATE_NOTE}.</p>
+    case 'CONVERTED':
+      return tax.exchangeRateBasis == null ? null : (
+        <p>{convertedIncludedLine(tax.convertedCount, tax.exchangeRateBasis)}</p>
+      )
+    default: {
+      const unreachable: never = line
+      return unreachable
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

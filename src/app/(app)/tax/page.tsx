@@ -26,7 +26,7 @@ import {
   selectableYears,
 } from '@/lib/format'
 import { TAX_KEYS, parseTaxFilter, type QueryValues } from '@/lib/forms/query'
-import { PATHS } from '@/lib/routes/paths'
+import { PATHS, TAX_PROFILE_SECTION } from '@/lib/routes/paths'
 
 /**
  * SCR-401 세금 계산 — P4 컷 8 (DOC-008 §5, DOC-011 §4.6·§5.6)
@@ -164,7 +164,11 @@ export default async function TaxPage({
         </div>
       )}
 
-      <div className="flex flex-col gap-3">
+      {/*
+        홈 ③ 「과세 프로필 입력」의 목적지(홈 피드백 컷 K10 — `TAX_PROFILE_SECTION`). `scroll-mt-4`는 조각으로 왔을 때
+        제목이 화면 위 끝에 붙지 않게 한다.
+      */}
+      <div id={TAX_PROFILE_SECTION.id} className="flex scroll-mt-4 flex-col gap-3">
         <h2 className="text-sm font-semibold">과세 프로필</h2>
         <TaxOverrideForm
           year={summary.year}

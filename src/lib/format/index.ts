@@ -129,7 +129,12 @@ export {
   type TimelineRow,
 } from './schedule'
 export { paginate, PRODUCTS_PER_PAGE, type Paged } from './page'
-export { selectableYears } from './tax'
+export {
+  selectableYears,
+  TAX_METHOD_VERDICT_LABELS,
+  taxMethodVerdictOf,
+  type TaxMethodVerdict,
+} from './tax'
 export { isForecastEmpty } from './forecast'
 export {
   attentionChipLabel,
@@ -137,10 +142,15 @@ export {
   hasFinancialIncomeToReport,
   heaviestGrade,
   takeVisible,
+  yearTaxDisplay,
   RECENT_VISIBLE,
   UPCOMING_VISIBLE,
+  YEAR_TAX_TEXT,
   type AttentionGroup,
   type Visible,
+  type YearTaxAmount,
+  type YearTaxDisplay,
+  type YearTaxLine,
 } from './dashboard'
 export { missingUpcomingNote, SECTION_EMPTY } from './emptyState'
 export { splitProductName, type ProductNameParts } from './productName'

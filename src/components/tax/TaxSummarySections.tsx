@@ -11,6 +11,7 @@ import {
   INTEGRITY_ISSUE_LABELS,
   PRODUCT_CURRENCY_LABELS,
   PARTIAL_RATE_MISSING_NOTE,
+  TAX_METHOD_VERDICT_LABELS,
   amount,
   contributionBreakdownLine,
   convertedTaxLine,
@@ -93,15 +94,19 @@ export function IncomeSection({ view }: { view: TaxSummaryView }) {
             : 'bg-neutral-100 text-neutral-700'
         }`}
       >
+        {/*
+          제목은 홈 ③과 같은 상수다(홈 피드백 컷 K10 — 같은 판정을 두 화면이 다른 이름으로 부르지 않는다 · DOC-005 §9).
+          명사형 제목이라 줄을 가른다(`block`). 본문은 이 화면의 문장이고 문체 이행은 DOC-008 SQ-23이다
+        */}
         {income.isComprehensive ? (
           <>
-            <strong>종합과세 대상이다.</strong> 종합과세 기준금액을{' '}
+            <strong className="block">{TAX_METHOD_VERDICT_LABELS.COMPREHENSIVE}</strong> 종합과세 기준금액을{' '}
             <span className="tabular-nums">{won(income.thresholdGap)}</span> 초과했다 —
             다른 종합소득과 합산해 누진세율이 적용된다(비교과세).
           </>
         ) : (
           <>
-            <strong>분리과세로 종결된다.</strong> 종합과세 기준금액까지{' '}
+            <strong className="block">{TAX_METHOD_VERDICT_LABELS.SEPARATE}</strong> 종합과세 기준금액까지{' '}
             <span className="tabular-nums">{won(income.thresholdGap)}</span> 남았다 —
             원천징수로 납세 의무가 끝난다.
           </>
