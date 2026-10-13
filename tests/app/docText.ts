@@ -17,6 +17,12 @@ import { join } from 'node:path'
  * - **변경 이력 행** — `| 2.49 | 2026-10-13 | …`처럼 버전 · 날짜로 시작하는 표 행
  *
  * 자기 검증은 `emptyState.test.ts`의 「liveDoc」 describe다(실제 문서의 취소선 안에만 있는 문장이 벗겨지는가).
+ *
+ * ## 범위도 좁힌다 — `quoteBlock` (홈 피드백 컷 K7)
+ *
+ * 문서 전체에 `toContain`을 걸면 **같은 글자가 다른 자리에 있어도** 초록이다 — 홈 ① 빈 줄의 제목은 정본 각주 말고도
+ * SQ-28 · K0 각주가 인용하므로, 정본만 고쳐도(또는 정본에서 지워도) 결속이 깨지지 않았다(K4 검증 지적). 그래서 결속은
+ * 정본이 있는 **인용 블록 하나**(`>`로 시작하는 연속된 줄)를 잘라 그 안에서만 찾는다.
  */
 export function liveDoc(file: string): string {
   return liveText(readFileSync(join(process.cwd(), 'docs', file), 'utf8'))
@@ -32,4 +38,20 @@ export function liveText(text: string): string {
     .filter((line) => !HISTORY_ROW.test(line))
     .map((line) => line.replace(/~~.*?~~/g, ''))
     .join('\n')
+}
+
+/**
+ * `opening`으로 시작하는 줄부터 `>`로 시작하는 줄이 이어지는 동안의 인용 블록 — 문서의 각주 하나다.
+ *
+ * 여는 줄은 **정확히 하나**여야 한다 — 없거나 둘이면 던진다(0개를 자르고 초록이 되거나, 엉뚱한 블록을 자르는 것을 막는다).
+ * 살아 있는 글(`liveText`)에 건다 — 블록 안의 취소선도 벗겨진 채다.
+ */
+export function quoteBlock(text: string, opening: string): string {
+  const lines = text.split('\n')
+  const starts = lines.flatMap((line, i) => (line.startsWith(opening) ? [i] : []))
+  if (starts.length !== 1) throw new Error(`여는 줄이 ${starts.length}개다: ${opening}`)
+  const from = starts[0]!
+  let to = from
+  while (to + 1 < lines.length && lines[to + 1]!.startsWith('>')) to++
+  return lines.slice(from, to + 1).join('\n')
 }

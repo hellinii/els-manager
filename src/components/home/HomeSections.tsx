@@ -23,7 +23,6 @@ import {
   barrierGap,
   convertedIncludedLine,
   dDayLabel,
-  evaluationVerdictSentence,
   gapTierOf,
   groupAttention,
   heaviestGrade,
@@ -32,6 +31,7 @@ import {
   missingUpcomingNote,
   money,
   percent,
+  redemptionCheckNote,
   signedMoney,
   takeVisible,
   won,
@@ -77,7 +77,11 @@ import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
  * - **[상환 처리]는 소유자에게만**(ST-04 · D1) — 남의 상품은 이름과 사실만. 판정 넷 모두에 단다(종가 없음이어도 증권사에서
  *   확인한 사용자가 기록하러 갈 수 있어야 한다). **「시세 입력」은 모두에게** — 종가 없음이고 주말이 아닐 때만(시세는 공용
  *   데이터 · 주말 날짜의 종가는 「관측하지 않은 관측」 — DOC-010 AQ-100)
- * - 안내 문장은 상세(SCR-202)와 같은 함수다. 지급방식은 계약에 없으므로 `null` — V-29 문장은 SCR-203이 말한다
+ * - ~~안내 문장은 상세(SCR-202)와 같은 함수다~~ → **행의 안내는 평가일 종가 없음일 때만이고, 말할 때는 상세와 같은 함수의
+ *   같은 문장이다** *(홈 피드백 컷 K7 · 민서 결정(2026-10-12) D7 — `redemptionCheckNote`)*. 충족 · 만기는 배지 · 수치 줄 ·
+ *   [상환 처리]가 같은 말을 이미 한다. 지급방식은 계약에 없으므로 `null` — V-29 문장은 SCR-203이 말한다
+ * - **블록 안내가 충족의 「추정」을 말한다**(ST-05) — 행의 문장이 빠져도 추정 표식은 남아야 한다. 만기는 추정이 아니므로
+ *   「추정」의 범위를 조건 충족으로 좁혀 적는다(DOC-008 SCR-101 「블록 안내 한 줄」)
  * - **카드는 등급 색을 바탕에 깔지 않는다** *(홈 피드백 컷 K3 · 민서 결정(2026-10-12) D1)* — 흰 바탕에 왼쪽 띠만 배지
  *   등급의 색이다(`GRADE_ACCENT` — 충족 · 만기는 `record` 파랑, 종가 없음은 `caution` 앰버). D+n은 줄의 글자색을
  *   물려받는다(중립). 종전의 빨강 바탕 · 빨강 D+n은 조건 충족을 경고로 읽게 했다(피드백 #1). 옅은 파랑 바탕도 깔지
@@ -98,51 +102,54 @@ export function RedemptionCheckSection({
         상환 확인 필요 <span className="font-normal text-neutral-500">{items.length}건</span>
       </h2>
       <p className="text-xs text-neutral-600">
-        평가일 종가로 판정한 추정이다. 상환을 기록하거나 다음 평가일이 지나면 사라진다. 판정이 이월이면 올리지 않는다.
+        조건 충족은 평가일 종가로 판정한 추정이에요. 상환을 기록하거나 다음 평가일이 지나면 사라져요. 이월이면 뜨지 않아요.
       </p>
 
       <ul className="divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white">
-        {items.map((item) => (
-          <li
-            key={item.productId}
-            className={`flex flex-col gap-1.5 border-l-4 px-4 py-3 ${GRADE_ACCENT[EVALUATION_VERDICT_GRADES[item.kind]]}`}
-          >
-            <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <ProductNameLink productId={item.productId} name={item.productName} />
-                <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
-                  {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
-                  <span className="tabular-nums">{`${item.roundNo}차 · ${ymd(item.evaluationDate)}`}</span>
-                  <span className="tabular-nums">{dDayLabel(item.dDay)}</span>
-                  {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
+        {items.map((item) => {
+          const note = redemptionCheckNote(item)
+          return (
+            <li
+              key={item.productId}
+              className={`flex flex-col gap-1.5 border-l-4 px-4 py-3 ${GRADE_ACCENT[EVALUATION_VERDICT_GRADES[item.kind]]}`}
+            >
+              <span className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <ProductNameLink productId={item.productId} name={item.productName} />
+                  <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
+                    {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
+                    <span className="tabular-nums">{`${item.roundNo}차 · ${ymd(item.evaluationDate)}`}</span>
+                    <span className="tabular-nums">{dDayLabel(item.dDay)}</span>
+                    {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
+                  </span>
+                </span>
+
+                <span className="flex flex-wrap items-center gap-2">
+                  <Badge grade={EVALUATION_VERDICT_GRADES[item.kind]}>{EVALUATION_VERDICT_LABELS[item.kind]}</Badge>
+                  {item.worstOf != null && item.barrier != null && (
+                    <span className="text-xs tabular-nums text-neutral-600">
+                      {`평가일 워스트오브 ${percent(item.worstOf)} · 배리어 ${percent(item.barrier)}`}
+                    </span>
+                  )}
+                  {item.kind === 'CLOSE_MISSING' && !item.weekendEvaluation && (
+                    <Link href={PATHS.prices} className="text-xs font-medium underline">
+                      시세 입력
+                    </Link>
+                  )}
+                  <OwnerOnly isOwner={item.isOwner}>
+                    <Link
+                      href={REDEEM_ROUND.href(item.productId, item.roundNo)}
+                      className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-700"
+                    >
+                      상환 처리
+                    </Link>
+                  </OwnerOnly>
                 </span>
               </span>
-
-              <span className="flex flex-wrap items-center gap-2">
-                <Badge grade={EVALUATION_VERDICT_GRADES[item.kind]}>{EVALUATION_VERDICT_LABELS[item.kind]}</Badge>
-                {item.worstOf != null && item.barrier != null && (
-                  <span className="text-xs tabular-nums text-neutral-600">
-                    {`평가일 워스트오브 ${percent(item.worstOf)} · 배리어 ${percent(item.barrier)}`}
-                  </span>
-                )}
-                {item.kind === 'CLOSE_MISSING' && !item.weekendEvaluation && (
-                  <Link href={PATHS.prices} className="text-xs font-medium underline">
-                    시세 입력
-                  </Link>
-                )}
-                <OwnerOnly isOwner={item.isOwner}>
-                  <Link
-                    href={REDEEM_ROUND.href(item.productId, item.roundNo)}
-                    className="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-neutral-700"
-                  >
-                    상환 처리
-                  </Link>
-                </OwnerOnly>
-              </span>
-            </span>
-            <p className="text-xs text-neutral-700">{evaluationVerdictSentence(item, null)}</p>
-          </li>
-        ))}
+              {note != null && <p className="text-xs text-neutral-700">{note}</p>}
+            </li>
+          )
+        })}
       </ul>
     </section>
   )

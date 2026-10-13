@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { missingUpcomingNote, SECTION_EMPTY } from '@/lib/format'
 
-import { liveDoc, liveText } from './docText'
+import { liveDoc, liveText, quoteBlock } from './docText'
 
 /**
  * 절 빈 상태의 글자 — SCR-101 ① ④ ⑤ · SCR-301 「다가오는 평가일」 (홈 피드백 컷 K4)
@@ -77,13 +77,18 @@ describe('문체 — DOC-005 §2.1', () => {
 
 describe('글자 ↔ DOC-008 (취소선 · 이력 행 밖의 글)', () => {
   const doc = liveDoc(DOC_008)
+  /*
+   * ~~문서 전체~~ → **정본 각주 블록 하나** *(홈 피드백 컷 K7 — K4 검증 지적)*. ①의 제목 「다가오는 평가일 없음」은 SQ-28 ·
+   * K0 ① 각주도 인용하므로 문서 전체에 걸면 정본 각주에서 그 제목을 바꿔도(지워도) 초록이었다(실측 — K7 음성 대조)
+   */
+  const footnote = quoteBlock(doc, '> **①의 절 단위 빈 상태는 이 표의 빈 상태가 아니다.**')
 
   it.each(Object.entries(SECTION_EMPTY))('절 빈 상태 제목 %s — §6 「①의 절 단위 빈 상태」 각주', (_key, title) => {
-    expect(doc).toContain(`「${title}」`)
+    expect(footnote).toContain(`「${title}」`)
   })
 
   it('홈 ①의 뒷절 있는 줄 — 같은 각주', () => {
-    expect(doc).toContain(`「${missingUpcomingNote('HOME', 1)}」`)
+    expect(footnote).toContain(`「${missingUpcomingNote('HOME', 1)}」`)
   })
 
   it('SCR-301의 줄 — §5 빈 상태 표의 「다가오는 평가일이 없다」 행', () => {

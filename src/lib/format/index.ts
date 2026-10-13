@@ -146,6 +146,10 @@ export { missingUpcomingNote, SECTION_EMPTY } from './emptyState'
 export { splitProductName, type ProductNameParts } from './productName'
 export {
   EVALUATION_VERDICT_FRESH_DAYS,
+  EVALUATION_VERDICT_FRESH_NOTE,
+  EVALUATION_VERDICT_MONTHLY_NOTE,
+  EVALUATION_VERDICT_WEEKEND_NOTE,
   evaluationVerdictSentence,
   redeemPrefillNote,
+  redemptionCheckNote,
 } from './verdict'

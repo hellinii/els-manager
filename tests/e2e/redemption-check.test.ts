@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
+import { GRADE_ACCENT } from '@/components/display/Badge'
+import type { EvaluationVerdictView } from '@/lib/db/queries/map'
 import { today } from '@/lib/db/today'
-import { shiftDays } from '@/lib/domain'
-import { EVALUATION_VERDICT_LABELS, REDEMPTION_TYPE_LABELS, redeemPrefillNote } from '@/lib/format'
+import { dDay, shiftDays } from '@/lib/domain'
+import {
+  EVALUATION_VERDICT_LABELS,
+  REDEMPTION_TYPE_LABELS,
+  evaluationVerdictSentence,
+  redeemPrefillNote,
+} from '@/lib/format'
 import { DASHBOARD_KEYS } from '@/lib/forms/query'
 import { REDEMPTION_DATE_OFFSET_DAYS } from '@/lib/forms/redemption'
 import { PATHS, REDEEM_ROUND } from '@/lib/routes/paths'
@@ -34,6 +41,13 @@ import { DISPLAY_NAME } from './helpers/users'
  * 등록일은 `created_at`이고(DOC-005 「등록일」) 계약이 쓰지 않는다. 오늘 등록한 상품의 지난 평가일은 「등록 전」이라 판정
  * 대상이 아니므로(D3) **SQL로 등록일을 발행일로 소급한다** — `defects.ts`의 「계약으로는 도달 불가」 선례와 같은 부류다.
  * 평가일 종가는 **화면으로 넣는다**(SCR-302 — V-17이 그대로 걸린다).
+ *
+ * ## 홈 ⑥의 행 안내는 평가일 종가 없음일 때만이다 (홈 피드백 컷 K7 · 민서 결정(2026-10-12) D7)
+ *
+ * 문장은 **함수로 만들어 단언한다**(`evaluationVerdictSentence` — 리터럴을 따로 두면 문구가 바뀌는 날 음성이 헛돈다). ②의
+ * 음성(충족 행에 문장이 없다)은 ④의 양성(같은 뷰의 문장이 상세에는 있다)과 짝이다 — 뷰를 잘못 만들면 음성이 아무것도
+ * 가리키지 않은 채 초록이 되기 때문이다. `redemptionCheckNote`를 import하지 않는 것도 같은 이유다: 화면이 그 함수를 쓰는지
+ * 이 파일이 보는 것이므로 기대값을 그 함수로 만들면 단언이 자기 자신과 같아진다.
  *
  * 소유자는 통합 사용자 A(이 스위트의 기본 사용자), 남의 보기는 B다. 단언은 ~~상품명으로~~ → **상품 링크(`href="/products/{id}"`)로**
  * 행을 고른다 *(홈 피드백 컷 K1 — 회차 강조가 이름을 노드로 쪼갠다)* — 다른 파일이 A에 만든 상품이 ⑥에 함께 있어도 섞이지 않는다.
@@ -100,6 +114,21 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
   let met: RegisteredProduct
   let carry: RegisteredProduct
 
+  /** 1차 평가일의 판정 뷰 — 계약이 그 행에 싣는 값과 같은 모양(문장은 이것으로 만든다) */
+  function verdictOf(kind: 'EARLY' | 'CLOSE_MISSING'): EvaluationVerdictView {
+    const isMet = kind === 'EARLY'
+    return {
+      kind,
+      roundNo: 1,
+      evaluationDate: firstRound,
+      dDay: dDay({ from: asOf, evaluationDate: firstRound }),
+      worstOf: isMet ? '1.0000' : null,
+      barrier: isMet ? '0.9000' : null,
+      missingAssets: isMet ? null : [{ assetId: met.assetId, assetName: met.assetName }],
+      weekendEvaluation: false,
+    }
+  }
+
   beforeAll(async () => {
     a = await authenticatedJar(ITG_USER_A)
     b = await authenticatedJar(ITG_USER_B)
@@ -128,6 +157,9 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
     expect(row).toContain(`href="${REDEEM_ROUND.href(met.productId, 1)}"`)
     // 결측 자산의 이름이 안내에 있다
     expect(row).toContain(met.assetName)
+    // ★ 그 안내는 상세와 같은 함수의 같은 문장이다(D7 — 홈이 말하는 판정은 이것 하나다) · 띠는 배지 등급(caution)
+    expect(row).toContain(evaluationVerdictSentence(verdictOf('CLOSE_MISSING'), null))
+    expect(row).toContain(GRADE_ACCENT.caution)
   })
 
   it('★ ①′ 종가 없음 — 버튼(?round=1)은 1차를 열고 유형을 비운다 · 쿼리 없이 열면 종전대로 다음 차수다', async () => {
@@ -158,11 +190,29 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
 
   it('② SCR-302에서 그날 종가를 넣으면 「조기상환 조건 충족」으로 바뀐다 — 평가일 W 대 배리어', async () => {
     await saveAssetPrice(a, met.assetId, CLOSE_MET, firstRound)
-    const row = rowIn(sectionOf(await homeOf(a), CHECK), met)
+    const section = sectionOf(await homeOf(a), CHECK)
+    const row = rowIn(section, met)
     expect(row).toContain(EVALUATION_VERDICT_LABELS.EARLY)
     expect(row).toContain('평가일 워스트오브 100% · 배리어 90%')
     // 종가가 생겼으므로 「시세 입력」은 없다
     expect(row).not.toContain(`href="${PATHS.prices}"`)
+
+    /*
+     * ★ 충족 행에는 문장이 없다(D7 · 홈 피드백 컷 K7) — 배지와 수치 줄이 같은 말을 한다. 양성 짝은 ④(상세에 이 문장이
+     * 있다). 결측 자산의 이름도 이제 없다(①의 문장에만 있던 글자)
+     */
+    expect(row).not.toContain(evaluationVerdictSentence(verdictOf('EARLY'), null))
+    expect(row).not.toContain(met.assetName)
+    // ★ 충족의 「추정」은 블록 안내가 진다(ST-05) — 행의 문장이 빠졌으므로 이 절에서 그 낱말을 내는 자리는 그 한 줄이다
+    expect(section).toContain('추정')
+    /*
+     * ★ 카드는 빨강을 쓰지 않는다 — 흰 바탕에 `record` 띠(D1 · 홈 피드백 컷 K3). 종전에는 목록(`<ul>`)이 `bg-red-50/40`
+     * 바탕이고 줄의 D+n이 `text-red-700`이었다(피드백 #1 — 조건 충족을 경고로 읽게 했다). 바탕이 줄 밖(`<ul>`)에 있었으므로
+     * 빨강의 부재는 **절 전체**로 본다 — ⑥의 등급에는 빨강(attention)이 없으므로 다른 상품의 줄이 섞여도 성립한다
+     */
+    expect(row).toContain(GRADE_ACCENT.record)
+    expect(section).not.toContain('bg-red-')
+    expect(section).not.toContain('text-red-')
   })
 
   it('③ 남의 전체 보기에는 행이 있고 [상환 처리]가 없다 — 이름과 사실만(ST-04 · D1)', async () => {
@@ -174,7 +224,9 @@ describe('평가일 판정 · 상환 확인 필요 — 종단 흐름', () => {
 
   it('④ 상세에 같은 안내 · 머리 「상환 처리」가 ?round=1을 단다', async () => {
     const html = visible(await (await get(PATHS.product(met.productId), a)).text())
-    expect(html).toContain('조기상환 조건을 충족했다(워스트오브 100% ≥ 배리어 90% · 추정)')
+    expect(html).toContain('조기상환 조건을 충족했어요(워스트오브 100% ≥ 배리어 90% · 추정)')
+    // ②의 음성 단언의 양성 짝 — 같은 뷰로 만든 문장이 상세에는 그대로 있다(상세는 판정 넷 모두에 문장을 낸다)
+    expect(html).toContain(evaluationVerdictSentence(verdictOf('EARLY'), null))
     expect(html).toContain(`href="${REDEEM_ROUND.href(met.productId, 1)}"`)
   })
 
