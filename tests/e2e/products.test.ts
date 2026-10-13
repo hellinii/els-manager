@@ -1,10 +1,15 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { GRADE_TEXT_CLASS } from '@/components/display/Badge'
+import { today } from '@/lib/db/today'
 import {
   CONDITION_RESULT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   PRODUCTS_PER_PAGE,
   KI_STATUS_LABELS,
   STATUS_LABELS,
+  barrierGap,
   percent,
   priceDisplay,
   won,
@@ -28,7 +33,8 @@ import {
   submitAction,
 } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
-import { registerProduct, type RegisteredProduct } from './helpers/register'
+import { issueDateForFirstRound } from './helpers/dates'
+import { registerProduct, saveAssetPrice, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get, locationPath } from './helpers/server'
 import { E2E_EMPTY } from './helpers/users'
 
@@ -121,6 +127,28 @@ const GHOST_PRODUCT = '00000000-0000-4000-8000-0000000000fe'
 const EMPTY_NARROWED = '조건에 맞는 상품이 없다'
 const EMPTY_TOTAL = '등록된 상품이 없다'
 
+/**
+ * 여유폭 단계의 픽스처 시세 (홈 피드백 컷 K6) — 기준가(99,999,999,999.999999) 대비 0.93 · 0.70. 계약의 4자리 워스트오브가
+ * `0.9300` · `0.7000`이 된다(`home.test.ts`의 같은 상수 각주)
+ */
+const NARROW_PRICE = '93000000000.000000'
+const LIZARD_PRICE = '70000000000.000000'
+
+/** 그 상품의 카드(`<li>`) — 상품 링크로 고른다(`home.test.ts`의 `rowsOf`와 같은 기법 · 이 목록의 카드에는 `<li>`가 겹치지 않는다) */
+function cardOf(html: string, product: RegisteredProduct): string {
+  const href = `href="${PATHS.product(product.productId)}"`
+  const cards = [...html.matchAll(/<li\b[\s\S]*?<\/li>/g)].map((m) => m[0]).filter((li) => li.includes(href))
+  expect(cards, `${product.productName}의 카드가 하나가 아니다`).toHaveLength(1)
+  return cards[0]!
+}
+
+/** 그 값을 글자로 담은 span의 클래스 토큰 — 여유폭 숫자의 색을 노드로 본다(`home.test.ts`의 같은 함수). 없으면 빈 배열 */
+function classesOfValue(row: string, value: string): string[] {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`<span class="([^"]*)">(?:<span[^>]*>[^<]*</span>)?${esc}</span>`).exec(row)
+  return m == null ? [] : m[1]!.split(/\s+/)
+}
+
 describe('SCR-201 목록', () => {
   let jar: ReturnType<typeof cookieJar>
   /**
@@ -128,10 +156,22 @@ describe('SCR-201 목록', () => {
    * 화면으로 만든다 — 그 경로가 배리어·리자드·기준가를 실제로 저장하는 경로다.
    */
   let product: RegisteredProduct
+  /**
+   * 여유폭 단계 둘 (홈 피드백 컷 K6). `narrow` — 1차(배리어 90%)가 가깝고 워스트오브 93%(+3%p 충족 → 근소).
+   * `lizard` — 1차가 30 ~ 60일 전에 지나 2차(배리어 85% · 리자드 60% · KI 미터치)가 적용 차수이고 워스트오브 70%(−15%p
+   * 리자드 충족 → 근소). 둘 다 발행일을 기준일에서 거꾸로 만든다 — 적용 차수가 실행 날짜에 따라 바뀌지 않는다
+   */
+  let narrow: RegisteredProduct
+  let lizard: RegisteredProduct
 
   beforeAll(async () => {
     jar = await authenticatedJar()
     product = await registerProduct(jar, { label: '목록' })
+    const asOf = today()
+    narrow = await registerProduct(jar, { label: '목록근소', issueDate: issueDateForFirstRound(asOf, { min: 5, max: 20 }) })
+    await saveAssetPrice(jar, narrow.assetId, NARROW_PRICE)
+    lizard = await registerProduct(jar, { label: '목록리자드', issueDate: issueDateForFirstRound(asOf, { min: -60, max: -30 }) })
+    await saveAssetPrice(jar, lizard.assetId, LIZARD_PRICE)
   })
 
   it('200으로 서고 필터·정렬 폼이 GET이다', async () => {
@@ -392,6 +432,48 @@ describe('SCR-201 목록', () => {
     ).text()
     expect(all).not.toContain('내 상품이 없다')
     expect(all).not.toContain(EMPTY_TOTAL)
+  })
+
+  it('★ 근소일 때만 「예상 근소 충족」이 덧붙고 여유폭 숫자의 색이 단계를 따른다 — 홈 피드백 컷 K6 · D3', async () => {
+    /*
+     * ★ **같은 목록 안의 대조다.** `product`(워스트오브 120% — 적용 차수의 배리어보다 30%p 이상 위)는 충족이고 근소가 아니다.
+     * `narrow`(+3%p)와 `lizard`(−15%p · 리자드)는 근소다 — 리자드는 여유폭이 음수인데 충족인 유일한 경로이고, 단계가 W를 따라
+     * 단조이려면 근소여야 한다(DOC-005 GQ-11). 충족 · 미충족은 앞의 「예상 {조건 판정}」 배지가 이미 말하므로 덧붙지 않는다.
+     *
+     * 숫자색은 부호가 아니라 단계다 — `narrow`의 +3%p도 `lizard`의 −15%p도 앰버(caution)이고 `product`의 +30%p 이상은
+     * 초록(positive)이다. 부호로 칠하는 구현이면 +3%p가 초록, −15%p가 빨강이 된다.
+     */
+    const met = cardOf(visible(await listPageContaining(jar, product.productName)), product)
+    const near = cardOf(visible(await listPageContaining(jar, narrow.productName)), narrow)
+    const liz = cardOf(visible(await listPageContaining(jar, lizard.productName)), lizard)
+
+    // 전제 — 세 상품의 판정이 의도한 갈래다(아니면 아래 대조가 서로를 가르지 못한다)
+    expect(met).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
+    expect(near).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
+    expect(liz).toContain(`예상 ${CONDITION_RESULT_LABELS.LIZARD}`)
+    expect(near).toContain(`>${percent('0.9300')}<`)
+    expect(liz).toContain(`>${percent('0.7000')}<`)
+
+    // 근소 배지 — 근소인 둘에만
+    expect(near).toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    expect(liz).toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    expect(met, '충족 행에 근소 배지가 붙었다').not.toContain(GAP_TIER_LABELS.NARROW)
+    // 「예상 충족」 · 「예상 미충족」은 이 화면에 덧붙지 않는다 — 앞 배지가 말한다
+    for (const card of [met, near, liz]) {
+      expect(card).not.toContain(`>${GAP_TIER_LABELS.MET}<`)
+      expect(card).not.toContain(`>${GAP_TIER_LABELS.UNMET}<`)
+    }
+
+    // 숫자의 색 — 노드 단위
+    const nearGap = barrierGap('0.9300', '0.9000')
+    const lizGap = barrierGap('0.7000', '0.8500')
+    expect([nearGap, lizGap]).toEqual(['+3%p', '-15%p'])
+    expect(classesOfValue(near, nearGap), '+3%p의 색').toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.NARROW])
+    expect(classesOfValue(liz, lizGap), '-15%p의 색').toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.NARROW])
+    expect(liz, '리자드의 음수 여유폭이 빨강이다').not.toContain('text-red-')
+    const metGap = /<span class="([^"]*)">(\+\d+(?:\.\d+)?%p)<\/span>/.exec(met)
+    expect(metGap, '충족 행의 여유폭 노드가 없다').not.toBeNull()
+    expect(metGap![1]!.split(/\s+/), `${metGap![2]}의 색`).toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.MET])
   })
 
   it('`+ 등록`이 404로 가지 않는다', async () => {

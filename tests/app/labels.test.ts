@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { LABEL_AXES, STALE_LABEL } from '@/lib/format'
+import { GAP_TIER_LABELS, LABEL_AXES, STALE_LABEL } from '@/lib/format'
 import {
   ATTENTION_REASON_GRADES,
   CONDITION_RESULT_GRADES,
@@ -11,6 +11,7 @@ import {
   COUPON_CONDITION_RESULT_GRADES,
   COUPON_STATE_GRADES,
   EVALUATION_VERDICT_GRADES,
+  GAP_TIER_GRADES,
   INTEGRITY_ISSUE_GRADES,
   KI_STATUS_GRADES,
   STATUS_GRADES,
@@ -174,6 +175,8 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
       ...Object.values(CONTRIBUTION_BASIS_GRADES),
       // P6 컷 7-3 — 평가일 판정
       ...Object.values(EVALUATION_VERDICT_GRADES),
+      // 홈 피드백 컷 K6 — 여유폭 단계(열거형이 아닌 파생이지만 배지를 낸다 — 새 등급 토큰을 들이면 여기서 보인다)
+      ...Object.values(GAP_TIER_GRADES),
     ])
     expect([...used].sort()).toEqual(documentedGrades().sort())
   })
@@ -295,6 +298,22 @@ describe('DOC-005 §6.3 ↔ badges.ts', () => {
     // 문서도 같은 말을 한다 — §6.3의 `attention` 칸에 기록할 값이 남아 있지 않다
     const { values } = documentedValueGrades()
     for (const [key] of recorded) expect(values.get(key), key).toBe('record')
+  })
+
+  it('★ 여유폭 단계 낱말 셋은 「쓰는 곳」의 그 등급 칸에만 있다 — 백틱 밖이라 위 값별 대조가 보지 않는다 (DOC-005 v1.25)', () => {
+    /*
+     * 홈 피드백 컷 K6 · 민서 결정(2026-10-12) D3. 낱말은 열거값이 아니라 파생이라 §6.1에 없고 §6.3에는 백틱 밖에 선다 —
+     * 위 파서는 백틱 토큰만 읽으므로 `GAP_TIER_GRADES.NARROW`를 `positive`로 바꿔도 초록이었다. 그래서 낱말마다 그 등급의
+     * 칸에 있고 **다른 칸에는 없는지**를 따로 본다(근소가 충족 칸으로 옮겨 가도 잡힌다).
+     */
+    const rows = tableAfterHeader(DOC_005, '| 등급 | 의미 | 쓰는 곳 |')
+    const usesOf = new Map(rows.map(([g, , uses]) => [bare(g ?? ''), uses ?? '']))
+    for (const [tier, label] of Object.entries(GAP_TIER_LABELS) as [keyof typeof GAP_TIER_GRADES, string][]) {
+      const grade = GAP_TIER_GRADES[tier]
+      expect(usesOf.get(grade), `${label} — ${grade} 칸`).toContain(label)
+      const elsewhere = [...usesOf].filter(([g, uses]) => g !== grade && uses.includes(label)).map(([g]) => g)
+      expect(elsewhere, `${label}이 ${grade} 밖의 칸에도 있다`).toEqual([])
+    }
   })
 
   it('결함은 조치와 다른 등급이다 — ST-06', () => {

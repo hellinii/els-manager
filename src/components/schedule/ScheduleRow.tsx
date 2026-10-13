@@ -1,18 +1,23 @@
 import Link from 'next/link'
 
-import { Badge } from '@/components/display/Badge'
+import { Badge, GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import type { ScheduleItem } from '@/lib/db/queries/map'
 import {
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   barrierGap,
+  conditionMeets,
   dDayLabel,
   deriveDisplay,
+  gapTierOf,
   percent,
   ymd,
   type DisplayState,
+  type GapTier,
 } from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -60,6 +65,11 @@ export function ScheduleRow({
   showKind?: boolean
 }) {
   const display = deriveDisplay(item)
+  /*
+   * 여유폭 단계 — 홈 ① · SCR-201과 **같은 함수**다(홈 피드백 컷 K6). 판정은 적용 차수 한 행에만 있으므로(§4.4) 나머지
+   * 차수의 행은 `null`이고 그 숫자는 중립으로 남는다
+   */
+  const tier = gapTierOf({ worstOf: item.worstOf, barrier: item.barrier, meets: conditionMeets(item.conditionResult) })
 
   return (
     <li className="grid gap-2 rounded-lg border border-neutral-200 p-4 md:gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.5fr)] lg:items-center lg:rounded-none lg:border-0 lg:px-4 lg:py-3">
@@ -121,12 +131,12 @@ export function ScheduleRow({
           <span className="text-xs text-neutral-500 lg:hidden">배리어</span>
           <span className="text-sm tabular-nums">{percent(item.barrier)}</span>
         </span>
-        <WorstOfCell item={item} />
+        <WorstOfCell item={item} tier={tier} />
       </div>
 
       {/* ⑤ 예상 충족 여부 */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <JudgmentCell item={item} display={display} />
+        <JudgmentCell item={item} display={display} tier={tier} />
       </div>
     </li>
   )
@@ -138,15 +148,19 @@ export function ScheduleRow({
  * **`barrierGap`은 그 차수의 배리어와 비교한다** — 이 뷰는 행 자체가 차수이므로
  * SCR-201에서 「적용 차수가 없으면 붙이지 않는다」던 제약이 여기서는 없다. 모든
  * 행이 자기 배리어를 들고 있고, 그것이 이 화면이 SCR-201보다 정확한 지점이다.
+ *
+ * 숫자의 색은 부호가 아니라 여유폭 단계의 등급이다(홈 피드백 컷 K6) — 판정이 없는 행(적용 차수가 아닌 행 포함)은 중립.
  */
-function WorstOfCell({ item }: { item: ScheduleItem }) {
+function WorstOfCell({ item, tier }: { item: ScheduleItem; tier: GapTier | null }) {
   if (item.worstOf == null) return null
 
   return (
     <span className="flex flex-wrap items-baseline gap-x-2">
       <span className="text-xs text-neutral-500">워스트오브</span>
       <span className="text-sm font-medium tabular-nums">{percent(item.worstOf)}</span>
-      <span className="text-xs tabular-nums text-neutral-500">
+      <span
+        className={`text-xs tabular-nums ${tier == null ? 'text-neutral-500' : GRADE_TEXT_CLASS[GAP_TIER_GRADES[tier]]}`}
+      >
         {barrierGap(item.worstOf, item.barrier)}
       </span>
     </span>
@@ -172,9 +186,11 @@ function WorstOfCell({ item }: { item: ScheduleItem }) {
 function JudgmentCell({
   item,
   display,
+  tier,
 }: {
   item: ScheduleItem
   display: DisplayState
+  tier: GapTier | null
 }) {
   if (display.kind === 'INTEGRITY') {
     return (
@@ -211,13 +227,17 @@ function JudgmentCell({
   }
 
   return (
-    /*
-     * **추정값이다.** 같은 라벨이 `redemptionType`(확정)에도 있으므로 ST-05가
-     * 시각적 구분을 요구한다 — 등급은 `CONDITION_RESULT_GRADES`가 따로 정의하고
-     * 「예상」을 덧붙여 문자로도 구분한다(`ProductRow`와 같은 규약).
-     */
-    <Badge grade={CONDITION_RESULT_GRADES[item.conditionResult]}>
-      예상 {CONDITION_RESULT_LABELS[item.conditionResult]}
-    </Badge>
+    <>
+      {/*
+       * **추정값이다.** 같은 라벨이 `redemptionType`(확정)에도 있으므로 ST-05가
+       * 시각적 구분을 요구한다 — 등급은 `CONDITION_RESULT_GRADES`가 따로 정의하고
+       * 「예상」을 덧붙여 문자로도 구분한다(`ProductRow`와 같은 규약).
+       */}
+      <Badge grade={CONDITION_RESULT_GRADES[item.conditionResult]}>
+        예상 {CONDITION_RESULT_LABELS[item.conditionResult]}
+      </Badge>
+      {/* 근소일 때만 덧붙인다 — 충족 · 미충족은 앞 배지가 이미 말한다(`ProductRow`와 같은 규약 · 홈 피드백 컷 K6) */}
+      {tier === 'NARROW' && <Badge grade={GAP_TIER_GRADES.NARROW}>{GAP_TIER_LABELS.NARROW}</Badge>}
+    </>
   )
 }

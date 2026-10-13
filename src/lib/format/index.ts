@@ -22,7 +22,15 @@ export {
   withCommas,
   won,
 } from './money'
-export { barrierGap, percent, percentPoint } from './ratio'
+export {
+  barrierGap,
+  conditionMeets,
+  gapTierOf,
+  NARROW_GAP,
+  percent,
+  percentPoint,
+  type GapTier,
+} from './ratio'
 export {
   EXCHANGE_RATE_INPUT_LINK_LABEL,
   EXCHANGE_RATE_MISSING_JOINER,
@@ -51,6 +59,7 @@ export {
   ATTENTION_REASON_LABELS,
   CONDITION_RESULT_LABELS,
   EVALUATION_VERDICT_LABELS,
+  GAP_TIER_LABELS,
   HEALTH_INSURANCE_TYPE_LABELS,
   INTEGRITY_ISSUE_LABELS,
   KI_OBSERVATION_LABELS,
@@ -74,6 +83,7 @@ export {
   CONTRIBUTION_BASIS_GRADES,
   COUPON_STATE_GRADES,
   EVALUATION_VERDICT_GRADES,
+  GAP_TIER_GRADES,
   INTEGRITY_ISSUE_GRADES,
   KI_STATUS_GRADES,
   STALE_GRADE,

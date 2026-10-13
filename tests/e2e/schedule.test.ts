@@ -1,17 +1,30 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { GRADE_TEXT_CLASS } from '@/components/display/Badge'
+import { today } from '@/lib/db/today'
 import {
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
 } from '@/lib/domain'
-import { STATUS_LABELS, korMonth, percent, priceDisplay, ymd } from '@/lib/format'
+import {
+  CONDITION_RESULT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
+  STATUS_LABELS,
+  barrierGap,
+  korMonth,
+  percent,
+  priceDisplay,
+  ymd,
+} from '@/lib/format'
 import { percentToRatio } from '@/lib/forms/parse'
 import { OWNER_ALL, SCHEDULE_KEYS } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
 import { actionIdOf, formValuesFor, submitAction } from './helpers/actions'
 import { authenticatedJar } from './helpers/auth'
-import { registerProduct, type RegisteredProduct } from './helpers/register'
+import { issueDateForFirstRound } from './helpers/dates'
+import { registerProduct, saveAssetPrice, type RegisteredProduct } from './helpers/register'
 import { cookieJar, get } from './helpers/server'
 import { E2E_EMPTY } from './helpers/users'
 
@@ -129,6 +142,13 @@ function sectionOf(html: string, which: 'past' | 'upcoming'): string {
    */
   const scriptAt = html.indexOf('<script>self.__next_f', upcomingAt)
   return scriptAt < 0 ? html.slice(upcomingAt) : html.slice(upcomingAt, scriptAt)
+}
+
+/** 그 값을 글자로 담은 span의 클래스 토큰 — 여유폭 숫자의 색을 노드로 본다(`home.test.ts`의 같은 함수 · 홈 피드백 컷 K6) */
+function classesOfValue(row: string, value: string): string[] {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`<span class="([^"]*)">(?:<span[^>]*>[^<]*</span>)?${esc}</span>`).exec(row)
+  return m == null ? [] : m[1]!.split(/\s+/)
 }
 
 /** 그 상품의 차수별 평가일. 앱이 저장할 때 쓴 함수와 같다 */
@@ -335,6 +355,13 @@ describe('SCR-301 평가일정', () => {
     const applied = rows.find((row) => row.includes('예상'))
     expect(applied, '판정이 어느 줄에도 없다').toBeDefined()
     expect(applied).toContain(ymd(dates[1]!))
+    /*
+     * 여유폭 단계(홈 피드백 컷 K6) — 워스트오브 120%는 2차 배리어 85%보다 35%p 위라 충족이고 근소가 아니다. 근소 배지가
+     * 덧붙지 않고 숫자는 충족의 색이다 — 아래 「여유폭 단계」 describe의 근소 상품과 같은 화면 안의 대조다
+     */
+    expect(applied, '충족 행에 근소 배지가 붙었다').not.toContain(GAP_TIER_LABELS.NARROW)
+    const appliedGap = barrierGap(seeded.worstOfRatio, '0.8500')
+    expect(classesOfValue(applied!, appliedGap), `${appliedGap}의 색`).toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.MET])
   })
 
   it('★ 상환하면 표식이 붙고, 「미상환만 보기」는 줄을 없앤다 — v1.8 `status`', async () => {
@@ -690,5 +717,97 @@ describe('SCR-301 상품별 보기', () => {
     expect(html).toContain(seeded.productName)
     // `range`·`sortBy`와 같은 규약이다 — 인식하지 못한 값은 버린다
     expect(hasSection(html, UPCOMING_SECTION)).toBe(false)
+  })
+})
+
+describe('SCR-301 여유폭 단계 — 홈 피드백 컷 K6 · 민서 결정(2026-10-12) D3', () => {
+  let jar: ReturnType<typeof cookieJar>
+  /**
+   * 1차(배리어 90%)가 5 ~ 20일 뒤이고 워스트오브 93% — 적용 차수가 1차이고 +3%p 충족이라 근소다. 2 · 3차는 판정이 없는 미래
+   * 차수다(§4.4 — 판정은 적용 차수 한 행에만). 발행일을 기준일에서 거꾸로 만든다 — 적용 차수가 실행 날짜에 따라 바뀌지 않는다
+   */
+  let narrow: RegisteredProduct
+  /** 같은 날짜 창 · 기본 시세(워스트오브 120%) — 1차가 +30%p 충족이라 근소가 아니다. 같은 화면 안의 대조 짝이다 */
+  let met: RegisteredProduct
+  let dates: string[]
+
+  /** 기준가(99,999,999,999.999999) 대비 0.93 — 계약의 4자리 워스트오브가 `0.9300`이 된다(`home.test.ts`의 같은 상수) */
+  const NARROW_PRICE = '93000000000.000000'
+
+  beforeAll(async () => {
+    jar = await authenticatedJar()
+    narrow = await registerProduct(jar, { label: '일정근소', issueDate: issueDateForFirstRound(today(), { min: 5, max: 20 }) })
+    await saveAssetPrice(jar, narrow.assetId, NARROW_PRICE)
+    met = await registerProduct(jar, { label: '일정충족', issueDate: issueDateForFirstRound(today(), { min: 5, max: 20 }) })
+    dates = evaluationDatesOf(narrow)
+  })
+
+  /** 상품별 보기의 그 상품 카드 — 제목(h2)부터 다음 h2 또는 RSC 페이로드 앞까지(위 「상품별 보기」 describe의 `cardOf`와 같은 기법) */
+  function productCard(html: string, product: RegisteredProduct): string {
+    const at = html.indexOf(product.productName)
+    expect(at, `${product.productName}의 카드를 찾지 못했다`).toBeGreaterThan(-1)
+    const start = html.lastIndexOf('<h2', at)
+    const ends = [html.indexOf('<h2', start + 3), html.indexOf('<script>self.__next_f', start)].filter((i) => i >= 0)
+    return html.slice(start, Math.min(...ends))
+  }
+
+  /** 카드 안의 그 차수 행 — 차수 행은 `<li>`이고 차수는 「n차」 한 노드다 */
+  function roundRowOf(card: string, n: number): string {
+    const found = [...card.matchAll(/<li\b[\s\S]*?<\/li>/g)].map((m) => m[0]).filter((row) => row.includes(`>${n}차<`))
+    expect(found, `${n}차 행`).toHaveLength(1)
+    return found[0]!
+  }
+
+  it('★ 시간순 — 적용 차수의 행에만 「예상 근소 충족」이 덧붙고 그 숫자만 단계의 색이다', async () => {
+    /*
+     * ★ **같은 상품 안에서 갈린다.** 1차(적용 차수)는 「예상 조기상환」 + 「예상 근소 충족」이고 +3%p가 앰버(caution)다.
+     * 2 · 3차는 판정이 없으므로 단계도 없다 — 근소 배지가 없고 숫자(+8%p · +13%p)는 중립이다. 근소 배지를 늘 붙이는
+     * 구현이나 숫자를 부호로 칠하는 구현이면 2 · 3차가 빨개진다.
+     */
+    const html = visible(await (await get(timeline(), jar)).text())
+    const rows = rowsOf(html, narrow.productName)
+    expect(rows).toHaveLength(dates.length)
+    const [first, ...rest] = dates.map((date) => rows.find((row) => row.includes(ymd(date)))!)
+
+    expect(first).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
+    expect(first).toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    expect(classesOfValue(first!, barrierGap('0.9300', '0.9000')), '+3%p의 색').toContain(
+      GRADE_TEXT_CLASS[GAP_TIER_GRADES.NARROW],
+    )
+
+    // 짝 — 같은 날짜 창의 충족 상품(+30%p)은 근소 배지가 없고 숫자는 충족의 색이다
+    const metFirst = rowsOf(html, met.productName).find((row) => row.includes(`예상 ${CONDITION_RESULT_LABELS.EARLY}`))
+    expect(metFirst, '충족 상품의 판정 행이 없다').toBeDefined()
+    expect(metFirst, '충족 행에 근소 배지가 붙었다').not.toContain(GAP_TIER_LABELS.NARROW)
+    expect(classesOfValue(metFirst!, barrierGap(met.worstOfRatio, '0.9000'))).toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.MET])
+
+    for (const [i, row] of rest.entries()) {
+      const barrier = ['0.8500', '0.8000'][i]!
+      const gap = barrierGap('0.9300', barrier)
+      expect(row, `${i + 2}차`).not.toContain(GAP_TIER_LABELS.NARROW)
+      expect(row, `${i + 2}차`).not.toContain('예상 ')
+      const classes = classesOfValue(row, gap)
+      expect(classes, `${i + 2}차 ${gap}의 노드`).not.toEqual([])
+      for (const tier of Object.values(GAP_TIER_GRADES)) {
+        expect(classes, `${i + 2}차 ${gap}이 단계의 색이다`).not.toContain(GRADE_TEXT_CLASS[tier])
+      }
+    }
+  })
+
+  it('★ 상품별 — 카드 안의 1차 행에만 「예상 근소 충족」이 덧붙고, 충족 상품의 카드에는 없다', async () => {
+    const html = visible(await (await get(PATHS.schedule, jar)).text())
+    const card = productCard(html, narrow)
+
+    const first = roundRowOf(card, 1)
+    expect(first).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
+    expect(first).toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    expect(classesOfValue(first, barrierGap('0.9300', '0.9000'))).toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.NARROW])
+    for (const n of [2, 3]) expect(roundRowOf(card, n), `${n}차`).not.toContain(GAP_TIER_LABELS.NARROW)
+
+    // 짝 — 충족 상품의 1차(+30%p)
+    const metFirst = roundRowOf(productCard(html, met), 1)
+    expect(metFirst).toContain(`예상 ${CONDITION_RESULT_LABELS.EARLY}`)
+    expect(metFirst, '충족 행에 근소 배지가 붙었다').not.toContain(GAP_TIER_LABELS.NARROW)
+    expect(classesOfValue(metFirst, barrierGap(met.worstOfRatio, '0.9000'))).toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.MET])
   })
 })

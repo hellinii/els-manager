@@ -1,6 +1,6 @@
 import Link from 'next/link'
 
-import { Badge } from '@/components/display/Badge'
+import { Badge, GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import { UnderlyingLines } from '@/components/display/UnderlyingLines'
 import type { MonthlyCouponScheduleItem, ScheduleItem } from '@/lib/db/queries/map'
 import type { ProductCurrency } from '@/lib/domain/currency'
@@ -12,15 +12,19 @@ import {
   COUPON_CONDITION_RESULT_LABELS,
   COUPON_STATE_GRADES,
   COUPON_STATE_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   KI_OBSERVATION_LABELS,
   STATUS_GRADES,
   STATUS_LABELS,
   amount,
   barrierGap,
+  conditionMeets,
   couponAmountShown,
   couponMonthLabel,
   dDayLabel,
   deriveDisplay,
+  gapTierOf,
   kiTermLabel,
   money,
   percent,
@@ -432,6 +436,8 @@ function RoundRow({
   isPast?: boolean
 }) {
   const p = item.proceeds
+  // 여유폭 단계 — 홈 ① · SCR-201 · 시간순 행과 같은 함수(홈 피드백 컷 K6). 적용 차수가 아닌 행은 판정이 없어 `null`이다
+  const tier = gapTierOf({ worstOf: item.worstOf, barrier: item.barrier, meets: conditionMeets(item.conditionResult) })
 
   return (
     <li
@@ -467,8 +473,11 @@ function RoundRow({
         <span className="text-sm tabular-nums">배리어 {percent(item.barrier)}</span>
         {item.worstOf != null && (
           /* 행 자체가 차수이므로 그 차수의 배리어와 비교한다 — SCR-201에서
-             「적용 차수가 없으면 붙이지 않는다」던 제약이 여기서는 없다 */
-          <span className="text-xs tabular-nums text-neutral-500">
+             「적용 차수가 없으면 붙이지 않는다」던 제약이 여기서는 없다. 색은 부호가 아니라
+             여유폭 단계의 등급이다(홈 피드백 컷 K6) — 판정이 없는 행은 중립 */
+          <span
+            className={`text-xs tabular-nums ${tier == null ? 'text-neutral-500' : GRADE_TEXT_CLASS[GAP_TIER_GRADES[tier]]}`}
+          >
             {barrierGap(item.worstOf, item.barrier)}
           </span>
         )}
@@ -477,6 +486,8 @@ function RoundRow({
             예상 {CONDITION_RESULT_LABELS[item.conditionResult]}
           </Badge>
         )}
+        {/* 근소일 때만 덧붙인다 — 충족 · 미충족은 앞 배지가 이미 말한다(`ProductRow`와 같은 규약) */}
+        {tier === 'NARROW' && <Badge grade={GAP_TIER_GRADES.NARROW}>{GAP_TIER_LABELS.NARROW}</Badge>}
       </div>
 
       {/* ⑤⑥⑦ 금액 셋 — `lg`에서 래퍼의 상자가 사라져 세 열로 «펼쳐진다» */}
@@ -495,7 +506,8 @@ function RoundRow({
         <Money label="예상 손익">
           {/* 현 산식에서 음수가 될 수 없다(`r ≥ 0`). 그래도 부호를 붙이는 것은
               `+`가 **「총액이 아니라 증분」**을 말하기 때문이다 — 색은 쓰지 않는다
-              (이 저장소의 빨강은 「조치·경과」 축이고 한국 등락 관행과 방향이 반대다). */}
+              (이 저장소의 빨강은 「원금 위험(KI) · 경과」 축이고 한국 등락 관행과 방향이 반대다 — 기록할 일은
+              빨강이 아니라 `record` 파랑이다 · 홈 피드백 컷 K3). */}
           {redeemed || p == null ? null : signedMoney(p.expectedPnl, item.currency)}
         </Money>
       </div>

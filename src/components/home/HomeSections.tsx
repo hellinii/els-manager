@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Fragment } from 'react'
 
-import { Badge, GRADE_ACCENT } from '@/components/display/Badge'
+import { Badge, GRADE_ACCENT, GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import { ExchangeRateMissingNotice } from '@/components/display/ExchangeRateMissingNotice'
 import { ProductNameLink } from '@/components/display/ProductNameLink'
 import { OwnerOnly } from '@/components/state/OwnerOnly'
@@ -11,6 +11,8 @@ import {
   ATTENTION_REASON_LABELS,
   EVALUATION_VERDICT_GRADES,
   EVALUATION_VERDICT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   attentionChipLabel,
   MONTHLY_COUPON_ESTIMATE_NOTE,
   RECENT_VISIBLE,
@@ -22,6 +24,7 @@ import {
   convertedIncludedLine,
   dDayLabel,
   evaluationVerdictSentence,
+  gapTierOf,
   groupAttention,
   heaviestGrade,
   koreanWon,
@@ -165,6 +168,12 @@ export function RedemptionCheckSection({
  * - **판정이 없는 행도 칸을 잃지 않는다** — 워스트오브 · 여유폭 자리에 「—」(장식 — 판정 칸의 「판정 없음」이 뜻을
  *   나른다)를 둔다. 칸을 빼면 그 행의 판정 칸이 왼쪽으로 밀려 열이 무너진다
  * - **차수는 상품명과 다른 줄이다** — 회차(「…2047회」)와 차수(「1차」)가 나란히 오면 같은 「n번째」로 읽힌다(DOC-005 §8.3)
+ *
+ * ## 판정 칸은 여유폭 단계다 *(홈 피드백 컷 K6 · 피드백 #2 · 민서 결정(2026-10-12) D3 — DOC-008 §5 머리 「예상 근소 충족」)*
+ *
+ * 종전 「충족 · 미충족」 둘은 +3%p와 +30%p를 같게 말했다. 단계는 `gapTierOf` 하나가 정하고(SCR-201 · SCR-301과 같은
+ * 함수 — 입력은 계약의 `willMeet`) 배지와 **여유폭 숫자의 색**이 같은 등급을 따른다 — 부호가 아니다(리자드의 음수 여유폭도
+ * 근소의 앰버). 판정이 없으면 숫자는 중립이다.
  */
 export function UpcomingSection({
   items,
@@ -212,85 +221,89 @@ export function UpcomingSection({
           </div>
 
           <ul className="divide-y divide-neutral-200">
-            {visible.shown.map((item) => (
-              <li
-                key={`${item.productId}-${item.roundNo}`}
-                className={`grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 px-4 py-3 lg:items-center ${UPCOMING_COLS}`}
-              >
-                {/* ⓐ 평가일 · D-Day — 카드의 첫 줄 왼쪽 */}
-                <div className="col-start-1 row-start-1 flex items-baseline gap-2 lg:contents">
-                  <span className="text-sm tabular-nums">{ymd(item.evaluationDate)}</span>
-                  <span className="text-xs tabular-nums text-neutral-600 lg:text-right">{dDayLabel(item.dDay)}</span>
-                </div>
+            {visible.shown.map((item) => {
+              const tier = gapTierOf({ worstOf: item.worstOf, barrier: item.barrier, meets: item.willMeet })
+              return (
+                <li
+                  key={`${item.productId}-${item.roundNo}`}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 gap-y-1 px-4 py-3 lg:items-center ${UPCOMING_COLS}`}
+                >
+                  {/* ⓐ 평가일 · D-Day — 카드의 첫 줄 왼쪽 */}
+                  <div className="col-start-1 row-start-1 flex items-baseline gap-2 lg:contents">
+                    <span className="text-sm tabular-nums">{ymd(item.evaluationDate)}</span>
+                    <span className="text-xs tabular-nums text-neutral-600 lg:text-right">{dDayLabel(item.dDay)}</span>
+                  </div>
 
-                {/* ⓑ 상품명 · 차수 — 한 칸 두 줄. §7.2 — 「SCR-101 홈 ─[평가일 알림]→ SCR-202 상세」 */}
-                <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 lg:col-span-1 lg:row-start-auto">
-                  <ProductNameLink productId={item.productId} name={item.productName} />
-                  <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
-                    {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
-                    <span className="tabular-nums">{`${item.roundNo}차`}</span>
-                    {/*
-                      범위가 전체일 때만 소유자를 적는다. 본인 보기에서는 전 행이
-                      같은 값이므로 그 표시가 아무것도 구분하지 않는다(`ProductRow`가
-                      「보유중」 뱃지를 달지 않는 것과 같은 판단).
-                    */}
-                    {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
-                  </span>
-                </div>
-
-                {/* ⓒ 수치 셋 — 카드의 마지막 줄. 모바일 라벨은 열 머리와 같은 문자열이다 */}
-                <div className="col-span-2 row-start-3 flex flex-wrap items-baseline gap-x-3 text-xs lg:contents">
-                  <span className="tabular-nums text-neutral-600 lg:text-right">
-                    <span className="lg:hidden">{UPCOMING_HEAD.barrier} </span>
-                    {percent(item.barrier)}
-                  </span>
-                  {item.worstOf == null ? (
-                    <>
-                      <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
-                        —
-                      </span>
-                      <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
-                        —
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="tabular-nums text-neutral-700 lg:text-right">
-                        <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.worstOf} </span>
-                        {percent(item.worstOf)}
-                      </span>
-                      <span className="tabular-nums text-neutral-600 lg:text-right">
-                        <span className="lg:hidden">{UPCOMING_HEAD.gap} </span>
-                        {barrierGap(item.worstOf, item.barrier)}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                {/*
-                  ⓓ 판정 — 카드의 첫 줄 오른쪽. **`null`은 「미충족」이 아니다**(§4.1): 판정 결과가 없으면(시세 없음 ·
-                  무결성 결함) 충족 여부를 말하지 않는다. `false`로 두면 「미충족」이라는 판정을 한 것이 되어 E-01과
-                  구분되지 않으므로, 계약이 세 값을 주는 것을 화면도 세 갈래로 받는다. 칸은 어느 갈래에서도 비지 않는다.
-                */}
-                <div className="col-start-2 row-start-1 justify-self-end text-xs lg:col-start-auto lg:row-start-auto">
-                  {item.worstOf == null ? (
-                    // 이 목록은 판정 불가의 **원인**을 담지 않는다(뷰에 `integrityIssue`가 없다).
-                    // 원인별 안내는 SCR-201·202의 일이므로 여기서 지어내지 않는다.
-                    // 정보 글자다 — neutral-600(흰 바탕 7.81:1 · DOC-008 ST-08 · 홈 피드백 컷 K2).
-                    <span className="text-neutral-600">판정 없음</span>
-                  ) : item.willMeet == null ? (
-                    // 워스트오브는 있는데 조건 판정이 없다(차수 입력의 결함 등) — 말하지 않되 칸은 남긴다(장식)
-                    <span aria-hidden="true" className="text-neutral-500">
-                      —
+                  {/* ⓑ 상품명 · 차수 — 한 칸 두 줄. §7.2 — 「SCR-101 홈 ─[평가일 알림]→ SCR-202 상세」 */}
+                  <div className="col-span-2 row-start-2 flex min-w-0 flex-col gap-0.5 lg:col-span-1 lg:row-start-auto">
+                    <ProductNameLink productId={item.productId} name={item.productName} />
+                    <span className="flex flex-wrap items-baseline gap-1.5 text-xs text-neutral-600">
+                      {/* 한 텍스트 노드로 만든다 — `{roundNo}차`는 `1<!-- -->차`로 갈린다(아래 ③ 머리의 같은 부류 각주) */}
+                      <span className="tabular-nums">{`${item.roundNo}차`}</span>
+                      {/*
+                        범위가 전체일 때만 소유자를 적는다. 본인 보기에서는 전 행이
+                        같은 값이므로 그 표시가 아무것도 구분하지 않는다(`ProductRow`가
+                        「보유중」 뱃지를 달지 않는 것과 같은 판단).
+                      */}
+                      {scope === 'ALL' && <span className="truncate">{item.ownerName}</span>}
                     </span>
-                  ) : (
-                    <Badge grade={item.willMeet ? 'positive' : 'caution'}>
-                      {item.willMeet ? '예상 충족' : '예상 미충족'}
-                    </Badge>
-                  )}
-                </div>
-              </li>
-            ))}
+                  </div>
+
+                  {/* ⓒ 수치 셋 — 카드의 마지막 줄. 모바일 라벨은 열 머리와 같은 문자열이다 */}
+                  <div className="col-span-2 row-start-3 flex flex-wrap items-baseline gap-x-3 text-xs lg:contents">
+                    <span className="tabular-nums text-neutral-600 lg:text-right">
+                      <span className="lg:hidden">{UPCOMING_HEAD.barrier} </span>
+                      {percent(item.barrier)}
+                    </span>
+                    {item.worstOf == null ? (
+                      <>
+                        <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
+                          —
+                        </span>
+                        <span aria-hidden="true" className="hidden text-neutral-500 lg:block lg:text-right">
+                          —
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="tabular-nums text-neutral-700 lg:text-right">
+                          <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.worstOf} </span>
+                          {percent(item.worstOf)}
+                        </span>
+                        {/* 숫자의 색은 단계의 등급이다(위 머리 각주) — 모바일 라벨은 중립으로 남긴다 */}
+                        <span
+                          className={`tabular-nums lg:text-right ${tier == null ? 'text-neutral-600' : GRADE_TEXT_CLASS[GAP_TIER_GRADES[tier]]}`}
+                        >
+                          <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.gap} </span>
+                          {barrierGap(item.worstOf, item.barrier)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/*
+                    ⓓ 판정 — 카드의 첫 줄 오른쪽. **`null`은 「미충족」이 아니다**(§4.1): 판정 결과가 없으면(시세 없음 ·
+                    무결성 결함) 충족 여부를 말하지 않는다. `false`로 두면 「미충족」이라는 판정을 한 것이 되어 E-01과
+                    구분되지 않으므로, 계약이 세 값을 주는 것을 화면도 세 갈래로 받는다. 칸은 어느 갈래에서도 비지 않는다.
+                  */}
+                  <div className="col-start-2 row-start-1 justify-self-end text-xs lg:col-start-auto lg:row-start-auto">
+                    {item.worstOf == null ? (
+                      // 이 목록은 판정 불가의 **원인**을 담지 않는다(뷰에 `integrityIssue`가 없다).
+                      // 원인별 안내는 SCR-201·202의 일이므로 여기서 지어내지 않는다.
+                      // 정보 글자다 — neutral-600(흰 바탕 7.81:1 · DOC-008 ST-08 · 홈 피드백 컷 K2).
+                      <span className="text-neutral-600">판정 없음</span>
+                    ) : tier == null ? (
+                      // 워스트오브는 있는데 조건 판정이 없다(차수 입력의 결함 등) — 말하지 않되 칸은 남긴다(장식)
+                      <span aria-hidden="true" className="text-neutral-500">
+                        —
+                      </span>
+                    ) : (
+                      <Badge grade={GAP_TIER_GRADES[tier]}>{GAP_TIER_LABELS[tier]}</Badge>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

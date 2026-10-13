@@ -1,6 +1,8 @@
 import type { ConditionResult, ContributionBasis, CouponConditionResult, CouponState, KiStatus } from '@/lib/domain'
 import type { AttentionReason, EvaluationVerdictKind, IntegrityIssue, ProductListItem } from '@/lib/db/queries/map'
 
+import type { GapTier } from './ratio'
+
 /**
  * 시각 등급 — **DOC-005 §6.3이 정본이다**
  *
@@ -111,7 +113,7 @@ export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
   PRICE_MISSING: 'caution',
   UNDERLYING_MISSING: 'defect',
   SCHEDULE_MISSING: 'defect',
-  // 셋째 결함도 데이터 수정이다(SCR-204) — 조치(attention)와 다른 등급이어야 ST-06의 구분이 색에 남는다
+  // 셋째 결함도 데이터 수정이다(SCR-204) — 원금 위험(attention) · 기록(record)과 다른 등급이어야 ST-06의 구분이 색에 남는다
   COUPON_SCHEDULE_MISSING: 'defect',
   // 사용자가 거래내역에서 옮겨 적을 지난 사실 — 「상환 확인 필요」(`evaluationVerdict`)와 같은 부류(DOC-008 SQ-21 ⓓ b3 개정).
   // 원금 위험(KI_BELOW · KI_TOUCHED)과 다른 등급이다 — 할 일이 기록이다(홈 피드백 컷 K3 · 민서 결정(2026-10-12) D1)
@@ -120,3 +122,14 @@ export const ATTENTION_REASON_GRADES: Record<AttentionReason, BadgeGrade> = {
 
 /** 시세 경과 — 정상값이 매주 경고가 되지 않게 5일 기준이다(§4.5). 관찰이다. */
 export const STALE_GRADE: BadgeGrade = 'caution'
+
+/**
+ * 여유폭 단계 (홈 피드백 컷 K6 · DOC-005 §6.3 「쓰는 곳」의 백틱 밖 낱말 셋). **근소는 충족과 다른 등급이다** — 같으면
+ * 「+3%p」와 「+30%p」가 다시 같은 색이 된다(피드백 #2). 근소와 미충족이 같은 `caution`인 것은 둘 다 「관찰할 차수」라서다
+ * (`conditionResult.CARRY_OVER`와 같은 판단). 둘은 낱말이 가르고, 여유폭 숫자의 색도 이 등급을 따른다(부호가 아니다)
+ */
+export const GAP_TIER_GRADES: Record<GapTier, BadgeGrade> = {
+  MET: 'positive',
+  NARROW: 'caution',
+  UNMET: 'caution',
+}

@@ -1,12 +1,14 @@
 import Link from 'next/link'
 
-import { Badge } from '@/components/display/Badge'
+import { Badge, GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import { UnderlyingLines } from '@/components/display/UnderlyingLines'
 import type { ProductListItem } from '@/lib/db/queries/map'
 import {
   ACCOUNT_TYPE_LABELS,
   CONDITION_RESULT_GRADES,
   CONDITION_RESULT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   KI_OBSERVATION_LABELS,
   KI_STATUS_GRADES,
   KI_STATUS_LABELS,
@@ -15,8 +17,10 @@ import {
   STATUS_LABELS,
   amount,
   barrierGap,
+  conditionMeets,
   dDayLabel,
   deriveDisplay,
+  gapTierOf,
   kiTermLabel,
   lizardLabel,
   money,
@@ -26,6 +30,7 @@ import {
   underlyingLines,
   ymd,
   type DisplayState,
+  type GapTier,
 } from '@/lib/format'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -78,6 +83,15 @@ import { PATHS } from '@/lib/routes/paths'
 export function ProductRow({ item }: { item: ProductListItem }) {
   const display = deriveDisplay(item)
   const next = item.nextEvaluation
+  /*
+   * 여유폭 단계 — 홈 ① · SCR-301과 **같은 함수**다(홈 피드백 컷 K6 · DOC-008 §5 머리 「예상 근소 충족」). 한 번만
+   * 정하고 두 칸(④ 숫자의 색 · ⑤ 근소 배지)에 내린다 — 칸마다 부르면 같은 판단이 두 번 일어난다. 적용 차수가 없으면
+   * (상환 완료 · 전 차수 경과) 여유폭도 단계도 없다
+   */
+  const tier =
+    next == null
+      ? null
+      : gapTierOf({ worstOf: item.worstOf, barrier: next.barrier, meets: conditionMeets(item.conditionResult) })
 
   return (
     <li className="grid gap-2 rounded-lg border border-neutral-200 p-4 md:gap-3 lg:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1.3fr)_minmax(0,1.5fr)] lg:items-start">
@@ -162,12 +176,12 @@ export function ProductRow({ item }: { item: ProductListItem }) {
       <div className="flex items-baseline gap-2 lg:block">
         <span className="text-xs text-neutral-500 lg:hidden">워스트오브</span>
         {/* 판정은 한 번만 한다 — 칸마다 부르면 같은 우선순위가 두 번 계산된다 */}
-        <WorstOfCell item={item} display={display} />
+        <WorstOfCell item={item} display={display} tier={tier} />
       </div>
 
       {/* ⑤ 판정 — 조건 충족 여부와 KI 상태 */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <JudgmentCell item={item} />
+        <JudgmentCell item={item} tier={tier} />
       </div>
 
       {/* ⑧~⑬ 기초자산의 지금 + 계약 조건 — 전 폭을 지나는 둘째 줄 */}
@@ -367,9 +381,11 @@ function StepdownCells({
 function WorstOfCell({
   item,
   display,
+  tier,
 }: {
   item: ProductListItem
   display: DisplayState
+  tier: GapTier | null
 }) {
   if (display.kind === 'INTEGRITY') {
     return (
@@ -419,17 +435,23 @@ function WorstOfCell({
         배리어까지의 거리. **적용 차수의 배리어에만** 의미가 있으므로 다음 평가일이
         없으면(상환 완료·전 차수 경과) 붙이지 않는다 — 없는 차수의 배리어와 비교한
         값은 그 차수가 도래했을 때의 결과인 척하는 값이 된다(§4.3의 같은 논거).
+
+        숫자의 색은 부호가 아니라 여유폭 단계의 등급이다(홈 피드백 컷 K6) — 판정이 없으면 중립이고 「배리어」 낱말은
+        늘 중립이다.
       */}
       {item.nextEvaluation != null && (
         <span className="text-xs tabular-nums text-neutral-500">
-          배리어 {barrierGap(worstOf, item.nextEvaluation.barrier)}
+          배리어{' '}
+          <span className={tier == null ? undefined : GRADE_TEXT_CLASS[GAP_TIER_GRADES[tier]]}>
+            {barrierGap(worstOf, item.nextEvaluation.barrier)}
+          </span>
         </span>
       )}
     </span>
   )
 }
 
-function JudgmentCell({ item }: { item: ProductListItem }) {
+function JudgmentCell({ item, tier }: { item: ProductListItem; tier: GapTier | null }) {
   /*
    * 두 값은 함께 죽는다(§4.2의 두 축) — 그래서 한 칸이다. 나눠 두면 「판정 없음」이
    * 두 칸에 각각 「—」로 나와 무엇이 왜 없는지가 두 번 물어진다.
@@ -451,6 +473,11 @@ function JudgmentCell({ item }: { item: ProductListItem }) {
           예상 {CONDITION_RESULT_LABELS[item.conditionResult]}
         </Badge>
       )}
+      {/*
+        **근소일 때만** 덧붙인다(홈 피드백 컷 K6 · D3) — 충족 · 미충족은 바로 앞의 「예상 {조건 판정}」 배지가 이미
+        말한다. 낱말과 등급은 홈 ①과 같은 표다
+      */}
+      {tier === 'NARROW' && <Badge grade={GAP_TIER_GRADES.NARROW}>{GAP_TIER_LABELS.NARROW}</Badge>}
       {item.kiStatus != null && (
         <Badge grade={KI_STATUS_GRADES[item.kiStatus]}>
           {KI_STATUS_LABELS[item.kiStatus]}

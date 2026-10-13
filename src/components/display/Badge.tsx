@@ -20,7 +20,12 @@ import type { BadgeGrade } from '@/lib/format'
  * 경고로 읽게 한 것이 피드백 #1이었다. blue-700은 blue-50 위 6.28:1 · 흰 바탕 6.83:1이다(DOC-008 §6 ST-08).
  */
 
-const GRADE_CLASS: Record<BadgeGrade, string> = {
+/**
+ * 배지의 바탕 · 글자 · 테두리. **export하는 것은 색을 상시 스위트가 지키게 하려는 것이다**(`tests/app/gradeColors.test.ts`
+ * — 홈 피드백 컷 K6). 종전에는 이 표를 빨강으로 되돌려도 상시 스위트가 전부 초록이었다(K3 검증 실측) — 등급 토큰은
+ * 문서와 대조되지만 토큰 → 색은 아무도 보지 않았다. 화면은 이 표를 직접 읽지 않고 `Badge`를 쓴다.
+ */
+export const GRADE_CLASS: Record<BadgeGrade, string> = {
   neutral: 'bg-neutral-100 text-neutral-700 ring-neutral-200',
   positive: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
   caution: 'bg-amber-50 text-amber-900 ring-amber-300',

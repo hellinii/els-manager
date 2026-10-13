@@ -18,6 +18,8 @@ import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import type { AssetInput, ProductInput } from '@/lib/db/mutations/types'
 import type { FailureClass } from '@/lib/providers/types'
 
+import type { GapTier } from './ratio'
+
 /**
  * 열거형 → 한글 표시 문자열 — **DOC-005 §6.1이 정본이다** (절대 규칙 #9)
  *
@@ -293,3 +295,16 @@ export const LABEL_AXES = {
 
 /** 「시세 오래됨」 — DOC-005 §6 `isStale`. 열거형이 아니라 boolean이므로 따로 둔다. */
 export const STALE_LABEL = '시세 오래됨'
+
+/**
+ * 여유폭 단계 — DOC-005 §6 「여유폭 단계」의 굵은 표시어 셋 (홈 피드백 컷 K6 · 민서 결정(2026-10-12) D3).
+ *
+ * **`LABEL_AXES` 밖이다** — 열거값이 아니라 파생이라 §6.1에 없다(`STALE_LABEL`과 같은 자리 · v0.7 「임박」 · v0.5 「예상」과
+ * 같은 판단). 셋 다 「예상」을 단다 — 다음 차수 × 최신 시세의 추정이다(ST-05). 「경계」 · 「근접」을 쓰지 않는다
+ * (「근접」은 KI 근접 — `attentionReason.KI_NEAR`). 정본 대조는 `tests/app/gapTier.test.ts`다.
+ */
+export const GAP_TIER_LABELS: Record<GapTier, string> = {
+  MET: '예상 충족',
+  NARROW: '예상 근소 충족',
+  UNMET: '예상 미충족',
+}

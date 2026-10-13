@@ -322,11 +322,19 @@ async function listPageWith(productId: string): Promise<string> {
   throw new Error(`목록 ${pageCount}페이지에 ${productId}가 없다`)
 }
 
-/** 그 상품의 카드(`<li>` 하나) — 상품 링크부터 다음 카드 앞까지 */
+/**
+ * 그 상품의 카드(`<li>` 하나) — 상품 링크부터 ~~다음 카드 앞까지~~ → **그 카드의 `</li>`까지** *(홈 피드백 컷 K6에서 바로잡았다)*.
+ *
+ * 「다음 `<li` 앞」은 그 카드가 **페이지의 마지막 카드일 때** 문서 끝까지 잘랐다 — RSC 페이로드에 같은 목록의 글자가 한 번
+ * 더 실리므로 다른 카드의 「연쿠폰」이 들어와 `not.toContain('연쿠폰')`이 빨개졌다(실측 — 기본 사용자의 상품이 넷 늘어
+ * 월지급 카드가 페이지 끝으로 밀린 실행). SCR-201 카드 안에는 `<li>`가 중첩되지 않으므로 `</li>`가 그 카드의 끝이다.
+ */
 function cardOf(html: string, productId: string): string {
   const start = html.indexOf(`href="${PATHS.product(productId)}"`)
-  const next = html.indexOf('<li', start)
-  return html.slice(start, next === -1 ? undefined : next)
+  expect(start, `카드가 없다: ${productId}`).toBeGreaterThan(-1)
+  const end = html.indexOf('</li>', start)
+  expect(end, `카드의 끝이 없다: ${productId}`).toBeGreaterThan(start)
+  return html.slice(start, end)
 }
 
 describe('SCR-201 ⑮ · SCR-101 ②④ (b3-5)', () => {
@@ -353,12 +361,16 @@ describe('SCR-301 월수익 — ⑮ 상품별 카드의 하위 목록 · ⑯ 시
   const visible = (html: string) => html.replace(/<!--[\s\S]*?-->/g, '')
   const page = async (path: string) => visible(await (await get(path, jar)).text())
 
-  /** 상품별 카드 — 상품 링크부터 다음 카드의 `<h2>` 앞까지(카드 안에 차수 · 월수익 `<li>`가 중첩되어 `<li>`로 자를 수 없다) */
+  /**
+   * 상품별 카드 — 상품 링크부터 다음 카드의 `<h2>` 앞까지(카드 안에 차수 · 월수익 `<li>`가 중첩되어 `<li>`로 자를 수 없다).
+   * 마지막 카드면 ~~문서 끝까지~~ → **RSC 페이로드 앞까지**다 *(홈 피드백 컷 K6 — 위 `cardOf`와 같은 결함 · `schedule.test.ts`의
+   * `cardOf`와 같은 경계)*
+   */
   function scheduleCardOf(html: string, productId: string): string {
     const start = html.indexOf(`href="${PATHS.product(productId)}"`)
     expect(start, `카드가 없다: ${productId}`).toBeGreaterThan(-1)
-    const next = html.indexOf('<h2', start)
-    return html.slice(start, next === -1 ? undefined : next)
+    const ends = [html.indexOf('<h2', start), html.indexOf('<script>self.__next_f', start)].filter((i) => i >= 0)
+    return ends.length === 0 ? html.slice(start) : html.slice(start, Math.min(...ends))
   }
 
   /** 시간순의 그 상품 행 — `<li>` 하나가 한 행이다(중첩 없음) */

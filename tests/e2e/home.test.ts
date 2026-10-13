@@ -6,13 +6,17 @@ import {
   EVALUATION_DATE_OFFSET_DAYS,
   generateEvaluationDates,
 } from '@/lib/domain'
+import { GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import {
   ATTENTION_REASON_LABELS,
   EVALUATION_VERDICT_LABELS,
+  GAP_TIER_GRADES,
+  GAP_TIER_LABELS,
   PRICE_MISSING_LABEL,
   REDEMPTION_TYPE_LABELS,
   SECTION_EMPTY,
   amount,
+  barrierGap,
   dDayLabel,
   missingUpcomingNote,
   percent,
@@ -49,6 +53,7 @@ import { issueDateForFirstRound } from './helpers/dates'
  * | ~~임박 표식이 실제 데이터에서 갈린다~~ → ①의 행에 표식이 없고 날짜 · D-Day가 남는다 *(홈 피드백 컷 K4 · D2)* | 표식을 지운 것은 렌더된 문서에서만 보인다 — 상시 스위트에는 지운 상수의 부재밖에 없다 |
  * | 절 빈 상태가 한 줄이다 (K4) | 점선 상자의 부재와 h2의 존재는 마크업의 성질이다. 글자는 상시 스위트가 문서와 결속한다(`emptyState.test.ts`) |
  * | ①의 칸이 판정 없음 행에서도 남는다 · 상품명 끝의 회차가 따로 선다 · 링크 글자는 전체 이름이다 (K5) | 칸의 수와 노드의 경계는 마크업의 성질이다. 가르는 규칙은 상시 스위트가 본다(`productName.test.ts`). 정렬 자체(열이 맞는가)는 브라우저에만 있다 — 화면으로 확인한다 |
+ * | ①의 판정 칸이 여유폭 단계다 — 근소 · 미충족 · 판정 없음, 숫자색은 단계를 따른다 (K6) | 함수(`gapTierOf`)가 화면에 닿았는지와 숫자 노드의 클래스는 렌더된 문서에만 있다. 경계(5%p · 리자드)와 색 표는 상시 스위트가 본다(`gapTier.test.ts` · `gradeColors.test.ts`) |
  * | v2.0의 `ownerName`이 표시된다 | 범위에 따라 나타나고 사라지는 값이므로 **두 주소의 응답을 비교**해야 한다 |
  * | ⑤가 자료원을 얻었다 | v1.9까지 이 요소는 DOC-008에만 있었다. 합계와 목록의 합이 같은지가 「창이 없다」의 형태다 |
  *
@@ -73,6 +78,7 @@ import { issueDateForFirstRound } from './helpers/dates'
 // ---------------------------------------------------------------------------
 
 const P_SOON = '20,000,000'
+const P_CARRY = '10,000,000'
 const P_FAR = '30,000,000'
 const P_DEFECT = '40,000,000'
 const P_REDEEMED = '50,000,000'
@@ -87,6 +93,15 @@ const TAXABLE_OLD = '1,000,000'
 
 /** 워스트오브를 KI 배리어(50%) 아래로 내리는 시세. 기준가 대비 0.4다 */
 const LOW_PRICE = '40000000000.000000'
+
+/**
+ * 여유폭 단계의 두 갈래 (홈 피드백 컷 K6 · D3) — 기준가(`registerProduct`의 99,999,999,999.999999) 대비 0.93 · 0.80.
+ * 계약의 4자리 워스트오브가 정확히 `0.9300` · `0.8000`이 된다(기준가가 1e11보다 1e-6 작아 몫이 그 값 바로 위다).
+ * 둘 다 1차(배리어 90% · 리자드 없음)가 적용 차수인 상품에 쓴다 — +3%p 충족(근소) · −10%p 이월(미충족). KI 50%의 근접
+ * (55%)보다 위라 ④에 오르지 않는다
+ */
+const NARROW_PRICE = '93000000000.000000'
+const CARRY_PRICE = '80000000000.000000'
 
 const SECTIONS = {
   // P6 컷 7-4 — 맨 위. 0건이면 그리지 않으므로 머리의 부재가 곧 0건이다
@@ -169,6 +184,16 @@ function linkTextOf(row: string, product: Pick<RegisteredProduct, 'productId'>):
   return m == null ? null : m[1]!.replace(/<[^>]*>/g, '')
 }
 
+/**
+ * 그 값을 글자로 담은 span의 클래스 토큰 — 여유폭 숫자의 색을 노드로 본다 *(홈 피드백 컷 K6)*. 모바일 라벨 span(「여유폭 」)이
+ * 앞에 끼어 있어도 같은 span이다. 없으면 빈 배열(그러면 `toContain` 단언이 빨개진다).
+ */
+function classesOfValue(row: string, value: string): string[] {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`<span class="([^"]*)">(?:<span[^>]*>[^<]*</span>)?${esc}</span>`).exec(row)
+  return m == null ? [] : m[1]!.split(/\s+/)
+}
+
 // ---------------------------------------------------------------------------
 // 발행일을 기준일에서 거꾸로 만든다
 // ---------------------------------------------------------------------------
@@ -192,8 +217,10 @@ describe('SCR-101 홈', () => {
   let past: ReturnType<typeof cookieJar>
   let asOf: string
 
-  /** 가까운 평가일(비과세) · 먼 평가일 + 기초자산 결함(비과세) · 일정 결함 + KI 하회 · 상환완료 */
+  /** 가까운 평가일(비과세 · 근소 충족) · 가까운 평가일 이월(비과세) · 먼 평가일 + 기초자산 결함(비과세) · 일정 결함 + KI 하회 · 상환완료 */
   let soon: RegisteredProduct
+  /** 1차가 가깝고 그 차수를 못 맞춘다 — ①의 「예상 미충족」 갈래(홈 피드백 컷 K6). 비과세라 ③에 기여하지 않는다 */
+  let carry: RegisteredProduct
   let far: RegisteredProduct
   let defect: RegisteredProduct
   /**
@@ -230,6 +257,18 @@ describe('SCR-101 홈', () => {
       // ③의 단언이 시각에 의존하지 않는다(`accountType` 옵션의 각주).
       accountType: 'TAX_FREE',
     })
+    // 워스트오브 93% — 1차 배리어 90%보다 3%p 위라 「예상 근소 충족」이다(홈 피드백 컷 K6 · D3). 종전 120%(+30%p)는 「예상
+    // 충족」이었고 그 낱말은 리터럴 시절부터 있었으므로 단계 배선을 증명하지 못한다
+    await saveAssetPrice(live, soon.assetId, NARROW_PRICE)
+
+    // ①′ 가까운 평가일 + 이월 — 1차(배리어 90%)를 워스트오브 80%로 못 맞춘다. 1차에는 리자드가 없다(2차에만 — `registerProduct`)
+    carry = await registerProduct(live, {
+      label: '홈이월',
+      issueDate: issueDateForFirstRound(asOf, { min: 5, max: 20 }),
+      principal: P_CARRY,
+      accountType: 'TAX_FREE',
+    })
+    await saveAssetPrice(live, carry.assetId, CARRY_PRICE)
 
     // ② 먼 평가일 + 기초자산 결함 — 첫 평가일이 60~120일 뒤이므로 세 차수 전부
     //    미래이고, 그래서 ⑥(상환 확인 필요)에 오르지 않는다(시각 독립).
@@ -386,9 +425,10 @@ describe('SCR-101 홈', () => {
       visible(await (await get(PATHS.home, live)).text()),
       SECTIONS.attention,
     )
-    // 가까운 평가일 상품은 워스트오브 120%이고 KI 배리어 50%이므로 안전이고, 상환완료 상품은
+    // 가까운 평가일 상품 둘은 워스트오브 93% · 80%이고 KI 배리어 50%(근접 55%)보다 위라 안전이고, 상환완료 상품은
     // E-05로 조치 대상이 아니다(§4.1이 결함만 남기고 나머지를 끊는다).
     expect(rowsOf(attention, soon)).toEqual([])
+    expect(rowsOf(attention, carry)).toEqual([])
     expect(rowsOf(attention, redeemed)).toEqual([])
     expect(rowsOf(attention, redeemedOld)).toEqual([])
     expect(attention).toContain('2건')
@@ -480,8 +520,8 @@ describe('SCR-101 홈', () => {
     const nearAt = upcoming.indexOf(hrefOf(soon))
     expect(nearAt, '가까운 평가일의 줄이 없다').toBeGreaterThan(-1)
     expect(nearAt).toBeLessThan(upcoming.indexOf(hrefOf(far)))
-    // 두 건뿐이므로 자름이 없다 — 「N건 중 M건」이 아니라 「2건」이다.
-    expect(upcoming).toContain('2건')
+    // 세 건뿐이므로 자름이 없다 — 「N건 중 M건」이 아니라 「3건」이다(가까운 둘 + 먼 하나 — 홈 피드백 컷 K6이 이월 하나를 더했다).
+    expect(upcoming).toContain('3건')
     expect(upcoming).not.toContain('중 ')
   })
 
@@ -498,13 +538,45 @@ describe('SCR-101 홈', () => {
     const distant = rowOf(upcoming, far)
 
     expect(distant).toContain('판정 없음')
-    expect(distant).not.toContain('예상 미충족')
-    expect(distant).not.toContain('예상 충족')
+    // 여유폭 단계 셋 어느 것도 말하지 않는다(홈 피드백 컷 K6 — 낱말은 표에서 읽는다)
+    for (const label of Object.values(GAP_TIER_LABELS)) expect(distant, label).not.toContain(label)
 
     // 반대 방향 — 시세가 있는 행은 판정을 말한다(위 단언이 항진명제가 아니다).
     const near = rowOf(upcoming, soon)
-    expect(near).toContain('예상 충족') // 워스트오브 120% ≥ 1차 배리어 90%
-    expect(near).toContain(percent(soon.worstOfRatio))
+    expect(near).toContain(`>${GAP_TIER_LABELS.NARROW}<`) // 워스트오브 93% ≥ 1차 배리어 90% · 여유 3%p
+    expect(near).toContain(`>${percent('0.9300')}<`)
+  })
+
+  it('★ ① 판정 칸이 여유폭 단계다 — 근소 · 미충족 · 판정 없음이 갈리고 숫자의 색은 부호가 아니라 단계다 (홈 피드백 컷 K6 · D3)', async () => {
+    /*
+     * ★ 피드백 #2 — 종전 「예상 충족」 하나가 +3%p와 +30%p를 같게 말했다. 세 행이 세 갈래다: `soon` +3%p 충족 → 「예상 근소
+     * 충족」 · `carry` −10%p 이월 → 「예상 미충족」 · `far` 판정 없음 → 어느 것도 아님. 낱말과 숫자색은 `gapTierOf` 하나가
+     * 정한다 — 경계(정확히 5%p · 리자드)는 상시 스위트가 본다(`gapTier.test.ts`). 「예상 충족」 갈래는 이 화면에서 관측하지
+     * 않는다(SCR-201 · SCR-301 e2e가 그 색을 본다).
+     *
+     * 숫자색은 **노드로** 본다 — `+3%p`를 감싼 span의 클래스. 부호로 칠하는 구현이면 +3%p가 초록이 된다(그래서 근소의 앰버가
+     * 판별력을 갖는다). 판정 없음 행에는 숫자가 없다(「—」 — 위 K5 단언).
+     */
+    const upcoming = sectionOf(visible(await (await get(PATHS.home, live)).text()), SECTIONS.upcoming)
+    const near = rowOf(upcoming, soon)
+    const carried = rowOf(upcoming, carry)
+    const distant = rowOf(upcoming, far)
+
+    // 전제 — 두 행의 여유폭이 계약 값대로다(부호가 다르다)
+    const nearGap = barrierGap('0.9300', '0.9000')
+    const carryGap = barrierGap('0.8000', '0.9000')
+    expect([nearGap, carryGap]).toEqual(['+3%p', '-10%p'])
+
+    expect(near).toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    expect(near).not.toContain(`>${GAP_TIER_LABELS.MET}<`)
+    expect(carried).toContain(`>${GAP_TIER_LABELS.UNMET}<`)
+    expect(carried).not.toContain(`>${GAP_TIER_LABELS.NARROW}<`)
+    for (const label of Object.values(GAP_TIER_LABELS)) expect(distant, label).not.toContain(`>${label}<`)
+
+    // 숫자의 색 — 단계의 등급(근소 · 미충족 둘 다 caution). 양수인 +3%p도 앰버다
+    expect(classesOfValue(near, nearGap), '+3%p의 색').toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.NARROW])
+    expect(classesOfValue(carried, carryGap), '-10%p의 색').toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.UNMET])
+    expect(classesOfValue(near, nearGap)).not.toContain(GRADE_TEXT_CLASS[GAP_TIER_GRADES.MET])
   })
 
   it('★ 다가오는 평가일이 없으면 그 절에 한 줄이 남는다 — AQ-34 · 홈 피드백 컷 K4', async () => {
@@ -559,10 +631,10 @@ describe('SCR-101 홈', () => {
       SECTIONS.totals,
     )
 
-    // 보유중 셋(가까운 평가일·먼 평가일·결함). 상환완료 둘은 세지 않는다.
-    expect(totals).toContain('3건')
-    // 20,000,000 + 30,000,000 + 40,000,000
-    expect(totals).toContain(amount('90000000'))
+    // 보유중 넷(가까운 평가일 둘·먼 평가일·결함). 상환완료 둘은 세지 않는다.
+    expect(totals).toContain('4건')
+    // 20,000,000 + 10,000,000 + 30,000,000 + 40,000,000
+    expect(totals).toContain(amount('100000000'))
     // 실현손익 = (54,000,000 − 50,000,000) + (71,000,000 − 70,000,000).
     // **부호를 붙인다**(음수가 정상값이다)
     expect(totals).toContain(signedWon('5000000'))
