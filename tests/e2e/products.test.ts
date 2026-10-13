@@ -4,10 +4,12 @@ import { GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import { today } from '@/lib/db/today'
 import {
   CONDITION_RESULT_LABELS,
+  EMPTY_STATES,
   GAP_TIER_GRADES,
   GAP_TIER_LABELS,
   PRODUCTS_PER_PAGE,
   KI_STATUS_LABELS,
+  SCOPE_LABELS,
   STATUS_LABELS,
   barrierGap,
   percent,
@@ -124,8 +126,13 @@ const GHOST_OWNER = '00000000-0000-4000-8000-0000000000ff'
 /** 형식은 맞지만 실재하지 않는 상품. `getProduct`가 `null`을 준다. */
 const GHOST_PRODUCT = '00000000-0000-4000-8000-0000000000fe'
 
-const EMPTY_NARROWED = '조건에 맞는 상품이 없다'
-const EMPTY_TOTAL = '등록된 상품이 없다'
+/**
+ * 빈 상태 셋 — ~~리터럴~~ → 화면이 쓰는 상수 그대로 *(홈 피드백 컷 K12)*. 리터럴을 따로 들면 화면 문구가 바뀌는 날 「…가 아니다」
+ * 꼴의 음성 단언이 조용히 헛돈다(종전 다체 리터럴이 K12에서 바뀐 바로 그 자리다)
+ */
+const EMPTY_MINE = EMPTY_STATES.productsMine
+const EMPTY_NARROWED = EMPTY_STATES.productsNarrowed.title
+const EMPTY_TOTAL = EMPTY_STATES.productsAll.title
 
 /**
  * 여유폭 단계의 픽스처 시세 (홈 피드백 컷 K6) — 기준가(99,999,999,999.999999) 대비 0.93 · 0.70. 계약의 4자리 워스트오브가
@@ -333,6 +340,24 @@ describe('SCR-201 목록', () => {
     expect([...select!.matchAll(/<option/g)]).toHaveLength(6)
   })
 
+  it('소유자 선택지의 글자가 표시 범위다 — 「내 상품」 · 「모든 사용자」, 「전체」가 아니다 (홈 피드백 컷 K12 · D6)', async () => {
+    /*
+     * ★ **같은 폼 안의 대조다.** KI 상태 축의 빈 값은 여전히 「전체」(좁히지 않음 · 기본값)이고, 소유자 축은 빈 값이 「내
+     * 상품」(기본값이 좁힌 쪽)이라 그 축에 「전체」를 쓰면 한 폼 안에서 같은 낱말이 반대로 읽혔다(피드백 #11). 그래서 선택
+     * 상자를 이름으로 잘라 본다 — 문서 전체에 대한 `not.toContain('>전체<')`는 KI 상자 때문에 늘 빨갛다
+     */
+    const html = await (await get(PATHS.products, jar)).text()
+    const owner = /<select name="ownerId"[\s\S]*?<\/select>/.exec(html)?.[0]
+    const ki = /<select name="kiStatus"[\s\S]*?<\/select>/.exec(html)?.[0]
+    expect(owner, '소유자 선택 상자가 없다').toBeDefined()
+
+    expect(owner).toMatch(new RegExp(`<option value=""[^>]*>${SCOPE_LABELS.MINE}</option>`))
+    expect(owner).toMatch(new RegExp(`<option value="${OWNER_ALL}"[^>]*>${SCOPE_LABELS.ALL}</option>`))
+    expect(owner, '소유자 축에 「전체」가 남았다').not.toContain('>전체</option>')
+    // 반대 방향 — 다른 축의 「전체」는 그대로다(이 축만 낱말을 바꿨다)
+    expect(ki).toContain('>전체</option>')
+  })
+
   it('`BELOW`로 좁힌 상태가 주소에서 폼으로 되살아난다', async () => {
     const res = await get(`${PATHS.products}?${FILTER_KEYS.kiStatus}=BELOW`, jar)
     expect(res.status).toBe(200)
@@ -405,7 +430,7 @@ describe('SCR-201 목록', () => {
     expect(all).toContain(product.productName)
   })
 
-  it('★ 빈 상태 «셋째» — 내 것만 없을 때 다음 행동이 전체 보기다', async () => {
+  it('★ 빈 상태 «셋째» — 내 것만 없을 때 다음 행동이 모든 사용자로 넓히기다', async () => {
     /*
      * ★ 이 케이스가 없으면 v2.6이 **막다른 골목**을 만든 것을 아무도 보지 못한다.
      * 셋째를 두지 않으면 이 상태가 「조건에 맞는 상품이 없다 → 필터 초기화」로
@@ -418,19 +443,20 @@ describe('SCR-201 목록', () => {
     const empty = await authenticatedJar(E2E_EMPTY)
     const html = await (await get(PATHS.products, empty)).text()
 
-    expect(html).toContain('내 상품이 없다')
+    expect(html).toContain(`>${EMPTY_MINE.title}<`)
+    expect(html).toContain(`>${EMPTY_MINE.description}<`)
     // 첫째·둘째 어느 것도 아니다 — 셋이 서로 다른 문구여야 구분이 성립한다.
     expect(html).not.toContain(EMPTY_TOTAL)
     expect(html).not.toContain(EMPTY_NARROWED)
-    // ST-02 — 다음 행동이 «실제로 다른 화면»을 가리킨다.
-    expect(html).toContain('전체 보기')
+    // ST-02 — 다음 행동이 «실제로 다른 화면»을 가리킨다. 글자는 「모든 사용자로 보기」다(홈 피드백 컷 K12 · D6)
+    expect(html).toContain(`>${EMPTY_MINE.action}<`)
     expect(html).toContain(`${FILTER_KEYS.owner}=${OWNER_ALL}`)
 
     // 그리고 그 링크를 따라가면 상품이 실제로 보인다(막다른 골목이 아니다).
     const all = await (
       await get(`${PATHS.products}?${FILTER_KEYS.owner}=${OWNER_ALL}`, empty)
     ).text()
-    expect(all).not.toContain('내 상품이 없다')
+    expect(all).not.toContain(EMPTY_MINE.title)
     expect(all).not.toContain(EMPTY_TOTAL)
   })
 

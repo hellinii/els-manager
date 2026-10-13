@@ -16,6 +16,7 @@ import {
   MONTHLY_COUPON_ESTIMATE_NOTE,
   RECENT_VISIBLE,
   REDEMPTION_TYPE_LABELS,
+  SCOPE_LABELS,
   SECTION_EMPTY,
   TAX_METHOD_VERDICT_LABELS,
   UPCOMING_VISIBLE,
@@ -55,6 +56,9 @@ import { PATHS, REDEEM_ROUND, TAX_PROFILE_SECTION } from '@/lib/routes/paths'
  *
  * ① ④ ⑤가 비면 절 제목(h2)은 남고 그 아래 `SECTION_EMPTY`의 한 줄이다 — 점선 상자가 빈 절에 자리를 줬다. h2를
  * 남기는 것은 「그 물음에 답이 없다」도 답이기 때문이다(⑥은 알림이라 0건이면 통째로 그리지 않는다).
+ *
+ * **그때 제목 옆의 「0건」은 그리지 않는다** *(홈 피드백 컷 K12 · DOC-005 §2.1 「한 사실에 한 문장」 · 피드백 #3)* — 한 줄
+ * (「… 없음」)이 같은 사실을 이미 말한다. 건수는 항목이 있을 때만 정보다(「n건」 · 「총 n건 중 m건」).
  *
  * ## 이 파일이 정하지 않는 것 둘
  *
@@ -261,10 +265,14 @@ export function UpcomingSection({
                     </span>
                   </div>
 
-                  {/* ⓒ 수치 셋 — 카드의 마지막 줄. 모바일 라벨은 열 머리와 같은 문자열이다 */}
+                  {/*
+                    ⓒ 수치 셋 — 카드의 마지막 줄. 모바일 라벨은 열 머리와 같은 문자열이다. 데스크톱에서는 라벨을
+                    ~~`lg:hidden`~~ → `lg:sr-only`로 숨긴다 *(홈 피드백 컷 K12 · DOC-010 AQ-106 ⓑ)* — 열 머리는 표 의미가 없는
+                    `div`라 `display:none`이면 스크린리더가 그 폭에서 라벨 없는 숫자 셋을 읽는다
+                  */}
                   <div className="col-span-2 row-start-3 flex flex-wrap items-baseline gap-x-3 text-xs lg:contents">
                     <span className="tabular-nums text-neutral-600 lg:text-right">
-                      <span className="lg:hidden">{UPCOMING_HEAD.barrier} </span>
+                      <span className="lg:sr-only">{UPCOMING_HEAD.barrier} </span>
                       {percent(item.barrier)}
                     </span>
                     {item.worstOf == null ? (
@@ -279,14 +287,14 @@ export function UpcomingSection({
                     ) : (
                       <>
                         <span className="tabular-nums text-neutral-700 lg:text-right">
-                          <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.worstOf} </span>
+                          <span className="text-neutral-600 lg:sr-only">{UPCOMING_HEAD.worstOf} </span>
                           {percent(item.worstOf)}
                         </span>
                         {/* 숫자의 색은 단계의 등급이다(위 머리 각주) — 모바일 라벨은 중립으로 남긴다 */}
                         <span
                           className={`tabular-nums lg:text-right ${tier == null ? 'text-neutral-600' : GRADE_TEXT_CLASS[GAP_TIER_GRADES[tier]]}`}
                         >
-                          <span className="text-neutral-600 lg:hidden">{UPCOMING_HEAD.gap} </span>
+                          <span className="text-neutral-600 lg:sr-only">{UPCOMING_HEAD.gap} </span>
                           {barrierGap(item.worstOf, item.barrier)}
                         </span>
                       </>
@@ -378,9 +386,11 @@ export function TotalsSection({
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold">
         총 자산 요약{' '}
-        <span className="font-normal text-neutral-500">
-          {scope === 'MINE' ? '본인' : '전체'}
-        </span>
+        {/*
+          범위 표식 — 범위 전환과 같은 글자다(`SCOPE_LABELS` · DOC-005 「표시 범위」 · 홈 피드백 컷 K12). ~~「본인」 · 「전체」~~ —
+          「본인」은 ③의 과세 주체 낱말로 남고, 「전체」는 이 축에서 반대로 읽혔다(피드백 #11)
+        */}
+        <span className="font-normal text-neutral-500">{SCOPE_LABELS[scope]}</span>
       </h2>
 
       <dl className="grid gap-3 rounded-lg border border-neutral-200 px-4 py-3 sm:grid-cols-3">
@@ -555,11 +565,18 @@ function AdditionalTaxValue({ amount }: { amount: YearTaxAmount }) {
   if (amount.kind === 'PROFILE_MISSING') {
     return <span className="text-sm font-medium text-neutral-700">{YEAR_TAX_TEXT.profileMissing}</span>
   }
+  /*
+   * 금액과 「이상」 사이는 **글자 공백**이다 — ~~여백(`ml-1`)뿐~~ → 공백 텍스트 노드 *(홈 피드백 컷 K12)*. 여백은 화면에만
+   * 있어 복사한 글과 스크린리더가 「…원이상」을 냈다
+   */
   return (
     <>
       {won(amount.value)}
       {amount.kind === 'AT_LEAST' && (
-        <span className="ml-1 text-xs font-normal text-neutral-600">{YEAR_TAX_TEXT.atLeast}</span>
+        <>
+          {' '}
+          <span className="text-xs font-normal text-neutral-600">{YEAR_TAX_TEXT.atLeast}</span>
+        </>
       )}
     </>
   )
@@ -645,8 +662,14 @@ export function AttentionSection({
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold">
-        주의 상태 상품{' '}
-        <span className="font-normal text-neutral-500">{groups.length}건</span>
+        주의 상태 상품
+        {/* 비었으면 건수를 적지 않는다 — 아래 한 줄이 같은 사실을 말한다(파일 머리 「절 빈 상태는 한 줄이다」) */}
+        {groups.length > 0 && (
+          <>
+            {' '}
+            <span className="font-normal text-neutral-500">{groups.length}건</span>
+          </>
+        )}
       </h2>
 
       {groups.length === 0 ? (
@@ -782,6 +805,9 @@ function pnlColor(value: string): string {
  *
  * 두 목록이 같은 규칙으로 자르므로 문구도 한 곳에 둔다. `hidden === 0`이면 자름을
  * 말하지 않지만 전체 링크는 남긴다 — 그 링크는 자름의 안내가 아니라 §7의 화면 전이다.
+ *
+ * **`total === 0`이면 건수를 적지 않는다** *(홈 피드백 컷 K12 · DOC-008 §6 「① ④ ⑤의 절 빈 상태는 한 줄이다」)* — 절 아래
+ * 한 줄(`SECTION_EMPTY`)이 「없다」를 말하므로 「0건」은 같은 사실의 두 번째 문장이다. 제목과 전체 링크는 남는다.
  */
 function SectionHead({
   title,
@@ -797,12 +823,17 @@ function SectionHead({
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-2">
       <h2 className="text-sm font-semibold">
-        {title}{' '}
-        <span className="font-normal text-neutral-500">
-          {visible.hidden > 0
-            ? `${visible.total}건 중 ${visible.total - visible.hidden}건`
-            : `${visible.total}건`}
-        </span>
+        {title}
+        {visible.total > 0 && (
+          <>
+            {' '}
+            <span className="font-normal text-neutral-500">
+              {visible.hidden > 0
+                ? `${visible.total}건 중 ${visible.total - visible.hidden}건`
+                : `${visible.total}건`}
+            </span>
+          </>
+        )}
       </h2>
       <Link href={moreHref} className="text-xs text-neutral-600 underline">
         {moreLabel}

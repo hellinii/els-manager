@@ -1,5 +1,6 @@
 import Link from 'next/link'
 
+import { SCOPE_LABELS } from '@/lib/format'
 import { dashboardQuery, type DashboardScope } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -16,16 +17,17 @@ import { PATHS } from '@/lib/routes/paths'
  *
  * ## 이 컨트롤이 빈 상태의 절반을 진다
  *
- * 기본 범위가 본인이므로(SQ-03) 홈은 **처음부터 좁혀진 상태**다. 「내 상품이 없다」가
+ * 기본 범위가 본인이므로(SQ-03) 홈은 **처음부터 좁혀진 상태**다. 「내 상품 없음」이
  * 좁힘의 결과임을 사용자가 알아야 하고, 그 사실을 말하는 것이 빈 상태의 문구가
  * 아니라 **목록 위에 항상 렌더되는 이 컨트롤**이다(SCR-201의 필터가 같은 자리에 있는
  * 것과 같은 이유).
+ *
+ * ## 글자는 「내 상품」 · 「모든 사용자」다 (홈 피드백 컷 K12 · 민서 결정(2026-10-12) D6 · 피드백 #11)
+ *
+ * ~~이 파일의 지역 상수(「내 상품」 · 「전체」)~~ → `SCOPE_LABELS`(DOC-005 §6 「표시 범위」) — ② 머리와 SCR-201 · 301
+ * 소유자 필터가 같은 상수를 쓴다. 「전체」는 다른 필터 축에서 「좁히지 않음」이자 기본값이라 이 축(기본값이 좁힌
+ * 쪽)에서 반대로 읽혔다. 링크의 순서는 그 표의 키 순서다(기본값이 앞).
  */
-
-const SCOPE_LABELS: Record<DashboardScope, string> = {
-  MINE: '내 상품',
-  ALL: '전체',
-}
 
 export function ScopeSwitch({ scope }: { scope: DashboardScope }) {
   return (

@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/state/EmptyState'
 import type { MonthlyCouponScheduleItem, ScheduleItem } from '@/lib/db/queries/map'
 import { getAsOf, getQueries, getViewerId } from '@/lib/db/server'
 import {
+  EMPTY_STATES,
   groupByMonth,
   korDate,
   mergeTimeline,
@@ -346,8 +347,11 @@ function Section({
  * ## ★ 순서가 `mineOnly` → `narrowed`다 (v2.6)
  *
  * `products/page.tsx`의 `ListEmpty`와 **같은 이유·같은 순서**다: 뒤의 판정이 앞을
- * 포함하므로 뒤집으면 「내 평가일정이 없다」가 영원히 나타나지 않고, 그 상태가
+ * 포함하므로 뒤집으면 「내 평가일정 없음」이 영원히 나타나지 않고, 그 상태가
  * 「필터 초기화」로 떨어지면 **초기화된 주소가 곧 본인 보기라 눌러도 같은 화면**이다.
+ *
+ * 글자는 `EMPTY_STATES`다 *(홈 피드백 컷 K12 · DOC-005 §2.1 · 민서 결정(2026-10-12) D6)* — 이 축을 넓히는 행동은
+ * SCR-201과 같은 값(「모든 사용자로 보기」)이다.
  */
 function ScheduleEmpty({
   narrowed,
@@ -360,13 +364,14 @@ function ScheduleEmpty({
   view: ScheduleView
 }) {
   if (mineOnly) {
+    const text = EMPTY_STATES.scheduleMine
     return (
       <EmptyState
-        title="내 평가일정이 없다"
-        description="다른 사람의 일정까지 보려면 소유자를 「전체」로 바꾼다."
-        /* 전체 보기로 가되 **보기는 보존한다** — 아래 초기화와 같은 규약이다 */
+        title={text.title}
+        description={text.description}
+        /* 모든 사용자로 가되 **보기는 보존한다** — 아래 초기화와 같은 규약이다 */
         action={{
-          label: '전체 보기',
+          label: text.action,
           href: `${PATHS.schedule}${scheduleQuery({ ...ALL_OWNERS_FILTER }, view)}`,
         }}
       />
@@ -374,29 +379,31 @@ function ScheduleEmpty({
   }
 
   if (narrowed) {
+    const text = EMPTY_STATES.scheduleNarrowed
     return (
       <EmptyState
-        title="조건에 맞는 평가일이 없다"
-        description="필터를 해제하면 내 일정이 보인다."
+        title={text.title}
+        description={text.description}
         /*
          * ★ 초기화가 **보기를 보존한다** — 필터를 되돌리는 것과 표현을 되돌리는
          * 것은 다른 일이고, 섞으면 시간순에서 잘못 좁힌 사용자가 말없이 상품별로
          * 던져진다. `ScheduleFilters`의 초기화 링크와 같은 규약이다.
          */
         action={{
-          label: '필터 초기화',
+          label: text.action,
           href: `${PATHS.schedule}${scheduleQuery(DEFAULT_FILTER, view)}`,
         }}
       />
     )
   }
 
+  // 기본 보기가 상품별이므로 「시간 순으로 모인다」는 화면과 어긋난다(v2.2) — 설명이 「차수별 평가일과 예상 수령액」인 이유
+  const text = EMPTY_STATES.scheduleAll
   return (
     <EmptyState
-      title="등록된 평가일정이 없다"
-      /* 기본 보기가 상품별이므로 「시간 순으로 모인다」는 화면과 어긋난다(v2.2) */
-      description="ELS를 등록하면 차수별 평가일과 예상 수령액이 여기에 모인다."
-      action={{ label: '+ 등록', href: PATHS.productNew }}
+      title={text.title}
+      description={text.description}
+      action={{ label: text.action, href: PATHS.productNew }}
     />
   )
 }

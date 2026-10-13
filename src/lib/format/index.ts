@@ -74,6 +74,7 @@ export {
   CONTRIBUTION_BASIS_LABELS,
   COUPON_STATE_LABELS,
   REDEMPTION_TYPE_LABELS,
+  SCOPE_LABELS,
   STALE_LABEL,
   STATUS_LABELS,
 } from './labels'
@@ -154,7 +155,7 @@ export {
   type YearTaxDisplay,
   type YearTaxLine,
 } from './dashboard'
-export { missingUpcomingNote, SECTION_EMPTY } from './emptyState'
+export { EMPTY_STATES, missingUpcomingNote, SECTION_EMPTY, type EmptyStateText } from './emptyState'
 export { splitProductName, type ProductNameParts } from './productName'
 export {
   EVALUATION_VERDICT_FRESH_DAYS,

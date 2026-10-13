@@ -8,8 +8,10 @@ import {
 } from '@/lib/domain'
 import {
   CONDITION_RESULT_LABELS,
+  EMPTY_STATES,
   GAP_TIER_GRADES,
   GAP_TIER_LABELS,
+  SCOPE_LABELS,
   STATUS_LABELS,
   barrierGap,
   korMonth,
@@ -75,8 +77,10 @@ const TIMELINE = `${PATHS.schedule}?${SCHEDULE_KEYS.view}=TIME`
 
 const timeline = (query = ''): string => (query === '' ? TIMELINE : `${TIMELINE}&${query}`)
 
-const EMPTY_NARROWED = '조건에 맞는 평가일이 없다'
-const EMPTY_TOTAL = '등록된 평가일정이 없다'
+/** 빈 상태 셋 — 화면이 쓰는 상수 그대로(홈 피드백 컷 K12 · `products.test.ts`의 같은 상수 각주) */
+const EMPTY_MINE = EMPTY_STATES.scheduleMine
+const EMPTY_NARROWED = EMPTY_STATES.scheduleNarrowed.title
+const EMPTY_TOTAL = EMPTY_STATES.scheduleAll.title
 const PAST_SECTION = '지난 평가일'
 const UPCOMING_SECTION = '다가오는 평가일'
 
@@ -230,12 +234,18 @@ describe('SCR-301 평가일정', () => {
     const select = /<select name="ownerId"[\s\S]*?<\/select>/.exec(html)?.[0]
     expect(select, '소유자 선택 상자가 없다').toBeDefined()
 
+    // 글자 — 고른 값 `ALL`은 표시 범위의 「모든 사용자」이고 이 축에 「전체」가 없다(홈 피드백 컷 K12 · D6). 소유자 상자로 잘라
+    // 본다 — 문서 전체에는 「전체 기간」 같은 다른 축의 글자가 있다. 빈 값 「내 일정」은 그대로다(DOC-005 GQ-13)
+    expect(select).toMatch(new RegExp(`<option value="${OWNER_ALL}"[^>]*>${SCOPE_LABELS.ALL}</option>`))
+    expect(select, '소유자 축에 「전체」가 남았다').not.toContain('>전체</option>')
+    expect(select).toMatch(/<option value=""[^>]*>내 일정<\/option>/)
+
     const values = [...select!.matchAll(/value="([^"]*)"/g)].map((m) => m[1]!)
 
     /*
      * ★ 선택지의 «모양»이 v2.6에서 바뀌었다 — 값이 셋이다.
      *
-     * 빈 값 = 「내 일정」(기본) · `ALL` = 「전체」 · 나머지 = 다른 소유자의 UUID.
+     * 빈 값 = 「내 일정」(기본) · `ALL` = ~~「전체」~~ → 「모든 사용자」(K12) · 나머지 = 다른 소유자의 UUID.
      * **보는 사람 자신은 없다** — 기본 항목이 이미 그 사람이므로 두면 같은 뜻의
      * 항목이 둘이 된다(`page.tsx`의 `ownersOf`가 뺀다).
      */
@@ -290,11 +300,13 @@ describe('SCR-301 평가일정', () => {
     expect(rowsOf(mine, seeded.productName)).toHaveLength(0)
     expect(rowsOf(all, seeded.productName).length).toBeGreaterThan(0)
 
-    // 그리고 그 사용자에게는 빈 상태 «둘째»가 뜬다 — 다음 행동이 전체 보기다.
-    expect(mine).toContain('내 평가일정이 없다')
+    // 그리고 그 사용자에게는 빈 상태 «둘째»가 뜬다 — 다음 행동이 모든 사용자로 넓히기다.
+    expect(mine).toContain(`>${EMPTY_MINE.title}<`)
+    expect(mine).toContain(`>${EMPTY_MINE.description}<`)
     expect(mine).not.toContain(EMPTY_TOTAL)
     expect(mine).not.toContain(EMPTY_NARROWED)
-    expect(mine).toContain('전체 보기')
+    // 다음 행동의 글자는 「모든 사용자로 보기」다(홈 피드백 컷 K12 · D6 — SCR-201과 같은 값)
+    expect(mine).toContain(`>${EMPTY_MINE.action}<`)
   })
 
   it('★ 두 절이 갈리고 차수가 자기 절에 들어간다', async () => {

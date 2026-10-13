@@ -1,5 +1,7 @@
+import { SCOPE_LABELS } from './labels'
+
 /**
- * 절 빈 상태의 글자 — SCR-101 ① ④ ⑤ · SCR-301 「다가오는 평가일」 (홈 피드백 컷 K4)
+ * 빈 상태의 글자 — SCR-101 ① ④ ⑤ · SCR-301 「다가오는 평가일」 (홈 피드백 컷 K4) · 화면 전체의 빈 상태 (홈 피드백 컷 K12)
  *
  * ## 왜 화면 안이 아니라 여기인가 — 둘
  *
@@ -14,7 +16,8 @@
  * 설명은 대상이 다르다(§2.1 「섞지 않는 단위는 상자다」). 문구의 정본은 DOC-008 §6 「①의 절 단위 빈 상태」 각주와
  * SCR-301 빈 상태 표이며 `tests/app/emptyState.test.ts`가 「」째로 결속한다(취소선 · 이력 행 밖의 글만 — `liveDoc`).
  *
- * 화면 전체의 빈 상태(상품 없음 — 홈 · SCR-201 · SCR-301)는 이 파일에 아직 없다(홈 피드백 컷 K12).
+ * ~~화면 전체의 빈 상태(상품 없음 — 홈 · SCR-201 · SCR-301)는 이 파일에 아직 없다(홈 피드백 컷 K12).~~ → 화면 전체의 빈
+ * 상태도 여기다 — 아래 `EMPTY_STATES` *(홈 피드백 컷 K12)*. 정본은 DOC-008 §6 「화면 빈 상태의 글자」 각주다.
  */
 
 /**
@@ -54,3 +57,79 @@ export function missingUpcomingNote(where: 'HOME' | 'SCHEDULE', redemptionCheckC
     ? `${SECTION_EMPTY.upcoming}${JOINER}지난 차수는 위 「상환 확인 필요」를 보세요.`
     : SECTION_EMPTY.upcoming
 }
+
+// ---------------------------------------------------------------------------
+// 화면 전체의 빈 상태 — 홈 · SCR-201 · SCR-301 (홈 피드백 컷 K12)
+// ---------------------------------------------------------------------------
+
+/** 빈 상태 하나의 글자 — 제목(명사형) · 설명(해요체) · 다음 행동의 글자(동작 이름 — ST-02). 주소는 화면이 붙인다 */
+export type EmptyStateText = {
+  readonly title: string
+  readonly description: string
+  readonly action: string
+}
+
+/** 이 축을 넓히는 다음 행동 — DOC-005 §2.1 「~보기」 관용형 · 글자는 표시 범위(`SCOPE_LABELS`)를 따른다 */
+const SHOW_ALL_OWNERS = `${SCOPE_LABELS.ALL}로 보기`
+
+/**
+ * 화면 전체의 빈 상태 여덟 — 홈 둘(범위) · SCR-201 셋 · SCR-301 셋(필터 — 넷째 「다가오는 평가일 없음」은 위 함수) (홈 피드백 컷
+ * K12 · 민서 결정(2026-10-12) D4 · D6 · DOC-008 §6 「화면 빈 상태의 글자」).
+ *
+ * ## 왜 한 곳인가 — 한 사실을 화면마다 다르게 부르지 않는다
+ *
+ * SCR-201 · 301의 「내 것만 없다」는 SCR-101이 SQ-03에서 먼저 지난 자리이고 **그때 쓴 문구 · 행동을 두 화면이 그대로 쓴다**
+ * (DOC-008 §6 「SCR-201·301의 빈 상태가 하나씩 늘었다」). 종전에는 세 화면이 각자 리터럴이라 그 규칙을 아무것도 지키지
+ * 않았고(「내 상품이 없다」가 두 파일에 따로 있었다) e2e도 리터럴을 따로 들고 있어 화면 문구가 바뀌면 음성 단언이 조용히
+ * 헛돌았다. 이제 같은 사실은 같은 값을 **가리키고**(`homeMine.title`과 `productsMine.title`) 상시 스위트가 그 동일성을 본다.
+ *
+ * ## 문체 (DOC-005 §2.1)
+ *
+ * 제목은 명사형(「~없음」 — DOC-008 §6 상태 표의 꼴 그대로)이고 설명은 해요체다. 이 축을 넓히는 행동은 「모든 사용자로
+ * 보기」 — 종전 「전체 보기」의 「전체」는 다른 필터 축에서 「좁히지 않음」이자 기본값이라 이 축에서 반대로 읽혔다(피드백 #11).
+ *
+ * **홈의 `MINE`은 범위를 넓히는 버튼이 없다** — 범위 전환이 머리글에 늘 렌더되므로 설명이 그 길을 말하고 다음 행동은 등록이다
+ * (`EmptyState.action`은 하나다 · DOC-008 §6 「SCR-101의 빈 상태가 범위에 따라 둘이다」).
+ */
+export const EMPTY_STATES = {
+  homeMine: {
+    title: '내 상품 없음',
+    description: `위에서 「${SCOPE_LABELS.ALL}」로 바꾸면 다른 사용자의 상품이 보여요. 내 ELS를 등록하면 평가일정·조건 판정·세금 계산이 함께 채워져요.`,
+    action: '+ 등록',
+  },
+  homeAll: {
+    title: '등록된 상품 없음',
+    description: 'ELS를 등록하면 다가오는 평가일·조치 목록·올해 금융소득이 여기에 모여요.',
+    action: '+ 등록',
+  },
+  productsMine: {
+    title: '내 상품 없음',
+    description: `다른 사용자의 상품까지 보려면 소유자를 「${SCOPE_LABELS.ALL}」로 바꾸세요.`,
+    action: SHOW_ALL_OWNERS,
+  },
+  productsNarrowed: {
+    title: '조건에 맞는 상품 없음',
+    description: '필터를 해제하면 내 상품 목록이 보여요.',
+    action: '필터 초기화',
+  },
+  productsAll: {
+    title: '등록된 상품 없음',
+    description: 'ELS를 등록하면 평가일정·조건 판정·세금 계산이 함께 채워져요.',
+    action: '+ 등록',
+  },
+  scheduleMine: {
+    title: '내 평가일정 없음',
+    description: `다른 사용자의 일정까지 보려면 소유자를 「${SCOPE_LABELS.ALL}」로 바꾸세요.`,
+    action: SHOW_ALL_OWNERS,
+  },
+  scheduleNarrowed: {
+    title: '조건에 맞는 평가일 없음',
+    description: '필터를 해제하면 내 일정이 보여요.',
+    action: '필터 초기화',
+  },
+  scheduleAll: {
+    title: '등록된 평가일정 없음',
+    description: 'ELS를 등록하면 차수별 평가일과 예상 수령액이 여기에 모여요.',
+    action: '+ 등록',
+  },
+} as const satisfies Record<string, EmptyStateText>

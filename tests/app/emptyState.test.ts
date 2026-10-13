@@ -3,18 +3,26 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { missingUpcomingNote, SECTION_EMPTY } from '@/lib/format'
+import { EMPTY_STATES, missingUpcomingNote, SCOPE_LABELS, SECTION_EMPTY } from '@/lib/format'
 
 import { liveDoc, liveText, quoteBlock } from './docText'
 
 /**
- * 절 빈 상태의 글자 — SCR-101 ① ④ ⑤ · SCR-301 「다가오는 평가일」 (홈 피드백 컷 K4)
+ * 절 빈 상태의 글자 — SCR-101 ① ④ ⑤ · SCR-301 「다가오는 평가일」 (홈 피드백 컷 K4) · 화면 전체의 빈 상태 (홈 피드백 컷 K12)
  *
  * 셋을 본다. ⓐ ①의 뒷절이 **가리킬 블록이 있을 때만** 붙는다(DOC-008 SQ-28) — 그 판단은 화면 파일에 두면 어느
  * 스위트도 보지 못한다(AQ-23). ⓑ 글자가 DOC-005 §2.1의 문체다. ⓒ 글자가 DOC-008의 정본과 「」째로 같다 — 그 대조는
  * **취소선과 변경 이력 행을 벗긴 글**에 건다(`liveDoc`). 종전 문구가 취소선으로 문서에 남아 있으므로 원문에 걸면
  * 코드를 종전으로 되돌려도 초록이다.
+ *
+ * 화면 전체의 빈 상태(`EMPTY_STATES` — 홈 둘 · SCR-201 셋 · SCR-301 셋 · K12)는 넷을 본다. ⓓ 같은 사실은 화면이 달라도 같은
+ * 글자다(DOC-008 §6 「SCR-201·301의 빈 상태가 하나씩 늘었다」 — 「그때 쓴 문구·행동을 두 화면이 그대로 쓴다」) ⓔ 「내 것만
+ * 없다」는 넓히는 길을 표시 범위의 글자(「모든 사용자」)로 말한다 ⓕ 문체 ⓖ DOC-008 §6 「화면 빈 상태의 글자」 표의 **그 키의
+ * 행**과 「」째로 같다.
  */
+
+type EmptyKey = keyof typeof EMPTY_STATES
+const EMPTY_ENTRIES = Object.entries(EMPTY_STATES) as Array<[EmptyKey, (typeof EMPTY_STATES)[EmptyKey]]>
 
 const DOC_008 = '08_정보구조_및_화면목록.md'
 
@@ -73,6 +81,64 @@ describe('문체 — DOC-005 §2.1', () => {
       expect(note, note).toMatch(/요\.$/)
     }
   })
+
+  it.each(EMPTY_ENTRIES)('화면 빈 상태 %s — 제목은 「~없음」 · 설명은 해요체 · 행동은 동작 이름 (K12)', (_key, text) => {
+    expect(declarative(text.title)).toEqual([])
+    expect(text.title).toMatch(/없음$/)
+    expect(declarative(text.description)).toEqual([])
+    expect(text.description).toMatch(/요\.$/)
+    // 버튼은 명사(동작 이름) — 「~하기」 · 「~한다」를 붙이지 않는다. 「~보기」는 관용형으로 허용한다(DOC-005 §2.1)
+    expect(declarative(text.action)).toEqual([])
+    expect(text.action).not.toMatch(/[.요]$|하기$/)
+  })
+})
+
+describe('화면 빈 상태 — 한 사실에 한 이름 (홈 피드백 컷 K12 · DOC-008 §6)', () => {
+  it('전제 — 여덟이다: 홈 둘(범위) · SCR-201 셋 · SCR-301 셋(넷째 「다가오는 평가일 없음」은 `missingUpcomingNote`)', () => {
+    expect(Object.keys(EMPTY_STATES).sort()).toEqual(
+      [
+        'homeMine',
+        'homeAll',
+        'productsMine',
+        'productsNarrowed',
+        'productsAll',
+        'scheduleMine',
+        'scheduleNarrowed',
+        'scheduleAll',
+      ].sort(),
+    )
+  })
+
+  it('★ 홈과 SCR-201의 같은 상태는 같은 제목이다 — SCR-101이 먼저 지난 자리의 문구를 두 화면이 그대로 쓴다', () => {
+    expect(EMPTY_STATES.productsMine.title).toBe(EMPTY_STATES.homeMine.title)
+    expect(EMPTY_STATES.productsAll.title).toBe(EMPTY_STATES.homeAll.title)
+    // 이 축을 넓히는 행동은 두 목록 화면이 같은 글자다 — 표시 범위의 「모든 사용자」를 따른다
+    expect(EMPTY_STATES.scheduleMine.action).toBe(EMPTY_STATES.productsMine.action)
+    expect(EMPTY_STATES.productsMine.action).toBe(`${SCOPE_LABELS.ALL}로 보기`)
+  })
+
+  it('★ 같은 화면의 상태는 서로 다른 글자다 — 구분이 성립해야 다음 행동이 갈린다 (ST-02)', () => {
+    const screens: EmptyKey[][] = [
+      ['homeMine', 'homeAll'],
+      ['productsMine', 'productsNarrowed', 'productsAll'],
+      ['scheduleMine', 'scheduleNarrowed', 'scheduleAll'],
+    ]
+    for (const keys of screens) {
+      expect(new Set(keys.map((k) => EMPTY_STATES[k].title)).size, keys.join(' · ')).toBe(keys.length)
+      expect(new Set(keys.map((k) => EMPTY_STATES[k].description)).size, keys.join(' · ')).toBe(keys.length)
+    }
+    // SCR-301의 넷째(「다가오는 평가일 없음」)와도 겹치지 않는다
+    expect(EMPTY_STATES.scheduleAll.title).not.toBe(SECTION_EMPTY.upcoming)
+  })
+
+  it('★ 「내 것만 없다」는 넓히는 길을 「모든 사용자」로 말하고 이 축에 「전체」를 쓰지 않는다 (민서 결정(2026-10-12) D6)', () => {
+    for (const key of ['homeMine', 'productsMine', 'scheduleMine'] as const) {
+      expect(EMPTY_STATES[key].description, key).toContain(`「${SCOPE_LABELS.ALL}」`)
+    }
+    for (const [key, text] of EMPTY_ENTRIES) {
+      expect(`${text.title} ${text.description} ${text.action}`, key).not.toMatch(/전체/)
+    }
+  })
 })
 
 describe('글자 ↔ DOC-008 (취소선 · 이력 행 밖의 글)', () => {
@@ -95,6 +161,28 @@ describe('글자 ↔ DOC-008 (취소선 · 이력 행 밖의 글)', () => {
     const row = doc.split('\n').find((line) => line.startsWith('| **다가오는 평가일이 없다** |'))
     expect(row, 'SCR-301 빈 상태 표의 그 행이 없다').toBeDefined()
     expect(row).toContain(`「${missingUpcomingNote('SCHEDULE')}」`)
+  })
+})
+
+describe('화면 빈 상태 ↔ DOC-008 §6 「화면 빈 상태의 글자」 (살아 있는 글 · 그 각주의 그 키의 행 · 홈 피드백 컷 K12)', () => {
+  /*
+   * 결속은 **각주 하나의 그 키의 행**에 건다 — 문서 전체에 걸면 제목이 다른 자리(§6 표 · SCR-201 · 301 각주)에도 있어 정본에서
+   * 바꿔도 초록이고(K7 · K8 실측과 같은 부류), 블록 전체에 걸면 두 상태의 글자를 맞바꿔도 초록이다(홈과 SCR-201은 제목이 같다)
+   */
+  const block = quoteBlock(liveDoc(DOC_008), '> **화면 빈 상태의 글자')
+  const rowOf = (key: string): string | undefined => block.split('\n').find((line) => line.startsWith(`> | \`${key}\` |`))
+
+  it('전제 — 표의 행이 키 여덟과 정확히 맞는다(문서에만 있는 행 · 코드에만 있는 키가 없다)', () => {
+    const documented = [...block.matchAll(/^> \| `(\w+)` \|/gm)].map((m) => m[1])
+    expect(documented.sort()).toEqual(Object.keys(EMPTY_STATES).sort())
+  })
+
+  it.each(EMPTY_ENTRIES)('%s — 제목 · 설명 · 다음 행동이 그 행에 「」째로 있다', (key, text) => {
+    const row = rowOf(key)
+    expect(row, `${key}의 행이 없다`).toBeDefined()
+    expect(row).toContain(`「${text.title}」`)
+    expect(row).toContain(`「${text.description}」`)
+    expect(row).toContain(`「${text.action}」`)
   })
 })
 

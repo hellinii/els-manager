@@ -539,6 +539,17 @@ describe('yearTaxDisplay — ③ 추가납부 칸과 펼친 줄 (홈 피드백 �
       for (const { label, s, d } of cases) if (!s) expect(d.additionalTax.kind, label).not.toBe('AMOUNT')
     })
 
+    /*
+     * 하한 신호가 **말로도** 선다 — 위 단언은 칸만 본다. 손 표(`TABLE`)가 칸마다 펼친 줄을 적지만 그 표를 고치면 이 성질이
+     * 함께 사라진다 — 프로필 저장 여부 하나로 줄의 유무가 갈린다는 것을 표와 따로 못박는다(홈 피드백 컷 K12 · K10 검증 지적)
+     */
+    it('★ 프로필이 없으면 펼친 줄에 프로필 미입력 안내가 늘 있고, 있으면 늘 없다', () => {
+      for (const { label, s, d } of cases) {
+        if (!s) expect(d.shown, label).toContain(P)
+        else expect(d.shown, label).not.toContain(P)
+      }
+    })
+
     it('하한(프로필 없음 · 환율 빠짐)이면 0이 아닌 금액은 늘 「이상」이 붙는다', () => {
       for (const { label, s, z, u, d } of cases) if ((!s || u) && !z) expect(d.additionalTax.kind, label).toBe('AT_LEAST')
     })

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
-import { KI_STATUS_LABELS, STATUS_LABELS } from '@/lib/format'
+import { KI_STATUS_LABELS, SCOPE_LABELS, STATUS_LABELS } from '@/lib/format'
 import {
   FILTER_KEYS,
   OWNER_ALL,
@@ -66,7 +66,11 @@ export function ProductFilters({
           ★ 소유자만 **빈 값의 뜻이 다르다** (v2.6). 다른 셋은 「빈 값 = 좁히지
           않음 = 전체」인데, 소유자는 **빈 값이 「내 상품」**이고 전체는 `ALL`이라는
           고른 값이다 — 그것이 DOC-008 §5 SCR-201 ★가 정한 기본값이다. 그래서
-          `emptyLabel`이 「전체」가 아니라 「내 상품」이고 「전체」가 항목으로 온다.
+          `emptyLabel`이 「전체」가 아니라 「내 상품」이고 ~~「전체」~~ → 「모든 사용자」가 항목으로 온다.
+
+          **두 글자는 표시 범위의 상수다**(`SCOPE_LABELS` — 홈 범위 전환과 같은 값 · DOC-005 「표시 범위」 · 홈 피드백 컷
+          K12 · 민서 결정(2026-10-12) D6). 이 축에 「전체」를 쓰지 않는다 — 옆의 상태 · KI 축에서 「전체」는 빈 값(좁히지
+          않음)인데 이 축의 빈 값은 「내 상품」이라 같은 낱말이 한 폼 안에서 반대로 읽혔다(피드백 #11).
 
           **자기 자신은 `owners`에 없다** — `page.tsx`의 `ownersOf`가 뺀다. 두면
           같은 뜻의 항목이 둘이 되고 어느 것이 지금 상태인지 사용자가 알 수 없다.
@@ -76,10 +80,10 @@ export function ProductFilters({
           label="소유자"
           value={filter.owner === OWNER_MINE ? '' : filter.owner}
           options={[
-            [OWNER_ALL, '전체'],
+            [OWNER_ALL, SCOPE_LABELS.ALL],
             ...owners.map((owner): readonly [string, string] => [owner.id, owner.name]),
           ]}
-          emptyLabel="내 상품"
+          emptyLabel={SCOPE_LABELS.MINE}
         />
         <Select
           name={FILTER_KEYS.status}

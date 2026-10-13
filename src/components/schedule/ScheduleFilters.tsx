@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import { INPUT_CLASS } from '@/components/form/Field'
 import type { OwnerOption } from '@/components/products/ProductFilters'
+import { SCOPE_LABELS } from '@/lib/format'
 import {
   OWNER_ALL,
   OWNER_MINE,
@@ -116,7 +117,10 @@ export function ScheduleFilters({
           {/*
             ★ **빈 값이 「전체」가 아니라 「내 일정」이다** (v2.6) — SCR-201의 소유자
             선택과 바이트 동일한 구조이며 근거도 같다(DOC-008 §5 SCR-201 ★).
-            「전체」는 고른 값(`ALL`)이고, 자기 자신은 `owners`에 없다.
+            ~~「전체」~~ → 「모든 사용자」는 고른 값(`ALL`)이고, 자기 자신은 `owners`에 없다.
+
+            「모든 사용자」는 표시 범위의 상수다(`SCOPE_LABELS.ALL` — 홈 피드백 컷 K12 · D6). 기본 항목 「내 일정」은
+            그대로 둔다 — 같은 `MINE`에 낱말이 둘인 것은 DOC-005 GQ-13(미결)이다.
           */}
           <select
             name={SCHEDULE_KEYS.owner}
@@ -124,7 +128,7 @@ export function ScheduleFilters({
             className={INPUT_CLASS}
           >
             <option value="">내 일정</option>
-            <option value={OWNER_ALL}>전체</option>
+            <option value={OWNER_ALL}>{SCOPE_LABELS.ALL}</option>
             {owners.map((owner) => (
               <option key={owner.id} value={owner.id}>
                 {owner.name}

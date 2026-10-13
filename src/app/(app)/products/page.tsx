@@ -6,7 +6,7 @@ import { ProductRow } from '@/components/products/ProductRow'
 import { EmptyState } from '@/components/state/EmptyState'
 import type { ProductListItem } from '@/lib/db/queries/map'
 import { getQueries, getViewerId } from '@/lib/db/server'
-import { KI_STATUS_LABELS, paginate } from '@/lib/format'
+import { EMPTY_STATES, KI_STATUS_LABELS, paginate } from '@/lib/format'
 import type { KiStatus } from '@/lib/domain'
 import {
   FILTER_KEYS,
@@ -216,15 +216,19 @@ export default async function ProductsPage({
  *
  * `narrowed`가 `mineOnly`를 **포함하므로** 순서를 뒤집으면 셋째가 영원히 나타나지
  * 않는다. 문구·행동은 SCR-101의 `MINE`과 같은 부류다(DOC-008 §6 각주).
+ *
+ * 글자는 `EMPTY_STATES`다 *(홈 피드백 컷 K12 · DOC-005 §2.1 · 민서 결정(2026-10-12) D6)* — 제목은 홈의 같은 상태와 같은
+ * 값이고(「내 상품 없음」 · 「등록된 상품 없음」), 이 축을 넓히는 행동은 ~~「전체 보기」~~ → 「모든 사용자로 보기」다.
  */
 function ListEmpty({ narrowed, mineOnly }: { narrowed: boolean; mineOnly: boolean }) {
   if (mineOnly) {
+    const text = EMPTY_STATES.productsMine
     return (
       <EmptyState
-        title="내 상품이 없다"
-        description="다른 사람의 상품까지 보려면 소유자를 「전체」로 바꾼다."
+        title={text.title}
+        description={text.description}
         action={{
-          label: '전체 보기',
+          label: text.action,
           href: `${PATHS.products}?${FILTER_KEYS.owner}=${OWNER_ALL}`,
         }}
       />
@@ -232,20 +236,22 @@ function ListEmpty({ narrowed, mineOnly }: { narrowed: boolean; mineOnly: boolea
   }
 
   if (narrowed) {
+    const text = EMPTY_STATES.productsNarrowed
     return (
       <EmptyState
-        title="조건에 맞는 상품이 없다"
-        description="필터를 해제하면 내 상품 목록이 보인다."
-        action={{ label: '필터 초기화', href: PATHS.products }}
+        title={text.title}
+        description={text.description}
+        action={{ label: text.action, href: PATHS.products }}
       />
     )
   }
 
+  const text = EMPTY_STATES.productsAll
   return (
     <EmptyState
-      title="등록된 상품이 없다"
-      description="ELS를 등록하면 평가일정·조건 판정·세금 계산이 함께 채워진다."
-      action={{ label: '+ 등록', href: PATHS.productNew }}
+      title={text.title}
+      description={text.description}
+      action={{ label: text.action, href: PATHS.productNew }}
     />
   )
 }

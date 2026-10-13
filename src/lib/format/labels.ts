@@ -16,6 +16,7 @@ import type {
 import type { AssetPriceView } from '@/lib/db/queries/prices'
 import type { TaxSummaryView } from '@/lib/db/queries/tax'
 import type { AssetInput, ProductInput } from '@/lib/db/mutations/types'
+import type { DashboardScope } from '@/lib/forms/query'
 import type { FailureClass } from '@/lib/providers/types'
 
 import type { GapTier } from './ratio'
@@ -307,4 +308,21 @@ export const GAP_TIER_LABELS: Record<GapTier, string> = {
   MET: '예상 충족',
   NARROW: '예상 근소 충족',
   UNMET: '예상 미충족',
+}
+
+/**
+ * 표시 범위 — DOC-005 §6 「표시 범위」의 굵은 표시어 둘 (홈 피드백 컷 K12 · 민서 결정(2026-10-12) D6 · 피드백 #11).
+ *
+ * 홈의 범위 전환(`ScopeSwitch`) · ② 머리 · SCR-201 · 301 소유자 필터 · 이 축을 넓히는 빈 상태(`EMPTY_STATES`)가 **같은 글자를
+ * 쓴다** — 종전에는 세 곳이 각자 리터럴이었고 홈 ② 머리만 「본인」이었다. 「본인」은 과세 주체의 낱말로 남는다(③ 「올해
+ * 금융소득(본인)」 — DOC-008 SQ-03).
+ *
+ * **「전체」가 아니다** — 다른 필터 축(상태 · KI · 기간 · 종류)에서 「전체」는 「좁히지 않음」이자 기본값인데 이 축의 기본값은
+ * 좁힌 쪽이라 같은 낱말이 반대로 읽혔다. **`LABEL_AXES` 밖이다** — 계약의 열거값이 아니라 화면 지역의 표현 축이다(§6.1에
+ * 넣지 않는다 — `GAP_TIER_LABELS`와 같은 자리). 정본 대조는 `tests/app/labels.test.ts`다. SCR-301 소유자 필터의 기본 항목은
+ * 「내 일정」으로 남는다(DOC-005 GQ-13 — 같은 `MINE`에 낱말이 둘).
+ */
+export const SCOPE_LABELS: Record<DashboardScope, string> = {
+  MINE: '내 상품',
+  ALL: '모든 사용자',
 }

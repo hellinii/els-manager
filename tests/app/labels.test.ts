@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { GAP_TIER_LABELS, LABEL_AXES, STALE_LABEL } from '@/lib/format'
+import { GAP_TIER_LABELS, LABEL_AXES, SCOPE_LABELS, STALE_LABEL } from '@/lib/format'
 import {
   ATTENTION_REASON_GRADES,
   CONDITION_RESULT_GRADES,
@@ -17,6 +17,8 @@ import {
   STATUS_GRADES,
   type BadgeGrade,
 } from '@/lib/format/badges'
+
+import { liveDoc } from './docText'
 
 /**
  * 표시 문자열 ↔ 문서 — **DOC-005 §6.1이 정본이다** (절대 규칙 #9)
@@ -352,5 +354,25 @@ describe('열거형이 아닌 표시 문자열', () => {
   it('시세 경과는 DOC-005 §6의 문구를 쓴다', () => {
     const lines = readFileSync(DOC_005, 'utf8')
     expect(lines).toContain(`**"${STALE_LABEL}"**`)
+  })
+
+  /*
+   * 표시 범위 (홈 피드백 컷 K12 · 민서 결정(2026-10-12) D6) — 홈 범위 전환 · ② 머리 · SCR-201 · 301 소유자 필터 · 빈 상태가 한
+   * 상수를 쓴다. 대조는 **그 행 하나**의 살아 있는 글에 건다 — 「모든 사용자」는 사전의 다른 행(GQ-13 · §2.1 예)에도 있어
+   * 문서 전체에 걸면 「표시 범위」 행에서 지워도 초록이다
+   */
+  it('표시 범위는 DOC-005 §6 「표시 범위」 행의 굵은 표시어 둘이다 — 그 행 하나 · 취소선 · 이력 밖', () => {
+    const rows = liveDoc('05_용어_사전.md')
+      .split('\n')
+      .filter((line) => line.startsWith('| 표시 범위 |'))
+    expect(rows, '「표시 범위」 행이 정확히 하나여야 한다').toHaveLength(1)
+    expect(Object.keys(SCOPE_LABELS).sort()).toEqual(['ALL', 'MINE'])
+    for (const label of Object.values(SCOPE_LABELS)) expect(rows[0], label).toContain(`**"${label}"**`)
+  })
+
+  it('★ 이 축에 「전체」를 쓰지 않는다 — 다른 필터 축의 「좁히지 않음」(기본값)과 반대로 읽혔다 (피드백 #11)', () => {
+    for (const label of Object.values(SCOPE_LABELS)) expect(label, label).not.toMatch(/전체/)
+    // 「본인」은 과세 주체의 낱말이다(③ 「올해 금융소득(본인)」 — SQ-03) — 범위 축이 가져가지 않는다
+    for (const label of Object.values(SCOPE_LABELS)) expect(label, label).not.toMatch(/본인/)
   })
 })

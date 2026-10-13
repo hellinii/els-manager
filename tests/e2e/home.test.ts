@@ -9,11 +9,13 @@ import {
 import { GRADE_TEXT_CLASS } from '@/components/display/Badge'
 import {
   ATTENTION_REASON_LABELS,
+  EMPTY_STATES,
   EVALUATION_VERDICT_LABELS,
   GAP_TIER_GRADES,
   GAP_TIER_LABELS,
   PRICE_MISSING_LABEL,
   REDEMPTION_TYPE_LABELS,
+  SCOPE_LABELS,
   SECTION_EMPTY,
   TAX_METHOD_VERDICT_LABELS,
   YEAR_TAX_TEXT,
@@ -39,7 +41,7 @@ import {
   type RegisteredProduct,
 } from './helpers/register'
 import { cookieJar, get } from './helpers/server'
-import { DISPLAY_NAME, E2E_LIVE, E2E_PAST } from './helpers/users'
+import { DISPLAY_NAME, E2E_EMPTY, E2E_LIVE, E2E_PAST } from './helpers/users'
 import { closeSeedConnection } from '../integration/helpers/seed'
 import { issueDateForFirstRound } from './helpers/dates'
 
@@ -115,8 +117,21 @@ const SECTIONS = {
   recent: '최근 상환 실적',
 } as const
 
-const EMPTY_MINE = '내 상품이 없다'
-const EMPTY_ALL = '등록된 상품이 없다'
+/**
+ * 화면 빈 상태 둘 — ~~리터럴~~ → 화면이 쓰는 상수 그대로 *(홈 피드백 컷 K12)*. 리터럴을 따로 들면 화면 문구가 바뀌는 날 아래
+ * 음성 단언(「빈 상태가 아니다」)이 조용히 헛돈다 — 종전 「내 상품이 없다」가 그 자리였다(K12에서 문구가 바뀌었다)
+ */
+const EMPTY_MINE = EMPTY_STATES.homeMine.title
+const EMPTY_ALL = EMPTY_STATES.homeAll.title
+
+/**
+ * 정규식에 넣는 글자는 이스케이프한다 *(홈 피드백 컷 K12 · K10 검증 지적)* — 화면 글자(`YEAR_TAX_TEXT` · 판정 제목 · 절 제목)를
+ * 그대로 `new RegExp`에 넣으면 그 글자의 `.` · `(` · `+`가 메타문자가 된다. 지금 글자의 마침표는 「아무 글자」로 읽혀도
+ * 맞으므로 초록이지만, 그것은 단언이 **더 느슨하게** 맞는다는 뜻이다(괄호가 든 글자는 깨진다)
+ */
+function literal(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 /**
  * React가 넣는 빈 주석을 지운다 — 인접한 텍스트와 표현식 사이에 경계가 생긴다.
@@ -129,7 +144,7 @@ function visible(html: string): string {
 
 /** 그 절만 잘라낸다 — 문서 전체에 대한 `toContain`은 다른 자리에 맞을 수 있다 */
 function sectionOf(html: string, title: string): string {
-  const at = html.search(new RegExp(`<h2[^>]*>${title}`))
+  const at = html.search(new RegExp(`<h2[^>]*>${literal(title)}`))
   if (at < 0) return ''
   // 다음 `<h2`까지가 그 절이다. 문서 끝까지 자르면 뒤 절이 섞인다.
   const next = html.indexOf('<h2', at + 4)
@@ -181,7 +196,7 @@ function rowOf(html: string, product: RegisteredProduct): string {
  * (DOC-005 「회차」 — 접근성 이름이 바뀌지 않는다). 첫 링크만 본다(위 `rowsOf`의 각주 — 홈의 줄에서는 하나다).
  */
 function linkTextOf(row: string, product: Pick<RegisteredProduct, 'productId'>): string | null {
-  const href = hrefOf(product).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const href = literal(hrefOf(product))
   const m = new RegExp(`<a\\b[^>]*${href}[^>]*>([\\s\\S]*?)</a>`).exec(row)
   return m == null ? null : m[1]!.replace(/<[^>]*>/g, '')
 }
@@ -191,8 +206,7 @@ function linkTextOf(row: string, product: Pick<RegisteredProduct, 'productId'>):
  * 앞에 끼어 있어도 같은 span이다. 없으면 빈 배열(그러면 `toContain` 단언이 빨개진다).
  */
 function classesOfValue(row: string, value: string): string[] {
-  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const m = new RegExp(`<span class="([^"]*)">(?:<span[^>]*>[^<]*</span>)?${esc}</span>`).exec(row)
+  const m = new RegExp(`<span class="([^"]*)">(?:<span[^>]*>[^<]*</span>)?${literal(value)}</span>`).exec(row)
   return m == null ? [] : m[1]!.split(/\s+/)
 }
 
@@ -349,6 +363,30 @@ describe('SCR-101 홈', () => {
     // JS 없이 동작한다 — 링크이고 폼이 아니다.
     expect(nav).not.toContain('<form')
     expect(nav).toContain(`href="${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL"`)
+    // 둘째 링크의 글자는 「모든 사용자」다(홈 피드백 컷 K12 · 민서 결정(2026-10-12) D6) — 노드 단위로 본다. 「전체」는 다른 필터
+    // 축에서 「좁히지 않음」이자 기본값이라 이 축(기본값이 좁힌 쪽)에서 반대로 읽혔다(피드백 #11)
+    expect(nav).toContain(`>${SCOPE_LABELS.ALL}<`)
+    expect(nav, '범위 전환에 「전체」가 남았다').not.toContain('>전체<')
+  })
+
+  it('② 머리의 범위 표식이 범위 전환과 같은 글자다 — 홈 피드백 컷 K12 · D6', async () => {
+    /*
+     * 종전 ② 머리는 「본인」 · 「전체」였다 — 범위 전환(「내 상품」 · 「전체」)과도 달랐다. 이제 한 상수(`SCOPE_LABELS`)다.
+     * 「본인」은 ③ 「올해 금융소득(본인)」의 과세 주체 낱말로 남는다(SQ-03). 두 주소를 비교한다 — 한쪽만 보면 「범위를
+     * 따른다」와 「늘 같은 글자다」가 갈리지 않는다
+     */
+    const mine = sectionOf(visible(await (await get(PATHS.home, live)).text()), SECTIONS.totals)
+    const all = sectionOf(
+      visible(await (await get(`${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL`, live)).text()),
+      SECTIONS.totals,
+    )
+    expect(mine, '② 절을 자르지 못했다').not.toBe('')
+    expect(mine).toContain(`>${SCOPE_LABELS.MINE}<`)
+    expect(all).toContain(`>${SCOPE_LABELS.ALL}<`)
+    for (const section of [mine, all]) {
+      expect(section, '② 머리에 종전 표식이 남았다').not.toContain('>본인<')
+      expect(section, '② 머리에 종전 표식이 남았다').not.toContain('>전체<')
+    }
   })
 
   it('③이 두 범위 모두에서 「올해 금융소득(본인)」이다 — SQ-03', async () => {
@@ -457,6 +495,8 @@ describe('SCR-101 홈', () => {
     const near = rowOf(upcoming, soon)
     const distant = rowOf(upcoming, far)
     expect(upcoming, '「임박」 표식이 남았다').not.toContain('>임박<')
+    // 항목이 있으면 머리에 건수가 선다 — 아래 빈 절 케이스(「0건」을 그리지 않는다 · 홈 피드백 컷 K12)의 반대 방향
+    expect(upcoming).toMatch(/>\d+건(?: 중 \d+건)?</)
 
     // 두 행이 실제로 가깝고 멀다 — 같은 D-Day면 아래 D-Day 단언이 서로를 구분하지 못한다
     const nearDDay = dDay({ from: asOf, evaluationDate: firstRoundOf(soon) })
@@ -621,6 +661,16 @@ describe('SCR-101 홈', () => {
     expect(sectionOf(html, SECTIONS.attention)).toContain(`>${SECTION_EMPTY.attention}<`)
     expect(sectionOf(html, SECTIONS.recent)).toContain(`>${SECTION_EMPTY.recent}<`)
     expect(html, '절 빈 상태에 점선 상자가 남았다').not.toContain('border-dashed')
+
+    /*
+     * ★ **비었으면 머리에 건수를 적지 않는다** (홈 피드백 컷 K12 · DOC-005 §2.1 「한 사실에 한 문장」 · 피드백 #3). 종전에는
+     * 「다가오는 평가일 0건」 아래 「다가오는 평가일 없음」이 와서 한 사실을 두 번 말했다. 노드 단위로 본다(`>0건<`) —
+     * 「10건」 · 「20건」에 맞지 않게. 제목과 전체 링크는 남는다(§7의 화면 전이)
+     */
+    for (const title of [SECTIONS.upcoming, SECTIONS.attention, SECTIONS.recent]) {
+      expect(sectionOf(html, title), `${title} 머리에 「0건」이 남았다`).not.toContain('>0건<')
+    }
+    expect(upcoming, '① 전체 일정 링크가 사라졌다').toContain(`href="${PATHS.schedule}"`)
   })
 
   // -------------------------------------------------------------------------
@@ -660,7 +710,7 @@ describe('SCR-101 홈', () => {
      * 모양으로** 본다 — 맨 부분 문자열 「종합과세 대상」은 안내 문장과 겹칠 수 있어 음성이 엉뚱한 이유로 빨개지거나, 제목을
      * 바꿔도 다른 자리에 맞아 양성이 초록이 된다
      */
-    const verdictTag = (label: string) => new RegExp(`<strong[^>]*>${label}</strong>`)
+    const verdictTag = (label: string) => new RegExp(`<strong[^>]*>${literal(label)}</strong>`)
     expect(tax).toMatch(verdictTag(TAX_METHOD_VERDICT_LABELS.SEPARATE))
     expect(tax).not.toMatch(verdictTag(TAX_METHOD_VERDICT_LABELS.COMPREHENSIVE))
     expect(tax).toContain(YEAR_TAX_TEXT.verdictBody.SEPARATE)
@@ -683,12 +733,12 @@ describe('SCR-101 홈', () => {
     expect(detailsAt, '「추정 기준 보기」가 없다').toBeGreaterThan(-1)
     const details = tax.slice(detailsAt, tax.indexOf('</details>', detailsAt))
     const outside = tax.slice(0, detailsAt) + tax.slice(tax.indexOf('</details>', detailsAt))
-    expect(details).toMatch(new RegExp(`<summary[^>]*>${YEAR_TAX_TEXT.basisSummary}</summary>`))
+    expect(details).toMatch(new RegExp(`<summary[^>]*>${literal(YEAR_TAX_TEXT.basisSummary)}</summary>`))
     expect(details).toContain(YEAR_TAX_TEXT.estimateBasis)
     expect(details).not.toContain(TAX_PROFILE_SECTION.href)
     expect(outside).toMatch(
       new RegExp(
-        `${YEAR_TAX_TEXT.profileMissingNote} ${YEAR_TAX_TEXT.profileMissingResolve} <a\\b[^>]*href="${TAX_PROFILE_SECTION.href}"[^>]*>${YEAR_TAX_TEXT.profileLink}</a>`,
+        `${literal(YEAR_TAX_TEXT.profileMissingNote)} ${literal(YEAR_TAX_TEXT.profileMissingResolve)} <a\\b[^>]*href="${literal(TAX_PROFILE_SECTION.href)}"[^>]*>${literal(YEAR_TAX_TEXT.profileLink)}</a>`,
       ),
     )
   })
@@ -827,8 +877,8 @@ describe('SCR-101 홈', () => {
     // 홈 ①의 빈 줄과 한 함수다(홈 피드백 컷 K4). 이 화면은 ⑥의 건수를 모르므로 뒷절이 조건문이다(DOC-008 SQ-28)
     expect(html).toContain(`>${missingUpcomingNote('SCHEDULE')}<`)
     // 빈 상태 둘 중 어느 것도 아니다 — 목록이 비지 않았다(지난 차수가 셋 있다).
-    expect(html).not.toContain('조건에 맞는 평가일이 없다')
-    expect(html).not.toContain('등록된 평가일정이 없다')
+    expect(html).not.toContain(EMPTY_STATES.scheduleNarrowed.title)
+    expect(html).not.toContain(EMPTY_STATES.scheduleAll.title)
     expect(rowsOf(html, overdue)).toHaveLength(overdue.barriers.length)
 
     /*
@@ -838,7 +888,7 @@ describe('SCR-101 홈', () => {
      */
     const byProduct = await (await get(`${PATHS.schedule}?${query}`, past)).text()
     expect(byProduct).toContain(`>${missingUpcomingNote('SCHEDULE')}<`)
-    expect(byProduct).not.toContain('조건에 맞는 평가일이 없다')
+    expect(byProduct).not.toContain(EMPTY_STATES.scheduleNarrowed.title)
   })
 
   // -------------------------------------------------------------------------
@@ -851,13 +901,33 @@ describe('SCR-101 홈', () => {
      * 픽스처가 남아 있으면 상품이 있으므로, **문구가 갈리는 것만** 본다 — 어느 쪽이
      * 나오는지는 앞선 스위트의 실행 여부에 달렸고 그것을 단언하면 순서가 데이터가 된다.
      *
-     * 전체 보기에는 이 파일이 만든 상품이 있으므로 「등록된 상품이 없다」가 나올 수 없다.
+     * 전체 보기에는 이 파일이 만든 상품이 있으므로 「등록된 상품 없음」이 나올 수 없다.
      */
     const all = visible(
       await (await get(`${PATHS.home}?${DASHBOARD_KEYS.scope}=ALL`, live)).text(),
     )
     expect(all).not.toContain(EMPTY_ALL)
     expect(all).not.toContain(EMPTY_MINE)
+  })
+
+  it('★ 상품이 없는 사용자의 홈 — 빈 상태가 「내 상품 없음」이고 넓히는 길은 「모든 사용자」다 — 홈 피드백 컷 K12', async () => {
+    /*
+     * ★ **이 갈래는 종전에 한 번도 렌더되지 않았다** — 위 케이스는 문구가 «없음»만 보고, `live` · `past`는 상품이 있다.
+     * `E2E_EMPTY`는 어느 파일도 무엇도 만들지 않는 사용자라(`helpers/users.ts`) 본인 범위의 홈이 정확히 이 빈 상태다.
+     *
+     * 글자는 SCR-201의 같은 상태와 같은 상수다(`EMPTY_STATES` — DOC-008 §6 「화면 빈 상태의 글자」). 설명이 범위를 넓히는
+     * 길을 표시 범위의 글자로 말하고, 다음 행동은 등록이다 — 범위 전환이 머리글에 늘 있으므로 넓히는 버튼을 또 두지 않는다
+     */
+    const empty = await authenticatedJar(E2E_EMPTY)
+    const html = visible(await (await get(PATHS.home, empty)).text())
+
+    expect(html).toContain(`>${EMPTY_STATES.homeMine.title}<`)
+    expect(html).toContain(`>${EMPTY_STATES.homeMine.description}<`)
+    expect(EMPTY_STATES.homeMine.description).toContain(`「${SCOPE_LABELS.ALL}」`)
+    expect(html).not.toContain(EMPTY_STATES.homeAll.title)
+    expect(html).toContain(`>${EMPTY_STATES.homeMine.action}<`)
+    expect(html).toContain(`href="${PATHS.productNew}"`)
+    expect(html, '홈 빈 상태에 범위를 넓히는 버튼이 섰다').not.toContain(EMPTY_STATES.productsMine.action)
   })
 })
 

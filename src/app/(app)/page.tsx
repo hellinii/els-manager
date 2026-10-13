@@ -11,7 +11,7 @@ import {
 import { ScopeSwitch } from '@/components/home/ScopeSwitch'
 import { EmptyState } from '@/components/state/EmptyState'
 import { getAsOf, getQueries } from '@/lib/db/server'
-import { hasFinancialIncomeToReport, korDate } from '@/lib/format'
+import { EMPTY_STATES, hasFinancialIncomeToReport, korDate, type EmptyStateText } from '@/lib/format'
 import { parseDashboardScope, type QueryValues } from '@/lib/forms/query'
 import { PATHS } from '@/lib/routes/paths'
 
@@ -75,8 +75,13 @@ export default async function HomePage({
     <section className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">홈</h1>
-          <p className="mt-1 text-sm text-neutral-600">기준일 {korDate(asOf)}</p>
+          {/*
+            화면 제목은 스크린리더에만 읽힌다 *(홈 피드백 컷 K12 · 피드백 #11 · DOC-008 SCR-101 「홈 피드백 컷 K0」 상단)* —
+            내비게이션의 「홈」 탭이 같은 말을 이미 하고, 보이는 큰 제목이 범위 전환보다 먼저 눈에 들어와 상단의 일(누구의
+            상품을 보는가)이 흐려졌다. 문서의 h1은 남긴다(제목 구조)
+          */}
+          <h1 className="sr-only">홈</h1>
+          <p className="text-sm text-neutral-600">기준일 {korDate(asOf)}</p>
         </div>
 
         <ScopeSwitch scope={scope} />
@@ -126,29 +131,22 @@ export default async function HomePage({
  * 빈 상태 **둘** — 범위가 가른다 (DOC-008 §6 각주, P4 컷 9)
  *
  * 기본 범위가 본인이므로(SQ-03) 이 화면은 **처음부터 좁혀진 상태**다. 한 문구로 두면
- * 「본인 것만 없음」에 「등록된 상품이 없다」고 말하게 되고, 그것은 SCR-201이 필터에
+ * 「본인 것만 없음」에 「등록된 상품 없음」이라고 말하게 되고, 그것은 SCR-201이 필터에
  * 대해 거부한 형태다(사용자는 좁혀진 것을 모른 채 상품을 하나 더 만든다).
  *
  * **좁혀져 있다는 사실은 이 문구가 아니라 `ScopeSwitch`가 말한다** — 그 컨트롤이 항상
- * 머리글에 렌더되므로 여기서 「전체 보기」를 다음 행동으로 또 제시하지 않는다.
+ * 머리글에 렌더되므로 여기서 ~~「전체 보기」~~ 범위를 넓히는 버튼을 다음 행동으로 또 제시하지 않는다.
  * `EmptyState.action`이 하나인 것과 맞물려, 다음 행동은 두 경우 모두 등록이다.
+ *
+ * 글자는 `EMPTY_STATES`다 *(홈 피드백 컷 K12)* — 제목이 SCR-201의 같은 상태와 같은 값이다(DOC-008 §6 「화면 빈 상태의 글자」).
  */
 function HomeEmpty({ scope }: { scope: 'MINE' | 'ALL' }) {
-  if (scope === 'MINE') {
-    return (
-      <EmptyState
-        title="내 상품이 없다"
-        description="위에서 「전체」로 바꾸면 다른 사용자의 상품이 보인다. 내 ELS를 등록하면 평가일정·조건 판정·세금 계산이 함께 채워진다."
-        action={{ label: '+ 등록', href: PATHS.productNew }}
-      />
-    )
-  }
-
+  const text: EmptyStateText = scope === 'MINE' ? EMPTY_STATES.homeMine : EMPTY_STATES.homeAll
   return (
     <EmptyState
-      title="등록된 상품이 없다"
-      description="ELS를 등록하면 다가오는 평가일·조치 목록·올해 금융소득이 여기에 모인다."
-      action={{ label: '+ 등록', href: PATHS.productNew }}
+      title={text.title}
+      description={text.description}
+      action={{ label: text.action, href: PATHS.productNew }}
     />
   )
 }
